@@ -1,0 +1,272 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Pluggable Agent Harness System — Integration & Adoption",
+      "status": "Planned",
+      "description": "Delta Phase (Session 004). Decouple the agent runtime (harness) from the LLM provider/model per PRD §9.4. Groundswell already implements the entire harness abstraction; this phase is integration/adoption work on the PRP (hacky-hack) side: wire configureHarnesses() at startup, read PRP_AGENT_HARNESS, provider-qualify model strings (zai/<model>), enforce the harness↔provider compatibility rule, verify parity, and update docs. No new harness adapter, no changes to session/task/delta/bug-hunt logic. Scope driver: plan/004_439241a82c24/delta_prd.md. See plan/004_439241a82c24/architecture/system_context.md.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Configuration & Model Resolution",
+          "status": "Planned",
+          "description": "Establish the config foundation: read the harness from the environment, wire Groundswell's configureHarnesses() once at startup with the provider/harness compatibility guard, and provider-qualify all model strings returned by getModel(). These two tasks are the prerequisite for every later test and doc.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Read harness from environment and wire configureHarnesses()",
+              "status": "Planned",
+              "description": "Add the PRP_AGENT_HARNESS environment variable, define the harness/provider constants and types, call Groundswell's configureHarnesses() once at startup (alongside configureEnvironment()), and enforce that claude-code + z.ai is rejected as a config error. The compatibility check is owned by the PRP pipeline because Groundswell's configureHarnesses() does not validate defaultModelProvider (open set). See architecture/external_deps.md §2 and architecture/implementation_notes.md §1.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Add PRP_AGENT_HARNESS env var, harness/provider constants, and supporting types",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.1",
+                    "h3.18",
+                    "h4.9",
+                    "h4.10",
+                    "h3.19"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/external_deps.md §1 (Groundswell types) and architecture/delta_impact.md §A. Groundswell's `HarnessId = 'pi' | 'claude-code'` and `ModelProviderId` (open set incl. 'zai') are the source-of-truth types.\n2. INPUT: Existing files `src/config/constants.ts` (has `DEFAULT_BASE_URL`, `MODEL_NAMES`, `MODEL_ENV_VARS`, `REQUIRED_ENV_VARS`) and `src/config/types.ts` (has `ModelTier`, `EnvironmentConfig`, `EnvironmentValidationError`). No prior harness constants exist.\n3. LOGIC: Implement PRD §9.2.2 / §9.4.1-§9.4.2.\n   - In `src/config/constants.ts`: add `PRP_AGENT_HARNESS` env-var name constant; add `DEFAULT_HARNESS = 'pi'`; add `DEFAULT_MODEL_PROVIDER = 'zai'`; add `SUPPORTED_HARNESSES = ['pi', 'claude-code']` (readonly tuple / as const).\n   - In `src/config/types.ts`: add `export type AgentHarness = 'pi' | 'claude-code'` (mirror Groundswell's HarnessId); add `export type ModelProvider = 'zai' | 'anthropic' | (string & {})` (open set); add `export class HarnessProviderMismatchError extends Error` with a `readonly harness` and `readonly provider` field, name set to 'HarnessProviderMismatchError'. Keep all existing exports intact.\n   - Implicit TDD: write failing unit tests in `tests/unit/config/` asserting the new constants/types exist and `HarnessProviderMismatchError` carries the mismatch details; implement; pass. `npm run validate` + `npm run test:run -- config` must pass.\n4. OUTPUT: Exported `PRP_AGENT_HARNESS`, `DEFAULT_HARNESS`, `DEFAULT_MODEL_PROVIDER`, `SUPPORTED_HARNESSES` (constants.ts) and `AgentHarness`, `ModelProvider`, `HarnessProviderMismatchError` (types.ts) for consumption by P1.M1.T1.S2.\n5. MOCKING: None. Pure constants/types; unit-test without env or network."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "Wire configureHarnesses() at startup with harness↔provider compatibility guard",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.1",
+                    "h4.3",
+                    "h3.18",
+                    "h4.10",
+                    "h4.11",
+                    "h3.19"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/implementation_notes.md §1 and §5. Groundswell's `configureHarnesses({ defaultHarness, defaultModelProvider, harnessDefaults })` (importable from 'groundswell') validates ONLY harness ids — it does NOT reject `claude-code` + `zai`. `configureEnvironment()` already runs at module load in `src/agents/agent-factory.ts` (top-level side effect). The guard belongs in the PRP pipeline.\n2. INPUT: Constants/types from P1.M1.T1.S1: `PRP_AGENT_HARNESS`, `DEFAULT_HARNESS` ('pi'), `DEFAULT_MODEL_PROVIDER` ('zai'), `AgentHarness`, `HarnessProviderMismatchError`. Groundswell exports `configureHarnesses`, `resetGlobalHarnessConfig` (tests).\n3. LOGIC: Implement PRD §9.2.2 / §9.2.4 / §9.4.2 / §9.4.3.\n   - Create an initialization function (e.g. `export function configureHarness(): void` in `src/config/` or extend the config module) that: reads `process.env.PRP_AGENT_HARNESS ?? DEFAULT_HARNESS`, casts/validates it against `SUPPORTED_HARNESSES` (throw on unknown value with a message listing supported harnesses), then ENFORCES compatibility — if `harness === 'claude-code'` AND provider is `zai` (DEFAULT_MODEL_PROVIDER), throw `HarnessProviderMismatchError` citing PRD §9.2.4. Then call `configureHarnesses({ defaultHarness: harness, defaultModelProvider: DEFAULT_MODEL_PROVIDER, harnessDefaults: { 'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY } } })`.\n   - Wire the call into `src/agents/agent-factory.ts` adjacent to the existing top-level `configureEnvironment()` call so ordering is deterministic: configureEnvironment() → compatibility check → configureHarnesses().\n   - Implicit TDD: failing tests in `tests/unit/config/` (or `tests/unit/agents/`) covering: (a) default harness is 'pi' when env unset; (b) explicit `pi` + `zai` succeeds and calls configureHarnesses with defaultHarness 'pi'; (c) explicit `claude-code` + `zai` throws `HarnessProviderMismatchError`; (d) invalid `PRP_AGENT_HARNESS` value throws with a supported-harnesses message. Reset global harness config between tests via Groundswell's `resetGlobalHarnessConfig()`. `npm run validate` + relevant `npm run test:run` must pass.\n4. OUTPUT: A configured global harness singleton (queryable via Groundswell `getGlobalHarnessConfig()`), plus the `configureHarness()` entrypoint and the resolved `AgentHarness` value for consumption by P1.M1.T2.S2 (agent-factory harness field).\n5. MOCKING: Stub `process.env.PRP_AGENT_HARNESS`, `process.env.ANTHROPIC_API_KEY`, `process.env.ANTHROPIC_BASE_URL` via `vi.stubEnv`; restore with `vi.unstubAllEnvs()`. Reset Groundswell global config with `resetGlobalHarnessConfig()` in afterEach. No network/LLM calls."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Provider-qualify model strings (zai/<model>)",
+              "status": "Planned",
+              "description": "Ensure every model string the pipeline hands to Groundswell is provider-qualified (e.g. zai/GLM-4.7), sourced from the environment at runtime, and never harness-qualified. Update getModel(), the model constants/types, and the agent-factory so createAgent() receives the qualified string. See architecture/delta_impact.md §A/§B and implementation_notes.md §2/§3.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Qualify model defaults with the zai provider via getModel()",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.2",
+                    "h4.11",
+                    "h3.18"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/implementation_notes.md §2. `getModel(tier)` currently returns bare names ('GLM-4.7'). Groundswell's `parseModelSpec('zai/GLM-4.7')` parses provider+model; it THROWS on 3-segment harness-qualified strings like 'pi/zai/GLM-4.7' (PRD §9.4.3 / §9.2.3). One qualification helper prevents drift.\n2. INPUT: `src/config/constants.ts` (`MODEL_NAMES = { opus:'GLM-4.7', sonnet:'GLM-4.7', haiku:'GLM-4.5-Air' }`, `MODEL_ENV_VARS`, `DEFAULT_MODEL_PROVIDER` from P1.M1.T1.S1) and `src/config/environment.ts` (`getModel(tier)`).\n3. LOGIC: Implement PRD §9.2.3 / §9.4.3.\n   - Add a single qualification helper, e.g. `export function qualifyModel(name: string, provider = DEFAULT_MODEL_PROVIDER): string` returning `name.includes('/') ? name : provider + '/' + name`.\n   - Update `getModel(tier)` to return `qualifyModel(process.env[MODEL_ENV_VARS[tier]] ?? MODEL_NAMES[tier])` so it yields e.g. `zai/GLM-4.7`. Values are read from env at runtime (no hardcoding of qualified literals beyond the qualifying prefix).\n   - Do NOT alter `configureEnvironment()`/`validateEnvironment()` behavior.\n   - Implicit TDD: failing unit tests in `tests/unit/config/environment.test.ts` (or a new model-resolution test) asserting `getModel('sonnet') === 'zai/GLM-4.7'`, `getModel('haiku') === 'zai/GLM-4.5-Air'`, that env overrides are qualified (`getModel('opus')` with `ANTHROPIC_DEFAULT_OPUS_MODEL='custom-opus'` → `'zai/custom-opus'`), and that an already-qualified override (`'anthropic/foo'`) is not double-prefixed. Implement; pass. `npm run validate` + relevant `npm run test:run` must pass.\n4. OUTPUT: `getModel()` returns provider-qualified `zai/<model>` strings for consumption by P1.M1.T2.S2 (and every persona factory).\n5. MOCKING: Stub `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` via `vi.stubEnv`; restore with `vi.unstubAllEnvs()`. No network/LLM calls."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "Update model types/JSDoc and wire harness field into agent configs",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T2.S1",
+                    "P1.M1.T1.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.2",
+                    "h4.7",
+                    "h3.17",
+                    "h3.18",
+                    "h4.11"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/delta_impact.md §B/§C and implementation_notes.md §3. Groundswell `AgentConfig` accepts `harness?: HarnessId`, `harnessOptions?: HarnessOptions`, and `model?: string` (plain or provider/model, never harness-qualified). `createBaseConfig()` currently sets bare `model = getModel('sonnet')` and a local `env` field; tests hard-assert `config.model === 'GLM-4.7'`.\n2. INPUT: Qualified `getModel()` from P1.M1.T2.S1; resolved harness value / `configureHarness()` entrypoint from P1.M1.T1.S2; `AgentHarness` type from P1.M1.T1.S1.\n3. LOGIC: Implement PRD §9.3.3 / §9.4.2.\n   - In `src/config/types.ts`: update `EnvironmentConfig` model-field JSDoc/examples to the `provider/model` form (e.g. `opusModel: 'zai/GLM-4.7'`).\n   - In `src/agents/agent-factory.ts` `createBaseConfig()`: keep `model = getModel('sonnet')` (now qualified); add a `harness` field to the returned config object resolved from the configured harness (PRD §9.4.2 cascade: global default unless overridden). Keep `mcps: MCP_TOOLS` UNCHANGED — tools run via MCPHandler for both harnesses (PRD §9.3.3). Keep `enableCache`/`enableReflection`/`maxTokens`/persona naming unchanged. The local `env` field may remain but is not required by Groundswell.\n   - Implicit TDD: UPDATE the existing assertions in `tests/unit/agents/agent-factory.test.ts` (`expect(config.model).toBe('GLM-4.7')` → `'zai/GLM-4.7'`) in the SAME change, and ADD assertions that `config.harness` is defined (e.g. equals 'pi' under default config). All persona factories (`createArchitectAgent`/`createResearcherAgent`/`createCoderAgent`/`createQAAgent`) must still create agents without throwing. `npm run validate` + full `npm run test:run` must pass with no regressions.\n4. OUTPUT: Agent configs carry `model: 'zai/GLM-4.7'` (qualified) and a `harness` field, consumed by Groundswell `createAgent()`. This unblocks P1.M2 (parity/validation/docs).\n5. MOCKING: Stub `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY` via `vi.stubEnv`; restore in afterEach. No real LLM/network calls — `createAgent()` is a config-only construction (does not call the provider until `prompt()`/`execute()`)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Parity, Validation & Docs",
+          "status": "Planned",
+          "description": "Lock in the harness delta with tests and documentation: clarify the z.ai safeguard constrains the provider (not the harness) and reject claude-code+z.ai; verify feature parity (tools via MCPHandler, cache-key isolation across harness×provider) under both harnesses; and document PRP_AGENT_HARNESS, provider-qualified models, and the Harness System. All tasks in this milestone depend on P1.M1 being complete. See architecture/delta_impact.md §C/§D.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Provider-vs-harness safeguard clarification (tests)",
+              "status": "Planned",
+              "description": "Clarify and test that the z.ai endpoint guard constrains the LLM provider (not the harness), and that the new harness/provider compatibility rule is enforced: claude-code + z.ai rejected at init; pi + z.ai allowed. See architecture/implementation_notes.md §1 and architecture/delta_impact.md §B/§C.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Provider-endpoint guard tests (constraint is on the provider)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.3",
+                    "h4.11",
+                    "h3.18"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/external_deps.md §6 and architecture/delta_impact.md §B. The existing guard lives in `src/scripts/validate-api.ts` and `tests/validation/zai-api-test.ts` (both check `ANTHROPIC_BASE_URL` against `https://api.anthropic.com` and hard-exit). PRD §9.2.4 clarifies the safeguard targets the LLM PROVIDER endpoint; it is orthogonal to the harness.\n2. INPUT: The configured provider (`zai`) + harness wiring from P1.M1.T1.S2 and qualified models from P1.M1.T2.S1.\n3. LOGIC: Implement PRD §9.2.4 (clarification + tests).\n   - Add/update unit tests (e.g. `tests/unit/config/` or `tests/validation/`) asserting: (a) the z.ai provider endpoint (`https://api.z.ai/api/anthropic`) is ALLOWED under the default `pi` harness; (b) a provider endpoint pointing at Anthropic's official API (`https://api.anthropic.com`) is BLOCKED/reported; (c) the guard message makes clear it constrains the PROVIDER, not the harness. If `validate-api.ts` messaging reads as harness-bound, reword the message (do not weaken the z.ai enforcement). Keep exit-code behavior intact for the script.\n   - Implicit TDD: write failing tests first (reflecting the clarified behavior), adjust the guard messaging/code to pass, then green. `npm run validate` + relevant `npm run test:run` must pass.\n4. OUTPUT: A green, clarified safeguard test suite documenting that the provider (not the harness) is the constrained axis.\n5. MOCKING: Stub `ANTHROPIC_BASE_URL` to z.ai endpoint, to `https://api.anthropic.com`, and to a localhost/mock endpoint via `vi.stubEnv`; restore in afterEach. No real network calls — assert on the guard's branch/message, not a live request."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S2",
+                  "title": "Harness/provider compatibility rejection test",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.3",
+                    "h4.11",
+                    "h3.18"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/implementation_notes.md §1. The compatibility guard was implemented in P1.M1.T1.S2 (`HarnessProviderMismatchError` thrown when `claude-code` + `zai`). PRD §9.4.3 requires this be surfaced at initialize/init.\n2. INPUT: The `configureHarness()` entrypoint + `HarnessProviderMismatchError` from P1.M1.T1.S2; `SUPPORTED_HARNESSES` and `DEFAULT_MODEL_PROVIDER` from P1.M1.T1.S1.\n3. LOGIC: Implement PRD §9.4.3 (test).\n   - Add unit tests asserting: (a) `PRP_AGENT_HARNESS=pi` + `zai` provider → configureHarness() succeeds (no throw), `getGlobalHarnessConfig().defaultHarness === 'pi'`; (b) `PRP_AGENT_HARNESS=claude-code` + `zai` provider → configureHarness() throws `HarnessProviderMismatchError` whose message references PRD §9.2.4 and points the user to switch harness or model provider; (c) `claude-code` is still a structurally valid harness id (rejected only due to the z.ai provider mismatch, not as an unknown id).\n   - Implicit TDD: write failing tests against the implemented guard, confirm green. `npm run validate` + relevant `npm run test:run` must pass.\n4. OUTPUT: A green compatibility test suite proving the provider/harness mismatch is rejected at init while the default pi+zai path is allowed.\n5. MOCKING: Stub `PRP_AGENT_HARNESS` to 'pi' and 'claude-code'; reset Groundswell global config with `resetGlobalHarnessConfig()` in afterEach. No network/LLM calls."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "Feature parity verification (both harnesses)",
+              "status": "Planned",
+              "description": "Verify that MCP tools, and cache isolation, work identically across the pi and claude-code harnesses. Tools flow through Groundswell's MCPHandler for both (PRD §9.3.3), and cache keys must incorporate both the harness and the provider/model (PRD §9.4.3). See architecture/external_deps.md §4/§5.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "Tool-execution parity test via MCPHandler",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.7",
+                    "h3.18",
+                    "h4.11",
+                    "h4.12"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/external_deps.md §5 and architecture/delta_impact.md §B. Tools (`MCP_TOOLS` = BashMCP/FilesystemMCP/GitMCP singletons in `src/agents/agent-factory.ts`) register via `MCPServer[]` and execute locally through Groundswell's `MCPHandler` regardless of harness (PRD §9.3.3 / §9.4.4 capability table: MCP works under both).\n2. INPUT: The agent configs (model qualified + `harness` field) from P1.M1.T2.S2; `MCP_TOOLS` from `src/agents/agent-factory.ts`; Groundswell `MCPHandler`/`registerMCPs`.\n3. LOGIC: Implement PRD §9.4.3 (feature parity) as tests.\n   - Add an integration/unit test (e.g. `tests/integration/groundswell/` or `tests/unit/tools/`) that, with the LLM provider MOCKED, registers the same `MCP_TOOLS` set under both `pi` and `claude-code` harnesses and asserts: (a) the same tools are discovered/registered (names match); (b) a tool-execution request is dispatched through MCPHandler and returns an equivalent result for both harnesses. Use a stub tool-executor callback — do not invoke a real LLM. The test must NOT actually require an Anthropic key for the `claude-code` branch (mock the harness execute path or assert at the config/registration layer).\n   - Implicit TDD: write the failing parity test, wire/confirm the MCPHandler path is shared, then green. `npm run validate` + relevant `npm run test:run` must pass.\n4. OUTPUT: A green parity test proving tool discovery/execution is harness-independent (flows through MCPHandler).\n5. MOCKING: Mock the LLM provider/harness execute() with a stub returning a canned `AgentResponse`; provide a stub `toolExecutor` callback. Stub env vars for API key/base url. No real network/LLM calls."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S2",
+                  "title": "Cache-key isolation test (harness × provider/model)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h3.18",
+                    "h4.11",
+                    "h4.12"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/external_deps.md §1 and architecture/delta_impact.md §B. PRD §9.4.3 requires cache keys to incorporate BOTH the harness AND the provider/model. Groundswell owns the cache (`src/cache/`, `lru-cache`); the PRP pipeline must not reimplement cache-key logic — it verifies the Groundswell behavior holds for its config (pi+zai/GLM-4.7 vs claude-code+anthropic/*).\n2. INPUT: The qualified model strings (`zai/GLM-4.7`) and harness config from P1.M1.T2.S2 / P1.M1.T1.S2; Groundswell cache utilities (`src/cache/cache-key.ts`, `src/cache/cache.ts`).\n3. LOGIC: Implement PRD §9.4.3 (cache isolation) as tests.\n   - Add a unit test asserting that two cache entries that differ ONLY by harness (pi vs claude-code) with the same provider/model produce DISTINCT cache keys, and that two entries differing ONLY by provider/model (e.g. `zai/GLM-4.7` vs `anthropic/claude-...`) also produce distinct keys. If Groundswell exposes a key-builder, call it directly; otherwise assert through the cache get/set surface with identical inputs save the harness/model axis. Do NOT call a real LLM.\n   - Implicit TDD: write the failing isolation test, confirm the Groundswell key incorporates both axes, then green. `npm run validate` + relevant `npm run test:run` must pass.\n4. OUTPUT: A green cache-isolation test proving keys are partitioned by harness × provider/model.\n5. MOCKING: Use Groundswell's cache with an in-memory/in-test store; mock the harness execute path. Stub env vars. No real network/LLM calls."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "Documentation update",
+              "status": "Planned",
+              "description": "Document the harness system for users: update docs/CONFIGURATION.md with PRP_AGENT_HARNESS, provider-qualified model strings, and harness/provider independence; create docs/GROUNDSWELL_GUIDE.md with a Harness System section mirroring PRD §9.4. docs/ is NOT a protected path (Cleanup/doc updates are in scope). See architecture/delta_impact.md §D and implementation_notes.md §6.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "Update docs/CONFIGURATION.md (harness env var + provider-qualified models)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.16",
+                    "h4.1",
+                    "h4.2",
+                    "h4.3",
+                    "h3.18",
+                    "h4.10",
+                    "h4.11"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/delta_impact.md §D. `docs/CONFIGURATION.md` EXISTS (~16KB) and documents the z.ai env vars but has ZERO mentions of `PRP_AGENT_HARNESS` or provider-qualified models. PRD §9.2.2/§9.2.3/§9.4.2 are the source.\n2. INPUT: Implemented config from P1.M1.T1.S2 (`PRP_AGENT_HARNESS`, default 'pi', claude-code+zai rejection) and P1.M1.T2.S1 (provider-qualified `zai/<model>` models, env overrides).\n3. LOGIC: Implement PRD §9.2.2 / §9.2.3 / §9.4.2 (documentation).\n   - Edit `docs/CONFIGURATION.md`: add a subsection documenting `PRP_AGENT_HARNESS` (`pi` default | `claude-code`), its independence from the LLM provider, the provider-qualified model format (`provider/model`, e.g. `zai/GLM-4.7`), the runtime env-var model overrides (`ANTHROPIC_DEFAULT_SONNET_MODEL` etc.), and a note that `claude-code` requires Anthropic-only models (incompatible with z.ai — see §9.2.4). Cross-link to the Harness System section added in P1.M2.T3.S2.\n   - Match the existing doc style (headers, tables, code fences). Run `npm run docs:lint` (markdownlint) and `npm run format:check`; fix lint/format issues introduced. No source/test changes.\n4. OUTPUT: Updated `docs/CONFIGURATION.md` reflecting the harness env var, provider-qualified models, and harness/provider independence.\n5. MOCKING: None. Documentation-only; verify with markdownlint + prettier:check."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S2",
+                  "title": "Create docs/GROUNDSWELL_GUIDE.md with a Harness System section",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.7",
+                    "h3.18",
+                    "h4.9",
+                    "h4.10",
+                    "h4.11",
+                    "h4.12"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_439241a82c24/architecture/implementation_notes.md §6 and external_deps.md. `docs/GROUNDSWELL_GUIDE.md` DOES NOT EXIST in hacky-hack/docs/ (a prior-session copy exists only at `plan/003_b3d3efdaf0ed/docs/GROUNDSWELL_GUIDE.md`, usable as a style reference). PRD §9.4 (§9.4.1–§9.4.4) is the authoritative content source.\n2. INPUT: Implemented harness wiring (P1.M1.T1.S2), agent configs carrying `harness` + qualified model (P1.M1.T2.S2), and the Groundswell exports cataloged in architecture/external_deps.md (configureHarnesses, HarnessId, HarnessOptions, PiHarness/ClaudeCodeHarness, registerDefaultHarnesses, parseModelSpec).\n3. LOGIC: Implement PRD §9.4 (documentation).\n   - CREATE `docs/GROUNDSWELL_GUIDE.md` containing at minimum a \"Harness System\" section mirroring PRD §9.4: the supported-harnesses table (§9.4.1: pi default / claude-code optional, with notes), the `configureHarnesses({ defaultHarness:'pi', defaultModelProvider:'zai', harnessDefaults })` startup config (§9.4.2), the critical rules (§9.4.3: model string never harness-qualified; provider/harness compatibility — claude-code Anthropic-only; feature parity via MCPHandler; cache isolation by harness×provider), and the capability reference table (§9.4.4). Optionally include a short integration example showing the PRP startup call.\n   - Run `npm run docs:lint` and `npm run format:check`; fix any issues. No source/test changes.\n4. OUTPUT: New `docs/GROUNDSWELL_GUIDE.md` documenting the Harness System, consumable by users and cross-linked from CONFIGURATION.md (P1.M2.T3.S1).\n5. MOCKING: None. Documentation-only; verify with markdownlint + prettier:check."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
