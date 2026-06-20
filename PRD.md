@@ -31,7 +31,7 @@ The new system must implement four distinct processing engines:
 
 1.  **Session Manager:** Handles state, directory structures (`plan/001_hash`), and PRD diffing.
 2.  **Task Orchestrator:** Manages the JSON backlog, dependency resolution, and status updates (replacing the `tsk` CLI).
-3.  **Agent Runtime:** Interfaces with the LLM to run specific personas (Architect, Researcher, Coder, QA).
+3.  **Agent Runtime:** Drives the agent loop through a pluggable **harness** (default `pi` / pi.dev; `claude-code` optional) that is orthogonal to the LLM provider, to run specific personas (Architect, Researcher, Coder, QA). See §9.4.
 4.  **Pipeline Controller:** The main loop handling the sequence of operations, parallelization, and error recovery.
 
 ## 4. User Workflows
@@ -262,7 +262,8 @@ This section details the implementation strategy leveraging the local [Groundswe
 
 - **Runtime**: Node.js 20+ / TypeScript 5.2+
 - **Core Framework**: Groundswell (local library at `~/projects/groundswell`)
-- **LLM Provider**: z.ai (Anthropic compatible API)
+- **Agent Harness**: `pi` (pi.dev) — vendor-neutral default runtime; `claude-code` available as an option (see §9.4)
+- **LLM Provider**: z.ai (Anthropic-compatible API), orthogonal to the harness
 - **State Management**: Groundswell `@ObservedState` & `Workflow` persistence
 
 ### 9.2 Environment Configuration
@@ -283,6 +284,9 @@ Configuration is loaded in the following order (later sources override earlier o
   - `ANTHROPIC_AUTH_TOKEN`: z.ai API authentication token (mapped to `ANTHROPIC_API_KEY` for SDK compatibility)
   - `ANTHROPIC_BASE_URL`: API endpoint (defaults to `https://api.z.ai/api/anthropic` if not set)
 
+- **Agent Runtime (Harness)**:
+  - `PRP_AGENT_HARNESS`: Agent runtime/SDK to use — `pi` (pi.dev, default) or `claude-code`. Orthogonal to the LLM provider; see §9.4.
+
 - **Pipeline Control**:
   - `PRP_PIPELINE_RUNNING`: Guard to prevent nested execution (set to PID when pipeline starts)
   - `SKIP_BUG_FINDING`: Skip bug hunt stage; also identifies bug fix mode when `true`
@@ -295,20 +299,24 @@ Configuration is loaded in the following order (later sources override earlier o
 
 #### 9.2.3 Model Selection
 
-- **`ANTHROPIC_DEFAULT_SONNET_MODEL`**: Model for complex reasoning tasks (default: `GLM-4.7`)
-- **`ANTHROPIC_DEFAULT_HAIKU_MODEL`**: Model for faster/lighter tasks (default: `GLM-4.5-Air`)
+Models are specified as provider-qualified strings (`provider/model`), independent of the harness (see §9.4). The pipeline reads model names from the environment at runtime and qualifies them with the `zai` provider.
 
-These values should be read from the environment at runtime, not hardcoded.
+- **`ANTHROPIC_DEFAULT_SONNET_MODEL`**: Model for complex reasoning tasks (default: `GLM-4.7` → resolved as `zai/GLM-4.7`)
+- **`ANTHROPIC_DEFAULT_HAIKU_MODEL`**: Model for faster/lighter tasks (default: `GLM-4.5-Air` → resolved as `zai/GLM-4.5-Air`)
+
+These values should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/GLM-4.7` is invalid).
 
 #### 9.2.4 API Endpoint Safeguards
 
-**CRITICAL**: All tests and validation scripts enforce z.ai API usage:
+**CRITICAL**: All tests and validation scripts enforce the z.ai **provider** endpoint:
 
 - Tests will fail immediately if `ANTHROPIC_BASE_URL` is set to Anthropic's official API (`https://api.anthropic.com`)
 - Validation scripts block execution to prevent accidental API usage
 - Warnings are issued for non-z.ai endpoints (excluding localhost/mock/test endpoints)
 
 This prevents the massive usage spikes that occurred when tests were accidentally configured to use Anthropic's production API.
+
+> **Harness note.** This safeguard constrains the LLM **provider** (z.ai), not the **harness**. Because the default `pi` harness can run any provider, the pipeline defaults to `pi` + `zai` so the safeguard stays effective. The optional `claude-code` harness is **Anthropic-only** and therefore incompatible with the z.ai provider — selecting it requires switching to `anthropic/*` models and disabling this safeguard (see §9.4).
 
 #### 9.2.5 Nested Execution Guard
 
@@ -365,9 +373,9 @@ Leverage Groundswell's hierarchical `@Task` feature.
 
 #### 9.3.3 Agent Runtime & Personas
 
-Agents will be instantiated using Groundswell's `createAgent` factory or by extending the `Agent` class.
+Agents are instantiated using Groundswell's `createAgent` factory or by extending the `Agent` class, and execute through the configured **harness** (default `pi` / pi.dev; `claude-code` optional — see §9.4).
 
-- **Tooling**: Use `MCPHandler` to register local system tools.
+- **Tooling**: Use `MCPHandler` to register local system tools. Tools execute locally through Groundswell regardless of the active harness; the harness only reports tool calls back.
   - `BashTool`: For executing validation scripts and git commands.
   - `FileTool`: For reading/writing PRPs and code.
   - `WebSearchTool`: For external documentation.
@@ -396,12 +404,63 @@ const architectPrompt = createPrompt({
 });
 ```
 
-### 9.4 Implementation Roadmap
+### 9.4 Agent Harness System (Runtime Selection)
+
+This project adopts Groundswell's pluggable **harness** model (Groundswell PRD §7). The **harness** is the agent runtime/SDK that drives prompting, tool execution, and streaming; it is **orthogonal** to the LLM **provider/model**. The two are selected independently.
+
+#### 9.4.1 Supported Harnesses
+
+| Harness | SDK / Package | Default? | Notes |
+|---------|--------------|----------|-------|
+| `pi` | Pi SDK — `@earendil-works/pi-coding-agent` (pi.dev) | **Yes** | Vendor-neutral runtime; runs any LLM provider (incl. z.ai). MCP, Skills, and LSP are supplied by Groundswell's `MCPHandler`. |
+| `claude-code` | Claude Code SDK — `@anthropic-ai/claude-agent-sdk` | No (optional) | Anthropic-only models. Incompatible with the z.ai provider (see §9.2.4). Retained as a parity-maintained fallback for users locked into Anthropic's ecosystem. |
+
+**Default selection.** `PRP_AGENT_HARNESS` defaults to `pi` (pi.dev). This is the only harness compatible with the project's default z.ai provider and the §9.2.4 cost safeguard.
+
+#### 9.4.2 Configuration
+
+```ts
+import { configureHarnesses } from 'groundswell';
+
+configureHarnesses({
+  defaultHarness: 'pi',              // vendor-neutral default (pi.dev)
+  defaultModelProvider: 'zai',        // LLM host — independent of harness
+  harnessDefaults: {
+    'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY },
+  },
+});
+```
+
+- **`PRP_AGENT_HARNESS`** (`pi` | `claude-code`, default `pi`): selects the runtime.
+- Harness selection cascades: global default → agent config → prompt overrides.
+- Harness-specific options (e.g. `skillsDirs` on `pi`) MAY extend the base `HarnessOptions`.
+
+#### 9.4.3 Critical Rules
+
+- **The harness never appears in the model string.** `pi/zai/GLM-4.7` and `cc/anthropic/...` are **invalid**. Always use `provider/model` (e.g. `zai/GLM-4.7`).
+- **Provider/harness compatibility.** `claude-code` runs `anthropic/*` models only. Requesting the z.ai provider on `claude-code` is a configuration error surfaced at `initialize()`/`execute()`.
+- **Feature parity.** All features (MCP tools, skills, hooks, `AgentResponse`, caching, workflow events) MUST work identically across both harnesses. Tool execution flows through `MCPHandler` for both, so `pi`'s lack of built-in MCP/LSP is **not** a capability gap.
+- **Cache isolation.** Cache keys incorporate **both** the harness and the provider/model.
+
+#### 9.4.4 Capability Reference
+
+| Capability | `pi` | `claude-code` |
+|------------|------|---------------|
+| MCP | via Groundswell `MCPHandler` | built-in **and** via `MCPHandler` |
+| Skills | ✓ native (agentskills.io; loads `~/.claude/skills`) | ✓ native (system prompt) |
+| LSP | via MCP plugins through `MCPHandler` | via MCP plugins |
+| Streaming | ✓ | ✓ |
+| Sessions | ✓ | ✓ |
+| Extended Thinking | ✓ | ✓ |
+| LLM providers | any | Anthropic only |
+
+### 9.5 Implementation Roadmap
 
 1.  **Project Setup**:
     - Initialize TypeScript project.
     - Link `groundswell` (`npm link ~/projects/groundswell`).
     - Implement `ConfigService` to normalize z.ai env vars.
+    - Call `configureHarnesses({ defaultHarness: 'pi', defaultModelProvider: 'zai' })` at startup (see §9.4).
 
 2.  **Core Workflows**:
     - Implement `SessionManager` (Filesystem operations).
