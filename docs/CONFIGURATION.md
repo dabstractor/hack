@@ -3,8 +3,8 @@
 > Comprehensive guide for configuring the PRP Pipeline development environment.
 
 **Status**: Published
-**Last Updated**: 2026-01-23
-**Version**: 1.0.0
+**Last Updated**: 2026-06-20
+**Version**: 1.1.0
 
 ## Table of Contents
 
@@ -12,6 +12,7 @@
 - [Environment Variables](#environment-variables)
   - [API Authentication](#api-authentication)
   - [Model Selection](#model-selection-1)
+  - [Agent Runtime (Harness)](#agent-runtime-harness)
   - [Pipeline Control](#pipeline-control)
   - [Bug Hunt Configuration](#bug-hunt-configuration)
   - [Advanced Configuration](#advanced-configuration)
@@ -33,10 +34,11 @@
 
 Required environment variables for basic operation:
 
-| Variable               | Required | Default                          | Description                                                   |
-| ---------------------- | -------- | -------------------------------- | ------------------------------------------------------------- |
-| `ANTHROPIC_AUTH_TOKEN` | Yes      | None                             | z.ai API authentication token (mapped to `ANTHROPIC_API_KEY`) |
-| `ANTHROPIC_BASE_URL`   | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint                                             |
+| Variable               | Required | Default                          | Description                                                               |
+| ---------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------- |
+| `ANTHROPIC_AUTH_TOKEN` | Yes      | None                             | z.ai API authentication token (mapped to `ANTHROPIC_API_KEY`)             |
+| `ANTHROPIC_BASE_URL`   | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint                                                         |
+| `PRP_AGENT_HARNESS`    | No       | `pi`                             | Agent runtime/SDK (`pi` or `claude-code`); orthogonal to the LLM provider |
 
 For complete configuration, see [Environment Variables](#environment-variables) below.
 
@@ -77,7 +79,39 @@ Configure which models each agent tier uses.
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `GLM-4.7`     | Model for Researcher/Coder agents (balanced, default)          |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `GLM-4.5-Air` | Model for simple operations (fastest)                          |
 
-See [Model Selection](#model-selection) for detailed guidance on which models to use.
+> Models are **provider-qualified** at runtime. A bare model name (e.g. `GLM-4.7`)
+> resolves to `zai/GLM-4.7` (provider `zai`, the default); an already-qualified
+> `provider/model` (e.g. `zai/GLM-4.7`) passes through unchanged. Values are read
+> from the environment at runtime — never hardcoded. The model string is always
+> `provider/model`; it is never harness-qualified (see
+> [Agent Runtime (Harness)](#agent-runtime-harness)).
+
+### Agent Runtime (Harness)
+
+The agent runtime (harness) drives prompting, tool execution, and streaming. It is
+**independent of the LLM provider** — it is selected separately from the model
+(see [Model Selection](#model-selection-1)). Mirrors PRD §9.2.2 / §9.4.2.
+
+| Variable            | Required | Default | Choices             | Description                                                                                                                     |
+| ------------------- | -------- | ------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `PRP_AGENT_HARNESS` | No       | `pi`    | `pi`, `claude-code` | Agent runtime/SDK to use. `pi` (pi.dev) is vendor-neutral and runs any provider; `claude-code` runs Anthropic-only models only. |
+
+**Harness ↔ provider independence:**
+
+- The **harness** (`PRP_AGENT_HARNESS`) and the **provider/model** (see
+  [Model Selection](#model-selection-1)) are selected independently.
+- The harness **never** appears in the model string. `pi/zai/GLM-4.7` is **invalid**;
+  always use `provider/model` (e.g. `zai/GLM-4.7`).
+- **`claude-code` is Anthropic-only** and is **incompatible with the z.ai provider**
+  used by default. Selecting it requires switching to `anthropic/*` models and
+  disabling the z.ai endpoint safeguard (see
+  [API Endpoint Security](#api-endpoint-security) and PRD §9.2.4). The pipeline
+  validates this at startup and fails fast with a configuration error.
+
+For the full harness system — supported harnesses, `configureHarnesses()`
+configuration, the capability reference, and feature-parity rules — see the
+**[Harness System](./GROUNDSWELL_GUIDE.md#harness-system)** section of the
+Groundswell Guide.
 
 ### Pipeline Control
 
@@ -198,10 +232,13 @@ The PRP Pipeline uses three model tiers, each optimized for different tasks.
 Override default models using environment variables:
 
 ```bash
-# Override specific agent tier
-export ANTHROPIC_DEFAULT_OPUS_MODEL="GLM-4.7"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="GLM-4.7"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="GLM-4.5-Air"
+# Override specific agent tier (bare names resolve to zai/* at runtime)
+export ANTHROPIC_DEFAULT_OPUS_MODEL="GLM-4.7"       # resolves to zai/GLM-4.7
+export ANTHROPIC_DEFAULT_SONNET_MODEL="GLM-4.7"     # resolves to zai/GLM-4.7
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="GLM-4.5-Air"  # resolves to zai/GLM-4.5-Air
+
+# Or set a fully-qualified provider/model directly:
+# export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
 ```
 
 ---
@@ -314,6 +351,15 @@ ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
 # ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.5-Air
 
 # =============================================================================
+# AGENT RUNTIME (HARNESS) — OPTIONAL
+# =============================================================================
+
+# Agent runtime/SDK. INDEPENDENT of the LLM provider/model above.
+# Default: pi (pi.dev, vendor-neutral — runs any provider, incl. z.ai).
+# claude-code requires anthropic/* models (incompatible with the z.ai provider).
+# PRP_AGENT_HARNESS=pi
+
+# =============================================================================
 # PIPELINE CONTROL (OPTIONAL)
 # =============================================================================
 
@@ -423,6 +469,50 @@ Using GLM-4.7 (opus/sonnet) for all operations when GLM-4.5-Air (haiku) would su
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="GLM-4.5-Air"
 ```
 
+### "Harness appearing in the model string is invalid"
+
+**What you see:**
+A model string like `pi/zai/GLM-4.7` is rejected or mis-resolved.
+
+**Why it happens:**
+The harness never appears in the model string (PRD §9.4.3). Models are
+`provider/model` only.
+
+**How to fix:**
+
+```bash
+# Invalid — harness prefix in the model string
+# export ANTHROPIC_DEFAULT_SONNET_MODEL="pi/zai/GLM-4.7"
+
+# Correct — provider/model only
+export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
+
+# Select the harness separately
+# export PRP_AGENT_HARNESS=pi
+```
+
+### "Using claude-code with a z.ai key"
+
+**What you see:**
+Startup fails fast with a harness/provider configuration error.
+
+**Why it happens:**
+`claude-code` runs Anthropic-only models and is incompatible with the z.ai
+provider (PRD §9.2.4 / §9.4.3).
+
+**How to fix:**
+
+```bash
+# Option A: keep the default pi harness (works with z.ai)
+export PRP_AGENT_HARNESS=pi
+export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
+
+# Option B: use claude-code with Anthropic models (not z.ai)
+# export PRP_AGENT_HARNESS=claude-code
+# export ANTHROPIC_DEFAULT_SONNET_MODEL="anthropic/claude-sonnet-4-20250514"
+# — also requires disabling the z.ai endpoint safeguard (PRD §9.2.4)
+```
+
 ---
 
 ## See Also
@@ -433,3 +523,4 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="GLM-4.5-Air"
 - **[.env.example](../.env.example)** - Template for local configuration
 - **[src/config/](../src/config/)** - Source code for environment configuration
 - **[src/cli/](../src/cli/)** - Source code for CLI parsing
+- **[Groundswell Guide](./GROUNDSWELL_GUIDE.md)** - Harness system, supported runtimes, capability reference, and parity rules
