@@ -2,7 +2,7 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M3.T3.S2_1782007810665_coder-response_50776972",
+      "id": "P1.M3.T3.S2_1782013368704_coder-response_7dfb144e",
       "taskId": "P1.M3.T3.S2",
       "label": "After Coder Agent response",
       "state": {
@@ -13,24 +13,24 @@
           "message": "Failed to parse Coder Agent response: undefined"
         },
         "validationResults": [],
-        "timestamp": "2026-06-21T02:10:10.665Z"
+        "timestamp": "2026-06-21T03:42:48.704Z"
       },
-      "createdAt": "2026-06-21T02:10:10.665Z"
+      "createdAt": "2026-06-21T03:42:48.704Z"
     },
     {
-      "id": "P1.M3.T3.S2_1782007810668_pre-execution_3d80dbe8",
+      "id": "P1.M3.T3.S2_1782013368732_pre-execution_e6761d68",
       "taskId": "P1.M3.T3.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-06-21T02:10:10.668Z"
+        "timestamp": "2026-06-21T03:42:48.732Z"
       },
-      "createdAt": "2026-06-21T02:10:10.668Z"
+      "createdAt": "2026-06-21T03:42:48.732Z"
     },
     {
-      "id": "P1.M3.T3.S2_1782007810669_coder-response_e8d02b78",
+      "id": "P1.M3.T3.S2_1782013368741_coder-response_95185900",
       "taskId": "P1.M3.T3.S2",
       "label": "After Coder Agent response",
       "state": {
@@ -41,24 +41,24 @@
           "message": "Failed to parse Coder Agent response: undefined"
         },
         "validationResults": [],
-        "timestamp": "2026-06-21T02:10:10.669Z"
+        "timestamp": "2026-06-21T03:42:48.741Z"
       },
-      "createdAt": "2026-06-21T02:10:10.669Z"
+      "createdAt": "2026-06-21T03:42:48.741Z"
     },
     {
-      "id": "P1.M3.T3.S2_1782007810671_pre-execution_5f4b0fde",
+      "id": "P1.M3.T3.S2_1782013368745_pre-execution_82bde6d3",
       "taskId": "P1.M3.T3.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-06-21T02:10:10.671Z"
+        "timestamp": "2026-06-21T03:42:48.745Z"
       },
-      "createdAt": "2026-06-21T02:10:10.671Z"
+      "createdAt": "2026-06-21T03:42:48.745Z"
     },
     {
-      "id": "P1.M3.T3.S2_1782007810672_coder-response_bc3089de",
+      "id": "P1.M3.T3.S2_1782013368747_coder-response_fceb1824",
       "taskId": "P1.M3.T3.S2",
       "label": "After Coder Agent response",
       "state": {
@@ -69,10 +69,10 @@
           "message": "Failed to parse Coder Agent response: undefined"
         },
         "validationResults": [],
-        "timestamp": "2026-06-21T02:10:10.672Z"
+        "timestamp": "2026-06-21T03:42:48.747Z"
       },
-      "createdAt": "2026-06-21T02:10:10.672Z"
+      "createdAt": "2026-06-21T03:42:48.747Z"
     }
   ],
-  "lastModified": "2026-06-21T02:10:10.672Z"
+  "lastModified": "2026-06-21T03:42:48.747Z"
 }
