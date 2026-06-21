@@ -77,13 +77,13 @@ describe('agents/agent-factory', () => {
       });
     });
 
-    it('should use GLM-4.7 model for all personas', () => {
+    it('should use qualified GLM-4.7 model for all personas', () => {
       // EXECUTE
       const configs = personas.map(p => createBaseConfig(p));
 
-      // VERIFY: All personas use sonnet tier → GLM-4.7
+      // VERIFY: All personas use sonnet tier → zai/GLM-4.7 (provider-qualified)
       configs.forEach(config => {
-        expect(config.model).toBe('GLM-4.7');
+        expect(config.model).toBe('zai/GLM-4.7');
       });
     });
 

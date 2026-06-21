@@ -19,11 +19,16 @@
  * validateEnvironment();
  *
  * // Get model name for agent creation
- * const model = getModel('sonnet'); // 'GLM-4.7'
+ * const model = getModel('sonnet'); // 'zai/GLM-4.7'
  * ```
  */
 
-import { DEFAULT_BASE_URL, MODEL_NAMES, MODEL_ENV_VARS } from './constants.js';
+import {
+  DEFAULT_BASE_URL,
+  DEFAULT_MODEL_PROVIDER,
+  MODEL_NAMES,
+  MODEL_ENV_VARS,
+} from './constants.js';
 import type { ModelTier } from './types.js';
 import { EnvironmentValidationError } from './types.js';
 
@@ -77,25 +82,52 @@ export function configureEnvironment(): void {
  * - 'haiku': GLM-4.5-Air (fastest, simple operations, quick tasks)
  *
  * @param tier - The model tier identifier ('opus' | 'sonnet' | 'haiku')
- * @returns The model name to use for agent creation
+ * @returns The provider-qualified model string (e.g. 'zai/GLM-4.7')
  *
  * @example
  * ```ts
  * import { getModel } from './config/environment.js';
  * import type { ModelTier } from './config/types.js';
  *
- * const opusModel = getModel('opus'); // 'GLM-4.7'
- * const sonnetModel = getModel('sonnet'); // 'GLM-4.7'
- * const haikuModel = getModel('haiku'); // 'GLM-4.5-Air'
+ * const opusModel = getModel('opus'); // 'zai/GLM-4.7'
+ * const sonnetModel = getModel('sonnet'); // 'zai/GLM-4.7'
+ * const haikuModel = getModel('haiku'); // 'zai/GLM-4.5-Air'
  *
  * // Can be overridden with environment variables
  * process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'GLM-4.7';
- * const customHaiku = getModel('haiku'); // 'GLM-4.7'
+ * const customHaiku = getModel('haiku'); // 'zai/GLM-4.7'
  * ```
  */
+
+/**
+ * Qualify a bare model name with its provider (PRD §9.2.3 / §9.4.3).
+ *
+ * Idempotent: if `name` already contains a provider segment (contains '/'),
+ * it is returned unchanged. Otherwise the `provider` prefix is prepended
+ * (default: DEFAULT_MODEL_PROVIDER === 'zai'). Never produces a 3-segment
+ * (harness-qualified) string.
+ *
+ * @param name - Bare model name (e.g. 'GLM-4.7') OR an already-qualified 'provider/model'.
+ * @param provider - Provider prefix; defaults to {@link DEFAULT_MODEL_PROVIDER} ('zai').
+ * @returns The provider-qualified model string.
+ *
+ * @example
+ *   qualifyModel('GLM-4.7');            // 'zai/GLM-4.7'
+ *   qualifyModel('GLM-4.5-Air');        // 'zai/GLM-4.5-Air'
+ *   qualifyModel('anthropic/foo');      // 'anthropic/foo'  (unchanged)
+ *   qualifyModel('zai/GLM-4.7');        // 'zai/GLM-4.7'    (unchanged)
+ *   qualifyModel('GLM-4.7', 'anthropic'); // 'anthropic/GLM-4.7'
+ */
+export function qualifyModel(
+  name: string,
+  provider: string = DEFAULT_MODEL_PROVIDER
+): string {
+  return name.includes('/') ? name : `${provider}/${name}`;
+}
+
 export function getModel(tier: ModelTier): string {
   const envVar = MODEL_ENV_VARS[tier];
-  return process.env[envVar] ?? MODEL_NAMES[tier];
+  return qualifyModel(process.env[envVar] ?? MODEL_NAMES[tier]);
 }
 
 /**

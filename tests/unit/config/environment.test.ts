@@ -12,11 +12,13 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   configureEnvironment,
   getModel,
+  qualifyModel,
   validateEnvironment,
   EnvironmentValidationError,
 } from '../../../src/config/environment.js';
 import {
   DEFAULT_BASE_URL,
+  DEFAULT_MODEL_PROVIDER,
   MODEL_NAMES,
 } from '../../../src/config/constants.js';
 
@@ -102,52 +104,92 @@ describe('config/environment', () => {
   });
 
   describe('getModel', () => {
-    it('should return default model for opus tier', () => {
+    it('should return qualified default model for opus tier', () => {
       // SETUP: No override
       delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
 
       // EXECUTE & VERIFY
-      expect(getModel('opus')).toBe(MODEL_NAMES.opus);
+      expect(getModel('opus')).toBe(
+        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.opus}`
+      ); // 'zai/GLM-4.7'
     });
 
-    it('should return default model for sonnet tier', () => {
+    it('should return qualified default model for sonnet tier', () => {
       // SETUP: No override
       delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
 
       // EXECUTE & VERIFY
-      expect(getModel('sonnet')).toBe(MODEL_NAMES.sonnet);
+      expect(getModel('sonnet')).toBe(
+        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.sonnet}`
+      );
     });
 
-    it('should return default model for haiku tier', () => {
+    it('should return qualified default model for haiku tier', () => {
       // SETUP: No override
       delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
       // EXECUTE & VERIFY
-      expect(getModel('haiku')).toBe(MODEL_NAMES.haiku);
+      expect(getModel('haiku')).toBe(
+        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.haiku}`
+      ); // 'zai/GLM-4.5-Air'
     });
 
-    it('should use environment override for opus tier', () => {
+    it('should qualify environment override for opus tier', () => {
       // SETUP: Override via env var
       vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'custom-opus-model');
 
       // EXECUTE & VERIFY
-      expect(getModel('opus')).toBe('custom-opus-model');
+      expect(getModel('opus')).toBe('zai/custom-opus-model');
     });
 
-    it('should use environment override for sonnet tier', () => {
+    it('should qualify environment override for sonnet tier', () => {
       // SETUP: Override via env var
       vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'custom-sonnet-model');
 
       // EXECUTE & VERIFY
-      expect(getModel('sonnet')).toBe('custom-sonnet-model');
+      expect(getModel('sonnet')).toBe('zai/custom-sonnet-model');
     });
 
-    it('should use environment override for haiku tier', () => {
+    it('should qualify environment override for haiku tier', () => {
       // SETUP: Override via env var
       vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', 'custom-haiku-model');
 
       // EXECUTE & VERIFY
-      expect(getModel('haiku')).toBe('custom-haiku-model');
+      expect(getModel('haiku')).toBe('zai/custom-haiku-model');
+    });
+  });
+
+  describe('qualifyModel', () => {
+    it('qualifies a bare name with the default provider', () => {
+      // EXECUTE & VERIFY
+      expect(qualifyModel('GLM-4.7')).toBe('zai/GLM-4.7');
+    });
+
+    it('does not double-prefix an already-qualified name', () => {
+      // EXECUTE & VERIFY
+      expect(qualifyModel('anthropic/foo')).toBe('anthropic/foo');
+      expect(qualifyModel('zai/GLM-4.7')).toBe('zai/GLM-4.7');
+    });
+
+    it('honors an explicit provider argument', () => {
+      // EXECUTE & VERIFY
+      expect(qualifyModel('GLM-4.7', 'anthropic')).toBe('anthropic/GLM-4.7');
+    });
+
+    it('qualifies an env override end-to-end via getModel', () => {
+      // SETUP
+      vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'custom-opus');
+
+      // EXECUTE & VERIFY
+      expect(getModel('opus')).toBe('zai/custom-opus');
+    });
+
+    it('does not double-prefix an already-qualified env override', () => {
+      // SETUP
+      vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'anthropic/foo');
+
+      // EXECUTE & VERIFY
+      expect(getModel('opus')).toBe('anthropic/foo');
     });
   });
 
