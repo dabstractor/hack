@@ -86,3 +86,74 @@ export class EnvironmentValidationError extends Error {
     this.missing = missing;
   }
 }
+
+/**
+ * Agent runtime / harness identifier (mirrors Groundswell's HarnessId, PRD §9.4.1).
+ *
+ * @remarks
+ * The harness is ORTHOGONAL to the LLM provider and NEVER appears in the model string.
+ *
+ * @example
+ * ```ts
+ * import type { AgentHarness } from './config/types.js';
+ *
+ * const harness: AgentHarness = 'pi';
+ * ```
+ */
+export type AgentHarness = 'pi' | 'claude-code';
+
+/**
+ * LLM host / model provider id (PRD §9.2 / §9.4.2).
+ *
+ * @remarks
+ * OPEN SET via `(string & {})`: known providers ('zai', 'anthropic') get
+ * autocomplete, but any string is valid.
+ *
+ * @example
+ * ```ts
+ * import type { ModelProvider } from './config/types.js';
+ *
+ * const provider: ModelProvider = 'zai';
+ * const custom: ModelProvider = 'some-custom-provider'; // also valid
+ * ```
+ */
+export type ModelProvider = 'zai' | 'anthropic' | (string & {}); // eslint-disable-line @typescript-eslint/ban-types
+
+/**
+ * Error thrown when a harness/provider combination is incompatible
+ * (PRD §9.2.4 / §9.4.3).
+ *
+ * @remarks
+ * e.g. `claude-code` harness is Anthropic-only and cannot run the `zai` provider.
+ * DEFINED here; THROWN by the startup guard in P1.M1.T1.S2 (agent-factory.ts).
+ *
+ * @example
+ * ```ts
+ * import { HarnessProviderMismatchError } from './config/types.js';
+ *
+ * throw new HarnessProviderMismatchError('claude-code', 'zai');
+ * // Error: Harness 'claude-code' is incompatible with provider 'zai' (PRD §9.2.4).
+ * ```
+ */
+export class HarnessProviderMismatchError extends Error {
+  /** The harness that was selected (e.g. 'claude-code'). */
+  readonly harness: AgentHarness;
+  /** The model provider that is incompatible with the harness (e.g. 'zai'). */
+  readonly provider: ModelProvider;
+
+  /**
+   * Creates a new HarnessProviderMismatchError
+   *
+   * @param harness - The harness identifier that was selected
+   * @param provider - The model provider that is incompatible
+   */
+  constructor(harness: AgentHarness, provider: ModelProvider) {
+    super(
+      `Harness '${harness}' is incompatible with provider '${provider}' (PRD §9.2.4). ` +
+        `Select a compatible harness/provider pair.`
+    );
+    this.name = 'HarnessProviderMismatchError';
+    this.harness = harness;
+    this.provider = provider;
+  }
+}

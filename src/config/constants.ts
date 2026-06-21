@@ -79,3 +79,66 @@ export const REQUIRED_ENV_VARS = {
   apiKey: 'ANTHROPIC_API_KEY',
   baseURL: 'ANTHROPIC_BASE_URL',
 } as const;
+
+/**
+ * Environment variable name selecting the agent runtime harness (PRD §9.2.2).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime by S2) must be 'pi' or 'claude-code'.
+ * This constant is the env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { PRP_AGENT_HARNESS } from './config/constants.js';
+ *
+ * console.log(PRP_AGENT_HARNESS); // 'PRP_AGENT_HARNESS'
+ * console.log(process.env[PRP_AGENT_HARNESS]); // e.g. 'pi'
+ * ```
+ */
+export const PRP_AGENT_HARNESS = 'PRP_AGENT_HARNESS';
+
+/**
+ * Default agent harness when PRP_AGENT_HARNESS is unset (PRD §9.4.1).
+ *
+ * @remarks
+ * Vendor-neutral pi runtime. Uses `as const` to preserve the literal type.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_HARNESS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_HARNESS); // 'pi'
+ * ```
+ */
+export const DEFAULT_HARNESS = 'pi' as const;
+
+/**
+ * Default LLM provider — z.ai (PRD §9.4.2).
+ *
+ * @remarks
+ * Orthogonal to the harness. Uses `as const` to preserve the literal type.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_MODEL_PROVIDER } from './config/constants.js';
+ *
+ * console.log(DEFAULT_MODEL_PROVIDER); // 'zai'
+ * ```
+ */
+export const DEFAULT_MODEL_PROVIDER = 'zai' as const;
+
+/**
+ * All supported agent harness identifiers (PRD §9.4.1).
+ *
+ * @remarks
+ * Readonly literal tuple — exhaustive list of valid harness values.
+ * `typeof SUPPORTED_HARNESSES[number]` resolves to `'pi' | 'claude-code'`.
+ *
+ * @example
+ * ```ts
+ * import { SUPPORTED_HARNESSES } from './config/constants.js';
+ *
+ * console.log(SUPPORTED_HARNESSES); // ['pi', 'claude-code']
+ * ```
+ */
+export const SUPPORTED_HARNESSES = ['pi', 'claude-code'] as const;

@@ -9,27 +9,37 @@ via `.yalc`). Source: `~/projects/groundswell/src`.
 From `src/types/harnesses.ts`:
 
 ```ts
-type HarnessId        = 'pi' | 'claude-code';
-type ModelProviderId  = 'anthropic' | 'openai' | 'google' | 'zai' | (string & {}); // OPEN SET
+type HarnessId = 'pi' | 'claude-code';
+type ModelProviderId =
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'zai'
+  | (string & {}); // OPEN SET
 
 interface HarnessOptions {
   endpoint?: string;
-  apiKey?: string;        // forwarded to the LLM provider, NOT owned by the harness
+  apiKey?: string; // forwarded to the LLM provider, NOT owned by the harness
   sessionId?: string;
   timeout?: number;
   headers?: Record<string, string>;
 }
 
 interface GlobalHarnessConfig {
-  defaultHarness: HarnessId;                         // 'pi' | 'claude-code'
+  defaultHarness: HarnessId; // 'pi' | 'claude-code'
   harnessDefaults?: Partial<Record<HarnessId, HarnessOptions>>;
-  defaultModelProvider?: ModelProviderId;            // OPEN SET — not validated
+  defaultModelProvider?: ModelProviderId; // OPEN SET — not validated
 }
 
-interface ModelSpec { provider: ModelProviderId; model: string; raw: string; }
+interface ModelSpec {
+  provider: ModelProviderId;
+  model: string;
+  raw: string;
+}
 ```
 
 **Key semantics:**
+
 - `defaultModelProvider` is an **open set** — `configureHarnesses()` does NOT validate it.
 - `configureHarnesses()` validates ONLY `defaultHarness` and the keys of `harnessDefaults`
   (must be `'pi'` or `'claude-code'`). It throws on invalid harness ids.
@@ -49,6 +59,7 @@ resetGlobalHarnessConfig(): void                         // TESTS ONLY
 ```
 
 Startup call required by the delta (PRD §9.4.2 / §9.5):
+
 ```ts
 configureHarnesses({
   defaultHarness: 'pi',
@@ -79,8 +90,8 @@ Groundswell `AgentConfig` now carries (alongside the legacy `model`, `provider`,
 
 ```ts
 interface AgentConfig {
-  model?: string;              // plain OR "provider/model" — NEVER harness-qualified
-  harness?: HarnessId;         // 'pi' | 'claude-code'
+  model?: string; // plain OR "provider/model" — NEVER harness-qualified
+  harness?: HarnessId; // 'pi' | 'claude-code'
   harnessOptions?: HarnessOptions;
   // ... name, system, enableCache, enableReflection, maxTokens, mcps, etc.
 }
@@ -108,6 +119,7 @@ import { registerDefaultHarnesses } from 'groundswell/harnesses';
 ## 6. Safeguard interaction (PRD §9.2.4)
 
 The existing z.ai endpoint guard lives in:
+
 - `src/scripts/validate-api.ts`
 - `tests/validation/zai-api-test.ts`
 

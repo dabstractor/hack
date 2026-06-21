@@ -963,7 +963,9 @@ describe('integration/pipeline-main-loop', () => {
     it('should handle no subtasks gracefully', async () => {
       // SETUP: Create test PRD with empty backlog
       const emptyBacklog: Backlog = { backlog: [] };
-      const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog: emptyBacklog }) };
+      const mockAgent = {
+        prompt: vi.fn().mockResolvedValue({ backlog: emptyBacklog }),
+      };
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
@@ -1034,11 +1036,13 @@ describe('integration/pipeline-main-loop', () => {
       // Reset and run again
       vi.clearAllMocks();
       callCount = 0;
-      mockOrchestrator.processNextItem = vi.fn().mockImplementation(async () => {
-        callCount++;
-        mockOrchestrator.currentItemId = `P1.M1.T${callCount}.S1`;
-        return callCount <= 3;
-      });
+      mockOrchestrator.processNextItem = vi
+        .fn()
+        .mockImplementation(async () => {
+          callCount++;
+          mockOrchestrator.currentItemId = `P1.M1.T${callCount}.S1`;
+          return callCount <= 3;
+        });
 
       const pipeline2 = new PRPPipeline(prdPath);
       (pipeline2 as any).taskOrchestrator = mockOrchestrator;

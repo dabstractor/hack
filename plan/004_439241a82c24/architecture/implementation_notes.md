@@ -9,6 +9,7 @@ keys of `harnessDefaults`, but **NOT** `defaultModelProvider` (open set).
 So Groundswell will happily accept `{ defaultHarness:'claude-code', defaultModelProvider:'zai' }`.
 
 Therefore the **PRP pipeline** owns the rule (PRD §9.4.3 / §9.2.4):
+
 > `claude-code` runs Anthropic-only; requesting the z.ai provider on `claude-code`
 > is a configuration error surfaced at `initialize()`/`execute()`.
 
@@ -22,9 +23,14 @@ const harness = (process.env.PRP_AGENT_HARNESS ?? 'pi') as AgentHarness;
 if (harness === 'claude-code' && DEFAULT_PROVIDER === 'zai') {
   throw new HarnessProviderMismatchError(
     'claude-code harness is Anthropic-only and incompatible with the z.ai provider (PRD §9.2.4). ' +
-    'Switch to PRP_AGENT_HARNESS=pi or use anthropic/* models.');
+      'Switch to PRP_AGENT_HARNESS=pi or use anthropic/* models.'
+  );
 }
-configureHarnesses({ defaultHarness: harness, defaultModelProvider: 'zai', harnessDefaults: { 'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY } } });
+configureHarnesses({
+  defaultHarness: harness,
+  defaultModelProvider: 'zai',
+  harnessDefaults: { 'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY } },
+});
 ```
 
 ## 2. Model string flow (single source of truth)
@@ -70,6 +76,7 @@ the new file must live at `docs/GROUNDSWELL_GUIDE.md`.
 ## 7. Validation gates (Definition of Done per subtask)
 
 Every subtask implies: failing test → implement → pass. Before marking a subtask done:
+
 - `npm run validate` passes (lint + format:check + typecheck).
 - `npm run test:run` (relevant unit tests) passes.
 - No regression in untouched suites.

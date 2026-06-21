@@ -26,16 +26,16 @@ The two are selected **independently**. Model strings are `provider/model`
 that owns the `Harness` abstraction). Confirmed present & exported in
 `~/projects/groundswell/src`:
 
-| Capability | Groundswell export | File |
-| --- | --- | --- |
-| `configureHarnesses(cfg)` | `groundswell` (public) | `src/utils/harness-config.ts` |
-| `getGlobalHarnessConfig()` | `groundswell` | `src/utils/harness-config.ts` |
-| `resolveHarnessConfig(...)` | `groundswell` | `src/utils/harness-config.ts` |
-| `registerDefaultHarnesses()` | `groundswell/harnesses` | `src/harnesses/register-defaults.ts` |
-| `PiHarness`, `ClaudeCodeHarness` | `groundswell` | `src/harnesses/{pi,claude-code}-harness.ts` |
-| `HarnessRegistry` | `groundswell` | `src/harnesses/harness-registry.ts` |
-| Types: `HarnessId`, `ModelProviderId`, `HarnessOptions`, `GlobalHarnessConfig`, `ModelSpec`, `Harness` | `groundswell` | `src/types/harnesses.ts` |
-| `parseModelSpec`, `formatModelForProvider` | `groundswell` | `src/utils/model-spec.ts` |
+| Capability                                                                                             | Groundswell export      | File                                        |
+| ------------------------------------------------------------------------------------------------------ | ----------------------- | ------------------------------------------- |
+| `configureHarnesses(cfg)`                                                                              | `groundswell` (public)  | `src/utils/harness-config.ts`               |
+| `getGlobalHarnessConfig()`                                                                             | `groundswell`           | `src/utils/harness-config.ts`               |
+| `resolveHarnessConfig(...)`                                                                            | `groundswell`           | `src/utils/harness-config.ts`               |
+| `registerDefaultHarnesses()`                                                                           | `groundswell/harnesses` | `src/harnesses/register-defaults.ts`        |
+| `PiHarness`, `ClaudeCodeHarness`                                                                       | `groundswell`           | `src/harnesses/{pi,claude-code}-harness.ts` |
+| `HarnessRegistry`                                                                                      | `groundswell`           | `src/harnesses/harness-registry.ts`         |
+| Types: `HarnessId`, `ModelProviderId`, `HarnessOptions`, `GlobalHarnessConfig`, `ModelSpec`, `Harness` | `groundswell`           | `src/types/harnesses.ts`                    |
+| `parseModelSpec`, `formatModelForProvider`                                                             | `groundswell`           | `src/utils/model-spec.ts`                   |
 
 Therefore Session 004 is **integration / adoption work** on the PRP (hacky-hack) side:
 
