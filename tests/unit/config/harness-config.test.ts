@@ -17,6 +17,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // CRITICAL: mock configureHarnesses (Groundswell does NOT export reset/query helpers)
 vi.mock('groundswell', () => ({
   configureHarnesses: vi.fn(),
+  HarnessRegistry: {
+    getInstance: () => ({ has: () => false, register: vi.fn() }),
+  },
+  PiHarness: class MockPiHarness {},
 }));
 
 import { configureHarnesses } from 'groundswell';

@@ -19,7 +19,13 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 // CRITICAL: Groundswell does NOT export getGlobalHarnessConfig/resetGlobalHarnessConfig.
 // Mock configureHarnesses and assert on call args (verified working by M1.T1.S2).
-vi.mock('groundswell', () => ({ configureHarnesses: vi.fn() }));
+vi.mock('groundswell', () => ({
+  configureHarnesses: vi.fn(),
+  HarnessRegistry: {
+    getInstance: () => ({ has: () => false, register: vi.fn() }),
+  },
+  PiHarness: class MockPiHarness {},
+}));
 
 import { configureHarnesses } from 'groundswell';
 import { configureHarness } from '../../../src/config/harness.js';
