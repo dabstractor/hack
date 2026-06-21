@@ -85,7 +85,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Replace DEFAULT_MODEL_PROVIDER constant check with resolved-provider derivation in configureHarness() Step 4",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

@@ -24,6 +24,7 @@ import {
   PRP_AGENT_HARNESS,
   SUPPORTED_HARNESSES,
 } from './constants.js';
+import { getModel } from './environment.js';
 import type { AgentHarness } from './types.js';
 import { HarnessProviderMismatchError } from './types.js';
 
@@ -68,8 +69,9 @@ export function configureHarness(): AgentHarness {
   const harness = raw as AgentHarness;
 
   // Step 4: Enforce harness↔provider compatibility
-  if (harness === 'claude-code' && DEFAULT_MODEL_PROVIDER === 'zai') {
-    throw new HarnessProviderMismatchError(harness, DEFAULT_MODEL_PROVIDER);
+  const resolvedProvider = getModel('sonnet').split('/')[0];
+  if (harness === 'claude-code' && resolvedProvider === 'zai') {
+    throw new HarnessProviderMismatchError(harness, resolvedProvider);
   }
 
   // Step 4.5: Register the default 'pi' harness instance idempotently.
