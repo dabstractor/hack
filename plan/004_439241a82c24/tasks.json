@@ -174,7 +174,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Tool-execution parity test via MCPHandler",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2",
