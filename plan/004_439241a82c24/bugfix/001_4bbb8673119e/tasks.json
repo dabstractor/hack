@@ -173,7 +173,7 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Issue 4 — Fix the 18 ToolExecutor type-drift typecheck errors and the generated-state format:check failures",
-              "status": "Planned",
+              "status": "Complete",
               "description": "npm run validate fails because: (a) typecheck reports 18 errors — the 3 MCP tool files import the providers ToolExecutor (request: ToolExecutionRequest) => Promise<ToolExecutionResult> but MCPHandler.registerToolExecutor expects the structurally different local type (input: unknown) => Promise<unknown>; each of the 9 call sites yields 2 errors. (b) format:check fails because .prettierignore does not exclude artifacts/ and plan/ so generated state files (checkpoints.json, tasks.json, etc.) are swept into the check. Fix the tool callbacks via a small adapter and exclude generated paths from prettier.",
               "subtasks": [
                 {
@@ -195,7 +195,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Add artifacts/ and plan/ to .prettierignore so generated state files stop failing format:check",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Read plan/004_439241a82c24/bugfix/001_4bbb8673119e/architecture/system_context.md §5b and tool_executor_type_drift.md §7. KEY FACTS: (a) package.json scripts.format:check = `prettier --check \"**/*.{ts,js,json,md,yml,yaml}\"`. (b) .prettierignore currently lists ONLY: node_modules/, dist/, coverage/, package-lock.json, pnpm-lock.yaml, .eslintcache. (c) It does NOT exclude artifacts/ or plan/, so machine-generated files (e.g. artifacts/P1.M2.T2.S2/checkpoints.json, plan/004_*/tasks.json, plan/005_*/tasks.json) are swept into the check and fail it. Confirmed: `npx prettier --check` flags these as unformatted.\n2. INPUT: .prettierignore (7-line file).\n3. LOGIC: Append `artifacts/` and `plan/` (each on its own line) to .prettierignore. These are pipeline-generated state directories, not hand-authored source — excluding them from formatting is correct. Keep all existing entries. Do NOT exclude docs/ or tests/ (those are hand-authored and SHOULD be formatted).\n4. OUTPUT: `npx prettier --check \"**/*.{ts,js,json,md,yml,yaml}\"` no longer flags files under artifacts/ or plan/. format:check passes (assuming no other unformatted hand-authored files exist).\n5. MOCKING: None.\n6. VALIDATION: Run `npm run format:check` — confirm it exits 0 (no warnings for artifacts/ or plan/).",
