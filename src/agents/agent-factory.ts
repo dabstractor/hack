@@ -16,12 +16,13 @@
  * import { createBaseConfig } from './agents/agent-factory.js';
  *
  * const architectConfig = createBaseConfig('architect');
- * // Returns AgentConfig with maxTokens: 8192, model: 'GLM-4.7'
+ * // Returns AgentConfig with maxTokens: 8192, model: 'zai/GLM-4.7', harness: 'pi'
  * ```
  */
 
 import { configureEnvironment, getModel } from '../config/environment.js';
 import { configureHarness } from '../config/harness.js';
+import type { AgentHarness } from '../config/types.js';
 import { getLogger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
 import {
@@ -37,9 +38,12 @@ import { GitMCP } from '../tools/git-mcp.js';
 // PATTERN: Configure environment at module load time (intentional side effect)
 // CRITICAL: This must execute before any agent creation
 configureEnvironment();
-// PATTERN: Configure harness at module load (intentional side effect).
-// MUST run after configureEnvironment() so ANTHROPIC_API_KEY is mapped.
-configureHarness();
+/**
+ * Resolved agent harness — captured once at startup from configureHarness()
+ * (PRD §9.4.2 cascade: global default unless overridden). configureHarness() also
+ * populates Groundswell's global singleton via configureHarnesses().
+ */
+const RESOLVED_HARNESS: AgentHarness = configureHarness();
 
 // Module-level logger for agent factory
 const logger = getLogger('AgentFactory');
@@ -92,8 +96,10 @@ export interface AgentConfig {
   readonly name: string;
   /** System prompt for the agent */
   readonly system: string;
-  /** Model identifier (e.g., 'GLM-4.7') */
+  /** Model identifier — provider-qualified 'provider/model' (e.g. 'zai/GLM-4.7'); never harness-qualified */
   readonly model: string;
+  /** Agent runtime harness id (PRD §9.4.2) — 'pi' | 'claude-code' */
+  readonly harness: AgentHarness;
   /** Enable LLM response caching */
   readonly enableCache: boolean;
   /** Enable error recovery with reflection */
@@ -140,10 +146,10 @@ const PERSONA_TOKEN_LIMITS = {
  * import { createBaseConfig } from './agents/agent-factory.js';
  *
  * const architectConfig = createBaseConfig('architect');
- * // { name: 'ArchitectAgent', model: 'GLM-4.7', maxTokens: 8192, ... }
+ * // { name: 'ArchitectAgent', model: 'zai/GLM-4.7', harness: 'pi', maxTokens: 8192, ... }
  *
  * const coderConfig = createBaseConfig('coder');
- * // { name: 'CoderAgent', model: 'GLM-4.7', maxTokens: 4096, ... }
+ * // { name: 'CoderAgent', model: 'zai/GLM-4.7', harness: 'pi', maxTokens: 4096, ... }
  * ```
  */
 export function createBaseConfig(persona: AgentPersona): AgentConfig {
@@ -162,6 +168,7 @@ export function createBaseConfig(persona: AgentPersona): AgentConfig {
     name,
     system,
     model,
+    harness: RESOLVED_HARNESS,
     enableCache: true,
     enableReflection: true,
     maxTokens: PERSONA_TOKEN_LIMITS[persona],

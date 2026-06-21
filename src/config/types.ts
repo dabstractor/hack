@@ -28,6 +28,8 @@ export type ModelTier = 'opus' | 'sonnet' | 'haiku';
  * @remarks
  * Defines the shape of validated environment variables.
  * All properties are required after configuration is complete.
+ * Model fields are provider-qualified ('provider/model'); the harness NEVER
+ * appears in the model string (PRD §9.2.3 / §9.4.3).
  *
  * @example
  * ```ts
@@ -36,9 +38,9 @@ export type ModelTier = 'opus' | 'sonnet' | 'haiku';
  * const config: EnvironmentConfig = {
  *   apiKey: 'sk-ant-...',
  *   baseURL: 'https://api.z.ai/api/anthropic',
- *   opusModel: 'GLM-4.7',
- *   sonnetModel: 'GLM-4.7',
- *   haikuModel: 'GLM-4.5-Air',
+ *   opusModel: 'zai/GLM-4.7',
+ *   sonnetModel: 'zai/GLM-4.7',
+ *   haikuModel: 'zai/GLM-4.5-Air',
  * };
  * ```
  */
@@ -47,11 +49,11 @@ export interface EnvironmentConfig {
   readonly apiKey: string;
   /** Base URL for z.ai API endpoint */
   readonly baseURL: string;
-  /** Model name for opus tier */
+  /** Provider-qualified model name for opus tier (e.g. 'zai/GLM-4.7') */
   readonly opusModel: string;
-  /** Model name for sonnet tier */
+  /** Provider-qualified model name for sonnet tier (e.g. 'zai/GLM-4.7') */
   readonly sonnetModel: string;
-  /** Model name for haiku tier */
+  /** Provider-qualified model name for haiku tier (e.g. 'zai/GLM-4.5-Air') */
   readonly haikuModel: string;
 }
 

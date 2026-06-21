@@ -41,6 +41,9 @@ coverage/
 .vitest/
 test-results.json
 
+# Test scratch directory
+tests/tmp/
+
 # ESLint cache
 .eslintcache
 

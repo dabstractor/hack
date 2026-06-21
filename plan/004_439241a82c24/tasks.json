@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Configuration & Model Resolution",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Establish the config foundation: read the harness from the environment, wire Groundswell's configureHarnesses() once at startup with the provider/harness compatibility guard, and provider-qualify all model strings returned by getModel(). These two tasks are the prerequisite for every later test and doc.",
           "tasks": [
             {
@@ -66,7 +66,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Provider-qualify model strings (zai/<model>)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Ensure every model string the pipeline hands to Groundswell is provider-qualified (e.g. zai/GLM-4.7), sourced from the environment at runtime, and never harness-qualified. Update getModel(), the model constants/types, and the agent-factory so createAgent() receives the qualified string. See architecture/delta_impact.md §A/§B and implementation_notes.md §2/§3.",
               "subtasks": [
                 {
@@ -89,7 +89,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Update model types/JSDoc and wire harness field into agent configs",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1",

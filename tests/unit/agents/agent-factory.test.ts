@@ -8,6 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_HARNESS } from '../../../src/config/constants.js';
 import {
   createBaseConfig,
   createArchitectAgent,
@@ -29,6 +30,7 @@ describe('agents/agent-factory', () => {
     beforeEach(() => {
       vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'test-token');
       vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.z.ai/api/anthropic');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-token');
     });
 
     const personas: AgentPersona[] = ['architect', 'researcher', 'coder', 'qa'];
@@ -44,6 +46,8 @@ describe('agents/agent-factory', () => {
       expect(config).toHaveProperty('enableCache');
       expect(config).toHaveProperty('enableReflection');
       expect(config).toHaveProperty('maxTokens');
+      expect(config).toHaveProperty('harness');
+      expect(config.harness).toBeDefined();
       expect(config).toHaveProperty('env');
     });
 
@@ -84,6 +88,16 @@ describe('agents/agent-factory', () => {
       // VERIFY: All personas use sonnet tier → zai/GLM-4.7 (provider-qualified)
       configs.forEach(config => {
         expect(config.model).toBe('zai/GLM-4.7');
+      });
+    });
+
+    it('should set harness to the resolved runtime (default pi) for all personas', () => {
+      // EXECUTE
+      const configs = personas.map(p => createBaseConfig(p));
+
+      // VERIFY: All personas use the default harness resolved at startup
+      configs.forEach(config => {
+        expect(config.harness).toBe(DEFAULT_HARNESS); // 'pi'
       });
     });
 
