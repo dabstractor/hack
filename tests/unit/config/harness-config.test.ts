@@ -14,11 +14,17 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// vi.hoisted() lifts controllable vi.fns ABOVE the vi.mock hoist boundary so the factory can reference them.
+const { mockHas, mockRegister } = vi.hoisted(() => ({
+  mockHas: vi.fn(() => false), // default: pi NOT registered → register() runs (existing behavior)
+  mockRegister: vi.fn(),
+}));
+
 // CRITICAL: mock configureHarnesses (Groundswell does NOT export reset/query helpers)
 vi.mock('groundswell', () => ({
   configureHarnesses: vi.fn(),
   HarnessRegistry: {
-    getInstance: () => ({ has: () => false, register: vi.fn() }),
+    getInstance: () => ({ has: mockHas, register: mockRegister }),
   },
   PiHarness: class MockPiHarness {},
 }));
@@ -31,6 +37,7 @@ import { DEFAULT_MODEL_PROVIDER } from '../../../src/config/constants.js';
 describe('config/harness', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockHas.mockReturnValue(false); // ensure each case starts in the "not registered" state
     delete process.env.PRP_AGENT_HARNESS;
     vi.stubEnv('ANTHROPIC_API_KEY', 'stubbed-key');
   });
@@ -101,5 +108,26 @@ describe('config/harness', () => {
 
     // VERIFY: configureHarnesses must NOT have been called
     expect(configureHarnesses).not.toHaveBeenCalled();
+  });
+
+  it('(e) skips register() when HarnessRegistry already has pi (skip branch)', () => {
+    // SETUP: simulate "pi already registered" — the idempotent skip path
+    mockHas.mockReturnValue(true);
+
+    // EXECUTE
+    const h = configureHarness();
+
+    // VERIFY: resolved harness still 'pi' ...
+    expect(h).toBe('pi');
+    // ... and register() was NOT called (the skip branch)
+    expect(mockRegister).not.toHaveBeenCalled();
+    // ... and configureHarnesses() WAS still called (registration-skip ≠ config-skip)
+    expect(configureHarnesses).toHaveBeenCalledTimes(1);
+    expect(configureHarnesses).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultHarness: 'pi',
+        defaultModelProvider: 'zai',
+      })
+    );
   });
 });

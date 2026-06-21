@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Issue 1 — Register the 'pi' harness at startup so createAgent() succeeds for all persona factories",
-              "status": "Planned",
+              "status": "Complete",
               "description": "configureHarness() calls Groundswell's configureHarnesses() which only stores a config singleton and never registers a harness INSTANCE in the HarnessRegistry. The Agent constructor then does HarnessRegistry.getInstance().get('pi') → undefined → throws 'Harness pi is not registered'. 5 tests in agent-factory.test.ts fail. Fix by registering a PiHarness instance (idempotently) inside configureHarness(), then update the mock-based config tests whose vi.mock('groundswell') stub currently omits PiHarness/HarnessRegistry.",
               "subtasks": [
                 {
@@ -58,7 +58,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Verify end-to-end persona factory creation (all 5 previously-failing tests green) and 100% branch coverage of the registration guard",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
