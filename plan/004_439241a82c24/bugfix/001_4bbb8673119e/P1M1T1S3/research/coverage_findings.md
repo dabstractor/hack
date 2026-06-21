@@ -13,6 +13,7 @@ Tests       107 passed (107)
 ```
 
 All 5 previously-failing persona-factory creation tests are GREEN:
+
 - `should create architect agent successfully`
 - `should create researcher agent successfully`
 - `should create coder agent successfully`
@@ -40,7 +41,8 @@ test (see §3).
 
 ```ts
 const registry = HarnessRegistry.getInstance();
-if (!registry.has('pi')) {        // ← TWO arcs: taken (register) / skipped
+if (!registry.has('pi')) {
+  // ← TWO arcs: taken (register) / skipped
   registry.register(new PiHarness());
 }
 ```
@@ -52,7 +54,9 @@ Both config test files (S2) use:
 ```ts
 vi.mock('groundswell', () => ({
   configureHarnesses: vi.fn(),
-  HarnessRegistry: { getInstance: () => ({ has: () => false, register: vi.fn() }) },
+  HarnessRegistry: {
+    getInstance: () => ({ has: () => false, register: vi.fn() }),
+  },
   PiHarness: class MockPiHarness {},
 }));
 ```
@@ -105,16 +109,19 @@ const { mockHas, mockRegister } = vi.hoisted(() => ({
 
 vi.mock('groundswell', () => ({
   configureHarnesses: vi.fn(),
-  HarnessRegistry: { getInstance: () => ({ has: mockHas, register: mockRegister }) },
+  HarnessRegistry: {
+    getInstance: () => ({ has: mockHas, register: mockRegister }),
+  },
   PiHarness: class MockPiHarness {},
 }));
 ```
 
 Then:
+
 - `beforeEach`: `mockHas.mockReturnValue(false); mockRegister.mockClear();`
   (plus existing `vi.clearAllMocks()` / env reset).
 - New test: `mockHas.mockReturnValue(true); configureHarness();
-  expect(mockRegister).not.toHaveBeenCalled();`
+expect(mockRegister).not.toHaveBeenCalled();`
 
 This is the ONLY structural change to the mock; all existing assertions
 (`configureHarnesses.toHaveBeenCalledWith(...)`, etc.) stay valid because
@@ -136,10 +143,10 @@ Both are safe (no pipeline executor import).
 
 ## 6. Files touched by this subtask
 
-| File | Change |
-|---|---|
-| `tests/unit/config/harness-config.test.ts` | Refactor `vi.mock` to use `vi.hoisted` controllable `mockHas`/`mockRegister`; add 1 skip-branch test case; update `beforeEach` resets. |
-| (optionally `tests/unit/config/harness-provider-compat.test.ts`) | Alternative host for the skip test — contract allows either. PRP picks `harness-config.test.ts`. |
+| File                                                             | Change                                                                                                                                 |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/unit/config/harness-config.test.ts`                       | Refactor `vi.mock` to use `vi.hoisted` controllable `mockHas`/`mockRegister`; add 1 skip-branch test case; update `beforeEach` resets. |
+| (optionally `tests/unit/config/harness-provider-compat.test.ts`) | Alternative host for the skip test — contract allows either. PRP picks `harness-config.test.ts`.                                       |
 
 **No source files change.** S1 shipped the production code; S2 shipped the mock
 skeleton; S3 is test-only verification + the explicit skip-branch case.

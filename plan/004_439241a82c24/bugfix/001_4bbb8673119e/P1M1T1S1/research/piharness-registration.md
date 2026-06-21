@@ -7,11 +7,13 @@ config singleton and never populates the `HarnessRegistry`.
 ## 1. Verified Groundswell API surface (`~/projects/groundswell/dist/index.js`)
 
 Main barrel exports (all three used by this fix):
+
 ```js
 17: export { HarnessRegistry, ProviderRegistry } from './harnesses/harness-registry.js';
 19: export { PiHarness } from './harnesses/pi-harness.js';
 21: export { configureHarnesses } from './utils/harness-config.js';
 ```
+
 → Safe to import all three from a single `'groundswell'` specifier.
 
 ## 2. HarnessRegistry singleton behavior (`dist/harnesses/harness-registry.js`)
@@ -27,6 +29,7 @@ register(provider) {
 has(id) { return this.providers.has(id); }  // boolean — use as the idempotency guard
 get(id) { return this.providers.get(id); }  // undefined when missing (does NOT throw)
 ```
+
 **Mandatory consequence:** `configureHarness()` runs at module-load in
 `agent-factory.ts`. Without the `if (!registry.has('pi'))` guard, the SECOND
 import of agent-factory (common across test files) would throw
@@ -44,6 +47,7 @@ import of agent-factory (common across test files) would throw
 ## 4. Why NOT `registerDefaultHarnesses()` from `groundswell/harnesses`
 
 (system_context.md §2, groundswell_harness_registry.md §1)
+
 - NOT exported from the main barrel — only the `'.'` path is in the published `exports` map.
 - It imports `ClaudeCodeHarness` → `@anthropic-ai/claude-agent-sdk`, which is not installed
   and would crash module load.

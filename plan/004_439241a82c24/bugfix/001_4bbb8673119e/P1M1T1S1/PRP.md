@@ -15,12 +15,14 @@ surgical, source-only, idempotent.
 
 **Deliverable**: A modified `src/config/harness.ts` whose `configureHarness()`
 function:
+
 1. Imports `PiHarness` and `HarnessRegistry` from `'groundswell'` (alongside the
    existing `configureHarnesses`).
 2. Inserts an idempotent registration block — `if (!registry.has('pi')) registry.register(new PiHarness())`
    — between Step 4 (provider-compat guard) and Step 5 (the `configureHarnesses()` call).
 
 **Success Definition**:
+
 - `npx tsc --noEmit -p tsconfig.build.json` reports **no new errors** in `src/config/harness.ts`
   (the file is currently clean — it must stay clean).
 - The registration is provably idempotent: calling `configureHarness()` twice must NOT throw
@@ -41,7 +43,7 @@ function:
   ("All persona factories must still create agents without throwing").
 - **`configureHarnesses()` does not register anything.** Confirmed in
   `architecture/system_context.md §2` and `architecture/groundswell_harness_registry.md §1`:
-  that function only stores a *config* singleton; the *instance* registry stays empty unless
+  that function only stores a _config_ singleton; the _instance_ registry stays empty unless
   someone explicitly calls `registry.register(...)`. So the registration MUST live in PRP code.
 - **Why here (and not `agent-factory.ts` or a new file):** `configureHarness()` is already the
   single startup entry point invoked at module-load in `agent-factory.ts`. Putting registration
@@ -60,6 +62,7 @@ function:
 ## What
 
 ### User-visible behavior
+
 None directly. Indirectly (once S2/S3 land): `createArchitectAgent()` and siblings stop
 throwing and return live `Agent` objects.
 
@@ -68,27 +71,31 @@ throwing and return live `Agent` objects.
 **File:** `src/config/harness.ts`.
 
 **(a) Change the groundswell import** from:
+
 ```ts
 import { configureHarnesses } from 'groundswell';
 ```
+
 to:
+
 ```ts
 import { configureHarnesses, PiHarness, HarnessRegistry } from 'groundswell';
 ```
 
 **(b) Insert the registration block** AFTER Step 4 (the provider-compatibility guard) and
 BEFORE Step 5 (the `configureHarnesses()` call):
+
 ```ts
-  // Step 4.5: Register the default 'pi' harness instance idempotently.
-  // configureHarnesses() only stores the config singleton — it does NOT populate the
-  // HarnessRegistry. createAgent() looks up registry.get('pi') and throws if missing,
-  // so we register a live PiHarness here. The has() guard is MANDATORY because
-  // configureHarness() runs at module-load in agent-factory.ts and registry.register()
-  // throws 'already registered' on the second call.
-  const registry = HarnessRegistry.getInstance();
-  if (!registry.has('pi')) {
-    registry.register(new PiHarness());
-  }
+// Step 4.5: Register the default 'pi' harness instance idempotently.
+// configureHarnesses() only stores the config singleton — it does NOT populate the
+// HarnessRegistry. createAgent() looks up registry.get('pi') and throws if missing,
+// so we register a live PiHarness here. The has() guard is MANDATORY because
+// configureHarness() runs at module-load in agent-factory.ts and registry.register()
+// throws 'already registered' on the second call.
+const registry = HarnessRegistry.getInstance();
+if (!registry.has('pi')) {
+  registry.register(new PiHarness());
+}
 ```
 
 **(c) Leave everything else unchanged** — Steps 1–4 and 5–6, the return value, all JSDoc,

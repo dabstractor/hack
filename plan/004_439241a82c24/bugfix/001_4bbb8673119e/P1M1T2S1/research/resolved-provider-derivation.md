@@ -2,10 +2,10 @@
 
 ## Baseline measurements (verified before writing PRP)
 
-| Gate | Command | Result |
-|---|---|---|
-| Target test file | `npm run test:run -- config/harness-provider-compat` | **5/5 pass** (test (b) `claude-code + zai throws` still green) |
-| Typecheck (total) | `npx tsc --noEmit -p tsconfig.build.json` | **18 errors**, ALL in `src/tools/{bash,filesystem,git}-mcp.ts` (Issue 4, pre-existing). **ZERO** in `src/config/harness.ts` or `src/config/environment.ts`. |
+| Gate              | Command                                              | Result                                                                                                                                                      |
+| ----------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Target test file  | `npm run test:run -- config/harness-provider-compat` | **5/5 pass** (test (b) `claude-code + zai throws` still green)                                                                                              |
+| Typecheck (total) | `npx tsc --noEmit -p tsconfig.build.json`            | **18 errors**, ALL in `src/tools/{bash,filesystem,git}-mcp.ts` (Issue 4, pre-existing). **ZERO** in `src/config/harness.ts` or `src/config/environment.ts`. |
 
 → My change must keep the test at 5/5 and must add **0 new** typecheck errors.
 

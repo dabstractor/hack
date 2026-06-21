@@ -2,7 +2,7 @@
 
 ## Summary
 
-`createAgent()` calls `new Agent(...)`, whose constructor unconditionally looks up the default harness (`'pi'`) in the `HarnessRegistry` singleton via `registry.get(effectiveHarness)` and throws `Harness '${effectiveHarness}' is not registered` when nothing has been registered. The registry is **empty by default** — nothing in `dist/index.js` or `configureHarnesses()` auto-registers a harness. The only function that populates the `'pi'` and `'claude-code'` instances is `registerDefaultHarnesses()` in `dist/harnesses/register-defaults.js`, and that function is **not** exported from the package's main entry (`dist/index.js`), nor is the `groundswell/harnesses` subpath declared in the published `package.json` `exports` map. Calling `configureHarnesses({ defaultHarness: 'pi' })` alone does NOT fix the bug — it only stores a *config* singleton, not a harness *instance*.
+`createAgent()` calls `new Agent(...)`, whose constructor unconditionally looks up the default harness (`'pi'`) in the `HarnessRegistry` singleton via `registry.get(effectiveHarness)` and throws `Harness '${effectiveHarness}' is not registered` when nothing has been registered. The registry is **empty by default** — nothing in `dist/index.js` or `configureHarnesses()` auto-registers a harness. The only function that populates the `'pi'` and `'claude-code'` instances is `registerDefaultHarnesses()` in `dist/harnesses/register-defaults.js`, and that function is **not** exported from the package's main entry (`dist/index.js`), nor is the `groundswell/harnesses` subpath declared in the published `package.json` `exports` map. Calling `configureHarnesses({ defaultHarness: 'pi' })` alone does NOT fix the bug — it only stores a _config_ singleton, not a harness _instance_.
 
 ## Findings
 
@@ -62,34 +62,45 @@ The module also re-exports a deprecated alias: `export const ProviderRegistry = 
 File: `node_modules/groundswell/dist/harnesses/pi-harness.js`
 
 Top-of-file imports (L1-6):
+
 ```js
-import { MCPHandler } from "../core/mcp-handler.js";
-import { parseModelSpec } from "../utils/model-spec.js";
-import { getGlobalHarnessConfig } from "../utils/harness-config.js";
-import { AGENT_ERROR_CODES } from "../types/agent.js";
-import { createSuccessResponse, createErrorResponse } from "../types/agent.js";
-import { ConfigError } from "./claude-code-harness.js";
-import { ModelRegistry, AuthStorage } from "@earendil-works/pi-coding-agent";
+import { MCPHandler } from '../core/mcp-handler.js';
+import { parseModelSpec } from '../utils/model-spec.js';
+import { getGlobalHarnessConfig } from '../utils/harness-config.js';
+import { AGENT_ERROR_CODES } from '../types/agent.js';
+import { createSuccessResponse, createErrorResponse } from '../types/agent.js';
+import { ConfigError } from './claude-code-harness.js';
+import { ModelRegistry, AuthStorage } from '@earendil-works/pi-coding-agent';
 ```
 
-Note the **top-level** `import { ModelRegistry, AuthStorage } from "@earendil-works/pi-coding-agent"` — this is a static import, so loading `pi-harness.js` requires the Pi SDK to be resolvable at import time (it is *not* lazily gated like the Anthropic SDK is).
+Note the **top-level** `import { ModelRegistry, AuthStorage } from "@earendil-works/pi-coding-agent"` — this is a static import, so loading `pi-harness.js` requires the Pi SDK to be resolvable at import time (it is _not_ lazily gated like the Anthropic SDK is).
 
 Class declaration + identifier (searching the file):
+
 ```js
 export class PiHarness {
-    /** Harness identifier (PRD §7.2). */
-    id = "pi";
-    capabilities = { mcp: true, skills: true, lsp: true, streaming: true, sessions: true, extendedThinking: true };
-    // ...
+  /** Harness identifier (PRD §7.2). */
+  id = 'pi';
+  capabilities = {
+    mcp: true,
+    skills: true,
+    lsp: true,
+    streaming: true,
+    sessions: true,
+    extendedThinking: true,
+  };
+  // ...
 }
 ```
 
 Constructor: implicit (no explicit `constructor(...)` — class field initializers only). `new PiHarness()` is a no-arg construction.
 
 Exports confirmation — `dist/index.js` contains:
+
 ```js
 export { PiHarness } from './harnesses/pi-harness.js';
 ```
+
 So `PiHarness` IS reachable from the package main entry (`groundswell`).
 
 ### 3. `ClaudeCodeHarness` — lazily imports `@anthropic-ai/claude-agent-sdk`
@@ -100,7 +111,7 @@ Top-of-file imports do **not** include `@anthropic-ai/claude-agent-sdk`. It is l
 
 ```js
 // inside async initialize(options):
-this.sdk = await import("@anthropic-ai/claude-agent-sdk");
+this.sdk = await import('@anthropic-ai/claude-agent-sdk');
 ```
 
 So importing `ClaudeCodeHarness` (and `new ClaudeCodeHarness()`) does **not** require the Anthropic SDK to be installed. The SDK only needs to resolve if/when `initialize()` is actually awaited. This matters because `registerDefaultHarnesses()` constructs `new ClaudeCodeHarness()` without calling `initialize()`, so merely registering it does not trigger the missing-dependency error.
@@ -115,28 +126,34 @@ So importing `ClaudeCodeHarness` (and `new ClaudeCodeHarness()`) does **not** re
 File: `node_modules/groundswell/dist/utils/harness-config.js`
 
 Module-private singleton:
+
 ```js
 let globalHarnessConfig = null;
 const DEFAULT_HARNESS_CONFIG = { defaultHarness: 'pi' };
 ```
 
 `configureHarnesses(config)` implementation (full body):
+
 ```js
 export function configureHarnesses(config) {
-    // Validate defaultHarness
-    if (!isValidHarnessId(config.defaultHarness)) {
-        throw new Error(`Invalid default harness: "${config.defaultHarness}". Supported harnesses: ${getSupportedHarnessesList()}`);
+  // Validate defaultHarness
+  if (!isValidHarnessId(config.defaultHarness)) {
+    throw new Error(
+      `Invalid default harness: "${config.defaultHarness}". Supported harnesses: ${getSupportedHarnessesList()}`
+    );
+  }
+  // Validate harnessDefaults keys (if present)
+  if (config.harnessDefaults) {
+    for (const id of Object.keys(config.harnessDefaults)) {
+      if (!isValidHarnessId(id)) {
+        throw new Error(
+          `Invalid harness in harnessDefaults: "${id}". Supported harnesses: ${getSupportedHarnessesList()}`
+        );
+      }
     }
-    // Validate harnessDefaults keys (if present)
-    if (config.harnessDefaults) {
-        for (const id of Object.keys(config.harnessDefaults)) {
-            if (!isValidHarnessId(id)) {
-                throw new Error(`Invalid harness in harnessDefaults: "${id}". Supported harnesses: ${getSupportedHarnessesList()}`);
-            }
-        }
-    }
-    // Store configuration (defaultModelProvider is open set — no validation)
-    globalHarnessConfig = config;
+  }
+  // Store configuration (defaultModelProvider is open set — no validation)
+  globalHarnessConfig = config;
 }
 ```
 
@@ -151,27 +168,31 @@ There is also a parallel deprecated legacy singleton `globalProviderConfig` (use
 File: `node_modules/groundswell/dist/harnesses/register-defaults.js`
 
 Full body:
+
 ```js
 import { HarnessRegistry } from './harness-registry.js';
 import { ClaudeCodeHarness } from './claude-code-harness.js';
 import { PiHarness } from './pi-harness.js';
 
-export function registerDefaultHarnesses(registry = HarnessRegistry.getInstance()) {
-    const CLAUDE_CODE = 'claude-code';
-    if (!registry.has(CLAUDE_CODE)) {
-        registry.register(new ClaudeCodeHarness());
-    }
-    const PI = 'pi';
-    if (!registry.has(PI)) {
-        registry.register(new PiHarness());
-    }
-    return registry;
+export function registerDefaultHarnesses(
+  registry = HarnessRegistry.getInstance()
+) {
+  const CLAUDE_CODE = 'claude-code';
+  if (!registry.has(CLAUDE_CODE)) {
+    registry.register(new ClaudeCodeHarness());
+  }
+  const PI = 'pi';
+  if (!registry.has(PI)) {
+    registry.register(new PiHarness());
+  }
+  return registry;
 }
 ```
 
 This is the only function in the published package that actually puts `PiHarness` and `ClaudeCodeHarness` instances into the registry. It is idempotent (`registry.has(...)` guards).
 
 Re-exported from `dist/harnesses/index.js`:
+
 ```js
 export { registerDefaultHarnesses } from './register-defaults.js';
 ```
@@ -179,6 +200,7 @@ export { registerDefaultHarnesses } from './register-defaults.js';
 **But** it is NOT exported from the package main entry `dist/index.js` (verified line-by-line: the barrel exports `PiHarness`, `ClaudeCodeHarness`, `HarnessRegistry`, `ProviderRegistry`, `configureHarnesses`, etc., but never `registerDefaultHarnesses`).
 
 **Published `package.json` `exports` field (verified):**
+
 ```json
 "exports": {
   ".": {
@@ -191,6 +213,7 @@ export { registerDefaultHarnesses } from './register-defaults.js';
 Only `"."` is declared. The subpath `groundswell/harnesses` is **NOT** in `exports`. Under Node ESM resolution with a non-wildcard `exports` map, `import { registerDefaultHarnesses } from 'groundswell/harnesses'` is rejected with `ERR_PACKAGE_PATH_NOT_EXPORTED`. The PRD's claim is confirmed.
 
 Workarounds that DO resolve:
+
 - `import { registerDefaultHarnesses } from 'groundswell/dist/harnesses/register-defaults.js'` (deep file path, works only because `dist` is published in `files`).
 - Constructing instances manually and calling `registry.register(...)` from the main barrel exports: `import { HarnessRegistry, PiHarness } from 'groundswell'`.
 
@@ -199,6 +222,7 @@ Workarounds that DO resolve:
 File: `node_modules/groundswell/dist/core/agent.js`
 
 Constructor body (1-indexed). The relevant block, starting at L60:
+
 ```js
 60:         const globalConfig = getGlobalProviderConfig();
 61:         const resolved = resolveProviderConfig(globalConfig, this.harnessId, this.harnessOptions);
@@ -216,10 +240,12 @@ Constructor body (1-indexed). The relevant block, starting at L60:
 This throw is synchronous in the constructor — so `new Agent(...)` (and therefore `createAgent(...)`) rejects synchronously with exactly the reported message when the registry is empty.
 
 Note the resolution chain:
+
 - `this.harnessId = config.harness ?? config.provider;` — both undefined when the caller does `createAgent({})` or `createAgent({ name: '...' })`.
 - `getGlobalProviderConfig()` returns the **legacy** default `{ defaultProvider: 'anthropic', providerDefaults: undefined }` if `configureProviders()` was never called. So `effectiveHarness` resolves to `'anthropic'` — NOT `'pi'` — unless the caller explicitly sets it.
 
 This means the literal error message the user reports (`"Harness 'pi' is not registered"`) implies one of:
+
 - The caller passed `{ harness: 'pi' }` (or `{ provider: 'pi' }`) to `createAgent`, OR
 - The caller called `configureProviders({ defaultProvider: 'pi' })` / `configureHarnesses({ defaultHarness: 'pi' })` first.
 
@@ -233,7 +259,7 @@ File: `node_modules/groundswell/dist/core/factory.js`
 
 ```js
 export function createAgent(config) {
-    return new Agent(config);
+  return new Agent(config);
 }
 ```
 
@@ -242,6 +268,7 @@ export function createAgent(config) {
 ## Sources
 
 Kept:
+
 - `node_modules/groundswell/dist/harnesses/harness-registry.js` — `HarnessRegistry` singleton source; line numbers cited above.
 - `node_modules/groundswell/dist/harnesses/pi-harness.js` — `PiHarness` (`id = "pi"`) + static `@earendil-works/pi-coding-agent` import at L7.
 - `node_modules/groundswell/dist/harnesses/claude-code-harness.js` — `ClaudeCodeHarness`; lazy `await import("@anthropic-ai/claude-agent-sdk")` in `initialize()`.

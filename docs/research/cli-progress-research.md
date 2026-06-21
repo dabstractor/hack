@@ -2,20 +2,20 @@
 
 ## 1. Official Documentation
 
-**NPM Package**: https://www.npmjs.com/package/cli-progress
-**GitHub Repository**: https://github.com/npkgz/cli-progress
-**TypeScript Definitions**: https://www.npmjs.com/package/@types/cli-progress
+**NPM Package**: <https://www.npmjs.com/package/cli-progress>
+**GitHub Repository**: <https://github.com/npkgz/cli-progress>
+**TypeScript Definitions**: <https://www.npmjs.com/package/@types/cli-progress>
 **Latest Version**: 3.12.0 (Released: February 19, 2023)
 **License**: MIT
 
 ### Documentation Sections
 
-- Single Bar Mode: https://github.com/npkgz/cli-progress#single-bar-mode
-- Multi Bar Mode: https://github.com/npkgz/cli-progress#multi-bar-mode
-- Options: https://github.com/npkgz/cli-progress#options-1
-- Examples: https://github.com/npkgz/cli-progress/tree/master/examples
-- Events: https://github.com/npkgz/cli-progress/blob/master/docs/events.md
-- Presets: https://github.com/npkgz/cli-progress/tree/master/presets
+- Single Bar Mode: <https://github.com/npkgz/cli-progress#single-bar-mode>
+- Multi Bar Mode: <https://github.com/npkgz/cli-progress#multi-bar-mode>
+- Options: <https://github.com/npkgz/cli-progress#options-1>
+- Examples: <https://github.com/npkgz/cli-progress/tree/master/examples>
+- Events: <https://github.com/npkgz/cli-progress/blob/master/docs/events.md>
+- Presets: <https://github.com/npkgz/cli-progress/tree/master/presets>
 
 ---
 
@@ -670,7 +670,7 @@ const bar = new cliProgress.SingleBar({}, customPreset);
    - Cons: Not recently updated (but mature and stable)
 
 2. **progress**
-   - https://www.npmjs.com/package/progress
+   - <https://www.npmjs.com/package/progress>
    - Simple, lightweight alternative
    - Less feature-rich than cli-progress
    - No built-in multi-bar support
@@ -684,12 +684,12 @@ const bar = new cliProgress.SingleBar({}, customPreset);
    - Check for latest updates
 
 5. **ora** (spinners, not progress bars)
-   - https://www.npmjs.com/package/ora
+   - <https://www.npmjs.com/package/ora>
    - Great for loading spinners
    - No progress bar functionality
 
 6. **listr** (task lists with progress)
-   - https://www.npmjs.com/package/listr
+   - <https://www.npmjs.com/package/listr>
    - Task list execution with progress indicators
    - Different paradigm but useful for similar use cases
 
@@ -865,7 +865,7 @@ npm install @types/cli-progress --save-dev
 
 **Key URLs**:
 
-- NPM: https://www.npmjs.com/package/cli-progress
-- GitHub: https://github.com/npkgz/cli-progress
-- Type Definitions: https://www.npmjs.com/package/@types/cli-progress
-- Examples: https://github.com/npkgz/cli-progress/tree/master/examples
+- NPM: <https://www.npmjs.com/package/cli-progress>
+- GitHub: <https://github.com/npkgz/cli-progress>
+- Type Definitions: <https://www.npmjs.com/package/@types/cli-progress>
+- Examples: <https://github.com/npkgz/cli-progress/tree/master/examples>

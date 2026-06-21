@@ -14,7 +14,7 @@
 
 **Search Queries:**
 
-```
+```text
 - "Vitest integration testing best practices 2026"
 - "site:vitest.dev integration testing setup configuration"
 - "site:github.com Vitest integration testing examples"
@@ -54,7 +54,7 @@
 
 **Search Queries:**
 
-```
+```text
 - "mocking external API calls Vitest testing patterns"
 - "Vitest mock HTTP requests fetch axios"
 - "MSW Mock Service Worker Vitest integration"
@@ -94,7 +94,7 @@
 
 **Search Queries:**
 
-```
+```text
 - "testing LLM agents external API calls Claude OpenAI"
 - "LangChain testing patterns mock LLM calls"
 - "LLM agent integration testing strategies"
@@ -134,7 +134,7 @@
 
 **Search Queries:**
 
-```
+```text
 - "prompt validation testing strategies LLM applications"
 - "LLM prompt engineering testing framework"
 - "prompt template testing validation"
@@ -174,7 +174,7 @@
 
 **Search Queries:**
 
-```
+```text
 - "Zod schema validation testing patterns TypeScript"
 - "testing Zod schemas Vitest examples"
 - "JSON schema validation testing LLM outputs"
@@ -310,15 +310,15 @@
 
 ### Phase 2: LLM-Specific Testing
 
-4. **LLM Agent Testing** - Patterns for testing AI agents
-5. **Prompt Validation** - Testing prompt generation
-6. **Response Validation** - Schema validation for outputs
+1. **LLM Agent Testing** - Patterns for testing AI agents
+2. **Prompt Validation** - Testing prompt generation
+3. **Response Validation** - Schema validation for outputs
 
 ### Phase 3: Advanced Topics
 
-7. **Integration Testing** - End-to-end workflow testing
-8. **Performance Testing** - Testing agent performance
-9. **Error Handling** - Testing failure scenarios
+1. **Integration Testing** - End-to-end workflow testing
+2. **Performance Testing** - Testing agent performance
+3. **Error Handling** - Testing failure scenarios
 
 ---
 

@@ -31,7 +31,7 @@
 
 **2. Validation Layers**
 
-```
+```text
 Input Validation → State Transition Validation → Storage Validation → Output Validation
 ```
 
@@ -105,7 +105,7 @@ Task State Schema:
 
 Valid Transition Matrix:
 
-```
+```text
 pending → running
 running → completed | failed | retrying
 retrying → running | failed
@@ -708,6 +708,7 @@ function validateTaskBatch(tasks: unknown[]): BatchValidationResult {
    ```
 
 4. **Extract types for TypeScript**
+
    ```typescript
    type TaskInput = z.input<typeof TaskSchema>;
    type TaskOutput = z.output<typeof TaskSchema>;
@@ -1420,7 +1421,7 @@ async function cleanupOrphanedTasks(
 
 ### 4.1 Validation Layer Architecture
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │         Application Layer               │
 ├─────────────────────────────────────────┤
@@ -1524,105 +1525,105 @@ async function runHealthCheck(
 
 **Zod Validation**
 
-- Official Docs: https://zod.dev/
-- GitHub Repository: https://github.com/colinhacks/zod
-- Error Handling: https://zod.dev/?id=error-handling
-- Custom Validators: https://zod.dev/?id=refine
-- Advanced Patterns: https://zod.dev/?id=advanced
+- Official Docs: <https://zod.dev/>
+- GitHub Repository: <https://github.com/colinhacks/zod>
+- Error Handling: <https://zod.dev/?id=error-handling>
+- Custom Validators: <https://zod.dev/?id=refine>
+- Advanced Patterns: <https://zod.dev/?id=advanced>
 
 **JSON Schema**
 
-- Official Specification: https://json-schema.org/
-- Understanding JSON Schema: https://json-schema.org/understanding-json-schema/
-- Validation Best Practices: https://json-schema.org/learn/
+- Official Specification: <https://json-schema.org/>
+- Understanding JSON Schema: <https://json-schema.org/understanding-json-schema/>
+- Validation Best Practices: <https://json-schema.org/learn/>
 
 **Node.js File System**
 
-- fs.promises API: https://nodejs.org/api/fs.html#fspromises-api
-- Atomic Writes: https://nodejs.org/api/fs.html#fsrenameoldpath-newpath-callback
+- fs.promises API: <https://nodejs.org/api/fs.html#fspromises-api>
+- Atomic Writes: <https://nodejs.org/api/fs.html#fsrenameoldpath-newpath-callback>
 
 ### Algorithms and Data Structures
 
 **Graph Algorithms**
 
-- Topological Sorting (Kahn's Algorithm): https://en.wikipedia.org/wiki/Topological_sorting
-- DFS-based Cycle Detection: https://en.wikipedia.org/wiki/Cycle_(graph_theory)#Cycle_detection
-- Directed Acyclic Graphs: https://en.wikipedia.org/wiki/Directed_acyclic_graph
+- Topological Sorting (Kahn's Algorithm): <https://en.wikipedia.org/wiki/Topological_sorting>
+- DFS-based Cycle Detection: <https://en.wikipedia.org/wiki/Cycle_(graph_theory)#Cycle_detection>
+- Directed Acyclic Graphs: <https://en.wikipedia.org/wiki/Directed_acyclic_graph>
 
 **Dependency Management**
 
-- Dependency Resolution Algorithms: https://en.wikipedia.org/wiki/Dependency_resolution
-- Package Manager Algorithms: https://github.com/npm/npm/blob/latest/lib/install/deps.js
+- Dependency Resolution Algorithms: <https://en.wikipedia.org/wiki/Dependency_resolution>
+- Package Manager Algorithms: <https://github.com/npm/npm/blob/latest/lib/install/deps.js>
 
 ### Community Resources
 
 **StackOverflow - Circular Dependency Detection**
 
-- DFS Cycle Detection in JavaScript: https://stackoverflow.com/questions/14982352/
-- Detecting Cycles in Directed Graph: https://stackoverflow.com/questions/10825449/
-- Topological Sort Implementation: https://stackoverflow.com/questions/11192816/
+- DFS Cycle Detection in JavaScript: <https://stackoverflow.com/questions/14982352/>
+- Detecting Cycles in Directed Graph: <https://stackoverflow.com/questions/10825449/>
+- Topological Sort Implementation: <https://stackoverflow.com/questions/11192816/>
 
 **GitHub Repositories - Validation Patterns**
 
 **TypeScript/Node.js**
 
-- https://github.com/colinhacks/zod (Zod validation library)
-- https://github.com/ajv-validator/ajv (JSON Schema validator)
-- https://github.com/sindresorhus/ow (Argument validation)
-- https://github.com/jquense/yup (Schema validation)
+- <https://github.com/colinhacks/zod> (Zod validation library)
+- <https://github.com/ajv-validator/ajv> (JSON Schema validator)
+- <https://github.com/sindresorhus/ow> (Argument validation)
+- <https://github.com/jquense/yup> (Schema validation)
 
 **Task/State Management**
 
-- https://github.com/facebook/draft-js (Rich text editor with state management)
-- https://github.com/reduxjs/redux (Predictable state container)
-- https://github.com/ag-grid/ag-grid (Data grid with complex state)
+- <https://github.com/facebook/draft-js> (Rich text editor with state management)
+- <https://github.com/reduxjs/redux> (Predictable state container)
+- <https://github.com/ag-grid/ag-grid> (Data grid with complex state)
 
 **Best Practice Articles**
 
 **General Validation**
 
-- https://kentcdodds.com/blog/how-to-write-validations-in-your-code
-- https://www.builder.io/blog/zod-safe-type-validation-in-typescript
-- https://blog.logrocket.com/zod-typescript-schema-validation/
+- <https://kentcdodds.com/blog/how-to-write-validations-in-your-code>
+- <https://www.builder.io/blog/zod-safe-type-validation-in-typescript>
+- <https://blog.logrocket.com/zod-typescript-schema-validation/>
 
 **File System Operations**
 
-- https://nodejs.org/en/knowledge/file-system/security/
-- https://blog.heroku.com/better-file-writes-with-node
-- https://www.kernel.org/doc/html/latest/filesystems/
+- <https://nodejs.org/en/knowledge/file-system/security/>
+- <https://blog.heroku.com/better-file-writes-with-node>
+- <https://www.kernel.org/doc/html/latest/filesystems/>
 
 **Error Handling**
 
-- https://www.joyent.com/node-js/production/design/errors
-- https://martinfowler.com/articles/replaceThrowWithNotification.html
-- https://medium.com/@benastontweet/typescript-error-handling-4841b37f7526
+- <https://www.joyent.com/node-js/production/design/errors>
+- <https://martinfowler.com/articles/replaceThrowWithNotification.html>
+- <https://medium.com/@benastontweet/typescript-error-handling-4841b37f7526>
 
 ### Testing Resources
 
 **Validation Testing**
 
-- https://vitest.dev/guide/assertion.html (Vitest assertions)
-- https://jestjs.io/docs/expect (Jest matchers)
-- https://testing-library.com/docs/ (Testing library principles)
+- <https://vitest.dev/guide/assertion.html> (Vitest assertions)
+- <https://jestjs.io/docs/expect> (Jest matchers)
+- <https://testing-library.com/docs/> (Testing library principles)
 
 **Property-Based Testing**
 
-- https://github.com/dubzzz/fast-check (Property-based testing for JS/TS)
-- https://prop-testing.com/ (Property-based testing guide)
+- <https://github.com/dubzzz/fast-check> (Property-based testing for JS/TS)
+- <https://prop-testing.com/> (Property-based testing guide)
 
 ### Additional Reading
 
 **State Machine Design**
 
-- https://statecharts.dev/ (Statecharts and state machines)
-- https://github.com/statelyai/xstate (State machine library)
-- https://www.patternsforcloud.org/state-management (Cloud patterns)
+- <https://statecharts.dev/> (Statecharts and state machines)
+- <https://github.com/statelyai/xstate> (State machine library)
+- <https://www.patternsforcloud.org/state-management> (Cloud patterns)
 
 **Data Integrity**
 
-- https://www.postgresql.org/docs/current/ddl-constraints.html (Database constraints)
-- https://www.sqlite.org/lockingv3.html (File locking in SQLite)
-- https://en.wikipedia.org/wiki/ACID (Database transactions)
+- <https://www.postgresql.org/docs/current/ddl-constraints.html> (Database constraints)
+- <https://www.sqlite.org/lockingv3.html> (File locking in SQLite)
+- <https://en.wikipedia.org/wiki/ACID> (Database transactions)
 
 ---
 

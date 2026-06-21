@@ -14,6 +14,7 @@ and `npm run docs:lint:fix` **execute markdownlint** instead of dying with
 with **zero source-code changes and zero script edits** — surgical, config-only.
 
 **Deliverable**:
+
 1. `package.json` gains `"markdownlint-cli": "^0.49.0"` (or latest) in `devDependencies`
    (alphabetical placement, consistent with the existing sorted list).
 2. `package-lock.json` is updated atomically by `npm install --save-dev markdownlint-cli`.
@@ -21,6 +22,7 @@ with **zero source-code changes and zero script edits** — surgical, config-onl
    version string.
 
 **Success Definition**:
+
 - `npm run docs:lint` **no longer exits with `command not found`** — it invokes the real
   `markdownlint` binary against `docs/**/*.md`.
 - The exit is allowed to be non-zero (lint violations are expected and are fixed in
@@ -49,7 +51,7 @@ with **zero source-code changes and zero script edits** — surgical, config-onl
   NOTE point (d).)
 - **Scope guard:** This subtask is intentionally minimal. Fixing the actual markdownlint
   violations (or adding a config file) is **P1.M2.T1.S2**. The `npm run validate` gate
-  (Issue 4 type-drift + format:check) is **P1.M2.T2**. S1 does NOT make lint *pass* and does
+  (Issue 4 type-drift + format:check) is **P1.M2.T2**. S1 does NOT make lint _pass_ and does
   NOT touch `npm run validate`.
 
 ---
@@ -57,32 +59,39 @@ with **zero source-code changes and zero script edits** — surgical, config-onl
 ## What
 
 ### User-visible behavior
+
 None at runtime. Developer-facing: `npm run docs:lint` now launches markdownlint instead of
 erroring immediately.
 
 ### Technical requirements (exact contract — verbatim from the work item)
 
 **(a) Install the package as a devDependency:**
+
 ```bash
 npm install --save-dev markdownlint-cli
 ```
+
 (Equivalent: `npm install -D markdownlint-cli`.) This adds the `^0.49.0` (or newer latest)
 entry to `devDependencies` AND updates `package-lock.json` in one atomic operation.
 
 **(b) Confirm the binary resolves** (at least one of):
+
 ```bash
 ls node_modules/.bin/markdownlint          # the shim file must exist
 npx markdownlint --version                 # must print a version (0.49.x)
 ```
 
 **(c) Do NOT change the scripts.** `package.json` lines stay exactly:
+
 ```json
 "docs:lint": "markdownlint \"docs/**/*.md\"",
 "docs:lint:fix": "markdownlint \"docs/**/*.md\" --fix",
 ```
+
 The `markdownlint-cli` binary name is `markdownlint`, so the scripts already match.
 
 **(d) Run the gate:**
+
 ```bash
 npm run docs:lint
 ```

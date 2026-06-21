@@ -1031,6 +1031,7 @@ describe('ModuleName', () => {
    ```
 
 5. **Meaningful Error Messages**
+
    ```typescript
    it('should throw validation error for invalid email', () => {
      expect(() => createUser({ email: 'invalid' })).toThrow(

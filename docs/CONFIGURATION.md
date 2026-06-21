@@ -155,10 +155,10 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. All options can be p
 
 ### Execution Mode
 
-| Option            | Type   | Choices                          | Default  | Description                                                                                 |
-| ----------------- | ------ | -------------------------------- | -------- | ------------------------------------------------------------------------------------------- |
-| `--mode <mode>`   | string | `normal`, `bug-hunt`, `validate` | `normal` | Execution mode                                                                              |
-| `--scope <scope>` | string | -                                | -        | Scope identifier (e.g., `P3.M4`, `P3.M4.T2`). See [Scope Syntax](#scope-syntax) for format. |
+| Option            | Type   | Choices                          | Default  | Description                                              |
+| ----------------- | ------ | -------------------------------- | -------- | -------------------------------------------------------- |
+| `--mode <mode>`   | string | `normal`, `bug-hunt`, `validate` | `normal` | Execution mode                                           |
+| `--scope <scope>` | string | -                                | -        | Scope identifier. See [Execution Mode](#execution-mode). |
 
 **Execution Modes:**
 

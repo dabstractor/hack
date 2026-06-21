@@ -124,19 +124,19 @@ const example = 'code';
 ```
 ````
 
-# No syntax highlighting
+##### No syntax highlighting
 
-```
+```text
 Plain text or generic code
 ```
 
-# With file name
+##### With file name
 
 ```javascript title="src/utils/example.js"
 const example = 'code';
 ```
 
-````
+````text
 
 #### Tables
 ```markdown
@@ -224,7 +224,7 @@ Exceptions and cases where this rule doesn't apply.
 
 Links to similar or related rules.
 
-````
+````text
 
 #### Pattern 2: Fix Guide Template
 ```markdown
@@ -289,7 +289,7 @@ const fixedCode = 'here';
 - [Bullet points highlighting key changes]
 - [Focus on why each change matters]
 
-````
+````text
 
 #### Real Example
 ```markdown
@@ -302,7 +302,7 @@ var count = 0;
 var count = 1; // No error, but confusing
 ````
 
-#### After
+##### After
 
 ```javascript
 // ✅ Using const prevents accidental redeclaration
@@ -310,13 +310,13 @@ const count = 0;
 // count = 1; // This would throw an error
 ```
 
-#### Changes
+##### Changes
 
 - Replaced `var` with `const` to prevent reassignment
 - Makes the code more predictable and easier to reason about
 - Helps catch bugs where variables are accidentally reassigned
 
-````
+````text
 
 ### 2.2 Multi-File Before/After Pattern
 
@@ -330,7 +330,7 @@ src/
 ├── utils.js (500+ lines)
 └── helpers.js (300+ lines)
 
-```
+```text
 
 #### After Structure
 ```
@@ -344,7 +344,7 @@ src/
 ├── dom.js
 └── async.js
 
-````
+````text
 
 #### Before: src/utils.js
 ```javascript
@@ -387,7 +387,7 @@ export function filter() {
 - Improved tree-shaking
 - Clearer module responsibilities
 
-````
+````text
 
 ### 2.3 Code Example Best Practices
 
@@ -448,62 +448,69 @@ const finalPrice = calculateDiscount(100, 0.2); // $80
 4. Clear return statement
 5. Practical usage example with expected output
 
-````
-
 ---
 
-## 3. Categorization and Prioritization
+## 3. Categorization and Prioritization {#3-categorization-and-prioritization}
 
 ### 3.1 ESLint Rule Categories
 
 Based on [ESLint's official categorization](https://eslint.org/docs/latest/rules/):
 
-```markdown
+````markdown
 ## Category 1: Possible Errors
+
 **Priority**: CRITICAL
 **Description**: Rules that relate to detecting syntax or logic errors
 
 Examples:
+
 - `no-unused-vars`: Variables defined but not used
 - `no-undef`: Variables used without being defined
 - `no-dupe-keys`: Duplicate keys in object literals
 
 ## Category 2: Best Practices
+
 **Priority**: HIGH
 **Description**: Rules that suggest better ways of doing things
 
 Examples:
+
 - `eqeqeq`: Require === and !==
 - `no-eval`: Disallow eval()
 - `consistent-return`: Require return statements
 
 ## Category 3: Stylistic Issues
+
 **Priority**: MEDIUM
 **Description**: Rules that enforce consistent code style
 
 Examples:
+
 - `indent`: Enforce consistent indentation
 - `quotes`: Enforce consistent quote style
 - `semi`: Require or disallow semicolons
 
 ## Category 4: ES6+
+
 **Priority**: MEDIUM
 **Description**: Rules for modern JavaScript features
 
 Examples:
+
 - `no-var`: Disallow var
 - `prefer-const`: Use const when variable isn't reassigned
 - `prefer-arrow-callback`: Prefer arrow functions for callbacks
 
 ## Category 5: Variables
+
 **Priority**: HIGH
 **Description**: Rules related to variable declarations
 
 Examples:
+
 - `no-console`: Disallow console statements
 - `no-shadow`: Disallow variable shadowing
 - `no-use-before-define`: Disallow use before definition
-````
 
 ### 3.2 Severity Matrix
 
@@ -516,6 +523,7 @@ Examples:
 | Variables        | ⚠️ Recommended  | ✅ Default | Sometimes | Based on team preference    |
 | Legacy           | ⚠️ Case-by-case | ✅ Default | ✅ Yes    | Disable if not applicable   |
 ```
+````
 
 ### 3.3 Prioritization Framework
 
@@ -755,7 +763,7 @@ npm run test
 - [Documentation](link)
 - [Discussion](link)
 
-````
+````text
 
 ### 4.2 Making Recommendations Actionable
 
@@ -830,7 +838,7 @@ npm run lint -- --format html --output-file lint-report.html
 npm run lint -- --format compact
 ```
 
-````
+````text
 
 ### 4.4 Checklist-Based Recommendations
 
@@ -1163,7 +1171,7 @@ if (x === y) {
 - [Full Documentation](./README.md)
 - [Troubleshooting](./troubleshooting.md)
 
-````
+````text
 
 ### 6.2 Cheat Sheet Pattern
 
@@ -1226,7 +1234,7 @@ eslint --format json > report.json
 5. Run tests
 6. Commit
 
-````
+````text
 
 ### 6.3 One-Page Reference Pattern
 
@@ -1346,16 +1354,15 @@ eslint --fix --rule 'no-var: error' --rule 'prefer-const: warn'
 - [ ] Avoid shadowing
 - [ ] Use meaningful names
 
-````
-
 ---
 
-## 7. Tools and Templates
+## 7. Tools and Templates {#7-tools-and-templates}
 
 ### 7.1 Documentation Tools
 
 #### Markdown Linting
-```bash
+
+````bash
 # Install markdownlint
 npm install -g markdownlint-cli
 
@@ -1364,7 +1371,6 @@ markdownlint **/*.md
 
 # Auto-fix
 markdownlint --fix **/*.md
-````
 
 #### Table of Contents Generation
 
@@ -1378,7 +1384,7 @@ markdown-toc -i README.md
 # For VS Code
 # Install: "Markdown All in One" extension
 # Command: "Create Table of Contents"
-```
+````
 
 #### Link Checking
 
@@ -1516,17 +1522,16 @@ find . -name "*.md" -exec markdown-link-check {} \;
 - [Change 1]
 - [Change 2]
 
-````
-
 ---
 
-## 8. Examples from Popular Projects
+## 8. Examples from Popular Projects {#8-examples-from-popular-projects}
 
 ### 8.1 ESLint Official Documentation Pattern
 
-Source: https://eslint.org/docs/latest/rules/
+Source: <https://eslint.org/docs/latest/rules/>
 
 **Key Elements**:
+
 1. Clear rule name and description
 2. Rule icon indicating status (✅, ⚠️)
 3. Options table
@@ -1535,7 +1540,8 @@ Source: https://eslint.org/docs/latest/rules/
 6. Related rules
 
 **Pattern**:
-```markdown
+
+````markdown
 # Rule Name
 
 [Description]
@@ -1543,14 +1549,16 @@ Source: https://eslint.org/docs/latest/rules/
 ## Options
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| ... | ... | ... | ... |
+| ------ | ---- | ------- | ----------- |
+| ...    | ...  | ...     | ...         |
 
 ## Examples
 
 ### Incorrect
+
 ```js
 // ❌ Bad example
+```
 ````
 
 ### Correct
@@ -1568,7 +1576,7 @@ Source: https://eslint.org/docs/latest/rules/
 - [rule-1](link)
 - [rule-2](link)
 
-````
+````text
 
 ### 8.2 Airbnb Style Guide Pattern
 
@@ -1601,7 +1609,7 @@ Source: https://github.com/airbnb/javascript
 
 **Exceptions**: [When to break the rule]
 
-````
+````text
 
 ### 8.3 TypeScript-ESLint Pattern
 
@@ -1640,7 +1648,7 @@ Source: https://typescript-eslint.io/rules/
 
 ### 8.4 MDN Documentation Pattern
 
-Source: https://developer.mozilla.org/
+Source: <https://developer.mozilla.org/>
 
 **Key Elements**:
 
@@ -1664,23 +1672,23 @@ Source: https://developer.mozilla.org/
 ```
 ````
 
-## Examples
+#### Examples
 
 [Practical examples]
 
-## Specifications
+#### Specifications
 
 [Standards references]
 
-## Browser Compatibility
+#### Browser Compatibility
 
 [Compatibility table]
 
-## See Also
+#### See Also
 
 [Related topics]
 
-```
+```text
 
 ---
 

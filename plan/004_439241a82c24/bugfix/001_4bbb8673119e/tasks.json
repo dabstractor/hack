@@ -132,7 +132,7 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Issue 3 — Restore npm run docs:lint by adding markdownlint-cli",
-              "status": "Planned",
+              "status": "Complete",
               "description": "The docs:lint script runs `markdownlint \"docs/**/*.md\"` but markdownlint-cli is not in devDependencies and not installed, so it always fails with 'command not found'. Add the dependency and fix any lint violations in the existing docs so the gate is green.",
               "subtasks": [
                 {
@@ -154,7 +154,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "Fix markdownlint violations in docs/**/*.md (or add config) so docs:lint exits 0",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"

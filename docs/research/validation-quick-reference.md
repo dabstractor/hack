@@ -11,98 +11,98 @@
 
 **Official Documentation**
 
-- **Zod Homepage**: https://zod.dev/
+- **Zod Homepage**: <https://zod.dev/>
   - Main documentation with all features and examples
-- **GitHub Repository**: https://github.com/colinhacks/zod
+- **GitHub Repository**: <https://github.com/colinhacks/zod>
   - Source code, issues, and contribution guidelines
-- **Error Handling Guide**: https://zod.dev/?id=error-handling
+- **Error Handling Guide**: <https://zod.dev/?id=error-handling>
   - How to handle and format validation errors
-- **Custom Validators**: https://zod.dev/?id=refine
+- **Custom Validators**: <https://zod.dev/?id=refine>
   - Building custom validation logic with `.refine()`
-- **Advanced Patterns**: https://zod.dev/?id=advanced
+- **Advanced Patterns**: <https://zod.dev/?id=advanced>
   - Recursive types, transforms, and complex schemas
 
 **Key Articles**
 
-- https://www.builder.io/blog/zod-safe-type-validation-in-typescript
-- https://blog.logrocket.com/zod-typescript-schema-validation/
-- https://kentcdodds.com/blog/how-to-write-validations-in-your-code
+- <https://www.builder.io/blog/zod-safe-type-validation-in-typescript>
+- <https://blog.logrocket.com/zod-typescript-schema-validation/>
+- <https://kentcdodds.com/blog/how-to-write-validations-in-your-code>
 
 ### JSON Schema Validation
 
 **Official Resources**
 
-- **JSON Schema Specification**: https://json-schema.org/
-- **Understanding JSON Schema**: https://json-schema.org/understanding-json-schema/
+- **JSON Schema Specification**: <https://json-schema.org/>
+- **Understanding JSON Schema**: <https://json-schema.org/understanding-json-schema/>
   - Learn JSON Schema from basics to advanced
-- **Validation Best Practices**: https://json-schema.org/learn/
+- **Validation Best Practices**: <https://json-schema.org/learn/>
 
 **Tools**
 
-- **Ajv Validator**: https://github.com/ajv-validator/ajv
+- **Ajv Validator**: <https://github.com/ajv-validator/ajv>
   - Fast JSON Schema validator for JavaScript
-- **json-schema-to-ts**: https://github.com/ThomasAribart/json-schema-to-ts
+- **json-schema-to-ts**: <https://github.com/ThomasAribart/json-schema-to-ts>
   - Convert JSON Schema to TypeScript types
 
 ### Graph Algorithms for Dependencies
 
 **Algorithm References**
 
-- **Topological Sorting**: https://en.wikipedia.org/wiki/Topological_sorting
+- **Topological Sorting**: <https://en.wikipedia.org/wiki/Topological_sorting>
   - Khan's algorithm for DAG validation
-- **DFS Cycle Detection**: https://en.wikipedia.org/wiki/Cycle_(graph_theory)#Cycle_detection
+- **DFS Cycle Detection**: <https://en.wikipedia.org/wiki/Cycle_(graph_theory)#Cycle_detection>
   - Three-color marking algorithm
-- **Directed Acyclic Graphs**: https://en.wikipedia.org/wiki/Directed_acyclic_graph
+- **Directed Acyclic Graphs**: <https://en.wikipedia.org/wiki/Directed_acyclic_graph>
   - DAG properties and algorithms
 
 **StackOverflow Discussions**
 
 - Detect cycles in directed graph:
-  - https://stackoverflow.com/questions/10825449/detecting-cycles-in-directed-graph
+  - <https://stackoverflow.com/questions/10825449/detecting-cycles-in-directed-graph>
 - DFS cycle detection in JavaScript:
-  - https://stackoverflow.com/questions/14982352/
+  - <https://stackoverflow.com/questions/14982352/>
 - Topological sort implementation:
-  - https://stackoverflow.com/questions/11192816/
+  - <https://stackoverflow.com/questions/11192816/>
 
 ### File System and Data Integrity
 
 **Node.js Documentation**
 
-- **fs.promises API**: https://nodejs.org/api/fs.html#fspromises-api
+- **fs.promises API**: <https://nodejs.org/api/fs.html#fspromises-api>
   - Async file system operations
-- **Atomic Rename**: https://nodejs.org/api/fs.html#fsrenameoldpath-newpath-callback
+- **Atomic Rename**: <https://nodejs.org/api/fs.html#fsrenameoldpath-newpath-callback>
   - Atomic file replacement for safe writes
-- **File Locking**: https://nodejs.org/api/fs.html#class-fs Promises
+- **File Locking**: <https://nodejs.org/api/fs.html#class-fs> Promises
   - Managing concurrent file access
 
 **Best Practices**
 
-- **Atomic Writes Guide**: https://blog.heroku.com/better-file-writes-with-node
-- **Node.js Security**: https://nodejs.org/en/knowledge/file-system/security/
-- **File System Patterns**: https://www.kernel.org/doc/html/latest/filesystems/
+- **Atomic Writes Guide**: <https://blog.heroku.com/better-file-writes-with-node>
+- **Node.js Security**: <https://nodejs.org/en/knowledge/file-system/security/>
+- **File System Patterns**: <https://www.kernel.org/doc/html/latest/filesystems/>
 
 **File Locking Libraries**
 
-- **proper-lockfile**: https://github.com/moxystudio/node-proper-lockfile
+- **proper-lockfile**: <https://github.com/moxystudio/node-proper-lockfile>
   - Cross-platform file locking
-- **lockfile**: https://github.com/npm/lockfile
+- **lockfile**: <https://github.com/npm/lockfile>
   - Simple lockfile implementation
 
 ### State Management Patterns
 
 **State Machine Design**
 
-- **Statecharts**: https://statecharts.dev/
+- **Statecharts**: <https://statecharts.dev/>
   - Hierarchical state machines
-- **XState Library**: https://github.com/statelyai/xstate
+- **XState Library**: <https://github.com/statelyai/xstate>
   - State machine library with great TypeScript support
-- **State Management Patterns**: https://www.patternsforcloud.org/state-management
+- **State Management Patterns**: <https://www.patternsforcloud.org/state-management>
 
 **Task/Workflow Systems**
 
-- **Redux State Management**: https://github.com/reduxjs/redux
+- **Redux State Management**: <https://github.com/reduxjs/redux>
   - Predictable state container patterns
-- **Workflow Engines**: https://github.com/temporalio/sdk-typescript
+- **Workflow Engines**: <https://github.com/temporalio/sdk-typescript>
   - Durable execution for workflows
 
 ---
@@ -371,14 +371,14 @@ public getBlockingDependencies(subtask: Subtask): Subtask[] {
 
 **Property-Based Testing**
 
-- **fast-check**: https://github.com/dubzzz/fast-check
+- **fast-check**: <https://github.com/dubzzz/fast-check>
   - Generate test cases automatically
-- **Property Testing Guide**: https://prop-testing.com/
+- **Property Testing Guide**: <https://prop-testing.com/>
 
 **Validation Testing**
 
-- **Vitest Assertions**: https://vitest.dev/guide/assertion.html
-- **Testing Library**: https://testing-library.com/docs/
+- **Vitest Assertions**: <https://vitest.dev/guide/assertion.html>
+- **Testing Library**: <https://testing-library.com/docs/>
 
 ---
 
@@ -386,18 +386,18 @@ public getBlockingDependencies(subtask: Subtask): Subtask[] {
 
 **Error Handling**
 
-- https://martinfowler.com/articles/replaceThrowWithNotification.html
-- https://www.joyent.com/node-js/production/design/errors
+- <https://martinfowler.com/articles/replaceThrowWithNotification.html>
+- <https://www.joyent.com/node-js/production/design/errors>
 
 **Data Integrity**
 
-- https://www.postgresql.org/docs/current/ddl-constraints.html
-- https://en.wikipedia.org/wiki/ACID
+- <https://www.postgresql.org/docs/current/ddl-constraints.html>
+- <https://en.wikipedia.org/wiki/ACID>
 
 **Type Safety**
 
-- https://www.typescriptlang.org/docs/handbook/declaration-files/do-s-and-don-ts.html
-- https://effect.website/docs/guides/validation/
+- <https://www.typescriptlang.org/docs/handbook/declaration-files/do-s-and-don-ts.html>
+- <https://effect.website/docs/guides/validation/>
 
 ---
 

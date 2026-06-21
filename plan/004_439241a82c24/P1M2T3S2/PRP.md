@@ -34,11 +34,11 @@ convention of wide tables tripping MD013.
   exactly `#harness-system` (sibling P1.M2.T3.S1 links here).
 - Content **mirrors PRD §9.4** at minimum: the supported-harnesses table
   (§9.4.1), the `configureHarnesses({ defaultHarness:'pi',
-  defaultModelProvider:'zai', harnessDefaults })` startup config (§9.4.2), the
+defaultModelProvider:'zai', harnessDefaults })` startup config (§9.4.2), the
   four critical rules (§9.4.3), and the capability reference table (§9.4.4), plus
   a short integration example showing the PRP startup call.
 - Content is **consistent with the implemented code** — `defaultModelProvider:
-  'zai'` (NOT the upstream's `'anthropic'`), `PRP_AGENT_HARNESS` default `pi`,
+'zai'` (NOT the upstream's `'anthropic'`), `PRP_AGENT_HARNESS` default `pi`,
   supported set `['pi','claude-code']`, models are `provider/model`
   (e.g. `zai/GLM-4.7`), `claude-code`+z.ai rejected at startup.
 - Style **matches the established `docs/` convention** (header block, `>`
@@ -112,7 +112,7 @@ configure it, what's compatible, and what capabilities each harness has) —
   (`docs/CONFIGURATION.md`) is implemented in parallel and adds forward links to
   `./GROUNDSWELL_GUIDE.md#harness-system`. Those links resolve to an empty file
   until **this** task creates the target heading. Delivering the `## Harness
-  System` heading (slug `#harness-system`) is a **hard requirement** for the
+System` heading (slug `#harness-system`) is a **hard requirement** for the
   sibling's links to land.
 - **Prevents misconfiguration at the system level.** The two highest-impact
   footguns — (1) writing `pi/zai/GLM-4.7` (harness-qualified — invalid; PRD
@@ -140,13 +140,13 @@ target from CONFIGURATION.md. No new env vars, no new API, no behavior change.
 Mirror PRD §9.4 (verbatim content is in the PRP's `<selected_prd_content>` /
 PRD §9.4.1–§9.4.4). All wording must be consistent with the **implemented** code:
 
-| Payload (PRD ref)                                  | Required content in GROUNDSWELL_GUIDE.md                                                                                                                                                                                                                                                                                                                | Implemented source of truth (read-only)                                                                                                  |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Supported Harnesses (§9.4.1, h4.9)                 | A padded pipe table with rows `pi` (Default: **Yes**; Notes: vendor-neutral, runs any provider incl. z.ai; MCP/Skills/LSP via `MCPHandler`) and `claude-code` (Default: No/optional; Notes: Anthropic-only, incompatible with z.ai, parity-maintained fallback). Include the "Default selection" note: `PRP_AGENT_HARNESS` defaults to `pi`. | `src/config/constants.ts`: `DEFAULT_HARNESS='pi'`, `SUPPORTED_HARNESSES=['pi','claude-code']`; PRD §9.4.1 table                           |
-| Configuration (§9.4.2, h4.10)                      | A `typescript` code block: `configureHarnesses({ defaultHarness:'pi', defaultModelProvider:'zai', harnessDefaults:{ 'claude-code':{ apiKey: process.env.ANTHROPIC_API_KEY } } })`. Plus: `PRP_AGENT_HARNESS` (`pi` \| `claude-code`, default `pi`); cascade rule (global default → agent config → prompt overrides); harness-specific options MAY extend base `HarnessOptions`. | `src/config/harness.ts` `configureHarness()`; arch `external_deps.md` §2; PRD §9.4.2                                                       |
-| Critical Rules (§9.4.3, h4.11)                     | Four bullets, verbatim intent: (1) harness never in model string — `pi/zai/GLM-4.7` and `cc/anthropic/...` are **invalid**; always `provider/model`; (2) `claude-code` runs `anthropic/*` only — z.ai on `claude-code` is a config error surfaced at `initialize()`/`execute()`; (3) feature parity — MCP/skills/hooks/`AgentResponse`/caching/events identical across both; tools flow through `MCPHandler` for both so `pi`'s lack of built-in MCP/LSP is **not** a gap; (4) cache isolation — keys incorporate **both** harness and provider/model. | `src/config/harness.ts` `HarnessProviderMismatchError`; arch `external_deps.md` §3 (`parseModelSpec` throws on 3-segment) + §5; PRD §9.4.3 |
-| Capability Reference (§9.4.4, h4.12)               | Padded pipe matrix: rows = MCP, Skills, LSP, Streaming, Sessions, Extended Thinking, LLM providers; columns = `pi`, `claude-code`. Values per PRD §9.4.4 (e.g. MCP: `pi` = via `MCPHandler`, `claude-code` = built-in AND via `MCPHandler`; LLM providers: `pi` = any, `claude-code` = Anthropic only).                                                   | PRD §9.4.4 table; arch `external_deps.md` §5                                                                                              |
-| Integration Example (optional but specified)       | A short `typescript`/`bash` snippet showing the **PRP startup call** — i.e. that the pipeline calls `configureHarnesses({...})` once at startup (via `src/config/harness.ts`'s `configureHarness()`), after `configureEnvironment()`.                                                                                                                  | `src/config/harness.ts` `configureHarness()` (the real call)                                                                              |
+| Payload (PRD ref)                            | Required content in GROUNDSWELL_GUIDE.md                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Implemented source of truth (read-only)                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Supported Harnesses (§9.4.1, h4.9)           | A padded pipe table with rows `pi` (Default: **Yes**; Notes: vendor-neutral, runs any provider incl. z.ai; MCP/Skills/LSP via `MCPHandler`) and `claude-code` (Default: No/optional; Notes: Anthropic-only, incompatible with z.ai, parity-maintained fallback). Include the "Default selection" note: `PRP_AGENT_HARNESS` defaults to `pi`.                                                                                                                                                                                                           | `src/config/constants.ts`: `DEFAULT_HARNESS='pi'`, `SUPPORTED_HARNESSES=['pi','claude-code']`; PRD §9.4.1 table                            |
+| Configuration (§9.4.2, h4.10)                | A `typescript` code block: `configureHarnesses({ defaultHarness:'pi', defaultModelProvider:'zai', harnessDefaults:{ 'claude-code':{ apiKey: process.env.ANTHROPIC_API_KEY } } })`. Plus: `PRP_AGENT_HARNESS` (`pi` \| `claude-code`, default `pi`); cascade rule (global default → agent config → prompt overrides); harness-specific options MAY extend base `HarnessOptions`.                                                                                                                                                                        | `src/config/harness.ts` `configureHarness()`; arch `external_deps.md` §2; PRD §9.4.2                                                       |
+| Critical Rules (§9.4.3, h4.11)               | Four bullets, verbatim intent: (1) harness never in model string — `pi/zai/GLM-4.7` and `cc/anthropic/...` are **invalid**; always `provider/model`; (2) `claude-code` runs `anthropic/*` only — z.ai on `claude-code` is a config error surfaced at `initialize()`/`execute()`; (3) feature parity — MCP/skills/hooks/`AgentResponse`/caching/events identical across both; tools flow through `MCPHandler` for both so `pi`'s lack of built-in MCP/LSP is **not** a gap; (4) cache isolation — keys incorporate **both** harness and provider/model. | `src/config/harness.ts` `HarnessProviderMismatchError`; arch `external_deps.md` §3 (`parseModelSpec` throws on 3-segment) + §5; PRD §9.4.3 |
+| Capability Reference (§9.4.4, h4.12)         | Padded pipe matrix: rows = MCP, Skills, LSP, Streaming, Sessions, Extended Thinking, LLM providers; columns = `pi`, `claude-code`. Values per PRD §9.4.4 (e.g. MCP: `pi` = via `MCPHandler`, `claude-code` = built-in AND via `MCPHandler`; LLM providers: `pi` = any, `claude-code` = Anthropic only).                                                                                                                                                                                                                                                | PRD §9.4.4 table; arch `external_deps.md` §5                                                                                               |
+| Integration Example (optional but specified) | A short `typescript`/`bash` snippet showing the **PRP startup call** — i.e. that the pipeline calls `configureHarnesses({...})` once at startup (via `src/config/harness.ts`'s `configureHarness()`), after `configureEnvironment()`.                                                                                                                                                                                                                                                                                                                  | `src/config/harness.ts` `configureHarness()` (the real call)                                                                               |
 
 ### Document structure (the exact layout to produce)
 
@@ -375,7 +375,7 @@ docs/GROUNDSWELL_GUIDE.md   # NEW FILE — focused guide: header + intro + TOC +
 
 ### Known Gotchas of our codebase & Library Quirks
 
-```markdown
+````markdown
 <!-- CRITICAL — this is a CREATE, not an edit. docs/GROUNDSWELL_GUIDE.md does NOT
      exist in hacky-hack/docs/ (confirmed by `ls`). The prior-session copy at
      plan/003_b3d3efdaf0ed/docs/GROUNDSWELL_GUIDE.md is a STYLE/TONE reference
@@ -456,7 +456,7 @@ docs/GROUNDSWELL_GUIDE.md   # NEW FILE — focused guide: header + intro + TOC +
      (sibling S1 owns it; it links here). Also link neighbor docs and the
      Groundswell upstream (~/projects/groundswell/README.md,
      ~/projects/groundswell/docs/harnesses.md). Use relative paths for repo docs. -->
-```
+````
 
 ---
 
@@ -741,17 +741,17 @@ For the env-var and model-override details, see
 ```yaml
 DOCUMENTATION (docs/GROUNDSWELL_GUIDE.md — the ONLY file created):
   - NEW FILE at docs/GROUNDSWELL_GUIDE.md (does not exist today)
-  - header:       Status Published / Last Updated 2026-06-20 / Version 1.0.0
-  - TOC:          anchors #overview, #harness-system, #supported-harnesses,
-                  #configuration, #critical-rules, #capability-reference,
-                  #integration-example, #see-also (all must resolve — MD051)
-  - Overview:     1–2 paragraphs + upstream link
-  - Harness Sys:  ## Harness System (slug #harness-system) + 5 subsections (PRD §9.4)
-  - See Also:     reciprocal links incl. ./CONFIGURATION.md
+  - header: Status Published / Last Updated 2026-06-20 / Version 1.0.0
+  - TOC:
+      anchors #overview, #harness-system, #supported-harnesses,
+      #configuration, #critical-rules, #capability-reference,
+      #integration-example, #see-also (all must resolve — MD051)
+  - Overview: 1–2 paragraphs + upstream link
+  - Harness Sys: ## Harness System (slug #harness-system) + 5 subsections (PRD §9.4)
+  - See Also: reciprocal links incl. ./CONFIGURATION.md
 
 CROSS-LINKS (satisfy inbound + reciprocate outbound):
-  - INBOUND (from sibling P1.M2.T3.S1, implemented in parallel):
-      ./GROUNDSWELL_GUIDE.md#harness-system   ← MUST resolve (## Harness System)
+  - INBOUND (from sibling P1.M2.T3.S1, implemented in parallel): ./GROUNDSWELL_GUIDE.md#harness-system   ← MUST resolve (## Harness System)
   - OUTBOUND (this task):
       ./CONFIGURATION.md     (See Also + Integration Example)
       ./ARCHITECTURE.md      (See Also)
@@ -788,7 +788,7 @@ npx prettier --check docs/GROUNDSWELL_GUIDE.md
 
 ### Level 2: Markdown Lint Content Check (equivalent, no-install)
 
-```bash
+````bash
 # `npm run docs:lint` references the `markdownlint` binary, which is NOT installed
 # in this environment (errors at the package level — pre-existing gap, out of scope).
 # Use markdownlint-cli2 (auto-installs) for the equivalent content check:
@@ -805,7 +805,7 @@ npx markdownlint-cli2 docs/GROUNDSWELL_GUIDE.md
 #     MD031/blanks-around-fences, MD032/blanks-around-lists
 # An MD013 count from the two wide tables is acceptable; any OTHER rule violation
 # is avoidable for a new file and MUST be fixed before completion.
-```
+````
 
 ### Level 3: Manual / Render + Anchor Verification (System Validation)
 
@@ -870,7 +870,7 @@ ls docs/CONFIGURATION.md docs/ARCHITECTURE.md docs/INSTALLATION.md   # all must 
 - [ ] **Supported Harnesses** (§9.4.1): `pi` default + `claude-code` optional table
       with Notes + "Default selection" note.
 - [ ] **Configuration** (§9.4.2): `configureHarnesses({ defaultHarness:'pi',
-      defaultModelProvider:'zai', harnessDefaults })` block + `PRP_AGENT_HARNESS` +
+defaultModelProvider:'zai', harnessDefaults })` block + `PRP_AGENT_HARNESS` +
       cascade + independence.
 - [ ] **Critical Rules** (§9.4.3): all four bullets (model-string, claude-code
       Anthropic-only, feature parity via MCPHandler, cache isolation).
@@ -945,19 +945,20 @@ content is fully specified. The authoritative content source (PRD §9.4.1–§9.
 is included verbatim in the PRP's selected context, and every value to mirror is
 sourced from the read-only implemented code (`src/config/harness.ts`,
 `src/config/constants.ts`) and cross-checked against `architecture/external_deps.md`
-+ `implementation_notes.md` §6. The exact document layout, the verbatim markdown
-for each subsection (header shell, the two reference tables, the
-`configureHarnesses()` snippet, the four critical-rule bullets, the integration
-example, See Also), and the anchor contract (`## Harness System` →
-`#harness-system`) are all spelled out in Implementation Patterns. The genuinely
-non-obvious risks are fully mitigated: (1) `npm run docs:lint` failing because
-`markdownlint` is not installed — documented as a pre-existing gap with an
-unambiguous alternative (`format:check` authoritative; `markdownlint-cli2` for the
-content check); (2) the new-file markdownlint expectation (only MD013 on wide
-tables acceptable) is stated precisely; (3) the `defaultModelProvider: 'zai'`
-divergence from the upstream's `'anthropic'` example is called out; (4) the
-sibling cross-link boundary (CONFIGURATION.md is owned by P1.M2.T3.S1) is explicit
-and the inbound `#harness-system` link is the hard anchor requirement. The only
-residual risk is a minor anchor/lint nit, which the Level 1–3 gates (prettier +
-markdownlint-cli2 + grep anchor verification) will catch and which `npm run fix`
-resolves automatically.
+
+- `implementation_notes.md` §6. The exact document layout, the verbatim markdown
+  for each subsection (header shell, the two reference tables, the
+  `configureHarnesses()` snippet, the four critical-rule bullets, the integration
+  example, See Also), and the anchor contract (`## Harness System` →
+  `#harness-system`) are all spelled out in Implementation Patterns. The genuinely
+  non-obvious risks are fully mitigated: (1) `npm run docs:lint` failing because
+  `markdownlint` is not installed — documented as a pre-existing gap with an
+  unambiguous alternative (`format:check` authoritative; `markdownlint-cli2` for the
+  content check); (2) the new-file markdownlint expectation (only MD013 on wide
+  tables acceptable) is stated precisely; (3) the `defaultModelProvider: 'zai'`
+  divergence from the upstream's `'anthropic'` example is called out; (4) the
+  sibling cross-link boundary (CONFIGURATION.md is owned by P1.M2.T3.S1) is explicit
+  and the inbound `#harness-system` link is the hard anchor requirement. The only
+  residual risk is a minor anchor/lint nit, which the Level 1–3 gates (prettier +
+  markdownlint-cli2 + grep anchor verification) will catch and which `npm run fix`
+  resolves automatically.

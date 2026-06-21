@@ -1,11 +1,11 @@
 name: "P1.M1.T1.S3 — Verify end-to-end persona factory creation + 100% branch coverage of the registration guard"
 description: |
 
-  Test-only verification + coverage-closure subtask. Confirms the 5 previously-failing
-  persona-factory creation tests are green after S1/S2, and adds ONE explicit mock-based
-  test case that deterministically exercises the `has('pi')→true` (skip) branch of the
-  `configureHarness()` registration guard so that `src/config/harness.ts` is robustly at
-  100% branch coverage — independent of v8 coverage-provider quirks or singleton state.
+Test-only verification + coverage-closure subtask. Confirms the 5 previously-failing
+persona-factory creation tests are green after S1/S2, and adds ONE explicit mock-based
+test case that deterministically exercises the `has('pi')→true` (skip) branch of the
+`configureHarness()` registration guard so that `src/config/harness.ts` is robustly at
+100% branch coverage — independent of v8 coverage-provider quirks or singleton state.
 
 ---
 
@@ -18,6 +18,7 @@ explicit, deterministic unit test for the `if (!registry.has('pi'))` skip branch
 branch coverage on `src/config/harness.ts`.
 
 **Deliverable**: A modified `tests/unit/config/harness-config.test.ts` containing:
+
 1. A `vi.hoisted`-based refactor of the existing `vi.mock('groundswell', …)` factory so
    `HarnessRegistry.getInstance().has` / `.register` are **per-test reconfigurable** vi.fns
    (default `has→false`, preserving all current behavior).
@@ -31,6 +32,7 @@ No source files change. `agent-factory.test.ts`, `harness-provider-compat.test.t
 other test/source files are untouched.
 
 **Success Definition**:
+
 - `npm run test:run -- config/ agents/agent-factory agents/cache-key-isolation tools/mcp-tool-parity`
   → **0 failures** (currently 107/107 pass post-S1/S2; must remain 107/107 — i.e. +1 from
   the new case in `harness-config`, whose file count goes 4 → 5).
@@ -52,6 +54,7 @@ getting a deterministic, human-readable green signal that the registration guard
 covered.
 
 **Pain Points Addressed**:
+
 - v8 coverage's 100%-branch number on `harness.ts` was **coincidental** (it doesn't emit a
   skip arc for a single-statement `if` that's always taken) — fragile and un-informative.
   The explicit `has()→true` test makes coverage **deterministic and asserted**.
@@ -75,6 +78,7 @@ covered.
 ## What
 
 ### User-visible behavior
+
 None. Test-only.
 
 ### Technical requirements (exact contract)
@@ -100,7 +104,7 @@ to a **`vi.hoisted`-controlled** form (the ONLY way to share mutable vi.fns with
 
 ```ts
 const { mockHas, mockRegister } = vi.hoisted(() => ({
-  mockHas: vi.fn(() => false),   // default: pi NOT registered → register() runs (existing behavior)
+  mockHas: vi.fn(() => false), // default: pi NOT registered → register() runs (existing behavior)
   mockRegister: vi.fn(),
 }));
 
@@ -143,7 +147,10 @@ it('(e) skips register() when HarnessRegistry already has pi (skip branch)', () 
   // ... and configureHarnesses() WAS still called (registration-skip ≠ config-skip)
   expect(configureHarnesses).toHaveBeenCalledTimes(1);
   expect(configureHarnesses).toHaveBeenCalledWith(
-    expect.objectContaining({ defaultHarness: 'pi', defaultModelProvider: 'zai' })
+    expect.objectContaining({
+      defaultHarness: 'pi',
+      defaultModelProvider: 'zai',
+    })
   );
 });
 ```
@@ -173,8 +180,9 @@ verified call surface of the System-Under-Test. No judgement calls remain.
 # MUST READ - Include these in your context window
 
 - url: https://vitest.dev/guide/mocking.html#Mocking-with-factories
-  why: vi.mock() factory hoisting rules — explains WHY plain top-level const cannot be
-       referenced inside the factory and why vi.hoisted() is required.
+  why:
+    vi.mock() factory hoisting rules — explains WHY plain top-level const cannot be
+    referenced inside the factory and why vi.hoisted() is required.
   critical: |
     vi.mock is hoisted to the TOP of the file (before imports). Referencing an outer
     `const mockHas` directly inside the factory throws "Cannot access ... before
@@ -185,8 +193,9 @@ verified call surface of the System-Under-Test. No judgement calls remain.
   critical: The hoisted factory runs BEFORE any import; only vi APIs are safe inside it.
 
 - file: src/config/harness.ts
-  why: The System-Under-Test. Lines 84–85 are the registration guard whose skip branch
-        must be covered.
+  why:
+    The System-Under-Test. Lines 84–85 are the registration guard whose skip branch
+    must be covered.
   pattern: |
     // Step 4.5 (lines 78–85):
     const registry = HarnessRegistry.getInstance();
@@ -199,9 +208,10 @@ verified call surface of the System-Under-Test. No judgement calls remain.
     it. See research/coverage_findings.md §3.
 
 - file: tests/unit/config/harness-config.test.ts
-  why: TARGET FILE. Contains the vi.mock('groundswell') factory to refactor (lines ~23–30)
-        and the describe('config/harness') block to extend with case (e). Shows the
-        existing (a)–(d) assertions that MUST stay green and the beforeEach() to extend.
+  why:
+    TARGET FILE. Contains the vi.mock('groundswell') factory to refactor (lines ~23–30)
+    and the describe('config/harness') block to extend with case (e). Shows the
+    existing (a)–(d) assertions that MUST stay green and the beforeEach() to extend.
   pattern: |
     vi.mock('groundswell', () => ({ configureHarnesses: vi.fn(),
       HarnessRegistry: { getInstance: () => ({ has: () => false, register: vi.fn() }) },
@@ -212,27 +222,31 @@ verified call surface of the System-Under-Test. No judgement calls remain.
     behavior — existing cases rely on has()===false.
 
 - file: tests/unit/config/harness-provider-compat.test.ts
-  why: Reference for the IDENTICAL mock pattern used elsewhere (do NOT need to change it
-        for coverage — harness-config.test.ts is the chosen host). Confirms vi.mock is
-        per-file so the two files' mocks are independent.
+  why:
+    Reference for the IDENTICAL mock pattern used elsewhere (do NOT need to change it
+    for coverage — harness-config.test.ts is the chosen host). Confirms vi.mock is
+    per-file so the two files' mocks are independent.
   pattern: Same vi.mock skeleton as harness-config.test.ts.
 
 - file: tests/unit/agents/agent-factory.test.ts
-  why: The 5 creation tests this subtask must confirm GREEN. Uses the REAL groundswell
-        (no vi.mock) → real PiHarness registered at module-load → createAgent() succeeds.
+  why:
+    The 5 creation tests this subtask must confirm GREEN. Uses the REAL groundswell
+    (no vi.mock) → real PiHarness registered at module-load → createAgent() succeeds.
   gotcha: |
     DO NOT modify this file. Its 5 creation tests are the end-to-end proof for S1.
     configureHarness() runs at import (once); createXxxAgent() call createAgent() directly.
 
 - docfile: plan/004_439241a82c24/bugfix/001_4bbb8673119e/architecture/system_context.md
-  why: §2 (Issue 1 root cause + fix surface) and §6 (test infra / 100% threshold) and §7
-        (validation gates). Authoritative on the dual-groundswell environment and the
-        exact validation commands.
-  section: "§2, §6, §7"
+  why:
+    §2 (Issue 1 root cause + fix surface) and §6 (test infra / 100% threshold) and §7
+    (validation gates). Authoritative on the dual-groundswell environment and the
+    exact validation commands.
+  section: '§2, §6, §7'
 
 - docfile: plan/004_439241a82c24/bugfix/001_4bbb8673119e/P1M1T1S3/research/coverage_findings.md
-  why: Explains WHY the explicit skip-branch test is required despite coverage reading 100%
-        today (v8 single-statement-if artifact) and documents the do-not-run-full-suite hazard.
+  why:
+    Explains WHY the explicit skip-branch test is required despite coverage reading 100%
+    today (v8 single-statement-if artifact) and documents the do-not-run-full-suite hazard.
 ```
 
 ### Current Codebase tree (relevant slice)
@@ -355,7 +369,7 @@ import { DEFAULT_MODEL_PROVIDER } from '../../../src/config/constants.js';
 describe('config/harness', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockHas.mockReturnValue(false);   // Task 2: reset skip-branch toggle (default = not registered)
+    mockHas.mockReturnValue(false); // Task 2: reset skip-branch toggle (default = not registered)
     delete process.env.PRP_AGENT_HARNESS;
     vi.stubEnv('ANTHROPIC_API_KEY', 'stubbed-key');
   });
@@ -366,13 +380,16 @@ describe('config/harness', () => {
   // … existing (d) invalid value throws …
 
   it('(e) skips register() when HarnessRegistry already has pi (skip branch)', () => {
-    mockHas.mockReturnValue(true);            // simulate "pi already registered"
+    mockHas.mockReturnValue(true); // simulate "pi already registered"
     const h = configureHarness();
     expect(h).toBe('pi');
-    expect(mockRegister).not.toHaveBeenCalled();      // ← the skip-branch assertion
+    expect(mockRegister).not.toHaveBeenCalled(); // ← the skip-branch assertion
     expect(configureHarnesses).toHaveBeenCalledTimes(1); // config delegation still happens
     expect(configureHarnesses).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultHarness: 'pi', defaultModelProvider: 'zai' })
+      expect.objectContaining({
+        defaultHarness: 'pi',
+        defaultModelProvider: 'zai',
+      })
     );
   });
 });

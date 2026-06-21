@@ -6,7 +6,7 @@ description: |
 ## Goal
 
 **Feature Goal**: Replace the compile-time `DEFAULT_MODEL_PROVIDER === 'zai'` constant check
-in `configureHarness()` **Step 4** with a *resolved-provider* derivation (`getModel('sonnet').split('/')[0]`)
+in `configureHarness()` **Step 4** with a _resolved-provider_ derivation (`getModel('sonnet').split('/')[0]`)
 so that the `claude-code` harness guard fires ONLY when `claude-code` is actually combined
 with the effective `zai` provider — not unconditionally. This realises PRD §9.4.1
 (`claude-code` is a supported harness) and §9.4.2/§9.2.4 ("selected independently"; only the
@@ -19,6 +19,7 @@ changes. (Positive `claude-code + anthropic` test coverage is explicitly deferre
 **P1.M1.T2.S2**.)
 
 **Success Definition**:
+
 - `npx tsc --noEmit -p tsconfig.build.json` → **0 new** errors (18 pre-existing errors in
   `src/tools/*` remain — Issue 4, out of scope; **none** in `harness.ts`/`environment.ts`).
 - `npm run test:run -- config/harness-provider-compat` → **5/5 pass** (the existing test (b)
@@ -38,6 +39,7 @@ changes. (Positive `claude-code + anthropic` test coverage is explicitly deferre
 have `configureHarness()` proceed past Step 4 to registration + `configureHarnesses()`.
 
 **User Journey**:
+
 1. Operator sets the env overrides described in `docs/CONFIGURATION.md`.
 2. At startup `agent-factory.ts` calls `configureHarness()` at module-load.
 3. Step 4 derives `resolvedProvider = getModel('sonnet').split('/')[0] === 'anthropic'` →
@@ -50,12 +52,12 @@ resolved provider. The "pluggable" harness system therefore cannot plug in `clau
 
 ## Why
 
-- **PRD §9.4.1 / §9.2.4 compliance**: `claude-code` is a *supported* harness; only its
+- **PRD §9.4.1 / §9.2.4 compliance**: `claude-code` is a _supported_ harness; only its
   combination with the `zai` provider is a config error. Today the guard can never be satisfied.
 - **Issue 2 (Major) of the Session-004 QA report**: the compatibility guard checks a hardcoded
   constant, so the optional `claude-code` harness is permanently unusable.
 - **Unblocks P1.M1.T2.S2**: the positive-path test (`claude-code + anthropic` passes) cannot be
-  written until the guard reads the *resolved* provider. This subtask ships the source change;
+  written until the guard reads the _resolved_ provider. This subtask ships the source change;
   S2 ships the coverage.
 - **Default path is untouched**: with no model override, `getModel('sonnet')` → `'zai/GLM-4.7'`
   → `resolvedProvider === 'zai'` → the existing rejection (and the pi default path) behave
@@ -74,16 +76,16 @@ import { getModel } from './environment.js';
 ### Change B — rewrite Step 4
 
 ```ts
-  // BEFORE (current):
-  if (harness === 'claude-code' && DEFAULT_MODEL_PROVIDER === 'zai') {
-    throw new HarnessProviderMismatchError(harness, DEFAULT_MODEL_PROVIDER);
-  }
+// BEFORE (current):
+if (harness === 'claude-code' && DEFAULT_MODEL_PROVIDER === 'zai') {
+  throw new HarnessProviderMismatchError(harness, DEFAULT_MODEL_PROVIDER);
+}
 
-  // AFTER:
-  const resolvedProvider = getModel('sonnet').split('/')[0];
-  if (harness === 'claude-code' && resolvedProvider === 'zai') {
-    throw new HarnessProviderMismatchError(harness, resolvedProvider);
-  }
+// AFTER:
+const resolvedProvider = getModel('sonnet').split('/')[0];
+if (harness === 'claude-code' && resolvedProvider === 'zai') {
+  throw new HarnessProviderMismatchError(harness, resolvedProvider);
+}
 ```
 
 ### Constraints (DO/DON'T)
@@ -342,11 +344,13 @@ ROUTES:
 BUILD / TOOLING:
   - none (no package.json, tsconfig, or vitest.config changes)
 DEPENDENCIES:
-  - DEPENDS-ON (completed): P1.M1.T1.S1 — harness.ts already imports PiHarness + HarnessRegistry
+  - DEPENDS-ON (completed):
+      P1.M1.T1.S1 — harness.ts already imports PiHarness + HarnessRegistry
       and has the Step 4.5 registration block. (Verified present in current src/config/harness.ts.)
   - DEPENDS-ON (completed): P1.M1.T1.S2 — the config test mocks already stub
       HarnessRegistry + PiHarness (no mock change needed for this subtask).
-  - ENABLES (downstream): P1.M1.T2.S2 — the positive claude-code + anthropic test can only pass
+  - ENABLES (downstream):
+      P1.M1.T2.S2 — the positive claude-code + anthropic test can only pass
       once this resolved-provider guard is in place.
 ```
 

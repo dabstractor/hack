@@ -32,7 +32,9 @@ Implication for Issue 1/2 work touching `src/config/harness.ts`: any new env-var
 Full listing of `tests/unit/**` is large (~95 files). Relevant to the issues:
 
 ### `tests/unit/config/harness.test.ts` ✅ exists (4252 bytes)
+
 Top-level `describe('config/harness', …)`. Nested blocks + `it` titles (lines 28-119):
+
 - `describe('constants')`
   - it: exports `PRP_AGENT_HARNESS` as the env-var name string
   - it: exports `DEFAULT_HARNESS` as `"pi"`
@@ -49,10 +51,12 @@ Top-level `describe('config/harness', …)`. Nested blocks + `it` titles (lines 
   - it: carries the provider value as a readonly field
   - it: includes both harness and provider in the `message`
 
-Note: this file currently exercises only constants, types, and the `HarnessProviderMismatchError` class. Any change to the harness *resolution* logic (Issue 1/2) likely needs new test cases here or in `harness-config.test.ts` / `harness-provider-compat.test.ts`.
+Note: this file currently exercises only constants, types, and the `HarnessProviderMismatchError` class. Any change to the harness _resolution_ logic (Issue 1/2) likely needs new test cases here or in `harness-config.test.ts` / `harness-provider-compat.test.ts`.
 
 ### `tests/unit/config/environment.test.ts` (8586 bytes, lines 25-250)
+
 Top-level `describe('config/environment', …)`:
+
 - `describe('configureEnvironment')`
   - it: maps `AUTH_TOKEN` → `API_KEY` when `API_KEY` not set
   - it: preserves existing `API_KEY` when `AUTH_TOKEN` also set
@@ -76,7 +80,9 @@ Top-level `describe('config/environment', …)`:
   - it: includes missing variable name in error
 
 ### `tests/unit/tools/mcp-tool-parity.test.ts` (lines 15-137)
+
 Top-level `describe('MCP tool discovery & execution parity across harnesses (PRD §9.3.3 / §9.4.4)', …)`:
+
 - it: both harness configs reference the identical `MCP_TOOLS` set (object identity)
 - it: the two configs differ ONLY in the `harness` field
 - it: discovers the identical namespaced tool-name set under both harnesses
@@ -85,7 +91,9 @@ Top-level `describe('MCP tool discovery & execution parity across harnesses (PRD
 - it: `MCPHandler.executeTool` is a pure `(name, input)` function — harness-agnostic, incl. the error path
 
 ### `tests/unit/agents/cache-key-isolation.test.ts` (lines 22-220)
+
 Top-level `describe('Groundswell cache-key isolation — harness × provider/model (PRD §9.4.3)', …)`:
+
 - `describe('generateCacheKey — direct key-builder isolation')`
   - it: keys differ when ONLY the harness differs (pi vs claude-code), same provider/model
   - it: keys differ when ONLY the provider differs (zai vs anthropic), same harness+model
@@ -104,19 +112,20 @@ Top-level `describe('Groundswell cache-key isolation — harness × provider/mod
 
 Directory listing (5 files):
 
-| File | Size | Last modified |
-|---|---|---|
-| `endpoint-guard.test.ts` | 6528 | Jun 20 20:35 |
-| `environment.test.ts` | 8586 | Jun 21 00:09 |
-| `harness-config.test.ts` | 3388 | Jun 20 20:08 |
-| `harness-provider-compat.test.ts` | 4656 | Jun 20 21:09 |
-| `harness.test.ts` | 4252 | Jun 20 19:56 |
+| File                              | Size | Last modified |
+| --------------------------------- | ---- | ------------- |
+| `endpoint-guard.test.ts`          | 6528 | Jun 20 20:35  |
+| `environment.test.ts`             | 8586 | Jun 21 00:09  |
+| `harness-config.test.ts`          | 3388 | Jun 20 20:08  |
+| `harness-provider-compat.test.ts` | 4656 | Jun 20 21:09  |
+| `harness.test.ts`                 | 4252 | Jun 20 19:56  |
 
 **Yes, `harness.test.ts` exists.** Its current scope (per §2 above) is narrow: constants + types + the `HarnessProviderMismatchError` class. Sibling files likely also cover harness: `harness-config.test.ts` and `harness-provider-compat.test.ts` (titles not extracted for those — request was scoped to `harness.test.ts`). **A change to `src/config/harness.ts` must keep all three green and may need additional cases here.**
 
 ## 4. Docs section headings
 
 ### `docs/CONFIGURATION.md` (lines 1-518) — `^#` headings
+
 - `# Configuration Reference` (1)
 - `## Table of Contents` (9)
 - `## Quick Reference` (33)
@@ -153,6 +162,7 @@ Directory listing (5 files):
 - `## See Also` (518)
 
 ### `docs/GROUNDSWELL_GUIDE.md` (lines 1-142) — `^#` headings
+
 - `# Groundswell Guide` (1)
 - `## Table of Contents` (12)
 - `## Overview` (23)
@@ -179,6 +189,7 @@ Directory listing (5 files):
 ## 6. `.prettierignore` and `.eslintignore`
 
 `.prettierignore`:
+
 ```
 node_modules/
 dist/
@@ -189,6 +200,7 @@ pnpm-lock.yaml
 ```
 
 `.eslintignore`:
+
 ```
 node_modules/
 dist/
@@ -208,6 +220,7 @@ coverage/
 - Existing tests already work around Anthropic-shaped imports with `vi.mock('@anthropic-ai/sdk', …)` (see `tests/unit/groundswell/imports.test.ts:40`). Tests that exercise groundswell's harness surface must mock the SDK rather than import it live.
 
 ## Start Here
+
 For harness-related fixes (Issue 1/2 touching `src/config/harness.ts`): open `tests/unit/config/harness.test.ts` first (its scope is currently constants/types/`HarnessProviderMismatchError` only) and cross-reference `tests/unit/config/harness-config.test.ts` + `tests/unit/config/harness-provider-compat.test.ts`. For test-execution concerns, consult `tests/setup.ts` (endpoint guard runs in `beforeEach`) and `vitest.config.ts` (100% coverage thresholds on `src/**/*.ts`).
 
 ```acceptance-report

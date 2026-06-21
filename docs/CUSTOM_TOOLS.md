@@ -202,7 +202,7 @@ interface MCPServer {
 
 Groundswell automatically prefixes tool names with the server name:
 
-```
+```text
 Tool schema name: 'file_read'
 Server name: 'filesystem'
 Final tool name: 'filesystem__file_read'
@@ -796,7 +796,7 @@ export function createCoderAgent(): Agent {
 
 Groundswell automatically prefixes tool names with the server name:
 
-```
+```text
 Tool schema:  name = 'file_read'
 Server:       name = 'filesystem'
 Final tool:   'filesystem__file_read'

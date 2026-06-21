@@ -565,7 +565,7 @@ const PERSONA_TOKEN_LIMITS = {
 
 ### Token Limit Selection Heuristics
 
-```
+```text
 Simple tasks (2,000-4,000 tokens):
 - Classification, simple analysis
 - Single-purpose tools

@@ -19,6 +19,7 @@ inline `vi.mock('groundswell', …)` already stubs `configureHarnesses` + `Harne
 `PiHarness` sufficiently (see "Why no mock change is needed").
 
 **Success Definition**:
+
 - `npm run test:run -- config/harness-provider-compat` → **6/6 pass** (was 5/5), including the new
   positive case.
 - `npm run test:run -- config/harness-provider-compat config/harness-config --coverage` → all pass,
@@ -28,19 +29,19 @@ inline `vi.mock('groundswell', …)` already stubs `configureHarnesses` + `Harne
   driven through the guard. This both proves Issue 2's fix works and future-proofs branch coverage.
 
 > **EMPIRICAL FINDING (verified by running coverage before writing this PRP):** `src/config/harness.ts`
-> *already* reports `100 | 100 | 100 | 100` (statements/branches/functions/lines) with the current
+> _already_ reports `100 | 100 | 100 | 100` (statements/branches/functions/lines) with the current
 > 5 tests. This is because v8/istanbul models `if (harness === 'claude-code' && resolvedProvider === 'zai')`
 > as a **single** throw-vs-skip branch, and the existing `pi` tests already hit the "skip" arm. The
 > contract's "ALLOW branch currently UNTESTED" is therefore a **behavioral** gap, not a coverage-
-> threshold failure: *no test today proves that selecting `claude-code` with an anthropic override
-> actually succeeds*. The new test closes that behavioral gap AND ensures the `resolvedProvider !== 'zai'`
+> threshold failure: _no test today proves that selecting `claude-code` with an anthropic override
+> actually succeeds_. The new test closes that behavioral gap AND ensures the `resolvedProvider !== 'zai'`
 > sub-condition is exercised in a `claude-code` context, so the branch stays 100% even if the `&&` is
 > later refactored into nested `if`s.
 
 ## User Persona (if applicable)
 
 **Target User**: Maintainer / QA reviewer who must trust that PRD §9.4.1 (`claude-code` is a
-*supported* harness) and §9.2.4 (only the `zai`+`claude-code` *combination* is a config error) are
+_supported_ harness) and §9.2.4 (only the `zai`+`claude-code` _combination_ is a config error) are
 actually realised by the code, not just claimed in JSDoc.
 
 **Use Case**: A future refactor (e.g. splitting the `&&` into two nested `if`s, or extracting a
@@ -48,9 +49,10 @@ actually realised by the code, not just claimed in JSDoc.
 regression net.
 
 **User Journey**:
+
 1. Reviewer opens `harness-provider-compat.test.ts` and sees both the REJECT case (test (b)/(c)) and
    the ALLOW case (the new test (d)) side by side.
-2. The pair proves the guard is a *true* compatibility check (rejects zai, allows anthropic), not a
+2. The pair proves the guard is a _true_ compatibility check (rejects zai, allows anthropic), not a
    blanket `claude-code` rejection (which was the Issue-2 bug).
 
 **Pain Points Addressed**: Before this test, the only `claude-code` assertions in the suite were
@@ -59,7 +61,7 @@ hardcoded-constant bug is still present" — both reject `claude-code`+zai ident
 
 ## Why
 
-- **Closes the Issue-2 verification loop.** P1.M1.T2.S1 shipped the *source* change (resolved-provider
+- **Closes the Issue-2 verification loop.** P1.M1.T2.S1 shipped the _source_ change (resolved-provider
   derivation); without a positive test, that fix is unproven and could be reverted without any test
   failing.
 - **Satisfies the task contract.** Item 3(a) explicitly requires a positive case: stub
@@ -69,7 +71,7 @@ hardcoded-constant bug is still present" — both reject `claude-code`+zai ident
 - **Future-proofs 100% branch coverage.** The `vitest.config.ts` enforces 100% branches on
   `src/**/*.ts`. Today the `&&` second operand (`resolvedProvider === 'zai'`) is only ever evaluated
   in its TRUE direction (under `claude-code`). A refactor that turns the `&&` into `if (harness ===
-  'claude-code') { if (resolvedProvider === 'zai') throw; }` would create a *new* uncovered FALSE
+'claude-code') { if (resolvedProvider === 'zai') throw; }` would create a _new_ uncovered FALSE
   branch — unless this positive test exists.
 - **Default path is untouched.** The existing pi tests, the reject test (b), and `harness-config.test.ts`
   all stay byte-identical and green.
@@ -102,7 +104,7 @@ it('(d) claude-code + anthropic provider is ALLOWED (no throw) — resolved-prov
 
 ### Constraints (DO/DON'T)
 
-- **DO** place the new `it(...)` *inside* the existing `describe('harness/provider compatibility', …)`
+- **DO** place the new `it(...)` _inside_ the existing `describe('harness/provider compatibility', …)`
   block (e.g. after the existing `(c-cont)` case), so it shares the file's `beforeEach`/`afterEach`
   (which `clearAllMocks`, reset `PRP_AGENT_HARNESS`, stub `ANTHROPIC_API_KEY`, and `unstubAllEnvs`).
 - **DO** stub **both** env vars in the test body — `vi.stubEnv` inside the `it` is the established
@@ -126,15 +128,20 @@ it('(d) claude-code + anthropic provider is ALLOWED (no throw) — resolved-prov
 ### Why no mock change is needed
 
 The existing inline mock in this file is:
+
 ```ts
 vi.mock('groundswell', () => ({
   configureHarnesses: vi.fn(),
-  HarnessRegistry: { getInstance: () => ({ has: () => false, register: vi.fn() }) },
+  HarnessRegistry: {
+    getInstance: () => ({ has: () => false, register: vi.fn() }),
+  },
   PiHarness: class MockPiHarness {},
 }));
 ```
+
 For the new test, `configureHarness()` runs Steps 4 → 4.5 → 5:
-- **Step 4** reads the *real* `getModel('sonnet')` (environment.ts is a sibling internal module, NOT
+
+- **Step 4** reads the _real_ `getModel('sonnet')` (environment.ts is a sibling internal module, NOT
   mocked) → with the stubbed override → `'anthropic/claude-sonnet-4'` → `resolvedProvider = 'anthropic'`
   → guard skipped (no throw). ✓
 - **Step 4.5** calls `HarnessRegistry.getInstance().has('pi')` → mock returns `false` → calls
@@ -161,7 +168,7 @@ _Pass._ A developer who has never seen this repo can implement this from the fou
 below + the exact canonical test block. The only failure modes (asserting the wrong
 `defaultModelProvider`, editing the mock, or duplicating into `harness-config.test.ts`) are all
 enumerated below with the reason each is avoided. The non-obvious coverage finding (v8 already
-reports 100%) is documented up-front so the implementer understands the task is *behavioral* coverage,
+reports 100%) is documented up-front so the implementer understands the task is _behavioral_ coverage,
 not threshold-chasing.
 
 ### Documentation & References
@@ -170,8 +177,9 @@ not threshold-chasing.
 # MUST READ - Include these in your context window
 
 - file: tests/unit/config/harness-provider-compat.test.ts
-  why: TARGET FILE. Append the new it(...) inside the existing describe block. Mirrors the
-        existing test (b) structure but asserts the OPPOSITE outcome (no throw).
+  why:
+    TARGET FILE. Append the new it(...) inside the existing describe block. Mirrors the
+    existing test (b) structure but asserts the OPPOSITE outcome (no throw).
   pattern: |
     # Existing reject test (b) — mirror this structure for the allow case:
     it('(b) claude-code + zai throws HarnessProviderMismatchError with actionable guidance', () => {
@@ -196,8 +204,9 @@ not threshold-chasing.
     test, so `toHaveBeenCalledTimes(1)` is safe.
 
 - file: src/config/harness.ts
-  why: The function under test. Confirms Step 4 derives the resolved provider and that Step 5 passes
-        the CONSTANT DEFAULT_MODEL_PROVIDER (not the resolved provider) into configureHarnesses.
+  why:
+    The function under test. Confirms Step 4 derives the resolved provider and that Step 5 passes
+    the CONSTANT DEFAULT_MODEL_PROVIDER (not the resolved provider) into configureHarnesses.
   pattern: |
     // Step 4 (the guard this test exercises the ALLOW arm of):
     const resolvedProvider = getModel('sonnet').split('/')[0];
@@ -217,8 +226,9 @@ not threshold-chasing.
     `defaultModelProvider: 'anthropic'` is a FALSE assertion that will fail the test.
 
 - file: src/config/environment.ts
-  why: Source of the REAL getModel('sonnet') used by the guard. Confirms the override is honoured
-        and qualifyModel is idempotent, so 'anthropic/claude-sonnet-4' passes through unchanged.
+  why:
+    Source of the REAL getModel('sonnet') used by the guard. Confirms the override is honoured
+    and qualifyModel is idempotent, so 'anthropic/claude-sonnet-4' passes through unchanged.
   pattern: |
     export function qualifyModel(name, provider = DEFAULT_MODEL_PROVIDER): string {
       return name.includes('/') ? name : `${provider}/${name}`;   // idempotent on already-qualified
@@ -233,10 +243,11 @@ not threshold-chasing.
     Without any stub it returns 'zai/GLM-4.7' → 'zai' → reject (existing test (b) relies on this).
 
 - file: tests/unit/config/harness-config.test.ts
-  why: REGRESSION GATE — must stay green (untouched). It uses vi.hoisted() mockHas/mockRegister and
-        test (e) covers the `has() => true` SKIP arm of the Step-4.5 registration guard. The new
-        positive test in harness-provider-compat.test.ts covers the `has() => false` REGISTER arm
-        again. TOGETHER the registration guard's two branches stay fully covered.
+  why:
+    REGRESSION GATE — must stay green (untouched). It uses vi.hoisted() mockHas/mockRegister and
+    test (e) covers the `has() => true` SKIP arm of the Step-4.5 registration guard. The new
+    positive test in harness-provider-compat.test.ts covers the `has() => false` REGISTER arm
+    again. TOGETHER the registration guard's two branches stay fully covered.
   gotcha: |
     Do NOT add the positive claude-code+anthropic case here — it would duplicate the
     harness-provider-compat.test.ts case and muddy the "compat-guard file" separation. This file's
@@ -244,8 +255,9 @@ not threshold-chasing.
 
 - docfile: plan/004_439241a82c24/bugfix/001_4bbb8673119e/architecture/system_context.md
   section: §3 "Issue 2 Root Cause & Fix Surface" (esp. the "Coverage concern" note)
-  why: Authoritative statement that the false-arm of the new guard must be exercised by a positive
-        claude-code+anthropic case — this IS that case. §6 documents the 100% coverage enforcement.
+  why:
+    Authoritative statement that the false-arm of the new guard must be exercised by a positive
+    claude-code+anthropic case — this IS that case. §6 documents the 100% coverage enforcement.
   critical: |
     §3's coverage note anticipated this exact test. §1 documents the dual-groundswell environment:
     in the vitest environment groundswell resolves to the sibling checkout, but THIS test fully mocks
@@ -386,13 +398,16 @@ ROUTES:
 BUILD / TOOLING:
   - none (no package.json, tsconfig, vitest.config, or .prettierignore changes)
 DEPENDENCIES:
-  - DEPENDS-ON (completed): P1.M1.T2.S1 — src/config/harness.ts Step 4 already derives
+  - DEPENDS-ON (completed):
+      P1.M1.T2.S1 — src/config/harness.ts Step 4 already derives
       `resolvedProvider = getModel('sonnet').split('/')[0]` and throws only on `=== 'zai'`.
       (Verified present in current src/config/harness.ts.)
-  - DEPENDS-ON (completed): P1.M1.T1.S2 — the vi.mock('groundswell') factory in this file already
+  - DEPENDS-ON (completed):
+      P1.M1.T1.S2 — the vi.mock('groundswell') factory in this file already
       stubs configureHarnesses + HarnessRegistry.getInstance() + PiHarness. (Verified — no mock
       change needed for this subtask.)
-  - ENABLES (downstream): P1.M2.T3 — the final 100%-coverage + full-suite gate can now point at a
+  - ENABLES (downstream):
+      P1.M2.T3 — the final 100%-coverage + full-suite gate can now point at a
       behaviourally-complete harness guard (both reject AND allow paths asserted).
 ```
 
@@ -524,16 +539,16 @@ OUT OF SCOPE and owned by sibling subtasks:
 
 - ❌ Any change to `src/config/harness.ts` (the guard was shipped in **P1.M1.T2.S1** — done).
 - ❌ Any change to the `vi.mock('groundswell', …)` factory or to `beforeEach`/`afterEach`
-      (the stubs from **P1.M1.T1.S2** are sufficient — verified).
+  (the stubs from **P1.M1.T1.S2** are sufficient — verified).
 - ❌ Adding the positive case to `harness-config.test.ts` (duplication; the contract designates
-      `harness-provider-compat.test.ts` as the compat-guard file).
+  `harness-provider-compat.test.ts` as the compat-guard file).
 - ❌ Fixing Issue 3 (`docs:lint` / markdownlint-cli) or Issue 4 (`ToolExecutor` typecheck /
-      prettierignore) — **P1.M2.T1 / P1.M2.T2**.
+  prettierignore) — **P1.M2.T1 / P1.M2.T2**.
 - ❌ Running the full `npm run validate` / `npm run test:coverage` (whole suite) as a pass/fail gate
-      for THIS task — they are blocked by Issues 3–4 and owned by **P1.M2.T3**. (You MAY run the
-      scoped `--coverage` on the two config test files, which is what the contract asks for.)
+  for THIS task — they are blocked by Issues 3–4 and owned by **P1.M2.T3**. (You MAY run the
+  scoped `--coverage` on the two config test files, which is what the contract asks for.)
 - ❌ Attempting to exercise the `claude-code` harness at runtime (requires the uninstalled
-      `@anthropic-ai/claude-agent-sdk` — a separate pre-existing environment concern, system_context.md §1).
+  `@anthropic-ai/claude-agent-sdk` — a separate pre-existing environment concern, system_context.md §1).
 
 ---
 

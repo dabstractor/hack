@@ -114,7 +114,7 @@ async flushUpdates(): Promise<void>
 
 #### Session Directory Structure
 
-```
+```text
 plan/
 ├── 001_14b9dc2a33c7/
 │   ├── prd_snapshot.md          # Original PRD content
@@ -399,7 +399,7 @@ const response = await agent.generate({
 
 Groundswell provides automatic SHA-256 based caching:
 
-```
+```text
 Cache Key = SHA-256(system prompt + user prompt + responseFormat)
 ```
 
@@ -430,7 +430,7 @@ Each agent has a specialized system prompt that defines its persona and approach
 
 **Architect Prompt** (from PROMPTS.md):
 
-```
+```text
 # LEAD TECHNICAL ARCHITECT & PROJECT SYNTHESIZER
 
 > ROLE: Act as a Lead Technical Architect and Project Management Synthesizer.
@@ -545,7 +545,7 @@ The PRP Pipeline uses a robust state management system with immutable data struc
 
 ### Session Directory Structure
 
-```
+```text
 plan/
 ├── 001_14b9dc2a33c7/              # First session (sequence + hash)
 │   ├── prd_snapshot.md             # Original PRD content
@@ -705,7 +705,7 @@ The PRP Pipeline uses a four-level task hierarchy with depth-first traversal and
 
 ### Four-Level Hierarchy
 
-```
+```text
 Phase (P1)
 └── Milestone (P1.M1)
     └── Task (P1.M1.T1)

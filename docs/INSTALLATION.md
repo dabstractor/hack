@@ -70,6 +70,7 @@ Get up and running in under 5 minutes:
    ```
 
 5. **Verify installation**
+
    ```bash
    npm test
    ```
@@ -86,9 +87,11 @@ Before installing, ensure you have the following prerequisites installed on your
 
 - **Version**: >=20.0.0
 - **Check your version**:
+
   ```bash
   node --version
   ```
+
 - **Install or upgrade**: [nodejs.org](https://nodejs.org/)
 
 **Recommended: Use nvm (Node Version Manager)**
@@ -107,9 +110,11 @@ nvm use 20
 
 - **Version**: >=10.0.0
 - **Check your version**:
+
   ```bash
   npm --version
   ```
+
 - **Install or upgrade**: [npm documentation](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 
 **Note**: npm is included with Node.js. If you install Node.js via nvm, npm will be installed automatically.
@@ -118,9 +123,11 @@ nvm use 20
 
 - **Version**: >=2.0.0
 - **Check your version**:
+
   ```bash
   git --version
   ```
+
 - **Install or upgrade**:
   - **Windows**: [git-scm.com](https://git-scm.com/download/win)
   - **macOS**: `brew install git` or `xcode-select --install`
@@ -162,7 +169,7 @@ This installs:
 
 **Expected Output**:
 
-```
+```text
 added 123 packages, and audited 124 packages in 5s
 found 0 vulnerabilities
 ```
@@ -186,7 +193,7 @@ npm link
 
 **Expected Output**:
 
-```
+```text
 /Users/yourname/.nvm/versions/v20.0.0/lib/node_modules/groundswell -> ~/projects/groundswell
 ```
 
@@ -202,7 +209,7 @@ npm link groundswell
 
 **Expected Output**:
 
-```
+```text
 /home/dustin/projects/hacky-hack/node_modules/groundswell -> /Users/yourname/.nvm/versions/v20.0.0/lib/node_modules/groundswell -> ~/projects/groundswell
 ```
 
@@ -298,7 +305,7 @@ This runs Vitest in watch mode. All tests should pass.
 
 **Expected Output**:
 
-```
+```text
 ✓ src/core/session-manager.test.ts (5)
 ✓ src/agents/coder-agent.test.ts (10)
 ✓ src/agents/researcher-agent.test.ts (8)
@@ -326,7 +333,7 @@ This runs:
 
 **Expected Output**:
 
-```
+```text
 > validate
 > npm run validate:groundswell && npm run lint && npm run format:check && npm run typecheck
 
@@ -355,7 +362,7 @@ npm run build
 
 **Expected Output**:
 
-```
+```text
 > build
 > tsc
 ```
@@ -392,6 +399,7 @@ The groundswell package isn't built or a symlink already exists.
    ```
 
 2. In hacky-hack, unlink and try again:
+
    ```bash
    cd ~/projects/hacky-hack
    npm unlink groundswell
@@ -432,6 +440,7 @@ Groundswell isn't linked or the link is broken.
    ```
 
 3. Verify the link:
+
    ```bash
    ls -la node_modules/groundswell
    ```
@@ -466,6 +475,7 @@ Your Node.js or npm version is below the minimum requirement.
    ```
 
 3. Verify after upgrade:
+
    ```bash
    node --version
    npm --version
@@ -500,6 +510,7 @@ The `ANTHROPIC_BASE_URL` is pointing to the wrong endpoint. Tests enforce z.ai u
    ```
 
 3. Run tests again:
+
    ```bash
    npm test
    ```
@@ -654,7 +665,7 @@ Now that you have the environment set up:
 
 1. Read the [User Guide](./user-guide.md) to understand how to write PRDs
 2. Run `npm run dev -- --prd ./PRD.md` to start your first session
-3. Explore the [Troubleshooting](#6-troubleshooting) section in the User Guide for common issues
+3. Explore the [Troubleshooting](#troubleshooting) section in the User Guide for common issues
 
 **Need Help?**
 

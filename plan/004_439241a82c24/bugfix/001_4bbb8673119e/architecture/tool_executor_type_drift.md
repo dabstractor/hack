@@ -3,7 +3,7 @@
 ## Summary
 
 The three MCP tool modules (`bash-mcp.ts`, `filesystem-mcp.ts`, `git-mcp.ts`) import a `ToolExecutor`
-type from `groundswell`'s **public barrel** — which resolves to the *providers* definition
+type from `groundswell`'s **public barrel** — which resolves to the _providers_ definition
 `dist/types/providers.d.ts`: `(request: ToolExecutionRequest) => Promise<ToolExecutionResult>`.
 However, `MCPHandler.registerToolExecutor()` (defined in `dist/core/mcp-handler.d.ts`) expects a
 **structurally different, locally-declared** `ToolExecutor`: `(input: unknown) => Promise<unknown>`.
@@ -35,44 +35,62 @@ this.registerToolExecutor(
 ```
 
 Concrete callback signature:
+
 ```ts
-async function executeBashCommand(input: BashToolInput): Promise<BashToolResult>
+async function executeBashCommand(
+  input: BashToolInput
+): Promise<BashToolResult>;
 ```
+
 where `BashToolInput = { command: string; cwd?: string; timeout?: number }` and
 `BashToolResult = { success: boolean; stdout: string; stderr: string; exitCode: number | null; error?: string }`.
 
 **`src/tools/filesystem-mcp.ts`** — lines 512–531 (4 calls):
 
 ```ts
-this.registerToolExecutor('filesystem', 'file_read',   readFile   as ToolExecutor);
-this.registerToolExecutor('filesystem', 'file_write',  writeFile  as ToolExecutor);
-this.registerToolExecutor('filesystem', 'glob_files',  globFiles  as ToolExecutor);
-this.registerToolExecutor('filesystem', 'grep_search', grepSearch as ToolExecutor);
+this.registerToolExecutor('filesystem', 'file_read', readFile as ToolExecutor);
+this.registerToolExecutor(
+  'filesystem',
+  'file_write',
+  writeFile as ToolExecutor
+);
+this.registerToolExecutor(
+  'filesystem',
+  'glob_files',
+  globFiles as ToolExecutor
+);
+this.registerToolExecutor(
+  'filesystem',
+  'grep_search',
+  grepSearch as ToolExecutor
+);
 ```
 
 Concrete callback signatures (representative):
+
 ```ts
-async function readFile(input: FileReadInput):   Promise<FileReadResult>   // { success; content?; error? }
-async function writeFile(input: FileWriteInput): Promise<FileWriteResult>  // { success; error? }
-async function globFiles(input: GlobFilesInput): Promise<GlobFilesResult>  // { success; matches?; error? }
-async function grepSearch(input: GrepSearchInput): Promise<GrepSearchResult> // { success; matches?; error? }
+async function readFile(input: FileReadInput): Promise<FileReadResult>; // { success; content?; error? }
+async function writeFile(input: FileWriteInput): Promise<FileWriteResult>; // { success; error? }
+async function globFiles(input: GlobFilesInput): Promise<GlobFilesResult>; // { success; matches?; error? }
+async function grepSearch(input: GrepSearchInput): Promise<GrepSearchResult>; // { success; matches?; error? }
 ```
 
 **`src/tools/git-mcp.ts`** — lines 506–509 (4 calls):
 
 ```ts
 this.registerToolExecutor('git', 'git_status', gitStatus as ToolExecutor);
-this.registerToolExecutor('git', 'git_diff',   gitDiff   as ToolExecutor);
-this.registerToolExecutor('git', 'git_add',    gitAdd    as ToolExecutor);
+this.registerToolExecutor('git', 'git_diff', gitDiff as ToolExecutor);
+this.registerToolExecutor('git', 'git_add', gitAdd as ToolExecutor);
 this.registerToolExecutor('git', 'git_commit', gitCommit as ToolExecutor);
 ```
 
 Concrete callback signatures (representative):
+
 ```ts
-async function gitStatus(input: GitStatusInput):  Promise<GitStatusResult>  // { success; branch?; staged?; modified?; untracked?; error? }
-async function gitDiff(input: GitDiffInput):      Promise<GitDiffResult>    // { success; diff?; error? }
-async function gitAdd(input: GitAddInput):        Promise<GitAddResult>     // { success; stagedCount?; error? }
-async function gitCommit(input: GitCommitInput):  Promise<GitCommitResult>  // { success; commitHash?; error? }
+async function gitStatus(input: GitStatusInput): Promise<GitStatusResult>; // { success; branch?; staged?; modified?; untracked?; error? }
+async function gitDiff(input: GitDiffInput): Promise<GitDiffResult>; // { success; diff?; error? }
+async function gitAdd(input: GitAddInput): Promise<GitAddResult>; // { success; stagedCount?; error? }
+async function gitCommit(input: GitCommitInput): Promise<GitCommitResult>; // { success; commitHash?; error? }
 ```
 
 ### 2. `ToolExecutor` (providers) — the type the modules actually import
@@ -86,10 +104,13 @@ export type { ToolExecutionRequest, ToolExecutionResult };
  * Tool executor callback function
  * Delegates tool execution to the MCPHandler
  */
-export type ToolExecutor = (request: ToolExecutionRequest) => Promise<ToolExecutionResult>;
+export type ToolExecutor = (
+  request: ToolExecutionRequest
+) => Promise<ToolExecutionResult>;
 ```
 
 This is re-exported through the public barrel:
+
 - `.yalc/groundswell/dist/types/index.d.ts`:
   `export type { … ToolExecutionRequest, ToolExecutionResult, ToolExecutor, … } from './providers.js';`
 - `.yalc/groundswell/dist/index.d.ts`:
@@ -108,20 +129,24 @@ So `import { type ToolExecutor } from 'groundswell'` resolves to **this** provid
 export type ToolExecutor = (input: unknown) => Promise<unknown>;
 
 export declare class MCPHandler {
-    // …
-    registerToolExecutor(serverName: string, toolName: string, executor: ToolExecutor): void;
-    // …
+  // …
+  registerToolExecutor(
+    serverName: string,
+    toolName: string,
+    executor: ToolExecutor
+  ): void;
+  // …
 }
 ```
 
 This local `ToolExecutor` is **NOT** re-exported from the public barrel (`dist/index.d.ts` only
-re-exports the `MCPHandler` *class*, not its companion `ToolExecutor` type alias). The two
+re-exports the `MCPHandler` _class_, not its companion `ToolExecutor` type alias). The two
 `ToolExecutor` aliases are therefore **structurally different**:
 
-| Definition | Signature | Source |
-|---|---|---|
-| **providers** (imported by tool modules) | `(request: ToolExecutionRequest) => Promise<ToolExecutionResult>` | `dist/types/providers.d.ts` |
-| **MCPHandler-local** (expected by `registerToolExecutor`) | `(input: unknown) => Promise<unknown>` | `dist/core/mcp-handler.d.ts` |
+| Definition                                                | Signature                                                         | Source                       |
+| --------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------- |
+| **providers** (imported by tool modules)                  | `(request: ToolExecutionRequest) => Promise<ToolExecutionResult>` | `dist/types/providers.d.ts`  |
+| **MCPHandler-local** (expected by `registerToolExecutor`) | `(input: unknown) => Promise<unknown>`                            | `dist/core/mcp-handler.d.ts` |
 
 ### 4. `ToolExecutionRequest` and `ToolExecutionResult` definitions
 
@@ -132,20 +157,20 @@ re-exports the `MCPHandler` *class*, not its companion `ToolExecutor` type alias
  * Tool execution request (PRD §7.10). Copied VERBATIM from providers.ts.
  */
 export interface ToolExecutionRequest {
-    /** Tool name (may be namespaced: "server__tool") */
-    name: string;
-    /** Tool input parameters */
-    input: unknown;
+  /** Tool name (may be namespaced: "server__tool") */
+  name: string;
+  /** Tool input parameters */
+  input: unknown;
 }
 
 /**
  * Tool execution result (PRD §7.10). Copied VERBATIM from providers.ts.
  */
 export interface ToolExecutionResult {
-    /** Result content */
-    content: string | unknown;
-    /** Whether the execution resulted in an error */
-    isError: boolean;
+  /** Result content */
+  content: string | unknown;
+  /** Whether the execution resulted in an error */
+  isError: boolean;
 }
 ```
 
@@ -175,17 +200,17 @@ verbatim and later invoked with a single bare `input` argument — never wrapped
 `ToolExecutionRequest`. In `createToolExecutor`:
 
 ```js
-return async (input) => {
+return async input => {
   const executor = this.toolExecutors.get(fullName);
   // …
-  return executor(input);   // ← single arg, raw input
+  return executor(input); // ← single arg, raw input
 };
 ```
 
 And `executeTool` / `toAgentSDKServer` / `toPiCustomTools` all call `registered.executor(input)`
 with one argument and treat the return as `unknown` (stringified via `JSON.stringify`). This proves
 the **MCPHandler-local** type is the correct runtime contract; the providers `ToolExecutor` describes
-a *different* callback (the one harnesses pass into `harness.execute()`), not the one
+a _different_ callback (the one harnesses pass into `harness.execute()`), not the one
 `registerToolExecutor` consumes.
 
 ### 6. Root cause of the 18 typecheck errors (static analysis)
@@ -195,6 +220,7 @@ Under `tsconfig.json` (`"strict": true` → `strictFunctionTypes` enabled), each
 
 **(a) TS2352 on the `as ToolExecutor` cast** — the concrete callback is not assignable to the
 providers `ToolExecutor` in either direction:
+
 - Parameter (contravariant): `ToolExecutionRequest` (`{ name; input }`) is **not** assignable to
   e.g. `BashToolInput` (`{ command; cwd?; timeout? }`) — no `command` field — so the function is not
   assignable in the forward direction; the reverse also fails because `BashToolInput` lacks
@@ -210,17 +236,17 @@ because of parameter contravariance (`unknown` is not assignable to `ToolExecuti
 Predicted error locations (the cast column = the `as ToolExecutor` token; the arg column = the
 `registerToolExecutor(` call):
 
-| File | Function | Cast line | Call line |
-|---|---|---|---|
-| `src/tools/bash-mcp.ts` | `executeBashCommand` | 275 | 272 |
-| `src/tools/filesystem-mcp.ts` | `readFile` | 515 | 512 |
-| `src/tools/filesystem-mcp.ts` | `writeFile` | 520 | 517 |
-| `src/tools/filesystem-mcp.ts` | `globFiles` | 525 | 522 |
-| `src/tools/filesystem-mcp.ts` | `grepSearch` | 530 | 527 |
-| `src/tools/git-mcp.ts` | `gitStatus` | 506 | 506 |
-| `src/tools/git-mcp.ts` | `gitDiff` | 507 | 507 |
-| `src/tools/git-mcp.ts` | `gitAdd` | 508 | 508 |
-| `src/tools/git-mcp.ts` | `gitCommit` | 509 | 509 |
+| File                          | Function             | Cast line | Call line |
+| ----------------------------- | -------------------- | --------- | --------- |
+| `src/tools/bash-mcp.ts`       | `executeBashCommand` | 275       | 272       |
+| `src/tools/filesystem-mcp.ts` | `readFile`           | 515       | 512       |
+| `src/tools/filesystem-mcp.ts` | `writeFile`          | 520       | 517       |
+| `src/tools/filesystem-mcp.ts` | `globFiles`          | 525       | 522       |
+| `src/tools/filesystem-mcp.ts` | `grepSearch`         | 530       | 527       |
+| `src/tools/git-mcp.ts`        | `gitStatus`          | 506       | 506       |
+| `src/tools/git-mcp.ts`        | `gitDiff`            | 507       | 507       |
+| `src/tools/git-mcp.ts`        | `gitAdd`             | 508       | 508       |
+| `src/tools/git-mcp.ts`        | `gitCommit`          | 509       | 509       |
 
 (For `git-mcp.ts` the call and cast are on the same single line, so both errors report that line.)
 
@@ -235,11 +261,13 @@ smallest-scope, runtime-correct change.
 ### 7. Prettier `format:check` glob vs `.prettierignore`
 
 **`package.json` scripts:**
+
 ```json
 "format:check": "prettier --check \"**/*.{ts,js,json,md,yml,yaml}\""
 ```
 
 **`.prettierignore` (complete contents):**
+
 ```
 node_modules/
 dist/
@@ -265,7 +293,7 @@ independently of the typecheck errors.
 - Kept: `.yalc/groundswell/dist/types/harnesses.d.ts` — `ToolExecutionRequest { name: string; input: unknown }` and `ToolExecutionResult { content: string | unknown; isError: boolean }`.
 - Kept: `.yalc/groundswell/dist/core/mcp-handler.d.ts` — local `ToolExecutor = (input: unknown) => Promise<unknown>`; `registerToolExecutor(serverName, toolName, executor: ToolExecutor)`.
 - Kept: `.yalc/groundswell/dist/core/mcp-handler.js` — runtime proof executors are invoked as `executor(input)` (single bare arg, return treated as `unknown`).
-- Kept: `.yalc/groundswell/dist/index.d.ts` + `dist/types/index.d.ts` — barrel only re-exports the **providers** `ToolExecutor` and the `MCPHandler` *class* (not its local `ToolExecutor` alias).
+- Kept: `.yalc/groundswell/dist/index.d.ts` + `dist/types/index.d.ts` — barrel only re-exports the **providers** `ToolExecutor` and the `MCPHandler` _class_ (not its local `ToolExecutor` alias).
 - Kept: `package.json` (`format:check` glob), `.prettierignore` (no `artifacts/`/`plan/` entries), `tsconfig.json`/`tsconfig.build.json` (`strict: true`).
 - Dropped: none — every source read was directly on-point.
 

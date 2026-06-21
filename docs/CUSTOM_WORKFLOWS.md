@@ -235,7 +235,7 @@ async analyzeScope(): Promise<void> {
 
 **Timing Output**:
 
-```
+```text
 [Step] analyzeScope completed in 2.3s
 [Step] creativeE2ETesting completed in 5.1s
 [Step] generateReport completed in 30.2s

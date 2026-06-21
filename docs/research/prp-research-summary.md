@@ -24,7 +24,7 @@ This document provides focused research findings organized by the specific areas
 
 **Directory:** `/home/dustin/projects/hacky-hack/tests/`
 
-```
+```text
 tests/
 ├── setup.ts                          # Global test configuration
 ├── unit/                             # Unit tests

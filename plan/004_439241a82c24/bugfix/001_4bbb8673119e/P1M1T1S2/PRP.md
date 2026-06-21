@@ -17,6 +17,7 @@ factory. No source files change (S1 already shipped the production code; this is
 test-only fix to keep the mock contract in sync with the new imports).
 
 **Success Definition**:
+
 - `npm run test:run -- config/harness-config config/harness-provider-compat` → **all 9 tests
   pass** (currently 4 fail with `"No 'HarnessRegistry' export is defined on the 'groundswell' mock"`).
 - `npm run test:run -- agents/agent-factory` → the **5 persona-factory creation tests**
@@ -58,10 +59,11 @@ returns stubs for the two new symbols the SUT imports. The stubs must satisfy th
 surface `configureHarness()` (Step 4.5) uses:
 
 ```ts
-const registry = HarnessRegistry.getInstance();  // → needs an object with has() + register()
-if (!registry.has('pi')) {                         // → needs has(id) → boolean (false, so register runs)
-  registry.register(new PiHarness());              // → needs register(instance) → void (no-throw);
-}                                                  //   and PiHarness must be constructable via new
+const registry = HarnessRegistry.getInstance(); // → needs an object with has() + register()
+if (!registry.has('pi')) {
+  // → needs has(id) → boolean (false, so register runs)
+  registry.register(new PiHarness()); // → needs register(instance) → void (no-throw);
+} //   and PiHarness must be constructable via new
 ```
 
 ### Authoritative mock shape (from the task contract)
@@ -271,11 +273,11 @@ vi.mock('groundswell', () => ({
   HarnessRegistry: {
     // getInstance returns a fresh registry stub each call — safe under vi.clearAllMocks().
     getInstance: () => ({
-      has: () => false,          // false → register branch always runs (true-arm deferred to P1.M1.T2.S2)
-      register: vi.fn(),         // vi.fn (not real register) → no "already registered" throw on repeats
+      has: () => false, // false → register branch always runs (true-arm deferred to P1.M1.T2.S2)
+      register: vi.fn(), // vi.fn (not real register) → no "already registered" throw on repeats
     }),
   },
-  PiHarness: class MockPiHarness {},  // class expression → `new PiHarness()` succeeds
+  PiHarness: class MockPiHarness {}, // class expression → `new PiHarness()` succeeds
 }));
 
 // WHY each stub is shaped this way (mapped to harness.ts Step 4.5):
@@ -296,9 +298,11 @@ ROUTES:
 BUILD / TOOLING:
   - none (no package.json, tsconfig, or vitest.config changes)
 DEPENDENCIES:
-  - DEPENDS-ON (completed): P1.M1.T1.S1 — src/config/harness.ts must already import
+  - DEPENDS-ON (completed):
+      P1.M1.T1.S1 — src/config/harness.ts must already import
       PiHarness + HarnessRegistry and call registry.has/register. (Verified present.)
-  - ENABLES (downstream): P1.M1.T1.S3 — end-to-end persona-factory verification + 100% branch
+  - ENABLES (downstream):
+      P1.M1.T1.S3 — end-to-end persona-factory verification + 100% branch
       coverage of the registration guard's true-arm.
 ```
 

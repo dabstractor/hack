@@ -6,6 +6,7 @@ End-to-end QA validation of **Session 004 — Pluggable Agent Harness System** (
 phase: wire Groundswell's pluggable harness into the PRP pipeline per PRD §9.4).
 
 Testing performed:
+
 - Read PRD §9.2.2 / §9.2.3 / §9.2.4 / §9.3.3 / §9.4 and the delta_prd.md.
 - Mapped every P1.M1 / P1.M2 subtask to its implementation and ran its tests.
 - Ran the full session-004 test surface (`config/*`, `tools/mcp-tool-parity`,
@@ -16,7 +17,7 @@ Testing performed:
 Overall assessment: The **configuration, model-qualification, endpoint-guard,
 parity, cache-isolation, and documentation** deliverables are solid and their tests
 pass. However, the **end-to-end integration is broken**: the harness is configured
-but never *registered* with Groundswell's `HarnessRegistry`, so `createAgent()`
+but never _registered_ with Groundswell's `HarnessRegistry`, so `createAgent()`
 throws for **every** persona factory and the pipeline cannot instantiate a single
 agent. This directly violates the P1.M1.T2.S2 acceptance criteria ("All persona
 factories must still create agents without throwing … full `npm run test:run` must
@@ -49,6 +50,7 @@ Error: Harness 'pi' is not registered
 ```
 
 5 tests in `tests/unit/agents/agent-factory.test.ts` fail:
+
 - `should create multiple agents without MCP server registration conflicts`
 - `should create architect agent successfully`
 - `should create researcher agent successfully`
@@ -56,11 +58,14 @@ Error: Harness 'pi' is not registered
 - `should create QA agent successfully`
 
 **Steps to Reproduce**:
+
 ```bash
 npm run test:run -- agents/agent-factory
 # → 5 failures, all "Error: Harness 'pi' is not registered"
 ```
+
 Or directly:
+
 ```bash
 npx tsx -e "import('./src/agents/agent-factory.js').then(m => m.createArchitectAgent())"
 # → Error: Harness 'pi' is not registered
@@ -84,6 +89,7 @@ $ grep -rn "registerDefaultHarnesses\|new PiHarness\|registry.register" src/
 
 Confirmation probe (added temporarily, then removed): registering `PiHarness`
 immediately before `createAgent()` makes the throw disappear:
+
 ```ts
 HarnessRegistry.getInstance().register(new PiHarness());
 createAgent({ name, system, model: 'zai/GLM-4.7', harness: 'pi', mcps: [] }); // ✓ no throw
@@ -94,6 +100,7 @@ runtime is usable by default. Two viable approaches:
 
 1. Preferred (default path only — `claude-code` is always rejected for `zai`
    anyway per Issue 2 / PRD §9.2.4):
+
    ```ts
    // src/config/harness.ts
    import { configureHarnesses, PiHarness, HarnessRegistry } from 'groundswell';
@@ -104,6 +111,7 @@ runtime is usable by default. Two viable approaches:
    }
    configureHarnesses({ defaultHarness: harness, defaultModelProvider: DEFAULT_MODEL_PROVIDER, ... });
    ```
+
    (Why not `registerDefaultHarnesses()` from `groundswell/harnesses`: that
    subpath is not in the published package `exports`, and it imports
    `ClaudeCodeHarness` → `@anthropic-ai/claude-agent-sdk`, which is not
@@ -147,18 +155,19 @@ if (harness === 'claude-code' && DEFAULT_MODEL_PROVIDER === 'zai') {
 
 Because `DEFAULT_MODEL_PROVIDER` is a hardcoded `'zai'` literal, this branch
 **always** throws whenever `harness === 'claude-code'` — regardless of what model
-overrides the user supplied. There is no code path that reads the *actual*
+overrides the user supplied. There is no code path that reads the _actual_
 provider segment from the resolved model strings (`getModel(...)` /
 `ANTHROPIC_DEFAULT_*_MODEL`). The "pluggable" harness system therefore cannot
 actually plug in `claude-code`.
 
 **Steps to Reproduce** (probe test, since no first-class test asserts the positive
 `claude-code` + anthropic case):
+
 ```ts
 vi.stubEnv('PRP_AGENT_HARNESS', 'claude-code');
 vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');
-vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL',  'anthropic/claude-haiku');
-vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL',   'anthropic/claude-opus');
+vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', 'anthropic/claude-haiku');
+vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'anthropic/claude-opus');
 expect(() => configureHarness()).toThrow(/incompatible|Mismatch/i); // ← wrongly throws
 ```
 
@@ -189,11 +198,13 @@ should still be corrected so the configuration is no longer rejected on principl
 so documentation formatting can be validated.
 
 **Actual Behavior**:
+
 ```bash
 $ npm run docs:lint
 > markdownlint "docs/**/*.md"
 sh: line 1: markdownlint: command not found
 ```
+
 `markdownlint` / `markdownlint-cli` is **not** listed in `package.json`
 `devDependencies`, so the script always fails. Both doc subtasks therefore could
 not have actually passed their stated validation gate.
@@ -226,6 +237,7 @@ is not assignable to parameter of type '…ToolExecutor' (from groundswell/dist/
 Types of parameters 'request' and 'input' are incompatible.
 Type 'unknown' is not assignable to type 'ToolExecutionRequest'.
 ```
+
 There are two structurally different `ToolExecutor` definitions in the consumed
 Groundswell dist (`types/providers` vs `core/mcp-handler`), and the MCP tool
 `registerToolExecutor` calls straddle them. (`format:check` also flags 5 generated

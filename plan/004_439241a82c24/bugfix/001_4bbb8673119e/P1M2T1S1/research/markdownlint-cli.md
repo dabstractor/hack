@@ -14,10 +14,10 @@ The existing `package.json` scripts invoke a command literally named **`markdown
 
 Two candidate npm packages exist. `npm view <pkg> bin` confirms their installed command names:
 
-| Package | Latest | `bin` mapping | Invoked as | Keeps existing scripts? |
-|---|---|---|---|---|
-| **`markdownlint-cli`** | `0.49.0` | `{ markdownlint: 'markdownlint.js' }` | `markdownlint` | ✅ YES — no script change |
-| `markdownlint-cli2` | `0.22.1` | `{ 'markdownlint-cli2': 'markdownlint-cli2-bin.mjs' }` | `markdownlint-cli2` | ❌ NO — requires rewriting both scripts |
+| Package                | Latest   | `bin` mapping                                          | Invoked as          | Keeps existing scripts?                 |
+| ---------------------- | -------- | ------------------------------------------------------ | ------------------- | --------------------------------------- |
+| **`markdownlint-cli`** | `0.49.0` | `{ markdownlint: 'markdownlint.js' }`                  | `markdownlint`      | ✅ YES — no script change               |
+| `markdownlint-cli2`    | `0.22.1` | `{ 'markdownlint-cli2': 'markdownlint-cli2-bin.mjs' }` | `markdownlint-cli2` | ❌ NO — requires rewriting both scripts |
 
 **Conclusion:** Install **`markdownlint-cli`** (NOT `markdownlint-cli2`). Its shim is named
 exactly `markdownlint`, which is what the scripts already call. The contract's fallback
@@ -53,7 +53,7 @@ exactly `markdownlint`, which is what the scripts already call. The contract's f
   It is highly likely to **report lint violations** in the 20+ existing `docs/**/*.md` files
   and exit non-zero. **That is acceptable and out of scope for S1** — fixing the violations
   (or adding a `.markdownlint.json` config / inline config) is the entire purpose of
-  **P1.M2.T1.S2**. S1's acceptance is "the script *resolves and runs markdownlint*", NOT "lint passes".
+  **P1.M2.T1.S2**. S1's acceptance is "the script _resolves and runs markdownlint_", NOT "lint passes".
 
 ## 5. Scope guardrails (prevent scope-creep into S2 / Issue 4)
 

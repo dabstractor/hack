@@ -7,7 +7,7 @@ This guide provides comprehensive documentation for advanced features of the PRP
 - [1. Writing PRDs](#1-writing-prds)
   - [PRD Structure](#prd-structure)
   - [Best Practices](#best-practices-for-writing-prds)
-  - [Research-Driven Architecture](#research-driven-architecture)
+  - [Research-Driven Architecture](#4-research-driven-architecture)
   - [Example PRD](#example-prd-structure)
   - [Common Pitfalls](#common-prd-pitfalls)
 - [2. Session Management](#2-session-management)
@@ -419,7 +419,7 @@ npm run dev -- --prd ./PRD.md
 
 **Step 3: Observe delta session creation**
 
-```
+```text
 [Session Manager] PRD hash changed
 [Session Manager] Creating delta session: plan/002_newhash/
 [Delta Analysis] Comparing PRDs...
@@ -439,7 +439,7 @@ The system skips completed tasks and only executes:
 
 You can chain multiple delta sessions:
 
-```
+```text
 session1 (initial) → delta1 (first change) → delta2 (second change)
 ```
 
@@ -498,7 +498,7 @@ npm run dev -- --prd ./PRD.md  # Creates 003_ghi... (child of 002_def...)
 
 **Session Structure:**
 
-```
+```text
 plan/
 ├── 001_abc.../          # Original session
 │   ├── tasks.json       # Contains original tasks
@@ -895,7 +895,7 @@ ls PRD.md
 
 **What you see:**
 
-```
+```text
 [Task Orchestrator] P1.M1.T1.S1 failed
 [Task Orchestrator] Retrying...
 [Task Orchestrator] P1.M1.T1.S1 failed
@@ -1281,7 +1281,7 @@ npm run dev -- --prd ./PRD.md --verbose
 
 **Example Metrics Output:**
 
-```
+```text
 [TaskOrchestrator] Cache metrics: hits=47, misses=3, hitRatio=94.0%
 [SessionManager] Batch write complete: 50 items in 1 operation (98% efficiency)
 [ResearchQueue] Stats: queued=2, researching=3, cached=45
@@ -1335,14 +1335,14 @@ npm run dev -- --prd PRD.md
 
 **Before (v0):**
 
-```
+```text
 .sessions/
 └── hash/
 ```
 
 **After (v1):**
 
-```
+```text
 plan/
 └── 001_hash/
 ```

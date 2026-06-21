@@ -129,7 +129,7 @@ async initializeSession(): Promise<void> {
 
 **Timing Output Example:**
 
-```
+```text
 [Step] initializeSession completed in 2.3s
 [Step] decomposePRD completed in 45.7s
 [Step] executeBacklog completed in 312.1s
@@ -605,7 +605,7 @@ await this.sessionManager.saveBacklog(patchedBacklog);
 
 Delta sessions maintain linkage to parent sessions via `parent_session.txt`:
 
-```
+```text
 plan/
 ├── 001_abc.../          # Parent session (original)
 │   ├── tasks.json
@@ -1303,13 +1303,13 @@ async function retryAgentPrompt<T>(
 
 **Normal Flow:**
 
-```
+```text
 idle → running → completed
 ```
 
 **Error Flow:**
 
-```
+```text
 idle → running → failed
 ```
 

@@ -424,7 +424,7 @@ const validated = expectValidBacklog(mockResponse);
 
 ### File Structure
 
-```
+```text
 tests/integration/agents/
 ├── architect-agent-integration.test.ts
 ├── researcher-agent-integration.test.ts

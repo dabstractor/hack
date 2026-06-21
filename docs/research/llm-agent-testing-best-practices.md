@@ -110,7 +110,7 @@ export default defineConfig({
 
 **Directory Structure:**
 
-```
+```text
 tests/
 ├── unit/                    # Unit tests for individual modules
 │   ├── agents/             # Agent factory and prompt tests
@@ -818,7 +818,7 @@ describe('Architect Agent Integration', () => {
 
 **Directory Structure:**
 
-```
+```text
 tests/fixtures/
 ├── prd/
 │   ├── simple-prd.md
