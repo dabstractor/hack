@@ -21,7 +21,7 @@
 
 import { promises as fs } from 'node:fs';
 import { resolve, normalize, sep } from 'node:path';
-import { MCPHandler, type Tool, type ToolExecutor } from 'groundswell';
+import { MCPHandler, type Tool } from 'groundswell';
 import fg from 'fast-glob';
 
 /**
@@ -513,22 +513,22 @@ export class FilesystemMCP extends MCPHandler {
     this.registerToolExecutor(
       'filesystem',
       'file_read',
-      readFile as ToolExecutor
+      async (input: unknown) => readFile(input as FileReadInput)
     );
     this.registerToolExecutor(
       'filesystem',
       'file_write',
-      writeFile as ToolExecutor
+      async (input: unknown) => writeFile(input as FileWriteInput)
     );
     this.registerToolExecutor(
       'filesystem',
       'glob_files',
-      globFiles as ToolExecutor
+      async (input: unknown) => globFiles(input as GlobFilesInput)
     );
     this.registerToolExecutor(
       'filesystem',
       'grep_search',
-      grepSearch as ToolExecutor
+      async (input: unknown) => grepSearch(input as GrepSearchInput)
     );
   }
 }

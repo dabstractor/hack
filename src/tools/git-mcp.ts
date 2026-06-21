@@ -27,7 +27,7 @@ import {
   type Options,
 } from 'simple-git';
 import { GitError } from 'simple-git';
-import { MCPHandler, type Tool, type ToolExecutor } from 'groundswell';
+import { MCPHandler, type Tool } from 'groundswell';
 
 // ===== INPUT INTERFACES =====
 
@@ -501,11 +501,19 @@ export class GitMCP extends MCPHandler {
       tools: this.tools,
     });
 
-    // PATTERN: Register tool executors with ToolExecutor cast
-    this.registerToolExecutor('git', 'git_status', gitStatus as ToolExecutor);
-    this.registerToolExecutor('git', 'git_diff', gitDiff as ToolExecutor);
-    this.registerToolExecutor('git', 'git_add', gitAdd as ToolExecutor);
-    this.registerToolExecutor('git', 'git_commit', gitCommit as ToolExecutor);
+    // PATTERN: Register tool executors (type-safe adapters match MCPHandler's local ToolExecutor)
+    this.registerToolExecutor('git', 'git_status', async (input: unknown) =>
+      gitStatus(input as GitStatusInput)
+    );
+    this.registerToolExecutor('git', 'git_diff', async (input: unknown) =>
+      gitDiff(input as GitDiffInput)
+    );
+    this.registerToolExecutor('git', 'git_add', async (input: unknown) =>
+      gitAdd(input as GitAddInput)
+    );
+    this.registerToolExecutor('git', 'git_commit', async (input: unknown) =>
+      gitCommit(input as GitCommitInput)
+    );
   }
 }
 

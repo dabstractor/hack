@@ -24,7 +24,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MCPHandler, type Tool, type ToolExecutor } from 'groundswell';
+import { MCPHandler, type Tool } from 'groundswell';
 
 /**
  * Input schema for bash tool execution
@@ -269,10 +269,8 @@ export class BashMCP extends MCPHandler {
     });
 
     // PATTERN: Register tool executor
-    this.registerToolExecutor(
-      'bash',
-      'execute_bash',
-      executeBashCommand as ToolExecutor
+    this.registerToolExecutor('bash', 'execute_bash', async (input: unknown) =>
+      executeBashCommand(input as BashToolInput)
     );
   }
 
