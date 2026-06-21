@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Pluggable Agent Harness System — Integration & Adoption",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Delta Phase (Session 004). Decouple the agent runtime (harness) from the LLM provider/model per PRD §9.4. Groundswell already implements the entire harness abstraction; this phase is integration/adoption work on the PRP (hacky-hack) side: wire configureHarnesses() at startup, read PRP_AGENT_HARNESS, provider-qualify model strings (zai/<model>), enforce the harness↔provider compatibility rule, verify parity, and update docs. No new harness adapter, no changes to session/task/delta/bug-hunt logic. Scope driver: plan/004_439241a82c24/delta_prd.md. See plan/004_439241a82c24/architecture/system_context.md.",
       "milestones": [
         {
@@ -114,7 +114,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Parity, Validation & Docs",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Lock in the harness delta with tests and documentation: clarify the z.ai safeguard constrains the provider (not the harness) and reject claude-code+z.ai; verify feature parity (tools via MCPHandler, cache-key isolation across harness×provider) under both harnesses; and document PRP_AGENT_HARNESS, provider-qualified models, and the Harness System. All tasks in this milestone depend on P1.M1 being complete. See architecture/delta_impact.md §C/§D.",
           "tasks": [
             {
@@ -215,7 +215,7 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Documentation update",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Document the harness system for users: update docs/CONFIGURATION.md with PRP_AGENT_HARNESS, provider-qualified model strings, and harness/provider independence; create docs/GROUNDSWELL_GUIDE.md with a Harness System section mirroring PRD §9.4. docs/ is NOT a protected path (Cleanup/doc updates are in scope). See architecture/delta_impact.md §D and implementation_notes.md §6.",
               "subtasks": [
                 {
@@ -244,7 +244,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T3.S2",
                   "title": "Create docs/GROUNDSWELL_GUIDE.md with a Harness System section",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2",
