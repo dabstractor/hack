@@ -1,0 +1,12 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+  h3.0 Issue 1: createAgent() throws "Harness 'pi' is not registered" for all persona factories — pipeline cannot create any agent
+ h2.2 Major Issues (Should Fix)
+  h3.1 Issue 2: The claude-code harness is permanently unusable — compatibility guard checks a hardcoded constant instead of the resolved provider
+ h2.3 Minor Issues (Nice to Fix)
+  h3.2 Issue 3: npm run docs:lint is non-functional — the markdownlint gate the doc tasks rely on cannot run
+  h3.3 Issue 4: npm run validate fails on pre-existing TypeScript errors in MCP tool files (ToolExecutor type drift)
+ h2.4 Testing Summary
+---
+code:9 para:33 list:4
