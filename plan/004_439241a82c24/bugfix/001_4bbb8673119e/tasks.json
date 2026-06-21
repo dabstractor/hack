@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Session 004 Bugfix — Pluggable Agent Harness Integration Repair",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Restore end-to-end agent instantiation and the validation gates for the Session 004 pluggable harness delta. Fixes 4 QA-discovered issues: (1) Critical — harness configured but never registered so createAgent() throws for every persona; (2) Major — claude-code provider guard checks a hardcoded constant instead of the resolved provider; (3) Minor — docs:lint gate non-functional (markdownlint-cli missing); (4) Minor — npm run validate fails on pre-existing ToolExecutor type drift + generated-state format failures. Grounded in the architecture findings under plan/004_439241a82c24/bugfix/001_4bbb8673119e/architecture/.",
       "milestones": [
         {
@@ -125,7 +125,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Validation Gate Restoration (Issues 3 & 4)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Restore the npm run docs:lint and npm run validate gates that every Session-004 task contract requires. (Issue 3) markdownlint-cli is missing from devDependencies so docs:lint always fails with 'command not found'. (Issue 4) npm run typecheck reports 18 errors from ToolExecutor type drift in the 3 MCP tool files, and format:check fails on generated state files under artifacts/ and plan/ that .prettierignore does not exclude. These are independent of the M1 runtime fixes but the final npm run validate + full test:run gate requires all four issues resolved.",
           "tasks": [
             {
@@ -212,14 +212,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Final Validation — confirm npm run validate, npm run test:run, and npm run docs:lint are all green",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Cross-cutting definition-of-done gate. Every Session-004 task contract requires 'npm run validate must pass' and 'npm run test:run must pass with no regressions'. After all four issues are fixed, run the complete gate suite end-to-end and confirm 0 failures, 0 type errors, 0 lint/format issues, and 100% coverage maintained. This task depends on BOTH milestones being complete.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Run full validation gate suite and confirm all gates green",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S3",
