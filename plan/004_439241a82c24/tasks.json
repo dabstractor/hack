@@ -121,7 +121,7 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Provider-vs-harness safeguard clarification (tests)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Clarify and test that the z.ai endpoint guard constrains the LLM provider (not the harness), and that the new harness/provider compatibility rule is enforced: claude-code + z.ai rejected at init; pi + z.ai allowed. See architecture/implementation_notes.md §1 and architecture/delta_impact.md §B/§C.",
               "subtasks": [
                 {
@@ -147,7 +147,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "Harness/provider compatibility rejection test",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"

@@ -135,6 +135,7 @@ export type ModelProvider = 'zai' | 'anthropic' | (string & {}); // eslint-disab
  *
  * throw new HarnessProviderMismatchError('claude-code', 'zai');
  * // Error: Harness 'claude-code' is incompatible with provider 'zai' (PRD §9.2.4).
+ * //   Switch the harness to 'pi' (PRP_AGENT_HARNESS=pi) or switch the model provider to anthropic/* models.
  * ```
  */
 export class HarnessProviderMismatchError extends Error {
@@ -152,7 +153,7 @@ export class HarnessProviderMismatchError extends Error {
   constructor(harness: AgentHarness, provider: ModelProvider) {
     super(
       `Harness '${harness}' is incompatible with provider '${provider}' (PRD §9.2.4). ` +
-        `Select a compatible harness/provider pair.`
+        `Switch the harness to 'pi' (PRP_AGENT_HARNESS=pi) or switch the model provider to anthropic/* models.`
     );
     this.name = 'HarnessProviderMismatchError';
     this.harness = harness;
