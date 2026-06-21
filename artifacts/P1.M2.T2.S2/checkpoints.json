@@ -2,88 +2,13 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M2.T2.S2_1782004334907_coder-response_71a0dccd",
-      "taskId": "P1.M2.T2.S2",
-      "label": "After Coder Agent response",
-      "state": {
-        "prpPath": "/tmp/test.md",
-        "stage": "coder-response",
-        "coderResponse": "```json\n{\n  \"result\": \"success\",\n  \"message\": \"Implementation complete\"\n}\n```",
-        "coderResult": {
-          "result": "success",
-          "message": "Implementation complete"
-        },
-        "validationResults": [],
-        "timestamp": "2026-06-21T01:12:14.907Z"
-      },
-      "createdAt": "2026-06-21T01:12:14.907Z"
-    },
-    {
-      "id": "P1.M2.T2.S2_1782004335142_validation-gate-4_982973f5",
-      "taskId": "P1.M2.T2.S2",
-      "label": "After validation gate 4",
-      "state": {
-        "prpPath": "/tmp/test.md",
-        "stage": "validation-gate-4",
-        "coderResponse": "```json\n{\n  \"result\": \"success\",\n  \"message\": \"Implementation complete\"\n}\n```",
-        "coderResult": {
-          "result": "success",
-          "message": "Implementation complete"
-        },
-        "validationResults": [
-          {
-            "level": 1,
-            "description": "Syntax check",
-            "success": true,
-            "command": "echo \"Syntax check passed\"",
-            "stdout": "\"Syntax check passed\"\n",
-            "stderr": "",
-            "exitCode": 0,
-            "skipped": false
-          },
-          {
-            "level": 2,
-            "description": "Unit tests",
-            "success": true,
-            "command": "echo \"Unit tests passed\"",
-            "stdout": "\"Unit tests passed\"\n",
-            "stderr": "",
-            "exitCode": 0,
-            "skipped": false
-          },
-          {
-            "level": 3,
-            "description": "Integration tests",
-            "success": true,
-            "command": "echo \"Integration tests passed\"",
-            "stdout": "\"Integration tests passed\"\n",
-            "stderr": "",
-            "exitCode": 0,
-            "skipped": false
-          },
-          {
-            "level": 4,
-            "description": "Manual review",
-            "success": true,
-            "command": null,
-            "stdout": "",
-            "stderr": "",
-            "exitCode": null,
-            "skipped": true
-          }
-        ],
-        "timestamp": "2026-06-21T01:12:15.142Z"
-      },
-      "createdAt": "2026-06-21T01:12:15.142Z"
-    },
-    {
-      "id": "P1.M2.T2.S2_1782004335173_complete_14eebbff",
+      "id": "P1.M2.T2.S2_1782007927926_complete_5587f714",
       "taskId": "P1.M2.T2.S2",
       "label": "Task completed successfully",
       "state": {
-        "prpPath": "/tmp/test.md",
+        "prpPath": "/tmp/test-session/prps/P1M2T2S2.md",
         "stage": "complete",
-        "coderResponse": "```json\n{\n  \"result\": \"success\",\n  \"message\": \"Implementation complete\"\n}\n```",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
         "coderResult": {
           "result": "success",
           "message": "Implementation complete"
@@ -130,39 +55,116 @@
             "skipped": true
           }
         ],
-        "timestamp": "2026-06-21T01:12:15.173Z"
+        "timestamp": "2026-06-21T02:12:07.926Z"
       },
-      "createdAt": "2026-06-21T01:12:15.173Z"
+      "createdAt": "2026-06-21T02:12:07.926Z"
     },
     {
-      "id": "P1.M2.T2.S2_1782004335175_pre-execution_fb6b27fa",
+      "id": "P1.M2.T2.S2_1782007927932_pre-execution_e7559213",
       "taskId": "P1.M2.T2.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-06-21T01:12:15.175Z"
+        "timestamp": "2026-06-21T02:12:07.932Z"
       },
-      "createdAt": "2026-06-21T01:12:15.175Z"
+      "createdAt": "2026-06-21T02:12:07.932Z"
     },
     {
-      "id": "P1.M2.T2.S2_1782004335177_coder-response_90de1454",
+      "id": "P1.M2.T2.S2_1782007927933_coder-response_918d6522",
       "taskId": "P1.M2.T2.S2",
       "label": "After Coder Agent response",
       "state": {
         "prpPath": "/tmp/test.md",
         "stage": "coder-response",
-        "coderResponse": "not valid json at all",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
         "coderResult": {
-          "result": "error",
-          "message": "Failed to parse Coder Agent response: not valid json at all"
+          "result": "success",
+          "message": ""
         },
         "validationResults": [],
-        "timestamp": "2026-06-21T01:12:15.177Z"
+        "timestamp": "2026-06-21T02:12:07.933Z"
       },
-      "createdAt": "2026-06-21T01:12:15.177Z"
+      "createdAt": "2026-06-21T02:12:07.933Z"
+    },
+    {
+      "id": "P1.M2.T2.S2_1782007928107_validation-gate-2_6bf54d65",
+      "taskId": "P1.M2.T2.S2",
+      "label": "After validation gate 2",
+      "state": {
+        "prpPath": "/tmp/test.md",
+        "stage": "validation-gate-2",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
+        "coderResult": {
+          "result": "success",
+          "message": ""
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "L1",
+            "success": true,
+            "command": "echo \"L1 pass\"",
+            "stdout": "\"L1 pass\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 2,
+            "description": "L2",
+            "success": false,
+            "command": "false",
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 1,
+            "skipped": false
+          }
+        ],
+        "timestamp": "2026-06-21T02:12:08.107Z"
+      },
+      "createdAt": "2026-06-21T02:12:08.108Z"
+    },
+    {
+      "id": "P1.M2.T2.S2_1782007930328_validation-gate-2_ea30c6ee",
+      "taskId": "P1.M2.T2.S2",
+      "label": "After validation gate 2",
+      "state": {
+        "prpPath": "/tmp/test.md",
+        "stage": "validation-gate-2",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
+        "coderResult": {
+          "result": "success",
+          "message": ""
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "L1",
+            "success": true,
+            "command": "echo \"L1 pass\"",
+            "stdout": "\"L1 pass\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 2,
+            "description": "L2",
+            "success": false,
+            "command": "false",
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 1,
+            "skipped": false
+          }
+        ],
+        "fixAttempt": 1,
+        "timestamp": "2026-06-21T02:12:10.328Z"
+      },
+      "createdAt": "2026-06-21T02:12:10.328Z"
     }
   ],
-  "lastModified": "2026-06-21T01:12:15.177Z"
+  "lastModified": "2026-06-21T02:12:10.328Z"
 }

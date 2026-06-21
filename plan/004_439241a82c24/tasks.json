@@ -167,7 +167,7 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Feature parity verification (both harnesses)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Verify that MCP tools, and cache isolation, work identically across the pi and claude-code harnesses. Tools flow through Groundswell's MCPHandler for both (PRD §9.3.3), and cache keys must incorporate both the harness and the provider/model (PRD §9.4.3). See architecture/external_deps.md §4/§5.",
               "subtasks": [
                 {
@@ -194,7 +194,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Cache-key isolation test (harness × provider/model)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2",
