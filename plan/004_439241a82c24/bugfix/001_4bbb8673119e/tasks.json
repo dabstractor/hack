@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Critical & Major Harness Runtime Fixes (Issues 1 & 2)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Fix the two runtime-logic defects in src/config/harness.ts so that (a) the pi harness is registered and every persona factory can create an agent without throwing, and (b) the claude-code provider-compatibility guard derives the effective provider from the resolved model string instead of a hardcoded constant, making the optional claude-code harness selectable with anthropic models. These touch the same file/function and the same mock-based test files, so subtasks are ordered to avoid conflicting edits.",
           "tasks": [
             {
@@ -78,7 +78,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Issue 2 — Make the claude-code provider guard check the resolved provider, not a hardcoded constant",
-              "status": "Planned",
+              "status": "Complete",
               "description": "configureHarness() Step 4 compares against the compile-time constant DEFAULT_MODEL_PROVIDER (always 'zai'), so harness==='claude-code' ALWAYS throws regardless of model overrides. Derive the effective provider from the resolved model string (getModel('sonnet').split('/')[0]) so claude-code + anthropic/* is valid. Add the missing positive test coverage and cover the new branch.",
               "subtasks": [
                 {
@@ -103,7 +103,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Add positive claude-code+anthropic test coverage and cover the resolved-provider guard's allow branch",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1",
