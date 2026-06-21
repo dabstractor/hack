@@ -1,4 +1,3 @@
-
 # Test Project
 
 A minimal project for fast E2E pipeline testing.
@@ -25,6 +24,7 @@ Create a simple hello world function.
 
 **context_scope**:
 CONTRACT DEFINITION:
+
 1. RESEARCH NOTE: Simple function implementation
 2. INPUT: None
 3. LOGIC: Create src/hello.ts with function hello() that returns "Hello, World!"
@@ -40,6 +40,7 @@ Create a test for the hello world function.
 
 **context_scope**:
 CONTRACT DEFINITION:
+
 1. RESEARCH NOTE: Basic unit test
 2. INPUT: hello function from P1.M1.T1.S1
 3. LOGIC: Create tests/hello.test.ts that tests hello() returns "Hello, World!"
@@ -55,6 +56,7 @@ Validate the implementation works.
 
 **context_scope**:
 CONTRACT DEFINITION:
+
 1. RESEARCH NOTE: Test execution validation
 2. INPUT: hello function and test from previous subtasks
 3. LOGIC: Run npm test to verify test passes

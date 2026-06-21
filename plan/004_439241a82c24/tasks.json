@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Read harness from environment and wire configureHarnesses()",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Add the PRP_AGENT_HARNESS environment variable, define the harness/provider constants and types, call Groundswell's configureHarnesses() once at startup (alongside configureEnvironment()), and enforce that claude-code + z.ai is rejected as a config error. The compatibility check is owned by the PRP pipeline because Groundswell's configureHarnesses() does not validate defaultModelProvider (open set). See architecture/external_deps.md §2 and architecture/implementation_notes.md §1.",
               "subtasks": [
                 {
@@ -43,7 +43,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Wire configureHarnesses() at startup with harness↔provider compatibility guard",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"

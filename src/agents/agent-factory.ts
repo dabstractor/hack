@@ -21,6 +21,7 @@
  */
 
 import { configureEnvironment, getModel } from '../config/environment.js';
+import { configureHarness } from '../config/harness.js';
 import { getLogger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
 import {
@@ -36,6 +37,9 @@ import { GitMCP } from '../tools/git-mcp.js';
 // PATTERN: Configure environment at module load time (intentional side effect)
 // CRITICAL: This must execute before any agent creation
 configureEnvironment();
+// PATTERN: Configure harness at module load (intentional side effect).
+// MUST run after configureEnvironment() so ANTHROPIC_API_KEY is mapped.
+configureHarness();
 
 // Module-level logger for agent factory
 const logger = getLogger('AgentFactory');

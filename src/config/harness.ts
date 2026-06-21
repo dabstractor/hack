@@ -1,0 +1,86 @@
+/**
+ * Harness configuration module for agent runtime selection
+ *
+ * @module config/harness
+ *
+ * @remarks
+ * Reads the `PRP_AGENT_HARNESS` environment variable, validates it against
+ * supported harnesses, enforces harness↔provider compatibility, and delegates
+ * to Groundswell's `configureHarnesses()`. This module is consumed at startup
+ * by `agent-factory.ts`.
+ *
+ * @example
+ * ```ts
+ * import { configureHarness } from './config/harness.js';
+ *
+ * const harness = configureHarness(); // 'pi' | 'claude-code'
+ * ```
+ */
+
+import { configureHarnesses } from 'groundswell';
+import {
+  DEFAULT_HARNESS,
+  DEFAULT_MODEL_PROVIDER,
+  PRP_AGENT_HARNESS,
+  SUPPORTED_HARNESSES,
+} from './constants.js';
+import type { AgentHarness } from './types.js';
+import { HarnessProviderMismatchError } from './types.js';
+
+/**
+ * Configure the global agent harness at startup (PRD §9.4.2 / §9.5).
+ *
+ * @remarks
+ * Reads `PRP_AGENT_HARNESS` (default `'pi'`), validates it against
+ * `SUPPORTED_HARNESSES`, enforces harness↔provider compatibility (PRD §9.2.4 /
+ * §9.4.3 — `claude-code` is Anthropic-only and rejects the default `zai`
+ * provider), then delegates to Groundswell `configureHarnesses()`.
+ *
+ * Intentional side effect: populates the global harness singleton. Must run
+ * AFTER `configureEnvironment()` (which maps `ANTHROPIC_AUTH_TOKEN` →
+ * `ANTHROPIC_API_KEY`) so the `harnessDefaults` apiKey binding is populated.
+ *
+ * @returns The resolved, validated harness id (for downstream consumption).
+ * @throws {Error} If `PRP_AGENT_HARNESS` is not a supported harness id.
+ * @throws {HarnessProviderMismatchError} If `claude-code` is selected with the
+ *   default `zai` provider.
+ *
+ * @example
+ * ```ts
+ * import { configureHarness } from './config/harness.js';
+ *
+ * const harness = configureHarness(); // returns 'pi' when env unset
+ * ```
+ */
+export function configureHarness(): AgentHarness {
+  // Step 1: Read env var with default
+  const raw = process.env[PRP_AGENT_HARNESS] ?? DEFAULT_HARNESS;
+
+  // Step 2: Validate against supported harnesses
+  if (!(SUPPORTED_HARNESSES as readonly string[]).includes(raw)) {
+    throw new Error(
+      `Unsupported PRP_AGENT_HARNESS value: "${raw}". ` +
+        `Supported harnesses: ${SUPPORTED_HARNESSES.join(', ')}.`
+    );
+  }
+
+  // Step 3: Type-safe cast (validated above)
+  const harness = raw as AgentHarness;
+
+  // Step 4: Enforce harness↔provider compatibility
+  if (harness === 'claude-code' && DEFAULT_MODEL_PROVIDER === 'zai') {
+    throw new HarnessProviderMismatchError(harness, DEFAULT_MODEL_PROVIDER);
+  }
+
+  // Step 5: Delegate to Groundswell global harness configuration
+  configureHarnesses({
+    defaultHarness: harness,
+    defaultModelProvider: DEFAULT_MODEL_PROVIDER,
+    harnessDefaults: {
+      'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY },
+    },
+  });
+
+  // Step 6: Return resolved harness for downstream consumers
+  return harness;
+}
