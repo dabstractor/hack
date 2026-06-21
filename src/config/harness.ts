@@ -17,7 +17,7 @@
  * ```
  */
 
-import { configureHarnesses } from 'groundswell';
+import { configureHarnesses, PiHarness, HarnessRegistry } from 'groundswell';
 import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL_PROVIDER,
@@ -70,6 +70,19 @@ export function configureHarness(): AgentHarness {
   // Step 4: Enforce harness↔provider compatibility
   if (harness === 'claude-code' && DEFAULT_MODEL_PROVIDER === 'zai') {
     throw new HarnessProviderMismatchError(harness, DEFAULT_MODEL_PROVIDER);
+  }
+
+  // Step 4.5: Register the default 'pi' harness instance idempotently.
+  //
+  // configureHarnesses() (Step 5) only stores a *config* singleton — it does NOT populate the
+  // HarnessRegistry. Groundswell's `new Agent(...)` does registry.get('pi') and throws
+  // "Harness 'pi' is not registered" when nothing is registered, so we register a live PiHarness
+  // here. The has() guard is MANDATORY: configureHarness() runs at module-load in
+  // agent-factory.ts and registry.register() throws "Provider 'pi' is already registered" on
+  // a second call.
+  const registry = HarnessRegistry.getInstance();
+  if (!registry.has('pi')) {
+    registry.register(new PiHarness());
   }
 
   // Step 5: Delegate to Groundswell global harness configuration
