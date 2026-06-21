@@ -22,6 +22,7 @@ import {
   validateEnvironment,
   getModel,
 } from '../config/environment.js';
+import { checkProviderEndpoint } from '../config/endpoint-guard.js';
 
 // ============================================================================
 // LOGGING UTILITIES
@@ -91,52 +92,23 @@ function isValidMessageResponse(data: unknown): data is MessageResponse {
 // CONFIGURATION
 // ============================================================================
 
-// CRITICAL SAFEGUARD: Prevent accidental usage of Anthropic's official API
-// All API calls must go through z.ai proxy endpoint
-const ZAI_ENDPOINT = 'https://api.z.ai/api/anthropic';
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com';
+// CRITICAL SAFEGUARD: Provider-endpoint guard (PRD §9.2.4) — constrains the
+// LLM provider (z.ai), NOT the agent harness. Centralized in endpoint-guard.ts.
 
 // Must call configureEnvironment() BEFORE accessing ANTHROPIC_API_KEY
 // Shell uses ANTHROPIC_AUTH_TOKEN, but SDK expects ANTHROPIC_API_KEY
 configureEnvironment();
 
-// Validate that we're not accidentally pointing to Anthropic's official API
-const configuredBaseUrl = process.env.ANTHROPIC_BASE_URL || '';
-if (configuredBaseUrl.includes(ANTHROPIC_ENDPOINT)) {
-  log.error('========================================');
-  log.error('CRITICAL: Configured to use Anthropic API!');
-  log.error('========================================');
-  log.error(`Current ANTHROPIC_BASE_URL: ${configuredBaseUrl}`);
-  log.error('');
-  log.error(
-    'This script requires z.ai API endpoint, never Anthropic official API.'
-  );
-  log.error(`Expected: ${ZAI_ENDPOINT}`);
-  log.error('');
-  log.error('Fix: Unset ANTHROPIC_BASE_URL or set to z.ai endpoint:');
-  log.error(`  export ANTHROPIC_BASE_URL="${ZAI_ENDPOINT}"`);
-  log.error('========================================');
+// Validate that the provider endpoint is not Anthropic's official API
+const endpointResult = checkProviderEndpoint(
+  process.env.ANTHROPIC_BASE_URL ?? ''
+);
+if (endpointResult.status === 'blocked') {
+  log.error(endpointResult.message);
   process.exit(1);
 }
-
-// Warn if using a non-z.ai endpoint (unless it's a mock/test endpoint)
-if (
-  configuredBaseUrl &&
-  configuredBaseUrl !== ZAI_ENDPOINT &&
-  !configuredBaseUrl.includes('localhost') &&
-  !configuredBaseUrl.includes('127.0.0.1') &&
-  !configuredBaseUrl.includes('mock') &&
-  !configuredBaseUrl.includes('test')
-) {
-  log.warn('========================================');
-  log.warn('WARNING: Non-z.ai API endpoint detected');
-  log.warn('========================================');
-  log.warn(`Current ANTHROPIC_BASE_URL: ${configuredBaseUrl}`);
-  log.warn('');
-  log.warn(`Recommended: ${ZAI_ENDPOINT}`);
-  log.warn('');
-  log.warn('Ensure this endpoint is intended for testing.');
-  log.warn('========================================');
+if (endpointResult.status === 'warning') {
+  log.warn(endpointResult.message);
 }
 
 let apiKey: string;

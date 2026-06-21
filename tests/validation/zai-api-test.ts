@@ -15,6 +15,7 @@ import {
   validateEnvironment,
   EnvironmentValidationError,
 } from '../../src/config/environment.js';
+import { checkProviderEndpoint } from '../../src/config/endpoint-guard.js';
 
 // ANSI color codes for terminal output
 const colors = {
@@ -30,31 +31,23 @@ function log(message: string, color: keyof typeof colors = 'reset') {
   console.log(`${colors[color]}${message}${colors.reset}`);
 }
 
-// CRITICAL SAFEGUARD: Prevent accidental usage of Anthropic's official API
-const ZAI_ENDPOINT = 'https://api.z.ai/api/anthropic';
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com';
+// CRITICAL SAFEGUARD: Provider-endpoint guard (PRD §9.2.4) — constrains the
+// LLM provider (z.ai), NOT the agent harness. Centralized in endpoint-guard.ts.
 
 // Configure environment before validation
 configureEnvironment();
 
-// Validate that we're not accidentally pointing to Anthropic's official API
-const configuredBaseUrl = process.env.ANTHROPIC_BASE_URL || '';
-if (configuredBaseUrl.includes(ANTHROPIC_ENDPOINT)) {
+// Validate that the provider endpoint is not Anthropic's official API
+const guardResult = checkProviderEndpoint(process.env.ANTHROPIC_BASE_URL ?? '');
+if (guardResult.status === 'blocked') {
   log('========================================', 'red');
-  log('CRITICAL: Configured to use Anthropic API!', 'red');
+  log('CRITICAL: Blocked Anthropic provider endpoint!', 'red');
   log('========================================', 'red');
-  log(`Current ANTHROPIC_BASE_URL: ${configuredBaseUrl}`, 'red');
-  log('', 'reset');
-  log(
-    'This script requires z.ai API endpoint, never Anthropic official API.',
-    'red'
-  );
-  log(`Expected: ${ZAI_ENDPOINT}`, 'yellow');
-  log('', 'reset');
-  log('Fix: Unset ANTHROPIC_BASE_URL or set to z.ai endpoint:', 'yellow');
-  log(`  export ANTHROPIC_BASE_URL="${ZAI_ENDPOINT}"`, 'yellow');
-  log('========================================', 'red');
+  log(guardResult.message, 'red');
   process.exit(1);
+}
+if (guardResult.status === 'warning') {
+  log(guardResult.message, 'yellow');
 }
 
 function success(message: string) {

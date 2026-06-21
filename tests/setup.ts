@@ -12,6 +12,7 @@
  */
 
 import { beforeEach, afterEach, vi } from 'vitest';
+import { validateProviderEndpoint } from '../src/config/endpoint-guard.js';
 
 // =============================================================================
 // LOAD .env FILE (if exists, otherwise use existing environment)
@@ -53,67 +54,11 @@ try {
  * - http://api.anthropic.com (any protocol variant)
  * - api.anthropic.com (any domain match)
  */
-const ZAI_ENDPOINT = 'https://api.z.ai/api/anthropic';
-
-// Patterns that MUST be blocked - prevents accidental production API usage
-const BLOCKED_PATTERNS = [
-  'https://api.anthropic.com',
-  'http://api.anthropic.com',
-  'api.anthropic.com',
-] as const;
-
 function validateApiEndpoint(): void {
-  const baseUrl = process.env.ANTHROPIC_BASE_URL || '';
-
-  // Block Anthropic's official API and all its variants
-  if (BLOCKED_PATTERNS.some(pattern => baseUrl.includes(pattern))) {
-    const errorMessage = [
-      '\n========================================',
-      'CRITICAL: Tests are configured to use Anthropic API!',
-      '========================================',
-      `Current ANTHROPIC_BASE_URL: ${baseUrl}`,
-      '',
-      'All tests MUST use z.ai API endpoint, never Anthropic official API.',
-      `Expected: ${ZAI_ENDPOINT}`,
-      '',
-      'Fix: Set ANTHROPIC_BASE_URL to z.ai endpoint:',
-      '  Option 1 (command line):',
-      `    export ANTHROPIC_BASE_URL="${ZAI_ENDPOINT}"`,
-      '  Option 2 (.env file):',
-      `    ANTHROPIC_BASE_URL=${ZAI_ENDPOINT}`,
-      '========================================\n',
-    ].join('\n');
-
-    // Log to console.error for visibility before throwing
-    console.error(errorMessage);
-
-    // Throw to stop test execution
-    throw new Error(errorMessage);
-  }
-
-  // Warn if using a non-z.ai endpoint (unless it's a mock/test endpoint)
-  if (
-    baseUrl &&
-    baseUrl !== ZAI_ENDPOINT &&
-    !baseUrl.includes('localhost') &&
-    !baseUrl.includes('127.0.0.1') &&
-    !baseUrl.includes('mock') &&
-    !baseUrl.includes('test')
-  ) {
-    console.warn(
-      [
-        '\n========================================',
-        'WARNING: Non-z.ai API endpoint detected',
-        '========================================',
-        `Current ANTHROPIC_BASE_URL: ${baseUrl}`,
-        '',
-        `Recommended: ${ZAI_ENDPOINT}`,
-        '',
-        'Ensure this endpoint is intended for testing.',
-        '========================================\n',
-      ].join('\n')
-    );
-  }
+  // Delegate to the centralized provider-endpoint guard (PRD §9.2.4).
+  // Throws on Anthropic endpoints (same semantics as before);
+  // warns on non-z.ai endpoints.
+  validateProviderEndpoint();
 }
 
 // Run validation immediately when test setup loads
