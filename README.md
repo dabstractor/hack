@@ -116,6 +116,29 @@ That's it! The pipeline will analyze your PRD, generate tasks, and implement the
 - **4-Level Validation**: Syntax, unit tests, integration tests, and manual validation gates
 - **Smart Git Integration**: Automatic commits with generated messages
 - **Performance Optimizations**: PRP caching, I/O batching, and parallel research
+- **Self-Healing & Resilience**: Research deadlines with fallback, issue-driven re-planning,
+  and automatic `tasks.json` recovery (see [Self-Healing & Resilience](#self-healing--resilience))
+
+## Self-Healing & Resilience
+
+The pipeline recovers from common agent failures without human intervention. Three mechanisms
+keep a session running:
+
+- **Research deadline & synchronous fallback** — background research is bounded by
+  `RESEARCH_TIMEOUT` (default `300`s; PRD §4.2). If the deadline elapses, the in-flight research
+  is abandoned and the item is re-researched synchronously inline, so a single hung agent cannot
+  stall the pipeline.
+- **Issue-driven re-planning** — when a coder reports an `issue` (a recoverable planning gap),
+  the stale PRP is deleted, the item is reset, and research re-runs with the captured feedback.
+  Re-plans are bounded by `ISSUE_RETRY_MAX` (default `3`; PRD §4.5) before the item hard-fails.
+- **`tasks.json` corruption recovery** — after every agent run the orchestrator re-applies only
+  the legitimate status delta (discarding unauthorized mutations) and restores a corrupted
+  `tasks.json` from git history. This is automatic and non-fatal (PRD §5.1).
+
+For details, see [Resilience Tuning](docs/CONFIGURATION.md#resilience-tuning) (env-var knobs),
+[Issue-Driven Re-planning](docs/WORKFLOWS.md#issue-driven-re-planning) (re-planning flow), and
+[tasks.json Protection & Smart Recovery](docs/ARCHITECTURE.md#tasksjson-protection--smart-recovery)
+(recovery internals).
 
 ## Usage Examples
 

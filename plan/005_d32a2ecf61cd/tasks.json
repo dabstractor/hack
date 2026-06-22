@@ -253,7 +253,7 @@
                   "type": "Subtask",
                   "id": "P5.M3.T1.S1",
                   "title": "Add self-healing/resilience blurb to README.md",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P5.M1.T1.S1",
