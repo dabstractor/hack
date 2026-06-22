@@ -84,13 +84,27 @@ vi.mock('../../../src/core/research-queue.js', async importOriginal => {
   };
 });
 
-// Mock the session-utils module for atomicWrite (issue-driven re-planning writes issue_feedback.md)
+// Mock the session-utils module for atomicWrite (issue-driven re-planning writes issue_feedback.md) and readTasksJSON (reload)
 vi.mock('../../../src/core/session-utils.js', () => ({
   atomicWrite: vi.fn().mockResolvedValue(undefined),
+  readTasksJSON: vi.fn().mockResolvedValue({ backlog: [] }),
 }));
 
-import { atomicWrite } from '../../../src/core/session-utils.js';
+import { atomicWrite, readTasksJSON } from '../../../src/core/session-utils.js';
 const mockAtomicWrite = atomicWrite as ReturnType<typeof vi.fn>;
+const mockReadTasksJSON = readTasksJSON as ReturnType<typeof vi.fn>;
+
+// Mock the tasks-json-recovery module (S2) — consumed by S3 wiring
+vi.mock('../../../src/core/tasks-json-recovery.js', () => ({
+  recoverTasksJson: vi.fn().mockResolvedValue({
+    restored: false,
+    source: 'disk',
+    reason: 're-applied legitimate status delta',
+  }),
+}));
+
+import { recoverTasksJson } from '../../../src/core/tasks-json-recovery.js';
+const mockRecoverTasksJson = recoverTasksJson as ReturnType<typeof vi.fn>;
 
 // Mock the PRPRuntime class
 vi.mock('../../../src/agents/prp-runtime.js', () => ({
@@ -3979,6 +3993,174 @@ describe('TaskOrchestrator', () => {
       expect(queue.deletePRP).not.toHaveBeenCalled();
       expect(queue.researchNow).not.toHaveBeenCalled();
       expect(mockAtomicWrite).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('executeSubtask — smart recovery after agent run (PRD §5.1, R4 S3)', () => {
+    beforeEach(() => {
+      // Recovery + reload defaults (overridden per-test as needed)
+      mockRecoverTasksJson.mockReset();
+      mockRecoverTasksJson.mockResolvedValue({
+        restored: false,
+        source: 'disk',
+        reason: 're-applied legitimate status delta',
+      });
+      mockReadTasksJSON.mockReset();
+      // Default: return a valid (empty) backlog so the session registry stays valid after reload.
+      // Individual tests override this to assert specific recovered values.
+      mockReadTasksJSON.mockResolvedValue(createTestBacklog([]));
+      mockAtomicWrite.mockReset();
+      mockAtomicWrite.mockResolvedValue(undefined);
+      // smartCommit: resolve to a falsy hash so the orchestrator logs "No files to commit" (no commit)
+      mockSmartCommit.mockReset();
+      mockSmartCommit.mockResolvedValue(undefined);
+    });
+
+    // Shared setup: one Phase>Milestone>Task>Subtask; orchestrator built over a mock session manager.
+    const setup = () => {
+      const baselineBacklog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Planned', [
+          createTestMilestone('P1.M1', 'M1', 'Planned', [
+            createTestTask('P1.M1.T1', 'T1', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned', [], 'scope'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const currentSession = {
+        metadata: {
+          id: '001_x',
+          hash: 'x',
+          path: '/plan/001_x',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# PRD',
+        taskRegistry: baselineBacklog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const orchestrator = new TaskOrchestrator(mockManager);
+      const subtask = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+      return { orchestrator, subtask, baselineBacklog, currentSession };
+    };
+
+    it('invokes recoverTasksJson ONCE after a successful agent run with the Complete delta + pre-agent baseline', async () => {
+      const { orchestrator, subtask, baselineBacklog } = setup();
+      // default prpRuntime stub returns success
+
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: called exactly once per agent run
+      expect(mockRecoverTasksJson).toHaveBeenCalledTimes(1);
+      // VERIFY: correct tasks path + legitimate delta + pre-agent baseline
+      expect(mockRecoverTasksJson).toHaveBeenCalledWith(
+        '/plan/001_x/tasks.json',
+        { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+        expect.objectContaining({ baselineBacklog })
+      );
+    });
+
+    it('maps a hard-FAIL agent result to the Failed legitimate status', async () => {
+      const { orchestrator, subtask } = setup();
+      (orchestrator.prpRuntime.executeSubtask as any) = vi
+        .fn()
+        .mockResolvedValue({
+          success: false,
+          outcome: 'fail',
+          error: 'boom',
+          validationResults: [],
+          artifacts: [],
+          fixAttempts: 0,
+        });
+
+      await orchestrator.executeSubtask(subtask);
+
+      expect(mockRecoverTasksJson).toHaveBeenCalledWith(
+        '/plan/001_x/tasks.json',
+        expect.objectContaining({
+          itemId: 'P1.M1.T1.S1',
+          status: 'Failed',
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('maps a recoverable ISSUE result to the Planned legitimate status (PRD §4.5)', async () => {
+      const { orchestrator, subtask } = setup();
+      (orchestrator.prpRuntime.executeSubtask as any) = vi
+        .fn()
+        .mockResolvedValue({
+          success: false,
+          outcome: 'issue',
+          issueMessage: 'planning gap',
+          validationResults: [],
+          artifacts: [],
+          fixAttempts: 0,
+        });
+
+      await orchestrator.executeSubtask(subtask);
+
+      expect(mockRecoverTasksJson).toHaveBeenCalledWith(
+        '/plan/001_x/tasks.json',
+        expect.objectContaining({
+          itemId: 'P1.M1.T1.S1',
+          status: 'Planned',
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('discards unrelated agent mutations by passing the PRE-AGENT #backlog as baselineBacklog', async () => {
+      const { orchestrator, subtask, baselineBacklog } = setup();
+
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: baselineBacklog is the SAME reference as the orchestrator's pre-agent snapshot
+      const opts = mockRecoverTasksJson.mock.calls[0][2];
+      expect(opts.baselineBacklog).toBe(baselineBacklog);
+    });
+
+    it('is NON-FATAL: a recovery+reload failure does NOT terminate execution (reaches Complete + smartCommit + flushUpdates)', async () => {
+      const { orchestrator, subtask } = setup();
+      mockRecoverTasksJson.mockRejectedValue(new Error('git exploded'));
+      mockReadTasksJSON.mockRejectedValue(new Error('disk gone'));
+
+      // VERIFY: executeSubtask resolves (does NOT throw) despite recovery+reload failing
+      await expect(
+        orchestrator.executeSubtask(subtask)
+      ).resolves.toBeUndefined();
+
+      // VERIFY: execution continued past recovery to smartCommit + flushUpdates
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      // VERIFY: the non-fatal failure was logged
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ itemId: 'P1.M1.T1.S1' }),
+        expect.stringContaining('recovery failed')
+      );
+    });
+
+    it('reloads the session registry from the recovered disk after recovery (refreshBacklog is in-memory only)', async () => {
+      const { orchestrator, subtask, currentSession } = setup();
+      const recoveredBacklog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Planned', [
+          createTestMilestone('P1.M1', 'M1', 'Planned', [
+            createTestTask('P1.M1.T1', 'T1', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'S1', 'Complete', [], 'scope'),
+            ]),
+          ]),
+        ]),
+      ]);
+      mockReadTasksJSON.mockResolvedValue(recoveredBacklog);
+
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: reload read from the session directory
+      expect(mockReadTasksJSON).toHaveBeenCalledWith('/plan/001_x');
+      // VERIFY: the session registry was updated to the recovered backlog
+      expect(currentSession.taskRegistry).toBe(recoveredBacklog);
+      // VERIFY: the orchestrator's #backlog reflects the recovered registry (refreshBacklog ran)
+      expect(orchestrator.backlog).toBe(recoveredBacklog);
     });
   });
 });

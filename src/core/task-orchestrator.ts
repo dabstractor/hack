@@ -40,7 +40,8 @@ import { getDependencies } from '../utils/task-utils.js';
 import type { Scope } from './scope-resolver.js';
 import { resolveScope } from './scope-resolver.js';
 import { smartCommit } from '../utils/git-commit.js';
-import { atomicWrite } from './session-utils.js';
+import { atomicWrite, readTasksJSON } from './session-utils.js';
+import { recoverTasksJson } from './tasks-json-recovery.js';
 import { join } from 'node:path';
 import { ResearchQueue, ResearchTimeoutError } from './research-queue.js';
 import { PRPRuntime } from '../agents/prp-runtime.js';
@@ -53,6 +54,12 @@ import {
   TaskRetryManager,
   type TaskRetryConfig,
 } from './task-retry-manager.js';
+
+/** Local structural type so the method doesn't need to import ExecutionResult directly */
+type ExecutionResultLike = {
+  readonly success: boolean;
+  readonly outcome?: 'success' | 'fail' | 'issue';
+};
 
 /**
  * Task Orchestrator for PRP Pipeline backlog processing
@@ -751,6 +758,12 @@ export class TaskOrchestrator {
           }
         );
 
+        // Smart recovery: reconcile tasks.json after every agent run (PRD §5.1, R4 S3).
+        // Re-applies ONLY the legitimate status delta (discards unauthorized agent mutations
+        // via the pre-agent baseline); restores from git history if the agent corrupted the
+        // file; reloads the session registry from the recovered disk. Non-fatal.
+        await this.#recoverAfterAgentRun(subtask.id, result);
+
         this.#logger.info(
           { subtaskId: subtask.id, success: result.success },
           'PRPRuntime execution complete'
@@ -916,6 +929,83 @@ export class TaskOrchestrator {
    *
    * @private
    */
+  /**
+   * Smart-recovery hook: reconcile on-disk tasks.json after every agent run (PRD §5.1, R4 S3).
+   *
+   * @remarks
+   * Called from {@link executeSubtask} immediately after the agent run returns, before
+   * the tri-state status handling. Delegates to {@link recoverTasksJson} (S2) to re-apply
+   * ONLY the legitimate status delta for `itemId` (discarding unauthorized agent mutations
+   * via the pre-agent baseline) and to restore from git history if the agent corrupted the
+   * file. Then reloads the session registry from the recovered disk so the orchestrator's
+   * in-memory backlog reflects reality (refreshBacklog() alone re-reads in-memory only).
+   *
+   * NON-FATAL: any failure (recovery or reload) is logged and swallowed — a single
+   * corrupting agent must never terminate the session.
+   *
+   * @param itemId - The subtask just run (the item whose status delta is legitimate).
+   * @param result - The ExecutionResult of the agent run (determines the intended status).
+   */
+  async #recoverAfterAgentRun(
+    itemId: string,
+    result: ExecutionResultLike
+  ): Promise<void> {
+    const session = this.sessionManager.currentSession;
+    if (!session) {
+      this.#logger.warn(
+        'No active session; skipping tasks.json smart recovery'
+      );
+      return;
+    }
+
+    try {
+      // --- 1. Determine the intended legitimate status for this run ---
+      const maxIssueRetries = getIssueRetryMax();
+      const nextIssueAttempt = (this.#issueAttempts.get(itemId) ?? 0) + 1;
+      const legitimateStatus: Status = result.success
+        ? 'Complete'
+        : result.outcome === 'issue'
+          ? nextIssueAttempt > maxIssueRetries
+            ? 'Failed' // issue-driven re-planning exhausted → hard-fail
+            : 'Planned' // recoverable gap → reset for re-planning
+          : 'Failed'; // hard implementation failure
+
+      // --- 2. Reconcile disk: re-apply ONLY the legitimate delta; discard unauthorized
+      //        mutations (reconstruct from the pre-agent #backlog baseline); restore from
+      //        git history if the agent corrupted the file. recoverTasksJson never throws. ---
+      const tasksPath = join(session.metadata.path, 'tasks.json');
+      const recovery = await recoverTasksJson(
+        tasksPath,
+        { itemId, status: legitimateStatus },
+        { baselineBacklog: this.#backlog, repoPath: process.cwd() }
+      );
+      if (recovery.restored) {
+        this.#logger.info(
+          { itemId, source: recovery.source, reason: recovery.reason },
+          'tasks.json restored from git history after agent run'
+        );
+      }
+
+      // --- 3. Reload the session registry from the recovered disk (refreshBacklog() is
+      //        in-memory only — implementation_notes §6). readTasksJSON may throw if
+      //        recovery left the disk corrupt (PATH C); that throw is caught below. ---
+      const recovered = await readTasksJSON(session.metadata.path);
+      // readonly-cast idiom (SessionState.taskRegistry is readonly; mirrors state-validator.ts)
+      (
+        this.sessionManager.currentSession as { taskRegistry: Backlog }
+      ).taskRegistry = recovered;
+      await this.refreshBacklog();
+    } catch (error) {
+      // NON-FATAL: a recovery/reload failure must never terminate the session (PRD §5.1).
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.#logger.error(
+        { itemId, err: errorMessage },
+        'tasks.json smart recovery failed (non-fatal); continuing'
+      );
+    }
+  }
+
   #logCacheMetrics(): void {
     const total = this.#cacheHits + this.#cacheMisses;
     const hitRatio = total > 0 ? (this.#cacheHits / total) * 100 : 0;

@@ -178,14 +178,14 @@
           "type": "Milestone",
           "id": "P5.M2",
           "title": "Milestone 5.2: State Resilience (tasks.json Protection & Smart Recovery)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Make tasks.json survive agent corruption (truncated writes, partial edits, schema-invalid mutations) without human intervention. After each agent run, re-read tasks.json and re-apply only the legitimate status delta; on parse/validation failure, restore the last valid version from git history, re-applying in-flight changes; preserve Researching/Retrying status. Non-fatal and logged (PRD §5.1, §9.3.2).",
           "tasks": [
             {
               "type": "Task",
               "id": "P5.M2.T1",
               "title": "Task 5.2.1: tasks.json Protection & Smart Recovery (R4)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Build git file-history/restore utilities (none exist today), a smart-recovery routine that re-applies the legitimate status delta after each agent run and restores from git history on corruption, and wire it into the orchestrator's agent-run site.",
               "subtasks": [
                 {
@@ -220,7 +220,7 @@
                   "type": "Subtask",
                   "id": "P5.M2.T1.S3",
                   "title": "Wire smart-recovery into the orchestrator after each agent run",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P5.M2.T1.S2"
