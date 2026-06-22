@@ -48,6 +48,7 @@ The new system must implement four distinct processing engines:
 For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
 
 1.  **Parallel Research (Optional):** While Task $N$ is implementing, the system spins up a background thread to research Task $N+1$.
+    - **Deadline & Fallback:** Background research is guarded by a configurable deadline (`RESEARCH_TIMEOUT`, default 5 minutes; see §9.2.2). The orchestrator polls for completion — checking process liveness and the presence of the PRP artifact — rather than blocking indefinitely. If the deadline is exceeded (typically because the agent crashed or stopped responding), the background work is abandoned and the item is re-researched synchronously, inline. This prevents a single hung agent from stalling the whole pipeline.
 2.  **PRP Generation:**
     - The **Researcher Agent** analyzes the task, the codebase, and external docs.
     - Produces a `PRP.md` file containing the "contract" for the implementation.
@@ -99,6 +100,22 @@ Once all tasks are complete, or if run in `bug-hunt` mode:
     - Bug fix artifacts are archived (not deleted) for audit trail and debugging history.
     - Session structure: `plan/NNN_hash/bugfix/NNN_hash/` contains `tasks.json` and `TEST_RESULTS.md`.
 
+### 4.5 The Issue-Driven Re-planning Loop
+
+The Coder Agent reports one of three outcomes per item: `success`, `fail`, or `issue`. An `issue` signals a _recoverable planning gap_ — the PRP was insufficient (missing context, wrong assumptions, ambiguous requirements) but the work itself is still valid. This is deliberately distinct from a hard `fail`, which indicates an implementation problem handled by the existing fix-and-retry path.
+
+When an agent reports `issue`:
+
+1.  **Capture Feedback:** The issue message is saved to `issue_feedback.md` in the session directory.
+2.  **Invalidate Stale Plan:** The offending PRP is deleted so it cannot be reused.
+3.  **Reset State:** The item is reset to `Planned` (not `Failed`).
+4.  **Re-research with Feedback:** Research runs again, with `<issue_feedback>` injected into the PRP-generation prompt so the new PRP directly addresses the reported gap.
+5.  **Bound the Loop:** Re-planning retries up to `ISSUE_RETRY_MAX` (default 3; see §9.2.2) times before the item hard-fails.
+
+**Rationale:** Without this channel, every PRP gap becomes a permanent dead item that forces human intervention. The `issue` result turns planning gaps into self-correcting retries, while real implementation failures stay on the fix-and-retry path.
+
+**Status interaction:** An item undergoing re-planning keeps its original ID and dependency links; only its PRP and status are reset. Background research on its dependents is not cancelled, but those dependents cannot proceed until the re-planned item completes.
+
 ## 5. Functional Requirements
 
 ### 5.1 State & File Management
@@ -121,6 +138,15 @@ Once all tasks are complete, or if run in `bug-hunt` mode:
 - `PRD.md` - Product requirements document (human-owned)
 - Any file matching `*tasks*.json` pattern
 - Any file directly in `$SESSION_DIR/` root (never move to subdirectories)
+
+**`tasks.json` Protection & Smart Recovery:**
+
+Agents routinely corrupt `tasks.json` despite the forbidden-operations rules (§5.2) — truncated writes, partial edits, or schema-invalid mutations. The system must survive this without human intervention:
+
+- **Re-apply after every agent run:** After each agent invocation, the orchestrator re-reads `tasks.json` and re-applies only the _legitimate_ status change from that run (the item just implemented or interrupted), discarding any other unauthorized mutations.
+- **Recover from corruption:** If `tasks.json` fails to parse or validate, the system walks git commit history (prior versions of the file) to locate the last valid JSON, restores it, then re-applies any in-flight status changes on top.
+- **Preserve background-research status:** Items marked `Researching` or `Ready` by the background research queue must survive a restore, not be dropped back to `Planned`.
+- **Non-fatal:** A single corrupting agent must never terminate the session. Restore is automatic and logged.
 
 ### 5.2 Agent Capabilities
 
@@ -183,6 +209,9 @@ The system relies on specific, highly-engineered prompts. These must be preserve
 - **Goal:** Decompose PRD into strict JSON.
 - **Constraint:** "Validate before breaking down." Spawn sub-agents to research before defining tasks.
 - **Logic:** Implicit TDD (tests are part of the subtask, not separate).
+- **Documentation Sync (two-mode rule):** Documentation is never a standalone subtask; it rides with the work, mirroring the TDD rule:
+  - **Mode A (doc-with-work):** Docs a subtask directly touches — config, public API, CLI, env vars, exported types — are updated _inside_ that subtask's `context_scope`, declared via a `DOCS:` line.
+  - **Mode B (changeset-level):** Cross-cutting docs that only make sense once the whole change lands (README, feature overviews, architecture summaries) become a **final "Sync changeset-level documentation" task** that depends on all implementing subtasks.
 
 ### 6.2 PRP Creation Prompt ("The Blueprint")
 
@@ -208,6 +237,7 @@ The system relies on specific, highly-engineered prompts. These must be preserve
 - **Role:** Change Manager.
 - **Input:** Old PRD, New PRD, Completed Tasks.
 - **Goal:** Generate a "Delta PRD" focusing _only_ on the diffs, referencing existing implementations to avoid work duplication.
+- **Doc Impact Declaration:** Each affected item in the delta must declare its documentation impact at authoring time (a Mode A `DOCS:` line or a Mode B changeset-level note, per §6.1), so delta sessions ship with up-to-date docs instead of stale READMEs.
 
 ### 6.5 Creative Bug Finding Prompt
 
@@ -292,6 +322,10 @@ Configuration is loaded in the following order (later sources override earlier o
   - `SKIP_BUG_FINDING`: Skip bug hunt stage; also identifies bug fix mode when `true`
   - `SKIP_EXECUTION_LOOP`: Internal flag to skip task execution while allowing validation/bug hunt
 
+- **Resilience Tuning**:
+  - `RESEARCH_TIMEOUT`: Deadline in seconds for background (parallel) research before falling back to synchronous re-research (default 300; see §4.2).
+  - `ISSUE_RETRY_MAX`: Maximum number of issue-driven re-planning attempts per item before it hard-fails (default 3; see §4.5).
+
 - **Bug Hunt Configuration**:
   - `BUG_FINDER_AGENT`: Agent used for bug discovery (default: `glp`)
   - `BUG_RESULTS_FILE`: Bug report output file (default: `TEST_RESULTS.md`)
@@ -370,6 +404,9 @@ Leverage Groundswell's hierarchical `@Task` feature.
 
 - **Recursive Workflow**: Instead of a flat loop, the `TaskExecutor` can be a recursive workflow where each Phase/Milestone/Task is a sub-workflow.
 - **Concurrency**: Use `@Task({ concurrent: true })` for "Parallel Research" where applicable (e.g., researching next tasks while current one executes).
+- **Research Deadline**: The research queue wraps each background PRP generation in a deadline (`RESEARCH_TIMEOUT`); on expiry the queue abandons the in-flight research and the orchestrator re-researches the item synchronously (§4.2).
+- **Issue-Driven Re-planning**: The orchestrator treats a Coder Agent `issue` result as a signal to delete the stale PRP, reset the item to `Planned`, and re-research with the captured feedback injected, bounded by `ISSUE_RETRY_MAX` (§4.5).
+- **`tasks.json` Restore**: After every agent run the orchestrator re-applies only the legitimate status delta and, on parse/validation failure, restores the last valid version from git history before re-applying (§5.1).
 
 #### 9.3.3 Agent Runtime & Personas
 
