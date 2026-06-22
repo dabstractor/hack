@@ -123,11 +123,14 @@ Description: ${task.description}`;
  * @param task - The Task or Subtask to generate context for
  * @param backlog - The full Backlog for context extraction
  * @param codebasePath - Optional codebase path for analysis instructions
+ * @param issueFeedback - Optional feedback string for re-planning (PRD §4.5). When provided and non-empty,
+ *   a clearly-delimited `<issue_feedback>…</issue_feedback>` block is injected into the user prompt
+ *   so the Researcher addresses the prior planning gap. When omitted or empty, the prompt is unchanged.
  * @returns Complete user prompt string with all placeholders replaced
  *
  * @remarks
  * Replaces <item_title> and <item_description> placeholders in PRP_BLUEPRINT_PROMPT.
- * Includes parent context, task context, and optional codebase path.
+ * Includes parent context, task context, optional codebase path, and optional issue feedback.
  *
  * @example
  * ```typescript
@@ -142,7 +145,8 @@ Description: ${task.description}`;
 function constructUserPrompt(
   task: Task | Subtask,
   backlog: Backlog,
-  codebasePath?: string
+  codebasePath?: string,
+  issueFeedback?: string
 ): string {
   // Extract the description based on task type
   // For Subtask: use context_scope (always present)
@@ -177,6 +181,21 @@ Use this path to analyze the codebase structure and identify relevant files for 
       ? parentContext
       : 'No parent context (root level item)';
 
+  // Build issue feedback section — '' when undefined/empty (byte-identical no-feedback path)
+  const feedbackSection =
+    issueFeedback !== undefined && issueFeedback.length > 0
+      ? `
+
+## Issue Feedback (Re-planning)
+
+This is a **re-planning attempt** after a previous implementation reported an issue (a recoverable planning gap).
+**CRITICAL**: You MUST address the feedback below in your revised PRP — do not repeat the prior approach unchanged.
+
+<issue_feedback>
+${issueFeedback}
+</issue_feedback>`
+      : '';
+
   // Construct the complete user prompt
   return `
 # Work Item Context
@@ -192,7 +211,7 @@ ${taskContext}
 
 ${parentContextDisplay}
 
-${codebaseSection}
+${codebaseSection}${feedbackSection}
 
 ---
 
@@ -227,6 +246,9 @@ ${PRP_BLUEPRINT_PROMPT}
  * @param task - The Task or Subtask to generate a PRP for
  * @param backlog - The full Backlog for context extraction
  * @param codebasePath - Optional codebase path for codebase analysis instructions
+ * @param issueFeedback - Optional feedback string for re-planning (PRD §4.5). When provided and non-empty,
+ *   a `<issue_feedback>…</issue_feedback>` block is injected into the user prompt so the Researcher
+ *   directly addresses the reported gap. When omitted or empty, the prompt is unchanged.
  * @returns Groundswell Prompt object configured for Researcher Agent
  *
  * @example
@@ -250,12 +272,13 @@ ${PRP_BLUEPRINT_PROMPT}
 export function createPRPBlueprintPrompt(
   task: Task | Subtask,
   backlog: Backlog,
-  codebasePath?: string
+  codebasePath?: string,
+  issueFeedback?: string
 ): Prompt<PRPDocument> {
   // PATTERN: Use createPrompt with responseFormat for structured output
   return createPrompt({
     // The user prompt contains the task context with placeholders replaced
-    user: constructUserPrompt(task, backlog, codebasePath),
+    user: constructUserPrompt(task, backlog, codebasePath, issueFeedback),
 
     // The system prompt is the PRP_BLUEPRINT_PROMPT (Researcher persona)
     system: PRP_BLUEPRINT_PROMPT,

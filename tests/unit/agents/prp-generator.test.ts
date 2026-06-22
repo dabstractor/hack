@@ -44,6 +44,7 @@ vi.mock('node:fs/promises', () => ({
 // Mock crypto for hash computation
 vi.mock('node:crypto', () => ({
   createHash: vi.fn(),
+  randomUUID: vi.fn(() => 'test-uuid'),
 }));
 
 // Import mocked modules
@@ -215,11 +216,12 @@ describe('agents/prp-generator', () => {
       expect(result).toEqual(mockPRP);
       expect(result.taskId).toBe(task.id);
 
-      // VERIFY: Prompt was created with correct parameters
+      // VERIFY: Prompt was created with correct parameters (4th arg = undefined when no feedback)
       expect(mockCreatePRPBlueprintPrompt).toHaveBeenCalledWith(
         task,
         backlog,
-        expect.stringContaining('hacky-hack')
+        expect.stringContaining('hacky-hack'),
+        undefined
       );
 
       // VERIFY: Agent was called once
@@ -230,6 +232,27 @@ describe('agents/prp-generator', () => {
         recursive: true,
       });
       expect(mockWriteFile).toHaveBeenCalledTimes(2); // PRP file + cache metadata
+    });
+
+    it('should forward issueFeedback to createPRPBlueprintPrompt as the 4th arg', async () => {
+      // SETUP
+      const task = createMockSubtask('P1.M2.T2.S2', 'Test Subtask');
+      const backlog = createMockBacklog();
+      const feedback = 'Prior PRP missed the /health contract; address it.';
+      const mockPRP = createMockPRPDocument(task.id);
+      mockAgent.prompt.mockResolvedValue(mockPRP);
+      const generator = new PRPGenerator(mockSessionManager);
+
+      // EXECUTE
+      await generator.generate(task, backlog, feedback);
+
+      // VERIFY: Feedback was forwarded as the 4th arg
+      expect(mockCreatePRPBlueprintPrompt).toHaveBeenCalledWith(
+        task,
+        backlog,
+        expect.stringContaining('hacky-hack'),
+        feedback
+      );
     });
 
     it('should write PRP file with correct filename', async () => {
@@ -472,6 +495,36 @@ describe('agents/prp-generator', () => {
 
       // Default: cache file doesn't exist
       mockStat.mockRejectedValue(new Error('ENOENT'));
+    });
+
+    it('should bypass cache read and invoke the agent when issueFeedback is provided', async () => {
+      // SETUP: Seed a recent cache file with matching hash, but pass feedback
+      const task = createMockSubtask('P1.M1.T1.S1', 'Test Subtask');
+      const backlog = createMockBacklog();
+      const cachedPRP = createMockPRPDocument(task.id);
+      const mockMetadata = {
+        taskId: task.id,
+        taskHash: 'abc123',
+        createdAt: Date.now(),
+        accessedAt: Date.now(),
+        version: '1.0',
+        prp: cachedPRP,
+      };
+
+      mockStat.mockResolvedValue({
+        mtimeMs: Date.now(),
+        isFile: () => true,
+      });
+      mockReadFile.mockResolvedValue(JSON.stringify(mockMetadata));
+      mockAgent.prompt.mockResolvedValue(cachedPRP);
+
+      const generator = new PRPGenerator(mockSessionManager, false);
+
+      // EXECUTE
+      await generator.generate(task, backlog, 'feedback forcing re-research');
+
+      // VERIFY: Agent WAS called (cache READ bypassed despite valid cache)
+      expect(mockAgent.prompt).toHaveBeenCalledTimes(1);
     });
 
     it('should use cached PRP when hash matches and file is recent', async () => {

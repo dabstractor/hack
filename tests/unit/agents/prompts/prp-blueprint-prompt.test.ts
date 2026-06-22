@@ -173,6 +173,49 @@ describe('agents/prompts/prp-blueprint-prompt', () => {
       expect(prompt.user).not.toContain('The codebase is located at:');
     });
 
+    it('should include the <issue_feedback> block when issueFeedback is provided', () => {
+      // SETUP: Get a test subtask and feedback string
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+      const feedback =
+        'PRP did not specify the /health API contract; re-research with that gap filled.';
+
+      // EXECUTE: Generate the prompt with issueFeedback (codebasePath=undefined)
+      const prompt = createPRPBlueprintPrompt(
+        task,
+        mockBacklog,
+        undefined,
+        feedback
+      );
+
+      // VERIFY: The <issue_feedback> block is present with framing text
+      expect(prompt.user).toContain('<issue_feedback>');
+      expect(prompt.user).toContain('</issue_feedback>');
+      expect(prompt.user).toContain(feedback);
+      expect(prompt.user).toContain('Issue Feedback (Re-planning)');
+    });
+
+    it('should not include the <issue_feedback> block when issueFeedback is omitted', () => {
+      // SETUP: Get a test subtask without feedback
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+
+      // EXECUTE: Generate the prompt without issueFeedback
+      const prompt = createPRPBlueprintPrompt(task, mockBacklog);
+
+      // VERIFY: No <issue_feedback> block is present
+      expect(prompt.user).not.toContain('<issue_feedback>');
+    });
+
+    it('should not include the <issue_feedback> block when issueFeedback is an empty string', () => {
+      // SETUP: Get a test subtask with empty feedback
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+
+      // EXECUTE: Generate the prompt with empty string feedback
+      const prompt = createPRPBlueprintPrompt(task, mockBacklog, undefined, '');
+
+      // VERIFY: No <issue_feedback> block is present
+      expect(prompt.user).not.toContain('<issue_feedback>');
+    });
+
     it('should handle Subtask with no dependencies', () => {
       // SETUP: Get a subtask with no dependencies
       const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[0];

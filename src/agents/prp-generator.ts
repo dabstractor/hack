@@ -572,6 +572,10 @@ export class PRPGenerator {
    *
    * @param task - The Task or Subtask to generate a PRP for
    * @param backlog - The full Backlog for context extraction
+   * @param issueFeedback - Optional feedback string for re-planning (PRD §4.5). When provided and non-empty,
+   *   the feedback is injected into the prompt via a `<issue_feedback>…</issue_feedback>` block and the
+   *   cache READ is bypassed so the Researcher always re-researches with the feedback. Cache WRITE remains
+   *   unchanged (the feedback-aware PRP is cached for reuse). When omitted, behavior is identical to today.
    * @returns Generated PRPDocument with all PRP content
    * @throws {PRPGenerationError} If generation fails after all retries
    * @throws {PRPFileError} If PRP file cannot be written
@@ -583,9 +587,15 @@ export class PRPGenerator {
    * console.log(prp.objective); // Feature goal from PRP
    * ```
    */
-  async generate(task: Task | Subtask, backlog: Backlog): Promise<PRPDocument> {
+  async generate(
+    task: Task | Subtask,
+    backlog: Backlog,
+    issueFeedback?: string
+  ): Promise<PRPDocument> {
     // Cache checking: Check disk cache before LLM call
-    if (!this.#noCache) {
+    // Bypass cache READ when issueFeedback is present — #computeTaskHash does NOT include feedback,
+    // so a re-research would serve the stale (insufficient) cached PRP. Belt-and-suspenders with S4's PRP deletion.
+    if (!this.#noCache && !issueFeedback) {
       const cachePath = this.getCachePath(task.id);
       const currentHash = this.#computeTaskHash(task, backlog);
 
@@ -609,12 +619,22 @@ export class PRPGenerator {
       // CACHE MISS (hash mismatch or file expired)
       this.#cacheMisses++;
       this.#logger.debug({ taskId: task.id }, 'PRP cache MISS');
+    } else if (!this.#noCache && issueFeedback) {
+      this.#logger.debug(
+        { taskId: task.id },
+        'PRP cache READ bypassed for feedback re-research'
+      );
     } else {
       this.#logger.debug('Cache bypassed via --no-cache flag');
     }
 
-    // Step 1: Build prompt with task context
-    const prompt = createPRPBlueprintPrompt(task, backlog, process.cwd());
+    // Step 1: Build prompt with task context (pass issueFeedback for re-planning)
+    const prompt = createPRPBlueprintPrompt(
+      task,
+      backlog,
+      process.cwd(),
+      issueFeedback
+    );
 
     // Step 2: Execute Researcher Agent with centralized retry logic
     this.#logger.info({ taskId: task.id }, 'Generating PRP');
