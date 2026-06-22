@@ -205,7 +205,7 @@
                   "type": "Subtask",
                   "id": "P5.M2.T1.S2",
                   "title": "Smart-recovery routine: re-apply legitimate delta + git-history restore",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P5.M2.T1.S1"

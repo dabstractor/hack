@@ -697,6 +697,30 @@ await sessionManager.flushUpdates();
 - Single write operation on flush
 - Prevents partial state corruption
 
+### tasks.json Protection & Smart Recovery
+
+Agents routinely corrupt `tasks.json` despite the forbidden-operations rules — truncated writes, partial edits, or schema-invalid mutations. The pipeline survives this without human intervention via **smart recovery** (PRD §5.1), invoked by the orchestrator after every agent run.
+
+**Re-apply the legitimate delta.** After each agent invocation the orchestrator re-reads `tasks.json` from disk and re-applies **only** the legitimate status change from that run (the item just implemented or interrupted), discarding any other unauthorized mutations the agent made. Reconstruction is performed from the orchestrator's pre-agent in-memory backlog snapshot so unrelated status scribbles are dropped.
+
+**Recover from corruption.** If `tasks.json` fails to parse or validate, the system walks git commit history (prior versions of the file), locates the last valid JSON, restores it, then re-applies any in-flight status changes on top.
+
+**Preserve background-research status.** Items marked `Researching` or `Retrying` survive a restore — they are carried forward from the restored version and never dropped back to `Planned`. (There is no `Ready` status; readiness is tracked internally by the research queue.)
+
+**Non-fatal.** A single corrupting agent never terminates the session. If no valid version can be recovered, the failure is logged and on-disk state is left as-is; recovery always returns a typed result for observability and never throws to the caller.
+
+```typescript
+import { recoverTasksJson } from './core/tasks-json-recovery.js';
+
+// After each agent run, in the orchestrator:
+const result = await recoverTasksJson(
+  sessionTasksPath,
+  { itemId: currentItem.id, status: 'Complete' },
+  { baselineBacklog: this.backlog, repoPath: process.cwd() }
+);
+// result: { restored: boolean; source: 'disk' | 'git'; reason?: string }
+```
+
 ---
 
 ## Task Hierarchy and Execution Flow
