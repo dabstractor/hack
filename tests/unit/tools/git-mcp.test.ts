@@ -9,6 +9,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Mock node:fs for path validation
 vi.mock('node:fs', () => ({
@@ -41,6 +44,9 @@ import {
   gitDiff,
   gitAdd,
   gitCommit,
+  gitFileHistory,
+  gitReadFileAtCommit,
+  gitRestoreFile,
   gitStatusTool,
   gitDiffTool,
   gitAddTool,
@@ -49,6 +55,7 @@ import {
   type GitDiffInput,
   type GitAddInput,
   type GitCommitInput,
+  type GitFileHistoryEntry,
 } from '../../../src/tools/git-mcp.js';
 
 const mockExistsSync = vi.mocked(existsSync);
@@ -61,6 +68,8 @@ const mockGitInstance = {
   diff: vi.fn(),
   add: vi.fn(),
   commit: vi.fn(),
+  log: vi.fn(),
+  show: vi.fn(),
 };
 
 describe('tools/git-mcp', () => {
@@ -855,6 +864,193 @@ describe('tools/git-mcp', () => {
       // VERIFY
       expect(result.success).toBe(false);
       expect(result.error).toContain('Repository path not found');
+    });
+  });
+
+  describe('gitFileHistory', () => {
+    it('should return mapped history entries (newest-first)', async () => {
+      // SETUP
+      mockGitInstance.log.mockResolvedValue({
+        all: [
+          { hash: 'aaa111', date: '2024-06-21T10:00:00', message: 'latest' },
+          { hash: 'bbb222', date: '2024-06-20T10:00:00', message: 'older' },
+        ],
+        total: 2,
+        latest: {
+          hash: 'aaa111',
+          date: '2024-06-21T10:00:00',
+          message: 'latest',
+        },
+      } as never);
+
+      // EXECUTE
+      const result = await gitFileHistory('tasks.json', './repo');
+
+      // VERIFY — newest-first, hash→commit, date→date
+      expect(result).toEqual([
+        { commit: 'aaa111', date: '2024-06-21T10:00:00' },
+        { commit: 'bbb222', date: '2024-06-20T10:00:00' },
+      ]);
+      expect(mockGitInstance.log).toHaveBeenCalledWith({ file: 'tasks.json' });
+    });
+
+    it('should return an empty array when the file has no history', async () => {
+      // SETUP — no-history file: .log({file}) returns empty all (NO error)
+      mockGitInstance.log.mockResolvedValue({
+        all: [],
+        total: 0,
+        latest: null,
+      } as never);
+
+      // EXECUTE
+      const result = await gitFileHistory('never-committed.txt');
+
+      // VERIFY — [] (NOT a throw)
+      expect(result).toEqual([]);
+    });
+
+    it('should default repoPath to process.cwd()', async () => {
+      // SETUP
+      mockGitInstance.log.mockResolvedValue({
+        all: [],
+        total: 0,
+        latest: null,
+      } as never);
+
+      // EXECUTE
+      await gitFileHistory('tasks.json');
+
+      // VERIFY — simpleGit was called (path validation passed), log was called with the file
+      expect(mockSimpleGit).toHaveBeenCalled();
+      expect(mockGitInstance.log).toHaveBeenCalledWith({ file: 'tasks.json' });
+    });
+
+    it('should throw when the repository path is invalid', async () => {
+      // SETUP
+      mockExistsSync.mockReturnValue(false);
+
+      // EXECUTE + VERIFY — validateRepositoryPath throws → propagates (NOT a {success:false} return)
+      await expect(
+        gitFileHistory('tasks.json', '/nonexistent')
+      ).rejects.toThrow(/Repository path not found/);
+    });
+
+    it('should throw when git.log fails', async () => {
+      // SETUP
+      mockGitInstance.log.mockRejectedValue(new Error('git log failed'));
+
+      // EXECUTE + VERIFY — git error propagates as a throw
+      await expect(gitFileHistory('tasks.json')).rejects.toThrow(
+        'git log failed'
+      );
+    });
+  });
+
+  describe('gitReadFileAtCommit', () => {
+    it('should return the blob content at the given commit', async () => {
+      // SETUP — git show <commit>:<path> returns the BLOB CONTENT
+      mockGitInstance.show.mockResolvedValue('{"version":"prior"}');
+
+      // EXECUTE
+      const content = await gitReadFileAtCommit(
+        'tasks.json',
+        'abc123',
+        './repo'
+      );
+
+      // VERIFY
+      expect(content).toBe('{"version":"prior"}');
+      expect(mockGitInstance.show).toHaveBeenCalledWith('abc123:tasks.json');
+    });
+
+    it('should default repoPath to process.cwd()', async () => {
+      // SETUP
+      mockGitInstance.show.mockResolvedValue('content');
+
+      // EXECUTE
+      await gitReadFileAtCommit('tasks.json', 'HEAD');
+
+      // VERIFY
+      expect(mockSimpleGit).toHaveBeenCalled();
+      expect(mockGitInstance.show).toHaveBeenCalledWith('HEAD:tasks.json');
+    });
+
+    it('should throw when the repository path is invalid', async () => {
+      // SETUP
+      mockExistsSync.mockReturnValue(false);
+
+      // EXECUTE + VERIFY
+      await expect(
+        gitReadFileAtCommit('tasks.json', 'HEAD', '/nonexistent')
+      ).rejects.toThrow(/Repository path not found/);
+    });
+
+    it('should throw when git.show fails (bad revision/path)', async () => {
+      // SETUP
+      mockGitInstance.show.mockRejectedValue(
+        new Error('fatal: path does not exist')
+      );
+
+      // EXECUTE + VERIFY
+      await expect(
+        gitReadFileAtCommit('tasks.json', 'deadbeef')
+      ).rejects.toThrow('fatal: path does not exist');
+    });
+  });
+
+  describe('gitRestoreFile', () => {
+    it('should write the blob content to disk via atomicWrite (real tmpdir)', async () => {
+      // SETUP — real tmpdir so atomicWrite (node:fs/promises, NOT mocked) writes for real.
+      // existsSync is mocked (returns true) so validateRepositoryPath passes for the tmpdir.
+      const dir = await mkdtemp(join(tmpdir(), 'git-restore-'));
+      mockGitInstance.show.mockResolvedValue('{"version":"restored"}');
+
+      try {
+        // EXECUTE — restore the HEAD version of tasks.json into the tmpdir
+        await gitRestoreFile('tasks.json', 'HEAD', dir);
+
+        // VERIFY — the prior content is now on disk
+        const content = await readFile(join(dir, 'tasks.json'), 'utf-8');
+        expect(content).toBe('{"version":"restored"}');
+        expect(mockGitInstance.show).toHaveBeenCalledWith('HEAD:tasks.json');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('should default commit to HEAD when omitted', async () => {
+      // SETUP
+      mockGitInstance.show.mockResolvedValue('content');
+      const dir = await mkdtemp(join(tmpdir(), 'git-restore-default-'));
+      try {
+        // EXECUTE
+        await gitRestoreFile('tasks.json', undefined, dir);
+
+        // VERIFY — show called with HEAD:<path> (default commit)
+        expect(mockGitInstance.show).toHaveBeenCalledWith('HEAD:tasks.json');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('should throw when the repository path is invalid', async () => {
+      // SETUP
+      mockExistsSync.mockReturnValue(false);
+
+      // EXECUTE + VERIFY
+      await expect(
+        gitRestoreFile('tasks.json', 'HEAD', '/nonexistent')
+      ).rejects.toThrow(/Repository path not found/);
+    });
+
+    it('should throw when git.show fails', async () => {
+      // SETUP
+      mockGitInstance.show.mockRejectedValue(new Error('fatal: bad revision'));
+
+      // EXECUTE + VERIFY
+      await expect(gitRestoreFile('tasks.json', 'deadbeef')).rejects.toThrow(
+        'fatal: bad revision'
+      );
     });
   });
 });

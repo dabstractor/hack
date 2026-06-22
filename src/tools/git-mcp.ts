@@ -28,6 +28,7 @@ import {
 } from 'simple-git';
 import { GitError } from 'simple-git';
 import { MCPHandler, type Tool } from 'groundswell';
+import { atomicWrite } from '../core/session-utils.js';
 
 // ===== INPUT INTERFACES =====
 
@@ -125,6 +126,21 @@ interface GitAddResult {
   stagedCount?: number;
   /** Error message if failed */
   error?: string;
+}
+
+/**
+ * A single file-history entry: a commit that touched a given file path.
+ *
+ * @remarks
+ * Returned by {@link gitFileHistory}. Entries are NEWEST-FIRST (matching
+ * `git log` default ordering). `commit` is the full commit hash; `date` is the
+ * ISO-ish date string reported by git for the commit.
+ */
+interface GitFileHistoryEntry {
+  /** Full commit SHA that touched the file */
+  commit: string;
+  /** Commit date as reported by git (author date, ISO-ish) */
+  date: string;
 }
 
 /**
@@ -466,6 +482,118 @@ async function gitCommit(input: GitCommitInput): Promise<GitCommitResult> {
   }
 }
 
+/**
+ * List the commit history of a single file path (newest-first).
+ *
+ * @remarks
+ * Wraps simple-git's `git.log({ file })`. Returns one entry per commit that touched
+ * `filePath`, newest commit first. A file with no commit history returns an empty
+ * array (NOT an error) — git itself returns no rows for such a path.
+ *
+ * Generic over any file path — not `tasks.json`-specific. Used by the smart-recovery
+ * routine (P5.M2.T1.S2) to locate the last valid committed version of `tasks.json`
+ * after an agent corrupts it (PRD §5.1).
+ *
+ * @param filePath - Repository-relative path of the file to inspect.
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns Array of `{ commit, date }` entries, newest-first. Empty if the file has no history.
+ * @throws {Error} If `repoPath` is not a git repository, or if `git log` fails.
+ *
+ * @example
+ * ```ts
+ * const history = await gitFileHistory('tasks.json', '/path/to/repo');
+ * // [{ commit: 'abc123…', date: '2024-06-21…' }, { commit: 'def456…', date: '2024-06-20…' }]
+ * ```
+ */
+async function gitFileHistory(
+  filePath: string,
+  repoPath?: string
+): Promise<GitFileHistoryEntry[]> {
+  const safePath = await validateRepositoryPath(repoPath);
+  const git = simpleGit(safePath);
+
+  const logResult = await git.log({ file: filePath });
+
+  return logResult.all.map(entry => ({
+    commit: entry.hash,
+    date: entry.date,
+  }));
+}
+
+/**
+ * Read the content of a file at a specific commit (blob fetch).
+ *
+ * @remarks
+ * Runs `git show <commit>:<filePath>` via simple-git `.show(...)`, returning the
+ * blob content as a string. `commit` may be a full hash, short hash, or symbolic
+ * ref (`HEAD`, `HEAD~1`, …). Invalid revisions / missing paths cause git to error,
+ * which is thrown (do NOT swallow).
+ *
+ * Generic over any file path. The smart-recovery routine uses this to fetch the
+ * last valid blob of `tasks.json` before restoring it (PRD §5.1).
+ *
+ * @param filePath - Repository-relative path of the file.
+ * @param commit - Git revision (hash or symbolic ref like `HEAD`) to read at.
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns The file's blob content at `commit`, as a string.
+ * @throws {Error} If `repoPath` is not a git repository, the revision/path is invalid, or `git show` fails.
+ *
+ * @example
+ * ```ts
+ * const content = await gitReadFileAtCommit('tasks.json', 'abc123', '/path/to/repo');
+ * const parsed = JSON.parse(content); // last valid version
+ * ```
+ */
+async function gitReadFileAtCommit(
+  filePath: string,
+  commit: string,
+  repoPath?: string
+): Promise<string> {
+  const safePath = await validateRepositoryPath(repoPath);
+  const git = simpleGit(safePath);
+
+  return git.show(`${commit}:${filePath}`);
+}
+
+/**
+ * Restore a file to a prior committed version by writing its blob to disk.
+ *
+ * @remarks
+ * Fetches the blob at `commit` (default `HEAD`) via `git show <commit>:<filePath>`,
+ * then writes it to `resolve(repoPath, filePath)` using {@link atomicWrite}
+ * (temp-file + rename, crash-safe). This restores a prior valid version of the file.
+ *
+ * Generic over any file path. The smart-recovery routine uses this to restore the
+ * last valid `tasks.json` after an agent corrupts it, before re-applying in-flight
+ * status changes (PRD §5.1).
+ *
+ * @param filePath - Repository-relative path of the file to restore.
+ * @param commit - Git revision to restore from (optional, defaults to `HEAD`).
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns Resolves once the file has been atomically written to disk.
+ * @throws {Error} If `repoPath` is not a git repository, the revision/path is invalid, `git show` fails, or the atomic write fails.
+ *
+ * @example
+ * ```ts
+ * // Restore the last committed tasks.json after corruption:
+ * await gitRestoreFile('tasks.json', 'HEAD', '/path/to/repo');
+ * ```
+ */
+async function gitRestoreFile(
+  filePath: string,
+  commit: string = 'HEAD',
+  repoPath?: string
+): Promise<void> {
+  const safePath = await validateRepositoryPath(repoPath);
+  const git = simpleGit(safePath);
+
+  // 1. fetch the blob at the target commit
+  const content = await git.show(`${commit}:${filePath}`);
+
+  // 2. write it to disk atomically (restore the file). resolve() against the repo root so it lands in the repo.
+  await atomicWrite(resolve(safePath, filePath), content);
+}
+
 // ===== MCP SERVER =====
 
 /**
@@ -527,6 +655,7 @@ export type {
   GitDiffResult,
   GitAddResult,
   GitCommitResult,
+  GitFileHistoryEntry,
 };
 export {
   gitStatusTool,
@@ -537,4 +666,7 @@ export {
   gitDiff,
   gitAdd,
   gitCommit,
+  gitFileHistory,
+  gitReadFileAtCommit,
+  gitRestoreFile,
 };
