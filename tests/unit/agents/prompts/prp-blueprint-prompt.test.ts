@@ -330,4 +330,21 @@ describe('agents/prompts/prp-blueprint-prompt', () => {
       expect(prompt.user).toContain('Build prompt generators for PRP creation');
     });
   });
+
+  describe('PRP_BLUEPRINT_PROMPT DOCS impact reminder (PRD §6.4)', () => {
+    it('should reference the DOCS impact', () => {
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+      const prompt = createPRPBlueprintPrompt(task, mockBacklog);
+      expect(prompt.systemOverride).toMatch(/DOCS impact/i);
+    });
+
+    it('should reference Mode A (DOCS: line) and Mode B (changeset-level)', () => {
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+      const prompt = createPRPBlueprintPrompt(task, mockBacklog);
+      expect(prompt.systemOverride).toMatch(/Mode A/i);
+      expect(prompt.systemOverride).toContain('DOCS:');
+      expect(prompt.systemOverride).toMatch(/Mode B/i);
+      expect(prompt.systemOverride).toMatch(/changeset-level|changeset level/i);
+    });
+  });
 });

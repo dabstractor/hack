@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createDeltaAnalysisPrompt } from '../../../../src/agents/prompts/delta-analysis-prompt.js';
+import { DELTA_PRD_PROMPT } from '../../../../src/agents/prompts.js';
 
 // Test fixtures
 const mockOldPRD = `
@@ -207,6 +208,27 @@ describe('agents/prompts/delta-analysis-prompt', () => {
       const prompt = createDeltaAnalysisPrompt(mockOldPRD, mockNewPRD);
       expect(prompt.systemOverride).toContain('Few-Shot Examples');
       expect(prompt.systemOverride).toContain('Example 1:');
+    });
+  });
+
+  describe('DELTA_PRD_PROMPT doc-impact declaration (PRD §6.4)', () => {
+    it('should require each affected delta item to declare its documentation impact', () => {
+      expect(DELTA_PRD_PROMPT).toMatch(/doc.?impact declaration/i);
+      expect(DELTA_PRD_PROMPT).toMatch(/declare its documentation impact/i);
+    });
+
+    it('should specify Mode A via a DOCS: line (per-item doc)', () => {
+      expect(DELTA_PRD_PROMPT).toMatch(/Mode A/i);
+      expect(DELTA_PRD_PROMPT).toContain('DOCS:');
+    });
+
+    it('should specify Mode B as a changeset-level note', () => {
+      expect(DELTA_PRD_PROMPT).toMatch(/Mode B/i);
+      expect(DELTA_PRD_PROMPT).toMatch(/changeset-level|changeset level/i);
+    });
+
+    it('should reference the §6.1 two-mode rule', () => {
+      expect(DELTA_PRD_PROMPT).toMatch(/§6.1|two-mode/i);
     });
   });
 });

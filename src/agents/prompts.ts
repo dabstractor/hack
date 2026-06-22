@@ -236,6 +236,7 @@ Transform your research findings into the template sections:
 **Context Section**: Populate YAML structure with your research findings - specific URLs, file patterns, gotchas
 **Implementation Tasks**: Create dependency-ordered tasks using information-dense keywords from codebase analysis
 **Validation Gates**: Use project-specific validation commands that you've verified work in this codebase
+**Docs Impact**: Every PRP must surface the item's declared DOCS impact — echo the item's Mode A \`DOCS:\` line (the per-item doc it touches) or, if the item defers to Mode B, note the changeset-level doc synced in the final task. Never let a PRP silently drop documentation.
 
 ### Step 4: Information Density Standards
 
@@ -736,6 +737,8 @@ Check $PREV_SESSION_DIR/architecture/ for existing research that may still apply
    - Don't duplicate research that's already been done
    - Reference it directly in your delta PRD
 5. **OUTPUT**: Write the delta PRD to \`$SESSION_DIR/delta_prd.md\`
+
+6. **DOC IMPACT DECLARATION**: Each affected item in the delta MUST declare its documentation impact at authoring time — either a **Mode A** \`DOCS:\` line naming the per-item doc that item touches (e.g. \`DOCS: update docs/CONFIGURATION.md FEATURE_TIMEOUT row\`) OR a **Mode B** changeset-level note deferring cross-cutting docs (README, architecture overviews) to the final "Sync changeset-level documentation" task, per the §6.1 two-mode rule. No affected item ships without a doc-impact declaration.
 
 The delta PRD should be self-contained but reference the previous session's work.
 It will be used as input to the task breakdown process for this delta session.

@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P5.M1",
           "title": "Milestone 5.1: Execution-Loop Resilience",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Deadline-guarded background research with synchronous fallback (R1), the Coder Agent `issue` outcome and issue-driven re-planning loop (R2), and the two-mode documentation-sync prompt rule (R3). These harden the inner loop (PRD §4.2, §4.5) and the prompts (PRD §6.1, §6.4).",
           "tasks": [
             {
@@ -140,7 +140,7 @@
               "type": "Task",
               "id": "P5.M1.T3",
               "title": "Task 5.1.3: Documentation Two-Mode Sync Rule (R3, prompts)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Prompt-engineering change (no new runtime code): encode the two-mode documentation-sync rule into the Task Breakdown System Prompt (Mode A DOCS line inside a subtask's context_scope; Mode B final 'Sync changeset-level documentation' task depending on all implementing subtasks), mirroring the existing implicit-TDD rule; and require each delta item to declare its documentation impact at authoring time (PRD §6.1, §6.4).",
               "subtasks": [
                 {
@@ -160,7 +160,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T3.S2",
                   "title": "Require doc-impact declaration in the delta/blueprint prompt",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R3. DELTA_PRD_PROMPT (src/agents/prompts.ts ~line 696) and PRP_BLUEPRINT_PROMPT (~line 157) are HEREDOC system prompts for the Change-Manager and Researcher personas. PRD §6.4 requires each affected delta item to declare its documentation impact at authoring time.\n2. INPUT: The existing DELTA_PRD_PROMPT and PRP_BLUEPRINT_PROMPT HEREDOC text.\n3. LOGIC: Implement PRD §6.4 doc-impact declaration. Add an explicit instruction to DELTA_PRD_PROMPT: each affected item in a delta MUST declare its documentation impact at authoring time — either a Mode A `DOCS:` line (per-item doc that item touches) or a Mode B changeset-level note (cross-cutting doc deferred to the final task), per the §6.1 rule. Add a lighter-weight reminder to PRP_BLUEPRINT_PROMPT that every PRP it generates should surface the item's declared DOCS impact. Write the failing test first (tests/unit/agents/prompts/delta-analysis-prompt.test.ts — assert DELTA_PRD_PROMPT requires a doc-impact declaration per item; tests/unit/agents/prompts/prp-blueprint-prompt.test.ts — assert the blueprint prompt references the DOCS impact). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: Updated prompts consumed unchanged by their existing generators (no signature changes). This closes R3.\n5. MOCKING: None — pure string assertions on prompt constants.\n6. DOCS: [Mode A] none — this subtask IS the doc-declaration mechanism.",
