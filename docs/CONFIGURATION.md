@@ -14,6 +14,7 @@
   - [Model Selection](#model-selection-1)
   - [Agent Runtime (Harness)](#agent-runtime-harness)
   - [Pipeline Control](#pipeline-control)
+  - [Resilience Tuning](#resilience-tuning)
   - [Bug Hunt Configuration](#bug-hunt-configuration)
   - [Advanced Configuration](#advanced-configuration)
 - [CLI Options](#cli-options)
@@ -122,6 +123,14 @@ Control pipeline execution behavior.
 | `PRP_PIPELINE_RUNNING` | No       | None    | Nested execution guard. Contains parent PID to prevent recursive pipeline execution. Automatically set by pipeline controller. |
 | `SKIP_BUG_FINDING`     | No       | `false` | Skip bug hunt / bug fix mode. Set to `true` to disable QA and bug fix operations.                                              |
 | `SKIP_EXECUTION_LOOP`  | No       | `false` | Skip execution, run validation only. Set to `true` to validate PRDs without executing tasks.                                   |
+
+### Resilience Tuning
+
+Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback) and §9.2.2.
+
+| Variable           | Required | Default | Description                                                                                                                 |
+| ------------------ | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `RESEARCH_TIMEOUT` | No       | `300`   | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2. |
 
 ### Bug Hunt Configuration
 

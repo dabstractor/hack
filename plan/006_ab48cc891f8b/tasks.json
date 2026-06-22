@@ -1,0 +1,30 @@
+{
+  "backlog": [
+    {
+      "id": "P1",
+      "type": "Phase",
+      "title": "Test Phase",
+      "status": "Complete",
+      "description": "Validate pipeline functionality with minimal complexity",
+      "milestones": [
+        {
+          "id": "P1.M1",
+          "type": "Milestone",
+          "title": "Test Milestone",
+          "status": "Complete",
+          "description": "Create a simple hello world implementation",
+          "tasks": [
+            {
+              "id": "P1.M1.T1",
+              "type": "Task",
+              "title": "Create Hello World",
+              "status": "Complete",
+              "description": "Implement a basic hello world function with tests",
+              "subtasks": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -142,3 +142,62 @@ export const DEFAULT_MODEL_PROVIDER = 'zai' as const;
  * ```
  */
 export const SUPPORTED_HARNESSES = ['pi', 'claude-code'] as const;
+
+// ---------------------------------------------------------------------------
+// Resilience Tuning (PRD §4.2, §9.2.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Environment variable name: deadline (seconds) for background research (PRD §4.2, §9.2.2).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via getResearchTimeoutSeconds())
+ * is a number of seconds. This constant is the env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { RESEARCH_TIMEOUT } from './config/constants.js';
+ *
+ * console.log(RESEARCH_TIMEOUT); // 'RESEARCH_TIMEOUT'
+ * console.log(process.env[RESEARCH_TIMEOUT]); // e.g. '300'
+ * ```
+ */
+export const RESEARCH_TIMEOUT = 'RESEARCH_TIMEOUT';
+
+/**
+ * Default deadline (300s = 5min) for background research before synchronous fallback (PRD §4.2).
+ *
+ * @remarks
+ * When the RESEARCH_TIMEOUT env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_RESEARCH_TIMEOUT_SECONDS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 300
+ * ```
+ */
+export const DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300;
+
+/**
+ * Read & validate the RESEARCH_TIMEOUT env var (PRD §4.2, §9.2.2).
+ *
+ * @returns The configured deadline in seconds, or DEFAULT_RESEARCH_TIMEOUT_SECONDS
+ *          when unset, non-numeric, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getResearchTimeoutSeconds } from './config/constants.js';
+ *
+ * const deadline = getResearchTimeoutSeconds(); // 300 (default)
+ * ```
+ */
+export function getResearchTimeoutSeconds(): number {
+  const raw = Number(
+    process.env[RESEARCH_TIMEOUT] ?? DEFAULT_RESEARCH_TIMEOUT_SECONDS
+  );
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_RESEARCH_TIMEOUT_SECONDS;
+  }
+  return raw;
+}
