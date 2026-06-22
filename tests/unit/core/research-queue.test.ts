@@ -1940,4 +1940,125 @@ describe('ResearchQueue', () => {
       expect(queue.isAbandoned('P1.M1.T1.S999')).toBe(false);
     });
   });
+
+  describe('researchNow', () => {
+    it('should generate synchronously inline and cache the result', async () => {
+      // SETUP
+      const expectedPRP = createTestPRPDocument('P1.M1.T1.S1');
+      const mockGenerate = vi.fn().mockResolvedValue(expectedPRP);
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+      const task = createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Planned');
+      const backlog = createTestBacklog([]);
+
+      // EXECUTE
+      const out = await queue.researchNow(task, backlog);
+
+      // VERIFY: returned the generated PRP
+      expect(out).toEqual(expectedPRP);
+      expect(mockGenerate).toHaveBeenCalledTimes(1);
+      expect(mockGenerate).toHaveBeenCalledWith(task, backlog);
+
+      // VERIFY: cached in results (getPRP returns it)
+      expect(queue.getPRP(task.id)).toEqual(expectedPRP);
+    });
+
+    it('should return the cached result without re-generating if one already exists', async () => {
+      // SETUP
+      const cached = createTestPRPDocument('P1.M1.T1.S1');
+      const mockGenerate = vi.fn(); // must NOT be called
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+      const task = createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Planned');
+
+      // Pre-seed cache
+      (queue as any).results.set(task.id, cached);
+
+      // EXECUTE
+      const out = await queue.researchNow(task, createTestBacklog([]));
+
+      // VERIFY: returned cached result, generate NOT called
+      expect(out).toEqual(cached);
+      expect(mockGenerate).not.toHaveBeenCalled();
+    });
+
+    it('should not delete from researching (background cleanup is processNext.finally)', async () => {
+      // SETUP
+      const expectedPRP = createTestPRPDocument('P1.M1.T1.S1');
+      const mockGenerate = vi.fn().mockResolvedValue(expectedPRP);
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+      const task = createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Planned');
+
+      // Pre-seed researching (simulates in-flight background work)
+      (queue as any).researching.set(
+        task.id,
+        Promise.resolve(createTestPRPDocument('P1.M1.T1.S1'))
+      );
+      expect((queue as any).researching.has(task.id)).toBe(true);
+
+      // EXECUTE
+      await queue.researchNow(task, createTestBacklog([]));
+
+      // VERIFY: researching is still intact
+      expect((queue as any).researching.has(task.id)).toBe(true);
+    });
+  });
 });

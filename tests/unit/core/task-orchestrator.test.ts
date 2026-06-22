@@ -12,6 +12,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TaskOrchestrator } from '../../../src/core/task-orchestrator.js';
+import { ResearchTimeoutError } from '../../../src/core/research-queue.js';
 import type { SessionManager } from '../../../src/core/session-manager.js';
 import type { Backlog } from '../../../src/core/models.js';
 import { Status } from '../../../src/core/models.js';
@@ -56,15 +57,31 @@ vi.mock('../../../src/utils/git-commit.js', () => ({
   formatCommitMessage: vi.fn((msg: string) => msg),
 }));
 
-// Mock the ResearchQueue class
-vi.mock('../../../src/core/research-queue.js', () => ({
-  ResearchQueue: vi.fn().mockImplementation(() => ({
-    enqueue: vi.fn().mockResolvedValue(undefined),
-    getPRP: vi.fn().mockReturnValue(null),
-    processNext: vi.fn().mockResolvedValue(undefined),
-    getStats: vi.fn().mockReturnValue({ queued: 0, researching: 0, cached: 0 }),
-  })),
-}));
+// Mock the ResearchQueue class — use importOriginal so the REAL
+// ResearchTimeoutError (S2 export) survives mocking (else instanceof TypeError).
+vi.mock('../../../src/core/research-queue.js', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('../../../src/core/research-queue.js')
+    >();
+  return {
+    ...actual,
+    ResearchQueue: vi.fn().mockImplementation(() => ({
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      getPRP: vi.fn().mockReturnValue(null),
+      processNext: vi.fn().mockResolvedValue(undefined),
+      getStats: vi
+        .fn()
+        .mockReturnValue({ queued: 0, researching: 0, cached: 0 }),
+      waitForPRP: vi
+        .fn()
+        .mockResolvedValue({ id: 'default-prp', title: 'cached PRP' }),
+      researchNow: vi
+        .fn()
+        .mockResolvedValue({ id: 'default-prp', title: 'inline PRP' }),
+    })),
+  };
+});
 
 // Mock the PRPRuntime class
 vi.mock('../../../src/agents/prp-runtime.js', () => ({
@@ -685,6 +702,110 @@ describe('TaskOrchestrator', () => {
 
       // VERIFY: Dependencies don't affect placeholder execution
       expect(mockManager.updateItemStatus).toHaveBeenCalledTimes(3); // Researching + Implementing + Complete
+    });
+
+    it('falls back to synchronous inline re-research when waitForPRP abandons (PRD §4.2)', async () => {
+      // SETUP
+      const testBacklog = createTestBacklog([]);
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: testBacklog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const orchestrator = new TaskOrchestrator(mockManager);
+
+      const subtask = createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Planned');
+
+      // Override mock: waitForPRP rejects with ResearchTimeoutError
+      const queue = orchestrator.researchQueue as any;
+      queue.waitForPRP = vi
+        .fn()
+        .mockRejectedValue(new ResearchTimeoutError('P1.M1.T1.S1', 300));
+      queue.researchNow = vi
+        .fn()
+        .mockResolvedValue({ id: 'inline-prp', title: 'Inline re-research' });
+
+      // EXECUTE
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: waitForPRP called once, fallback triggered
+      expect(queue.waitForPRP).toHaveBeenCalledWith('P1.M1.T1.S1');
+      expect(queue.waitForPRP).toHaveBeenCalledTimes(1);
+
+      // VERIFY: researchNow called exactly once with subtask + backlog
+      expect(queue.researchNow).toHaveBeenCalledTimes(1);
+      expect(queue.researchNow).toHaveBeenCalledWith(subtask, testBacklog);
+
+      // VERIFY: execution proceeded to prpRuntime.executeSubtask
+      expect(orchestrator.prpRuntime.executeSubtask).toHaveBeenCalledTimes(1);
+
+      // VERIFY: status ended at Complete (last status call)
+      const lastCall = (mockManager.updateItemStatus as any).mock.calls.at(-1);
+      expect(lastCall).toEqual(['P1.M1.T1.S1', 'Complete']);
+
+      // VERIFY: exactly 3 status transitions (Researching + Implementing + Complete, no extra)
+      expect(mockManager.updateItemStatus).toHaveBeenCalledTimes(3);
+
+      // VERIFY: abandonment logged at info
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        expect.stringContaining('abandoned')
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        'Synchronous inline re-research complete'
+      );
+    });
+
+    it('propagates a non-timeout research error instead of falling back', async () => {
+      // SETUP
+      const testBacklog = createTestBacklog([]);
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: testBacklog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const orchestrator = new TaskOrchestrator(mockManager);
+
+      const subtask = createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Planned');
+
+      // Override mock: waitForPRP rejects with a plain Error (NOT ResearchTimeoutError)
+      const queue = orchestrator.researchQueue as any;
+      queue.waitForPRP = vi
+        .fn()
+        .mockRejectedValue(new Error('research infra down'));
+      queue.researchNow = vi.fn(); // must NOT be called
+
+      // EXECUTE & VERIFY: error propagates
+      await expect(orchestrator.executeSubtask(subtask)).rejects.toThrow(
+        'research infra down'
+      );
+
+      // VERIFY: researchNow was NOT called
+      expect(queue.researchNow).not.toHaveBeenCalled();
+
+      // VERIFY: item marked Failed (inside the existing try/catch)
+      const failedCalls = (
+        mockManager.updateItemStatus as any
+      ).mock.calls.filter((call: any[]) => call[1] === 'Failed');
+      expect(failedCalls.length).toBeGreaterThan(0);
+      expect(failedCalls[0][0]).toBe('P1.M1.T1.S1');
     });
 
     describe('smartCommit integration', () => {

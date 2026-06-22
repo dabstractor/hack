@@ -40,7 +40,7 @@ import { getDependencies } from '../utils/task-utils.js';
 import type { Scope } from './scope-resolver.js';
 import { resolveScope } from './scope-resolver.js';
 import { smartCommit } from '../utils/git-commit.js';
-import { ResearchQueue } from './research-queue.js';
+import { ResearchQueue, ResearchTimeoutError } from './research-queue.js';
 import { PRPRuntime } from '../agents/prp-runtime.js';
 import {
   ConcurrentTaskExecutor,
@@ -702,6 +702,26 @@ export class TaskOrchestrator {
 
     // PATTERN: Wrap execution in try/catch for error handling
     try {
+      // PRD §4.2: await background research (deadline-guarded by ResearchQueue — S2); fall back to
+      // synchronous inline re-research if the background work was abandoned (hung/crashed agent).
+      try {
+        await this.researchQueue.waitForPRP(subtask.id);
+      } catch (error) {
+        if (error instanceof ResearchTimeoutError) {
+          this.#logger.info(
+            { subtaskId: subtask.id },
+            'Background research abandoned (deadline exceeded); re-researching synchronously inline'
+          );
+          await this.researchQueue.researchNow(subtask, this.#backlog);
+          this.#logger.info(
+            { subtaskId: subtask.id },
+            'Synchronous inline re-research complete'
+          );
+        } else {
+          throw error; // real generation error → outer catch → Failed + rethrow
+        }
+      }
+
       // NEW: Use PRPRuntime for execution with retry wrapper
       this.#logger.info(
         { subtaskId: subtask.id },

@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P5.M1.T1",
               "title": "Task 5.1.1: Background Research Deadline & Fallback (R1)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Wrap background PRP generation in a deadline read from RESEARCH_TIMEOUT (default 300s). The orchestrator polls for completion (process liveness + PRP artifact presence) and on deadline expiry abandons the in-flight research and re-researches the item synchronously, inline — it must never block indefinitely (PRD §4.2, §9.2.2, §9.3.2).",
               "subtasks": [
                 {
@@ -55,7 +55,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T1.S3",
                   "title": "Orchestrator synchronous re-research fallback after deadline",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P5.M1.T1.S2"

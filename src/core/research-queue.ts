@@ -305,6 +305,42 @@ export class ResearchQueue {
   }
 
   /**
+   * Re-researches a task SYNCHRONOUSLY, inline (PRD §4.2 fallback).
+   *
+   * @remarks
+   * Called by `TaskOrchestrator.executeSubtask` when `waitForPRP` reports the background
+   * research was abandoned (deadline exceeded). Generates the PRP directly via the queue's
+   * `#prpGenerator` and caches it so the abandoned background result (if it ever lands) is
+   * ignored — see the `processNext` late-result guard. Does NOT touch the `researching` Map
+   * (its cleanup is owned by `processNext`'s `.finally`).
+   *
+   * @param task - The Task/Subtask to re-research.
+   * @param backlog - Full backlog for PRPGenerator context.
+   * @returns The freshly-generated (or already-cached) PRPDocument.
+   *
+   * @example
+   * ```typescript
+   * try {
+   *   await queue.waitForPRP(taskId);
+   * } catch (err) {
+   *   if (err instanceof ResearchTimeoutError) {
+   *     const prp = await queue.researchNow(task, backlog);
+   *   }
+   * }
+   * ```
+   */
+  async researchNow(
+    task: TaskOrSubtask,
+    backlog: Backlog
+  ): Promise<PRPDocument> {
+    const cached = this.results.get(task.id);
+    if (cached) return cached;
+    const prp = await this.#prpGenerator.generate(task, backlog);
+    this.results.set(task.id, prp);
+    return prp;
+  }
+
+  /**
    * Waits for PRP to be ready, with a configurable deadline
    *
    * @remarks
