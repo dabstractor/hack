@@ -36,6 +36,40 @@ vi.mock('../../../src/tools/bash-mcp.js', () => ({
   })),
 }));
 
+// Mock the retry module — wraps string returns in AgentResponse shape
+// so that #extractResponseContent can extract the payload correctly.
+vi.mock('../../../src/utils/retry.js', () => ({
+  retryAgentPrompt: vi.fn(async (fn: () => Promise<unknown>, _ctx: unknown) => {
+    const result = await fn();
+    // Wrap string results in AgentResponse shape expected by #extractResponseContent
+    if (typeof result === 'string') {
+      return {
+        status: 'success' as const,
+        data: result,
+        error: null,
+      };
+    }
+    return result;
+  }),
+  retry: vi.fn(),
+  retryMcpTool: vi.fn(),
+  sleep: vi.fn(),
+  isTransientError: vi.fn(),
+  isPermanentError: vi.fn(),
+  calculateDelay: vi.fn(),
+  createDefaultOnRetry: vi.fn(),
+}));
+
+// Mock the checkpoint-manager to prevent disk writes during tests
+vi.mock('../../../src/core/checkpoint-manager.js', () => ({
+  CheckpointManager: vi.fn().mockImplementation(() => ({
+    saveCheckpoint: vi.fn().mockResolvedValue('checkpoint-id'),
+    restoreCheckpoint: vi.fn().mockResolvedValue(null),
+    listCheckpoints: vi.fn().mockResolvedValue([]),
+    cleanupOldCheckpoints: vi.fn().mockResolvedValue(0),
+  })),
+}));
+
 // Import mocked modules
 import { createCoderAgent } from '../../../src/agents/agent-factory.js';
 import { BashMCP } from '../../../src/tools/bash-mcp.js';
@@ -167,6 +201,8 @@ describe('agents/prp-executor', () => {
 
       // VERIFY: Execution succeeded
       expect(result.success).toBe(true);
+      expect(result.outcome).toBe('success');
+      expect(result.issueMessage).toBeUndefined();
       expect(result.fixAttempts).toBe(0);
       expect(result.artifacts).toEqual([]);
       expect(result.error).toBeUndefined();
@@ -232,6 +268,38 @@ describe('agents/prp-executor', () => {
       expect(result.error).toBe('Failed to parse PRP');
       expect(result.fixAttempts).toBe(0);
       expect(result.validationResults).toEqual([]);
+      expect(result.outcome).toBe('fail');
+      expect(result.issueMessage).toBeUndefined();
+    });
+
+    it('should surface an issue outcome distinctly from fail when Coder Agent reports issue', async () => {
+      // SETUP
+      const prp = createMockPRPDocument('P1.M2.T2.S2');
+      const prpPath = '/tmp/test-session/prps/P1M2T2S2.md';
+
+      // Mock Coder Agent to return issue
+      mockAgent.prompt.mockResolvedValue(
+        JSON.stringify({
+          result: 'issue',
+          message: 'PRP missing API spec; cannot implement',
+        })
+      );
+
+      const executor = new PRPExecutor(sessionPath);
+
+      // EXECUTE
+      const result = await executor.execute(prp, prpPath);
+
+      // VERIFY: Issue outcome is distinct from fail
+      expect(result.success).toBe(false);
+      expect(result.outcome).toBe('issue');
+      expect(result.issueMessage).toBe(
+        'PRP missing API spec; cannot implement'
+      );
+      expect(result.error).toBe('PRP missing API spec; cannot implement');
+      expect(result.fixAttempts).toBe(0);
+      expect(result.validationResults).toEqual([]); // issue short-circuits before validation
+      expect(mockExecuteBash).not.toHaveBeenCalled(); // no gates run on issue
     });
 
     it(
@@ -320,6 +388,7 @@ describe('agents/prp-executor', () => {
         // VERIFY: All fix attempts exhausted
         expect(result.fixAttempts).toBe(2);
         expect(result.success).toBe(false);
+        expect(result.outcome).toBe('fail');
         expect(result.error).toBe('Validation failed after all fix attempts');
         expect(mockAgent.prompt).toHaveBeenCalledTimes(3); // Initial + 2 fixes
       },

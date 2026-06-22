@@ -63,10 +63,46 @@ export interface ValidationGateResult {
  * Contains the complete execution results from running a PRP,
  * including validation gate results, artifacts produced, and
  * overall success status.
+ *
+ * Tri-state outcome model (PRD §4.5):
+ * - `'success'` — implementation passed all validation gates.
+ * - `'fail'` — hard implementation failure (validation exhausted, coder `'error'`, or exception).
+ *   Handled by the existing fix-and-retry / Failed path.
+ * - `'issue'` — a RECOVERABLE PLANNING GAP: the PRP was insufficient (missing context,
+ *   wrong assumptions, ambiguous requirements) but the work itself is valid.
+ *   Distinct from `'fail'`. Drives the issue-driven re-planning loop
+ *   (delete stale PRP → reset to Planned → re-research with feedback),
+ *   bounded by `ISSUE_RETRY_MAX`.
+ *
+ * Invariant: `success === (outcome === 'success')`. The `success: boolean` field is
+ * retained for backward compatibility with existing consumers.
+ *
+ * @example
+ * ```typescript
+ * // Coder Agent reports a planning gap:
+ * const result = await executor.execute(prp, prpPath);
+ * // result.success === false, result.outcome === 'issue', result.issueMessage set
+ *
+ * // Coder Agent reports success:
+ * // result.success === true, result.outcome === 'success'
+ * ```
  */
 export interface ExecutionResult {
-  /** Whether all validation gates passed */
+  /** Whether all validation gates passed. Invariant: success === (outcome === 'success'). */
   readonly success: boolean;
+  /**
+   * Explicit tri-state outcome (PRD §4.5).
+   *
+   * - `'success'` — implementation passed all validation gates.
+   * - `'fail'` — hard implementation failure (validation exhausted, coder `'error'`, or exception).
+   * - `'issue'` — a RECOVERABLE PLANNING GAP: the PRP was insufficient but the work is valid.
+   *
+   * Optional for backward compatibility; every return from PRPExecutor.execute() sets it
+   * explicitly.
+   */
+  readonly outcome?: 'success' | 'fail' | 'issue';
+  /** Present only when outcome === 'issue': the Coder Agent's explanation of the planning gap. */
+  readonly issueMessage?: string;
   /** Results from each validation gate that was executed */
   readonly validationResults: ValidationGateResult[];
   /** File paths created/modified during execution */
@@ -305,10 +341,23 @@ export class PRPExecutor {
         coderResponseState
       );
 
-      // If Coder Agent reported error, return failed result
-      if (coderResult.result !== 'success') {
+      // Branch on the Coder Agent's tri-state result (PRD §4.5). 'issue' = recoverable
+      // planning gap (surfaces distinctly for re-planning); 'error' = hard implementation fail.
+      if (coderResult.result === 'issue') {
         return {
           success: false,
+          outcome: 'issue',
+          issueMessage: coderResult.message,
+          validationResults: [],
+          artifacts: [],
+          error: coderResult.message,
+          fixAttempts: 0,
+        };
+      }
+      if (coderResult.result === 'error') {
+        return {
+          success: false,
+          outcome: 'fail',
           validationResults: [],
           artifacts: [],
           error: coderResult.message,
@@ -391,6 +440,7 @@ export class PRPExecutor {
 
       return {
         success: allPassed,
+        outcome: allPassed ? 'success' : 'fail',
         validationResults,
         artifacts: [], // TODO: Extract artifacts from Coder Agent output
         error: allPassed
@@ -415,6 +465,7 @@ export class PRPExecutor {
 
       return {
         success: false,
+        outcome: 'fail',
         validationResults: [],
         artifacts: [],
         error: error instanceof Error ? error.message : String(error),

@@ -248,6 +248,7 @@ export class PRPRuntime {
       // Return failed execution result
       return {
         success: false,
+        outcome: 'fail',
         validationResults: [],
         artifacts: [],
         error: errorMessage,

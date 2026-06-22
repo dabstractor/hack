@@ -27,6 +27,39 @@ vi.mock('../../src/agents/prompts.js', () => ({
   PRP_BUILDER_PROMPT: '# Execute BASE PRP\n\n## PRP File: $PRP_FILE_PATH',
 }));
 
+// Mock the retry module — wraps string returns in AgentResponse shape
+// so that #extractResponseContent can extract the payload correctly.
+vi.mock('../../src/utils/retry.js', () => ({
+  retryAgentPrompt: vi.fn(async (fn: () => Promise<unknown>, _ctx: unknown) => {
+    const result = await fn();
+    if (typeof result === 'string') {
+      return {
+        status: 'success' as const,
+        data: result,
+        error: null,
+      };
+    }
+    return result;
+  }),
+  retry: vi.fn(),
+  retryMcpTool: vi.fn(),
+  sleep: vi.fn(),
+  isTransientError: vi.fn(),
+  isPermanentError: vi.fn(),
+  calculateDelay: vi.fn(),
+  createDefaultOnRetry: vi.fn(),
+}));
+
+// Mock the checkpoint-manager to prevent disk writes during tests
+vi.mock('../../src/core/checkpoint-manager.js', () => ({
+  CheckpointManager: vi.fn().mockImplementation(() => ({
+    saveCheckpoint: vi.fn().mockResolvedValue('checkpoint-id'),
+    restoreCheckpoint: vi.fn().mockResolvedValue(null),
+    listCheckpoints: vi.fn().mockResolvedValue([]),
+    cleanupOldCheckpoints: vi.fn().mockResolvedValue(0),
+  })),
+}));
+
 // Import after mocking
 import { createCoderAgent } from '../../src/agents/agent-factory.js';
 

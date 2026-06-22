@@ -198,7 +198,12 @@ describe('agents/prp-runtime', () => {
       new PRPRuntime(mockOrchestrator);
 
       // VERIFY: PRPGenerator was instantiated with sessionManager
-      expect(MockPRPGenerator).toHaveBeenCalledWith(mockSessionManager);
+      expect(MockPRPGenerator).toHaveBeenCalledWith(
+        mockSessionManager,
+        false,
+        expect.any(Number),
+        expect.any(String)
+      );
 
       // VERIFY: PRPExecutor was instantiated with sessionPath
       expect(MockPRPExecutor).toHaveBeenCalledWith(sessionPath);
@@ -353,6 +358,43 @@ describe('agents/prp-runtime', () => {
         `${artifactsDir}/artifacts-list.json`,
         expect.any(String),
         { mode: 0o644 }
+      );
+    });
+
+    it('should pass through the issue outcome from the executor (no behavior change)', async () => {
+      // SETUP
+      const subtask = createMockSubtask('P1.M2.T2.S2', 'Test Subtask');
+      const backlog = createMockBacklog();
+      const issueResult: ExecutionResult = {
+        success: false,
+        outcome: 'issue',
+        issueMessage: 'missing context for endpoint contract',
+        validationResults: [],
+        artifacts: [],
+        error: 'missing context for endpoint contract',
+        fixAttempts: 0,
+      };
+
+      mockGenerator.generate.mockResolvedValue(
+        createMockPRPDocument(subtask.id)
+      );
+      mockExecutor.execute.mockResolvedValue(issueResult);
+
+      const runtime = new PRPRuntime(mockOrchestrator);
+
+      // EXECUTE
+      const result = await runtime.executeSubtask(subtask, backlog);
+
+      // VERIFY: outcome is passed through unchanged
+      expect(result.outcome).toBe('issue');
+      expect(result.issueMessage).toBe('missing context for endpoint contract');
+
+      // VERIFY: S4 BOUNDARY — runtime STILL sets Failed
+      // (issue→Planned reset is the orchestrator's job, not S2)
+      expect(mockOrchestrator.setStatus).toHaveBeenCalledWith(
+        subtask.id,
+        'Failed',
+        expect.any(String)
       );
     });
 
