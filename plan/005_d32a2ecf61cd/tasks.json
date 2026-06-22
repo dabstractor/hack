@@ -73,7 +73,7 @@
               "type": "Task",
               "id": "P5.M1.T2",
               "title": "Task 5.1.2: Issue-Driven Re-planning Loop (R2)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Introduce the Coder Agent `issue` outcome — distinct from `fail` (implementation problem → existing fix-and-retry) and `success`. An `issue` signals a recoverable PLANNING gap. On issue: save feedback to issue_feedback.md, delete the stale PRP, reset the item to Planned (not Failed), re-research with feedback injected, bounded by ISSUE_RETRY_MAX (default 3) (PRD §4.5, §9.2.2, §9.3.2).",
               "subtasks": [
                 {
@@ -120,7 +120,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T2.S4",
                   "title": "Orchestrator issue-handling flow bounded by ISSUE_RETRY_MAX",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P5.M1.T2.S1",

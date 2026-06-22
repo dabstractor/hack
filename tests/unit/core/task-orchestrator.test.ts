@@ -79,9 +79,18 @@ vi.mock('../../../src/core/research-queue.js', async importOriginal => {
       researchNow: vi
         .fn()
         .mockResolvedValue({ id: 'default-prp', title: 'inline PRP' }),
+      deletePRP: vi.fn().mockResolvedValue(undefined),
     })),
   };
 });
+
+// Mock the session-utils module for atomicWrite (issue-driven re-planning writes issue_feedback.md)
+vi.mock('../../../src/core/session-utils.js', () => ({
+  atomicWrite: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { atomicWrite } from '../../../src/core/session-utils.js';
+const mockAtomicWrite = atomicWrite as ReturnType<typeof vi.fn>;
 
 // Mock the PRPRuntime class
 vi.mock('../../../src/agents/prp-runtime.js', () => ({
@@ -3785,6 +3794,191 @@ describe('TaskOrchestrator', () => {
         'P1.M2.T1.S1',
         'Researching'
       );
+    });
+
+    it('re-plans on outcome:issue — writes feedback, deletes PRP, resets to Planned, re-researches with feedback, then completes (PRD §4.5)', async () => {
+      vi.stubEnv('ISSUE_RETRY_MAX', '2');
+
+      const testBacklog = createTestBacklog([]);
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: testBacklog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const orchestrator = new TaskOrchestrator(mockManager);
+
+      const subtask = createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Planned');
+
+      // Override mocks for issue-flow
+      const queue = orchestrator.researchQueue as any;
+      queue.waitForPRP = vi.fn().mockResolvedValue(undefined);
+      queue.deletePRP = vi.fn().mockResolvedValue(undefined);
+      queue.researchNow = vi.fn().mockResolvedValue({ id: 'fresh-prp' });
+
+      const rt = orchestrator.prpRuntime as any;
+      rt.executeSubtask = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: false,
+          outcome: 'issue',
+          issueMessage: 'missing /health contract',
+          validationResults: [],
+          artifacts: [],
+          error: 'missing /health contract',
+          fixAttempts: 0,
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          outcome: 'success',
+          validationResults: [],
+          artifacts: [],
+          fixAttempts: 0,
+        });
+
+      // EXECUTE
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: feedback written to issue_feedback.md
+      expect(mockAtomicWrite).toHaveBeenCalledWith(
+        expect.stringContaining('issue_feedback.md'),
+        'missing /health contract'
+      );
+
+      // VERIFY: stale PRP deleted
+      expect(queue.deletePRP).toHaveBeenCalledWith(subtask.id);
+
+      // VERIFY: re-researched with feedback
+      expect(queue.researchNow).toHaveBeenCalledWith(
+        subtask,
+        testBacklog,
+        'missing /health contract'
+      );
+
+      // VERIFY: status progression includes Planned (reset) and ends at Complete
+      const statuses = (mockManager.updateItemStatus as any).mock.calls.map(
+        (c: any) => c[1]
+      );
+      expect(statuses).toContain('Planned');
+      expect(statuses.at(-1)).toBe('Complete');
+
+      // VERIFY: prpRuntime.executeSubtask called twice (issue + re-execution)
+      expect(rt.executeSubtask).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllEnvs();
+    });
+
+    it('hard-fails the item after ISSUE_RETRY_MAX issue outcomes are exceeded (PRD §4.5)', async () => {
+      vi.stubEnv('ISSUE_RETRY_MAX', '2');
+
+      const testBacklog = createTestBacklog([]);
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: testBacklog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const orchestrator = new TaskOrchestrator(mockManager);
+
+      const subtask = createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Planned');
+
+      // Override mocks: always returns issue
+      const queue = orchestrator.researchQueue as any;
+      queue.waitForPRP = vi.fn().mockResolvedValue(undefined);
+      queue.deletePRP = vi.fn().mockResolvedValue(undefined);
+      queue.researchNow = vi.fn().mockResolvedValue({ id: 'fresh' });
+
+      const rt = orchestrator.prpRuntime as any;
+      const issue = {
+        success: false,
+        outcome: 'issue',
+        issueMessage: 'gap',
+        validationResults: [],
+        artifacts: [],
+        error: 'gap',
+        fixAttempts: 0,
+      };
+      rt.executeSubtask = vi.fn().mockResolvedValue(issue);
+
+      // EXECUTE
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: hard-failed
+      const statuses = (mockManager.updateItemStatus as any).mock.calls.map(
+        (c: any) => c[1]
+      );
+      expect(statuses.at(-1)).toBe('Failed');
+
+      // VERIFY: exactly 2 re-plans (issues 1 & 2 trigger re-plan; issue 3 triggers hard-fail)
+      expect(queue.deletePRP).toHaveBeenCalledTimes(2);
+      expect(queue.researchNow).toHaveBeenCalledTimes(2);
+
+      // VERIFY: 3 executions total (2 re-plans + 1 failing 3rd)
+      expect(rt.executeSubtask).toHaveBeenCalledTimes(3);
+
+      vi.unstubAllEnvs();
+    });
+
+    it('routes a fail outcome through the existing Failed path without re-planning', async () => {
+      const testBacklog = createTestBacklog([]);
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: testBacklog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const orchestrator = new TaskOrchestrator(mockManager);
+
+      const subtask = createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Planned');
+
+      // Override mocks: fail outcome (real implementation failure)
+      const queue = orchestrator.researchQueue as any;
+      queue.waitForPRP = vi.fn().mockResolvedValue(undefined);
+      queue.deletePRP = vi.fn();
+      queue.researchNow = vi.fn();
+
+      const rt = orchestrator.prpRuntime as any;
+      rt.executeSubtask = vi.fn().mockResolvedValue({
+        success: false,
+        outcome: 'fail',
+        validationResults: [],
+        artifacts: [],
+        error: 'boom',
+        fixAttempts: 2,
+      });
+
+      // EXECUTE
+      await orchestrator.executeSubtask(subtask);
+
+      // VERIFY: Failed, NO re-planning steps
+      expect((mockManager.updateItemStatus as any).mock.calls.at(-1)).toEqual([
+        'P1.M1.T1.S1',
+        'Failed',
+      ]);
+      expect(queue.deletePRP).not.toHaveBeenCalled();
+      expect(queue.researchNow).not.toHaveBeenCalled();
+      expect(mockAtomicWrite).not.toHaveBeenCalled();
     });
   });
 });

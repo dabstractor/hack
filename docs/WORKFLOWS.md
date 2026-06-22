@@ -374,6 +374,56 @@ if (this.shutdownRequested) {
 }
 ```
 
+### Issue-Driven Re-planning
+
+**Reference:** PRD §4.5, §9.2.2
+
+When the Coder Agent finishes executing a subtask, it reports a **tri-state outcome**:
+
+| Outcome   | Meaning                                                    | Orchestrator Action                                          |
+| --------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `success` | All validation gates passed                                | Mark `Complete`; smart-commit; continue                      |
+| `fail`    | Implementation error (code/logic problem)                  | Mark `Failed`; existing fix-and-retry via `TaskRetryManager` |
+| `issue`   | Recoverable planning gap (PRP insufficient but work valid) | Re-plan (see below), bounded by `ISSUE_RETRY_MAX`            |
+
+An `issue` is **deliberately distinct** from a `fail`:
+
+- **`fail`** = the code is wrong → transient-infra retry via `TaskRetryManager` (exponential backoff, `maxAttempts`).
+- **`issue`** = the plan is wrong → orchestrator-level re-planning (delete stale PRP, re-research with feedback).
+
+#### Re-planning Flow (5 Steps)
+
+When `outcome === 'issue'` and the re-planning budget is not exhausted:
+
+1. **Capture feedback** — Write `result.issueMessage` to `<sessionDir>/issue_feedback.md` via `atomicWrite`.
+2. **Invalidate stale plan** — Call `researchQueue.deletePRP(taskId)` which clears the in-memory cache, unlinks the disk PRP `.md` file, and unlinks the `.cache/*.json` metadata file. This guarantees the stale plan cannot be reused.
+3. **Reset state** — Set the item's status back to `Planned` (NOT `Failed`). The item remains in the active queue.
+4. **Re-research with feedback** — Call `researchQueue.researchNow(task, backlog, feedback)`. The feedback is forwarded to `PRPGenerator.generate()` (S3), which bypasses cache-read and injects the `<issue_feedback>` block into the blueprint prompt.
+5. **Re-execute** — The orchestrator re-enters the execution loop and runs the subtask against the fresh, feedback-aware PRP.
+
+#### Bounding the Loop
+
+The loop is bounded by **`ISSUE_RETRY_MAX`** (environment variable, default `3` from §9.2.2).
+
+- Exactly `ISSUE_RETRY_MAX` re-plans are permitted.
+- The `(ISSUE_RETRY_MAX + 1)`-th `issue` outcome triggers a **hard-fail**: the item is marked `Failed` with a descriptive reason, and no further re-plan is attempted.
+- Example with `ISSUE_RETRY_MAX=2`: `issue → issue → success` → `Complete` (2 re-plans). `issue → issue → issue` → `Failed` (3rd issue exceeds budget).
+
+#### Dependency and Identity Preservation
+
+- The item keeps its **original `id` and `dependencies`** across all re-plans. No new item is created.
+- **Dependents are NOT cancelled.** They simply block via `waitForDependencies` until the re-planned item completes.
+- Only the offending item's PRP (disk + cache) is deleted and re-generated.
+
+#### Retry Dimension Distinction
+
+| Dimension       | Counter           | Scope               | Mechanism                | Config                     |
+| --------------- | ----------------- | ------------------- | ------------------------ | -------------------------- |
+| Re-planning     | `ISSUE_RETRY_MAX` | Orchestrator (loop) | Delete PRP → re-research | `ISSUE_RETRY_MAX` (§9.2.2) |
+| Transient-infra | `maxAttempts`     | Executor (per-call) | `TaskRetryManager`       | `TASK_RETRY_MAX_ATTEMPTS`  |
+
+These are **structurally independent**: `executeWithRetry` (TaskRetryManager) wraps each runtime call **inside** the re-planning loop, while the issue counter accumulates **outside** the loop across iterations.
+
 ### Phase 5: QA Cycle
 
 **Duration:** ~60-300 seconds

@@ -29,11 +29,18 @@ vi.mock('../../../src/agents/prp-generator.js', () => ({
   PRPGenerator: vi.fn(),
 }));
 
+// Mock node:fs/promises for deletePRP tests (unlink)
+vi.mock('node:fs/promises', () => ({
+  unlink: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Import PRPGenerator after mocking to access the mock
 import { PRPGenerator } from '../../../src/agents/prp-generator.js';
+import { unlink } from 'node:fs/promises';
 
 // Cast mocked constructor
 const MockPRPGenerator = PRPGenerator as any;
+const mockUnlink = unlink as ReturnType<typeof vi.fn>;
 
 // Factory functions for test data
 const createTestSubtask = (
@@ -110,6 +117,8 @@ const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 describe('ResearchQueue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset mockUnlink to default (resolved) after clearAllMocks
+    mockUnlink.mockResolvedValue(undefined);
   });
 
   describe('constructor', () => {
@@ -1976,7 +1985,7 @@ describe('ResearchQueue', () => {
       // VERIFY: returned the generated PRP
       expect(out).toEqual(expectedPRP);
       expect(mockGenerate).toHaveBeenCalledTimes(1);
-      expect(mockGenerate).toHaveBeenCalledWith(task, backlog);
+      expect(mockGenerate).toHaveBeenCalledWith(task, backlog, undefined);
 
       // VERIFY: cached in results (getPRP returns it)
       expect(queue.getPRP(task.id)).toEqual(expectedPRP);
@@ -2059,6 +2068,177 @@ describe('ResearchQueue', () => {
 
       // VERIFY: researching is still intact
       expect((queue as any).researching.has(task.id)).toBe(true);
+    });
+
+    it('should forward issueFeedback to generate as the 3rd arg', async () => {
+      // SETUP
+      const mockGenerate = vi
+        .fn()
+        .mockResolvedValue(createTestPRPDocument('P1.M1.T1.S1'));
+      MockPRPGenerator.mockImplementation(() => ({
+        generate: mockGenerate,
+        getCachePath: (id: string) =>
+          `/plan/x/prps/${id.replace(/\./g, '_')}.md`,
+        getCacheMetadataPath: (id: string) =>
+          `/plan/x/prps/.cache/${id.replace(/\./g, '_')}.json`,
+      }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+      const task = createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Planned');
+      const backlog = createTestBacklog([]);
+
+      // EXECUTE
+      await queue.researchNow(task, backlog, 'feedback forcing re-research');
+
+      // VERIFY: generate received the feedback as the 3rd arg
+      expect(mockGenerate).toHaveBeenCalledWith(
+        task,
+        backlog,
+        'feedback forcing re-research'
+      );
+    });
+  });
+
+  describe('deletePRP', () => {
+    it('should clear the in-memory results entry and unlink the PRP + metadata files', async () => {
+      // SETUP
+      const expectedPRP = createTestPRPDocument('P1.M1.T1.S1');
+      const mockGenerate = vi.fn().mockResolvedValue(expectedPRP);
+      MockPRPGenerator.mockImplementation(() => ({
+        generate: mockGenerate,
+        getCachePath: (id: string) =>
+          `/plan/x/prps/${id.replace(/\./g, '_')}.md`,
+        getCacheMetadataPath: (id: string) =>
+          `/plan/x/prps/.cache/${id.replace(/\./g, '_')}.json`,
+      }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+      const task = createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Planned');
+
+      // Pre-seed cache
+      (queue as any).results.set(task.id, expectedPRP);
+      expect(queue.getPRP(task.id)).toEqual(expectedPRP);
+
+      // EXECUTE
+      await queue.deletePRP(task.id);
+
+      // VERIFY: in-memory cache cleared
+      expect(queue.getPRP(task.id)).toBeNull();
+      expect((queue as any).results.has(task.id)).toBe(false);
+
+      // VERIFY: unlink called for both PRP file + metadata file
+      expect(mockUnlink).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not throw when the PRP file does not exist (ENOENT-tolerant)', async () => {
+      // SETUP
+      mockUnlink.mockRejectedValue({ code: 'ENOENT' });
+      MockPRPGenerator.mockImplementation(() => ({
+        generate: vi.fn(),
+        getCachePath: (id: string) =>
+          `/plan/x/prps/${id.replace(/\./g, '_')}.md`,
+        getCacheMetadataPath: (id: string) =>
+          `/plan/x/prps/.cache/${id.replace(/\./g, '_')}.json`,
+      }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+
+      // EXECUTE & VERIFY: should NOT throw
+      await expect(queue.deletePRP('P1.M1.T1.S1')).resolves.toBeUndefined();
+
+      // VERIFY: unlink was still attempted (both calls rejected ENOENT)
+      expect(mockUnlink).toHaveBeenCalledTimes(2);
+    });
+
+    it('should re-throw non-ENOENT errors from unlink', async () => {
+      // SETUP
+      mockUnlink.mockRejectedValue(new Error('Permission denied'));
+      MockPRPGenerator.mockImplementation(() => ({
+        generate: vi.fn(),
+        getCachePath: (id: string) =>
+          `/plan/x/prps/${id.replace(/\./g, '_')}.md`,
+        getCacheMetadataPath: (id: string) =>
+          `/plan/x/prps/.cache/${id.replace(/\./g, '_')}.json`,
+      }));
+
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+
+      // EXECUTE & VERIFY: non-ENOENT errors should propagate
+      await expect(queue.deletePRP('P1.M1.T1.S1')).rejects.toThrow(
+        'Permission denied'
+      );
     });
   });
 });

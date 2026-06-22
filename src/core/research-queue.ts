@@ -25,6 +25,7 @@ import type { Logger } from '../utils/logger.js';
 import type { PRPDocument, Task, Subtask, Backlog } from './models.js';
 import type { SessionManager } from './session-manager.js';
 import { getResearchTimeoutSeconds } from '../config/constants.js';
+import { unlink } from 'node:fs/promises';
 
 /**
  * Task or Subtask that can be enqueued for PRP generation
@@ -305,39 +306,104 @@ export class ResearchQueue {
   }
 
   /**
-   * Re-researches a task SYNCHRONOUSLY, inline (PRD §4.2 fallback).
-   *
-   * @remarks
-   * Called by `TaskOrchestrator.executeSubtask` when `waitForPRP` reports the background
-   * research was abandoned (deadline exceeded). Generates the PRP directly via the queue's
-   * `#prpGenerator` and caches it so the abandoned background result (if it ever lands) is
-   * ignored — see the `processNext` late-result guard. Does NOT touch the `researching` Map
-   * (its cleanup is owned by `processNext`'s `.finally`).
+   * Re-researches a task SYNCHRONOUSLY, inline (PRD §4.2 fallback + §4.5 issue re-plan).
    *
    * @param task - The Task/Subtask to re-research.
    * @param backlog - Full backlog for PRPGenerator context.
+   * @param issueFeedback - Optional feedback string from an issue outcome (PRD §4.5).
+   *   When provided, forwarded to `PRPGenerator.generate()` which bypasses cache-read
+   *   and injects the feedback into the blueprint prompt (S3).
    * @returns The freshly-generated (or already-cached) PRPDocument.
+   *
+   * @remarks
+   * Called by `TaskOrchestrator.executeSubtask` in two scenarios:
+   * 1. **Fallback re-research** (§4.2): when `waitForPRP` reports the background research
+   *    was abandoned (deadline exceeded). No feedback is passed.
+   * 2. **Issue-driven re-plan** (§4.5): when the Coder Agent reports `outcome: 'issue'`.
+   *    The feedback from `result.issueMessage` is forwarded as the 3rd arg, causing
+   *    `PRPGenerator.generate()` to bypass cache-read and inject the feedback into
+   *    the blueprint prompt.
+   *
+   * Cache-write stays unconditional (overwrites with the feedback-aware PRP on re-plan).
+   * Cache-READ bypass on feedback is handled inside the generator (S3) — this method
+   * does NOT re-implement it.
    *
    * @example
    * ```typescript
-   * try {
-   *   await queue.waitForPRP(taskId);
-   * } catch (err) {
-   *   if (err instanceof ResearchTimeoutError) {
-   *     const prp = await queue.researchNow(task, backlog);
-   *   }
-   * }
+   * // Fallback (no feedback)
+   * const prp = await queue.researchNow(task, backlog);
+   *
+   * // Issue-driven re-plan (with feedback)
+   * const prp = await queue.researchNow(task, backlog, 'missing /health contract');
    * ```
    */
   async researchNow(
     task: TaskOrSubtask,
-    backlog: Backlog
+    backlog: Backlog,
+    issueFeedback?: string
   ): Promise<PRPDocument> {
     const cached = this.results.get(task.id);
     if (cached) return cached;
-    const prp = await this.#prpGenerator.generate(task, backlog);
+    const prp = await this.#prpGenerator.generate(task, backlog, issueFeedback);
     this.results.set(task.id, prp);
     return prp;
+  }
+
+  /**
+   * Deletes the cached PRP for a task, clearing both the in-memory cache and
+   * the on-disk PRP file + cache metadata (PRD §4.5 step 2).
+   *
+   * @param taskId - The task ID whose PRP should be deleted (e.g., "P1.M1.T1.S1").
+   *
+   * @remarks
+   * Called by the orchestrator when an `outcome: 'issue'` triggers re-planning.
+   * Three actions are performed:
+   *
+   * 1. **In-memory cache**: `this.results.delete(taskId)` — prevents stale PRP reuse.
+   * 2. **Disk PRP file**: `unlink(getCachePath(taskId))` — removes the `.md` PRP document.
+   * 3. **Cache metadata**: `unlink(getCacheMetadataPath(taskId))` — removes the `.cache/*.json`
+   *    metadata file that could otherwise cause a stale `#isCacheRecent` hit on a later
+   *    no-feedback generate.
+   *
+   * Both `unlink` calls are **ENOENT-tolerant** — if the file is already gone
+   * (e.g., no PRP was ever written, or re-research already replaced it), the error
+   * is silently swallowed. Non-ENOENT errors are re-thrown.
+   *
+   * Deleting both the `.md` and the `.cache/*.json` guarantees the stale plan
+   * "cannot be reused" even if a later no-feedback generate runs. The subsequent
+   * feedback re-research overwrites both anyway (S3 cache-write is unconditional) —
+   * belt-and-suspenders.
+   *
+   * @example
+   * ```typescript
+   * // After an issue outcome (PRD §4.5):
+   * await queue.deletePRP(subtask.id);
+   * ```
+   */
+  async deletePRP(taskId: string): Promise<void> {
+    // (a) clear in-memory cache
+    this.results.delete(taskId);
+
+    // (b) unlink the disk PRP file (ENOENT-tolerant)
+    const prpPath = this.#prpGenerator.getCachePath(taskId);
+    try {
+      await unlink(prpPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    // (c) unlink the cache-metadata JSON (ENOENT-tolerant)
+    const metaPath = this.#prpGenerator.getCacheMetadataPath(taskId);
+    try {
+      await unlink(metaPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    this.#logger.debug(
+      { taskId },
+      'Deleted PRP file + cache metadata (issue-driven re-plan)'
+    );
   }
 
   /**

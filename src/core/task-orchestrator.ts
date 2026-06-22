@@ -40,8 +40,11 @@ import { getDependencies } from '../utils/task-utils.js';
 import type { Scope } from './scope-resolver.js';
 import { resolveScope } from './scope-resolver.js';
 import { smartCommit } from '../utils/git-commit.js';
+import { atomicWrite } from './session-utils.js';
+import { join } from 'node:path';
 import { ResearchQueue, ResearchTimeoutError } from './research-queue.js';
 import { PRPRuntime } from '../agents/prp-runtime.js';
+import { getIssueRetryMax } from '../config/constants.js';
 import {
   ConcurrentTaskExecutor,
   type ParallelismConfig,
@@ -108,6 +111,9 @@ export class TaskOrchestrator {
 
   /** Task retry manager for automatic retry of failed subtasks */
   readonly #retryManager: TaskRetryManager;
+
+  /** Per-item issue-driven re-planning attempt counts (PRD §4.5). Bounded by getIssueRetryMax(). */
+  #issueAttempts: Map<string, number> = new Map();
 
   /** Current item ID being processed (for progress tracking) */
   currentItemId: string | null = null;
@@ -728,57 +734,128 @@ export class TaskOrchestrator {
         'Starting PRPRuntime execution with retry'
       );
 
-      // Wrap PRPRuntime execution with retry logic
-      const result = await this.#retryManager.executeWithRetry(
-        subtask,
-        async () => {
-          return await this.#prpRuntime.executeSubtask(subtask, this.#backlog);
+      // PRD §4.5: Issue-bounded execution loop.
+      // executeWithRetry (TaskRetryManager) wraps each runtime call INSIDE the loop (transient infra retries).
+      // #issueAttempts accumulates OUTSIDE (orchestrator-level re-planning count).
+      const maxIssueRetries = getIssueRetryMax();
+      // eslint-disable-next-line no-constant-condition -- bounded by internal break/continue
+      while (true) {
+        // Wrap PRPRuntime execution with retry logic
+        const result = await this.#retryManager.executeWithRetry(
+          subtask,
+          async () => {
+            return await this.#prpRuntime.executeSubtask(
+              subtask,
+              this.#backlog
+            );
+          }
+        );
+
+        this.#logger.info(
+          { subtaskId: subtask.id, success: result.success },
+          'PRPRuntime execution complete'
+        );
+
+        // NEW: Trigger background research for next pending tasks
+        // Fire-and-forget: don't await, log errors
+        this.researchQueue.processNext(this.#backlog).catch(error => {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.#logger.error(
+            { error: errorMessage },
+            'Background research error'
+          );
+        });
+
+        // Log updated queue statistics
+        const stats = this.researchQueue.getStats();
+        this.#logger.debug(
+          {
+            queued: stats.queued,
+            researching: stats.researching,
+            cached: stats.cached,
+          },
+          'Research queue stats'
+        );
+
+        // --- Tri-state outcome handling (PRD §4.5) ---
+
+        // SUCCESS: mark Complete and exit loop
+        if (result.success) {
+          await this.setStatus(
+            subtask.id,
+            'Complete',
+            'Implementation completed successfully'
+          );
+          break;
         }
-      );
 
-      this.#logger.info(
-        { subtaskId: subtask.id, success: result.success },
-        'PRPRuntime execution complete'
-      );
+        // ISSUE: recoverable planning gap → re-plan (PRD §4.5)
+        if (result.outcome === 'issue') {
+          const attempts = (this.#issueAttempts.get(subtask.id) ?? 0) + 1;
+          this.#issueAttempts.set(subtask.id, attempts);
 
-      // NEW: Trigger background research for next pending tasks
-      // Fire-and-forget: don't await, log errors
-      this.researchQueue.processNext(this.#backlog).catch(error => {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.#logger.error(
-          { error: errorMessage },
-          'Background research error'
-        );
-      });
+          // Boundary check — hard-fail if attempts exceeded
+          if (attempts > maxIssueRetries) {
+            this.#logger.warn(
+              { subtaskId: subtask.id, attempts, maxIssueRetries },
+              'Issue-driven re-planning exhausted; hard-failing item'
+            );
+            await this.setStatus(
+              subtask.id,
+              'Failed',
+              `Issue-driven re-planning exhausted after ${maxIssueRetries} attempts: ${result.issueMessage ?? 'unspecified planning gap'}`
+            );
+            break;
+          }
 
-      // Log updated queue statistics
-      const stats = this.researchQueue.getStats();
-      this.#logger.debug(
-        {
-          queued: stats.queued,
-          researching: stats.researching,
-          cached: stats.cached,
-        },
-        'Research queue stats'
-      );
+          // Re-plan sequence (PRD §4.5 steps 1–4):
+          const feedback =
+            result.issueMessage ??
+            'Unspecified planning gap reported by Coder Agent';
+          const sessionDir = this.sessionManager.currentSession!.metadata.path;
 
-      // PATTERN: Set 'Complete' status on success
-      if (result.success) {
-        await this.setStatus(
-          subtask.id,
-          'Complete',
-          'Implementation completed successfully'
-        );
-      } else {
+          // (1) Capture feedback
+          await atomicWrite(join(sessionDir, 'issue_feedback.md'), feedback);
+          this.#logger.info(
+            { subtaskId: subtask.id },
+            'Wrote issue_feedback.md for re-planning'
+          );
+
+          // (2) Invalidate stale plan
+          await this.researchQueue.deletePRP(subtask.id);
+
+          // (3) Reset state (NOT Failed)
+          await this.setStatus(
+            subtask.id,
+            'Planned',
+            'Issue-driven re-planning'
+          );
+
+          // (4) Re-research with feedback injected (S3 generator path, via researchNow)
+          await this.researchQueue.researchNow(
+            subtask,
+            this.#backlog,
+            feedback
+          );
+          this.#logger.info(
+            { subtaskId: subtask.id, attempts },
+            'Re-planning complete; re-executing with feedback-aware PRP'
+          );
+
+          continue; // next loop iteration re-executes against the fresh PRP
+        }
+
+        // FAIL: real implementation failure → existing Failed path, NO re-planning
         await this.setStatus(
           subtask.id,
           'Failed',
           result.error ?? 'Execution failed'
         );
+        break;
       }
 
-      // Smart commit after successful subtask completion
+      // Smart commit after subtask completion (success, hard-fail, or fail)
       try {
         const sessionPath = this.sessionManager.currentSession?.metadata.path;
         if (!sessionPath) {
