@@ -126,11 +126,12 @@ Control pipeline execution behavior.
 
 ### Resilience Tuning
 
-Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback) and §9.2.2.
+Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.5 (issue-driven re-planning), and §9.2.2.
 
 | Variable           | Required | Default | Description                                                                                                                 |
 | ------------------ | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `RESEARCH_TIMEOUT` | No       | `300`   | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2. |
+| `ISSUE_RETRY_MAX`  | No       | `3`     | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                            |
 
 ### Bug Hunt Configuration
 

@@ -80,7 +80,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T2.S1",
                   "title": "Add ISSUE_RETRY_MAX config constant + default",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See implementation_notes.md §1 (config pattern) and §3 (ISSUE_RETRY_MAX is a DIFFERENT retry dimension from TaskRetryManager.maxAttempts — it bounds re-planning, not transient-error retries). Follow the exact PRP_AGENT_HARNESS precedent; no ConfigService.\n2. INPUT: The existing constant block in src/config/constants.ts.\n3. LOGIC: Add `export const ISSUE_RETRY_MAX = 'ISSUE_RETRY_MAX';` and `export const DEFAULT_ISSUE_RETRY_MAX = 3;` plus a reader `getIssueRetryMax(): number` (parse env, default on NaN/non-positive). Write the failing test first (tests/unit/config/). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: Named constant + default + reader, consumed by P5.M1.T2.S4.\n5. MOCKING: vi.stubEnv(ISSUE_RETRY_MAX, '5'); no FS/network mocks.\n6. DOCS: [Mode A] Add an `ISSUE_RETRY_MAX` row to the env-var reference table in docs/CONFIGURATION.md (default 3; semantics: max issue-driven re-planning attempts per item before hard-fail; cross-ref PRD §4.5). Rides WITH the work.",

@@ -144,7 +144,7 @@ export const DEFAULT_MODEL_PROVIDER = 'zai' as const;
 export const SUPPORTED_HARNESSES = ['pi', 'claude-code'] as const;
 
 // ---------------------------------------------------------------------------
-// Resilience Tuning (PRD §4.2, §9.2.2)
+// Resilience Tuning (PRD §4.2, §4.5, §9.2.2)
 // ---------------------------------------------------------------------------
 
 /**
@@ -198,6 +198,61 @@ export function getResearchTimeoutSeconds(): number {
   );
   if (Number.isNaN(raw) || raw <= 0) {
     return DEFAULT_RESEARCH_TIMEOUT_SECONDS;
+  }
+  return raw;
+}
+
+/**
+ * Environment variable name: max issue-driven re-planning attempts per item (PRD §4.5, §9.2.2).
+ *
+ * @remarks
+ * Bounds the issue-driven re-planning loop (PRD §4.5): after this many issue outcomes
+ * (recoverable PRP gaps re-researched with feedback), the item hard-fails. This is a SEPARATE
+ * retry dimension from TaskRetryManager (transient infra errors) — see implementation_notes.md §3.
+ * The VALUE of this variable is read at runtime via getIssueRetryMax().
+ *
+ * @example
+ * ```ts
+ * import { ISSUE_RETRY_MAX } from './config/constants.js';
+ *
+ * console.log(ISSUE_RETRY_MAX); // 'ISSUE_RETRY_MAX'
+ * console.log(process.env[ISSUE_RETRY_MAX]); // e.g. '3'
+ * ```
+ */
+export const ISSUE_RETRY_MAX = 'ISSUE_RETRY_MAX';
+
+/**
+ * Default max issue-driven re-planning attempts per item before hard-fail (PRD §4.5).
+ *
+ * @remarks
+ * When the ISSUE_RETRY_MAX env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_ISSUE_RETRY_MAX } from './config/constants.js';
+ *
+ * console.log(DEFAULT_ISSUE_RETRY_MAX); // 3
+ * ```
+ */
+export const DEFAULT_ISSUE_RETRY_MAX = 3;
+
+/**
+ * Read & validate the ISSUE_RETRY_MAX env var (PRD §4.5, §9.2.2).
+ *
+ * @returns The configured max re-planning attempts, or DEFAULT_ISSUE_RETRY_MAX
+ *          when unset, non-numeric, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getIssueRetryMax } from './config/constants.js';
+ *
+ * const max = getIssueRetryMax(); // 3 (default)
+ * ```
+ */
+export function getIssueRetryMax(): number {
+  const raw = Number(process.env[ISSUE_RETRY_MAX] ?? DEFAULT_ISSUE_RETRY_MAX);
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_ISSUE_RETRY_MAX;
   }
   return raw;
 }
