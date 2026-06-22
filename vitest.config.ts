@@ -8,6 +8,7 @@
  * @see https://vitest.dev/config/
  */
 
+import os from 'node:os';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -17,6 +18,15 @@ export default defineConfig({
     include: ['tests/**/*.{test,spec}.ts'],
     exclude: ['**/dist/**', '**/node_modules/**'],
     setupFiles: ['./tests/setup.ts'],
+    // Pool configuration to prevent OOM on large test files
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        minForks: 1,
+        maxForks: Math.min(os.cpus().length, 4),
+        memoryLimit: 4096,
+      },
+    },
     deps: {
       interopDefault: true,
     },

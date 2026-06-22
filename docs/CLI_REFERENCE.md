@@ -540,5 +540,5 @@ Each session has a unique ID and contains:
 - **[README.md](../README.md)** - Project overview and quick start
 - **[Installation Guide](./INSTALLATION.md)** - Setup instructions for the development environment
 - **[Configuration Reference](./CONFIGURATION.md)** - Environment variables and configuration options
-- **[Quick Start Tutorial](./QUICKSTART.md)** - Get started in under 5 minutes
+- **[Quick Start Tutorial](./INSTALLATION.md)** - Get started in under 5 minutes
 - **[User Guide](./user-guide.md)** - Advanced usage patterns and workflows

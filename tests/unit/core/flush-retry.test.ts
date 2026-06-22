@@ -47,6 +47,7 @@ vi.mock('node:fs', () => ({
 vi.mock('node:crypto', () => ({
   randomBytes: vi.fn(),
   createHash: vi.fn(),
+  randomUUID: vi.fn(() => 'test-uuid-flush-retry'),
 }));
 
 // Mock the session-utils module

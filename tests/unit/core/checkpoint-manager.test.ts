@@ -38,6 +38,7 @@ vi.mock('../../../src/core/session-utils.js', () => ({
 // Mock the node:crypto module
 vi.mock('node:crypto', () => ({
   randomBytes: vi.fn(() => Buffer.from('a1b2c3d4', 'hex')),
+  randomUUID: vi.fn(() => 'test-uuid-checkpoint'),
 }));
 
 import { readFile } from 'node:fs/promises';

@@ -76,33 +76,43 @@ function createMockChild(
   } = {}
 ) {
   const { exitCode = 0, stdout = '', stderr = '' } = options;
+  const pendingTimers: ReturnType<typeof setTimeout>[] = [];
 
-  return {
+  // Cleanup helper to clear pending timers
+  const cleanup = () => {
+    pendingTimers.forEach(t => clearTimeout(t));
+    pendingTimers.length = 0;
+  };
+
+  const mock = {
     stdout: {
       on: vi.fn((event: string, callback: (data: Buffer) => void) => {
         if (event === 'data' && stdout) {
-          // Simulate async data emission
-          setTimeout(() => callback(Buffer.from(stdout)), 5);
+          pendingTimers.push(
+            setTimeout(() => callback(Buffer.from(stdout)), 5)
+          );
         }
       }),
     },
     stderr: {
       on: vi.fn((event: string, callback: (data: Buffer) => void) => {
         if (event === 'data' && stderr) {
-          // Simulate async data emission
-          setTimeout(() => callback(Buffer.from(stderr)), 5);
+          pendingTimers.push(
+            setTimeout(() => callback(Buffer.from(stderr)), 5)
+          );
         }
       }),
     },
     on: vi.fn((event: string, callback: (code: number | null) => void) => {
       if (event === 'close') {
-        // Simulate async close
-        setTimeout(() => callback(exitCode), 10);
+        pendingTimers.push(setTimeout(() => callback(exitCode), 10));
       }
     }),
     killed: false,
-    kill: vi.fn(),
+    kill: cleanup,
   } as unknown as ChildProcess;
+
+  return mock;
 }
 
 /**
@@ -130,7 +140,9 @@ describe('validateNpmLink', () => {
   });
 
   afterEach(() => {
+    // Clear all timers first to prevent unhandled rejections from mock child process timeouts
     vi.useRealTimers();
+    vi.clearAllTimers();
     vi.clearAllMocks();
   });
 
@@ -588,6 +600,7 @@ describe('validateNpmLink', () => {
       vi.mocked(lstat).mockRejectedValue(eaccesError);
 
       const resultPromise = validateNpmLink();
+      resultPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
       await vi.runAllTimersAsync();
 
       await expect(resultPromise).rejects.toThrow(LinkValidationError);

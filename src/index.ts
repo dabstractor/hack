@@ -42,10 +42,6 @@ import { parseScope, type Scope } from './core/scope-resolver.js';
 import { getLogger, type Logger } from './utils/logger.js';
 import { PRDValidator } from './utils/prd-validator.js';
 
-// Increase max listeners to accommodate pino-pretty transport workers
-// Each logger with a transport may add exit listeners for cleanup
-process.setMaxListeners(20);
-
 // ============================================================================
 // GLOBAL ERROR HANDLERS
 // ============================================================================

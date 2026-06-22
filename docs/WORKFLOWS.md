@@ -1534,7 +1534,7 @@ npm run dev -- --prd ./PRD.md --max-tasks 100 --max-duration 7200000
 - **[README.md](../README.md)** - Project overview and quick start
 - **[Installation Guide](./INSTALLATION.md)** - Setup instructions for the development environment
 - **[Configuration Reference](./CONFIGURATION.md)** - Environment variables and configuration options
-- **[Quick Start Tutorial](./QUICKSTART.md)** - Get started in under 5 minutes
+- **[Quick Start Tutorial](./INSTALLATION.md)** - Get started in under 5 minutes
 - **[CLI Reference](./CLI_REFERENCE.md)** - Command-line interface for invoking workflows
 - **[User Guide](./user-guide.md)** - Comprehensive usage documentation for advanced features
 - **[PROMPTS.md](../PROMPTS.md)** - Complete prompt definitions used by workflows

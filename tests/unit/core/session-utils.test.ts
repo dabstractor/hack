@@ -28,6 +28,7 @@ import { Status } from '../../../src/core/models.js';
 vi.mock('node:crypto', () => ({
   createHash: vi.fn(),
   randomBytes: vi.fn(),
+  randomUUID: vi.fn(() => 'test-uuid-session-utils'),
 }));
 
 // Mock the node:fs/promises module

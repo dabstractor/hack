@@ -156,7 +156,7 @@ export class PRPPipeline extends Workflow {
   currentPhase: string = 'init';
 
   /** Pipeline execution mode */
-  mode: 'normal' | 'bug-hunt' | 'validate' = 'normal';
+  mode: 'normal' | 'delta' | 'bug-hunt' | 'validate' = 'normal';
 
   /** Total number of subtasks in backlog */
   totalTasks: number = 0;
@@ -282,7 +282,7 @@ export class PRPPipeline extends Workflow {
    *
    * @param prdPath - Path to PRD markdown file
    * @param scope - Optional scope to limit execution
-   * @param mode - Execution mode: 'normal', 'bug-hunt', or 'validate' (default: 'normal')
+   * @param mode - Execution mode: 'normal', 'delta', 'bug-hunt', or 'validate' (default: 'normal')
    * @param noCache - Whether to bypass PRP cache (default: false)
    * @param continueOnError - Whether to treat all errors as non-fatal (default: false)
    * @param maxTasks - Maximum number of tasks to execute (optional)
@@ -306,7 +306,7 @@ export class PRPPipeline extends Workflow {
   constructor(
     prdPath: string,
     scope?: Scope,
-    mode?: 'normal' | 'bug-hunt' | 'validate',
+    mode?: 'normal' | 'delta' | 'bug-hunt' | 'validate',
     noCache: boolean = false,
     continueOnError: boolean = false,
     maxTasks?: number,

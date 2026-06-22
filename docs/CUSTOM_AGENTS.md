@@ -1571,7 +1571,7 @@ export const SECURITY_AUDIT_PROMPT = `
 
 #### 3. Prompt Generator (src/agents/prompts/security-audit-prompt.ts)
 
-Create [`src/agents/prompts/security-audit-prompt.ts`](../src/agents/prompts/security-audit-prompt.ts):
+Create `src/agents/prompts/security-audit-prompt.ts`:
 
 ```typescript
 import { createPrompt, type Prompt } from 'groundswell';
@@ -1595,7 +1595,7 @@ export function createSecurityAuditPrompt(
 
 #### 4. Security Scanner MCP Tool (src/tools/security-scanner-mcp.ts)
 
-Create [`src/tools/security-scanner-mcp.ts`](../src/tools/security-scanner-mcp.ts):
+Create `src/tools/security-scanner-mcp.ts`:
 
 ```typescript
 import { MCPHandler, type Tool, type ToolExecutor } from 'groundswell';
@@ -1913,7 +1913,7 @@ describe('SecurityScannerMCP', () => {
 ### Project Documentation
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Multi-agent architecture overview
-- **[PROMPT_ENGINEERING.md](./PROMPT_ENGINEERING.md)** - Agent prompt engineering guide
+- **[Prompt Engineering](./CUSTOM_AGENTS.md#prompt-templates)** - Agent prompt engineering guide
 - **[WORKFLOWS.md](./WORKFLOWS.md)** - Pipeline workflow documentation
 - **[CLI_REFERENCE.md](./CLI_REFERENCE.md)** - Command-line interface documentation
 

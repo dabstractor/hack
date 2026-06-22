@@ -316,9 +316,24 @@ export class PRDValidator {
     // Extract section titles with ## prefix for exact matching
     const presentTitles = new Set(sections.map(s => `## ${s.title}`));
 
-    // Check each required section
+    // Helper: strip leading numbering like "1. " or "5. " from a heading
+    const stripNumbering = (heading: string): string =>
+      heading.replace(/^(##\s+)?\d+\.\s+/, '$1');
+
+    // Check each required section — match against both exact and numbered forms
     for (const required of requiredSections) {
-      if (!presentTitles.has(required)) {
+      // required is e.g. "## Executive Summary"
+      // Present titles may be e.g. "## 1. Executive Summary"
+      // Strip numbering from both sides for comparison
+      const strippedRequired = stripNumbering(required);
+
+      const hasMatch =
+        presentTitles.has(required) ||
+        sections.some(
+          s => stripNumbering(`## ${s.title}`) === strippedRequired
+        );
+
+      if (!hasMatch) {
         // Extract section name without ## prefix for message
         const sectionName = required.replace(/^##\s+/, '');
 

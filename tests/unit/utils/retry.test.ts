@@ -46,6 +46,7 @@ describe('Retry utility', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -471,6 +472,7 @@ describe('Retry utility', () => {
         };
 
         const retryPromise = retry(fn, { maxAttempts: 3 });
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         const result = await retryPromise;
         expect(result).toBe('success');
@@ -490,6 +492,7 @@ describe('Retry utility', () => {
         };
 
         const retryPromise = retry(fn, { maxAttempts: 5 });
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         const result = await retryPromise;
         expect(result).toBe('success');
@@ -706,6 +709,7 @@ describe('Retry utility', () => {
         };
 
         const retryPromise = retry(fn, { maxAttempts: 3 });
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         await expect(retryPromise).rejects.toThrow('ETIMEDOUT');
 
@@ -721,6 +725,7 @@ describe('Retry utility', () => {
         };
 
         const retryPromise = retry(fn, { maxAttempts: 3 });
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         await expect(retryPromise).rejects.toThrow('ECONNRESET');
       });
@@ -735,6 +740,7 @@ describe('Retry utility', () => {
         };
 
         const retryPromise = retry(fn);
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         await expect(retryPromise).rejects.toThrow('ETIMEDOUT');
         expect(attempts).toBe(3);
@@ -919,6 +925,7 @@ describe('Retry utility', () => {
             return error instanceof Error && error.message === 'CUSTOM_ERROR';
           },
         });
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         await expect(retryPromise).rejects.toThrow('CUSTOM_ERROR');
 
@@ -959,6 +966,7 @@ describe('Retry utility', () => {
         };
 
         const retryPromise = retry(fn);
+        retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
         await vi.runAllTimersAsync();
         await expect(retryPromise).rejects.toThrow('ETIMEDOUT');
       });
@@ -1113,6 +1121,7 @@ describe('Retry utility', () => {
         toolName: 'BashMCP',
         operation: 'execute_bash',
       });
+      retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
 
       await vi.runAllTimersAsync();
       await expect(retryPromise).rejects.toThrow('Temporarily unavailable');
@@ -1224,6 +1233,7 @@ describe('Retry utility', () => {
       };
 
       const retryPromise = retry(fn, { maxAttempts: 5 });
+      retryPromise.catch(() => {}); // prevent unhandled rejection during fake timer advance
       await vi.runAllTimersAsync();
       await expect(retryPromise).rejects.toThrow('Invalid PRP format');
 

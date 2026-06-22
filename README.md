@@ -1,8 +1,8 @@
 # PRP Pipeline
 
 <p align="center">
-  <a href="https://github.com/YOUR_USERNAME/hacky-hack/actions/workflows/ci.yml">
-    <img alt="CI Status" src="https://github.com/YOUR_USERNAME/hacky-hack/actions/workflows/ci.yml/badge.svg">
+  <a href="https://github.com/dabstractor/hacky-hack/actions/workflows/ci.yml">
+    <img alt="CI Status" src="https://github.com/dabstractor/hacky-hack/actions/workflows/ci.yml/badge.svg">
   </a>
   <a href="https://codecov.io/gh/YOUR_USERNAME/hacky-hack">
     <img alt="Coverage" src="https://codecov.io/gh/YOUR_USERNAME/hacky-hack/branch/main/graph/badge.svg">
@@ -10,14 +10,14 @@
   <a href="https://badge.fury.io/js/hacky-hack">
     <img alt="npm version" src="https://badge.fury.io/js/hacky-hack.svg">
   </a>
-  <a href="https://github.com/YOUR_USERNAME/hacky-hack/blob/main/LICENSE">
+  <a href="https://github.com/dabstractor/hacky-hack/blob/main/LICENSE">
     <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg">
   </a>
   <br/>
-  <a href="https://github.com/YOUR_USERNAME/hacky-hack">
+  <a href="https://github.com/dabstractor/hacky-hack">
     <img alt="node" src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen">
   </a>
-  <a href="https://github.com/YOUR_USERNAME/hacky-hack">
+  <a href="https://github.com/dabstractor/hacky-hack">
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.2-blue">
   </a>
 </p>
@@ -84,7 +84,7 @@ Get running in under 2 minutes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/hacky-hack.git
+git clone https://github.com/dabstractor/hacky-hack.git
 cd hacky-hack
 
 # Install dependencies
@@ -604,7 +604,7 @@ hacky-hack/
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/hacky-hack.git
+git clone https://github.com/dabstractor/hacky-hack.git
 cd hacky-hack
 
 # Install dependencies

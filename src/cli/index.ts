@@ -66,7 +66,7 @@ export interface CLIArgs {
   scope?: string;
 
   /** Execution mode */
-  mode: 'normal' | 'bug-hunt' | 'validate';
+  mode: 'normal' | 'delta' | 'bug-hunt' | 'validate';
 
   /** Resume from previous session */
   continue: boolean;
@@ -243,7 +243,8 @@ export function parseCLIArgs():
   | { subcommand: 'inspect'; options: InspectorOptions }
   | { subcommand: 'artifacts'; options: Record<string, unknown> }
   | { subcommand: 'validate-state'; options: Record<string, unknown> }
-  | { subcommand: 'cache'; options: CacheOptions } {
+  | { subcommand: 'cache'; options: CacheOptions }
+  | { subcommand: 'task'; options: Record<string, unknown> } {
   const program = new Command();
 
   // Configure program
@@ -252,21 +253,21 @@ export function parseCLIArgs():
     .description('PRD to PRP Pipeline - Automated software development')
     .version('1.0.0')
     // Required options
-    .option('--prd <path>', 'Path to PRD markdown file', './PRD.md')
+    .option('-p, --prd <path>', 'Path to PRD markdown file', './PRD.md')
     // Optional options
-    .option('--scope <scope>', 'Scope identifier (e.g., P3.M4, P3.M4.T2)')
+    .option('-s, --scope <scope>', 'Scope identifier (e.g., P3.M4, P3.M4.T2)')
     // Mode with choices
     .addOption(
       program
-        .createOption('--mode <mode>', 'Execution mode')
-        .choices(['normal', 'bug-hunt', 'validate'])
+        .createOption('-m, --mode <mode>', 'Execution mode')
+        .choices(['normal', 'delta', 'bug-hunt', 'validate'])
         .default('normal')
     )
     // Boolean flags with explicit defaults
-    .option('--continue', 'Resume from previous session', false)
-    .option('--dry-run', 'Show plan without executing', false)
+    .option('-c, --continue', 'Resume from previous session', false)
+    .option('-d, --dry-run', 'Show plan without executing', false)
     .option(
-      '--verbose',
+      '-v, --verbose',
       'Enable debug logging (deprecated: use --log-level debug)',
       false
     )
@@ -473,6 +474,110 @@ export function parseCLIArgs():
       }
     });
 
+  // Add task subcommand (PRD §5.3)
+  program
+    .command('task')
+    .description('Display and query pipeline tasks')
+    .argument('[action]', 'Action: (none), next, status', '')
+    .option('-f, --file <path>', 'Override tasks.json file path')
+    .option('-o, --output <format>', 'Output format (table, json)', 'table')
+    .action(async (action, options) => {
+      try {
+        const { readFile } = await import('node:fs/promises');
+        const planDir = resolve('plan');
+        const tasksFile = options.file
+          ? resolve(options.file)
+          : resolve(planDir, 'tasks.json');
+
+        const content = await readFile(tasksFile, 'utf-8');
+        const data = JSON.parse(content);
+
+        if (action === 'next') {
+          // Find next executable task (first Planned subtask)
+          const findNext = (items: any[]): any => {
+            for (const item of items) {
+              if (item.type === 'Subtask' && item.status === 'Planned') {
+                return item;
+              }
+              if (item.subtasks) {
+                const found = findNext(item.subtasks);
+                if (found) return found;
+              }
+              if (item.tasks) {
+                const found = findNext(item.tasks);
+                if (found) return found;
+              }
+              if (item.milestones) {
+                const found = findNext(item.milestones);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+          const next = findNext(data.backlog || []);
+          if (next) {
+            if (options.output === 'json') {
+              console.log(JSON.stringify(next, null, 2));
+            } else {
+              console.log(`Next task: ${next.id}`);
+              console.log(`  Title: ${next.title}`);
+              console.log(`  Status: ${next.status}`);
+            }
+          } else {
+            console.log('No tasks remaining.');
+          }
+        } else if (action === 'status') {
+          // Count tasks by status
+          const counts: Record<string, number> = {};
+          const countByStatus = (items: any[]) => {
+            for (const item of items) {
+              counts[item.status] = (counts[item.status] || 0) + 1;
+              if (item.subtasks) countByStatus(item.subtasks);
+              if (item.tasks) countByStatus(item.tasks);
+              if (item.milestones) countByStatus(item.milestones);
+            }
+          };
+          countByStatus(data.backlog || []);
+          if (options.output === 'json') {
+            console.log(JSON.stringify(counts, null, 2));
+          } else {
+            console.log('Task status summary:');
+            for (const [status, count] of Object.entries(counts)) {
+              console.log(`  ${status}: ${count}`);
+            }
+          }
+        } else {
+          // Default: list all tasks
+          const listItems = (items: any[], indent = 0) => {
+            for (const item of items) {
+              const prefix = '  '.repeat(indent);
+              const statusIcon =
+                item.status === 'Complete'
+                  ? '✅'
+                  : item.status === 'Implementing'
+                    ? '🔄'
+                    : item.status === 'Blocked'
+                      ? '🚫'
+                      : '⬜';
+              console.log(
+                `${prefix}${statusIcon} [${item.id}] ${item.title} (${item.status})`
+              );
+              if (item.subtasks) listItems(item.subtasks, indent + 1);
+              if (item.tasks) listItems(item.tasks, indent + 1);
+              if (item.milestones) listItems(item.milestones, indent + 1);
+            }
+          };
+          listItems(data.backlog || []);
+        }
+        process.exit(0);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger.error(`Task command failed: ${errorMessage}`);
+        process.exit(1);
+      }
+    });
+
   // Parse arguments
   program.parse(process.argv);
 
@@ -517,6 +622,13 @@ export function parseCLIArgs():
         force: false,
         dryRun: false,
       },
+    };
+  }
+  if (args.length > 0 && args[0] === 'task') {
+    // Task subcommand was invoked and already handled by action()
+    return {
+      subcommand: 'task',
+      options: {},
     };
   }
 
