@@ -1,0 +1,225 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P5",
+      "title": "Phase 5: Pipeline Resilience & Self-Healing",
+      "status": "Planned",
+      "description": "Delta session (005) adding self-healing to the execution loop and state layer so a single hung agent, planning gap, or corrupting agent cannot stall or terminate the pipeline. No new subsystems — enhancements to existing orchestrator/state/retry/prompts components. Driver: plan/005_d32a2ecf61cd/delta_prd.md (purely additive diff: 37 PRD lines added, 0 removed). Four requirements R1-R4 plus a Mode B changeset-level doc sync.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P5.M1",
+          "title": "Milestone 5.1: Execution-Loop Resilience",
+          "status": "Planned",
+          "description": "Deadline-guarded background research with synchronous fallback (R1), the Coder Agent `issue` outcome and issue-driven re-planning loop (R2), and the two-mode documentation-sync prompt rule (R3). These harden the inner loop (PRD §4.2, §4.5) and the prompts (PRD §6.1, §6.4).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P5.M1.T1",
+              "title": "Task 5.1.1: Background Research Deadline & Fallback (R1)",
+              "status": "Planned",
+              "description": "Wrap background PRP generation in a deadline read from RESEARCH_TIMEOUT (default 300s). The orchestrator polls for completion (process liveness + PRP artifact presence) and on deadline expiry abandons the in-flight research and re-researches the item synchronously, inline — it must never block indefinitely (PRD §4.2, §9.2.2, §9.3.2).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T1.S1",
+                  "title": "Add RESEARCH_TIMEOUT config constant + default",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.3", "h4.1", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/architecture/system_context.md §Config Pattern and implementation_notes.md §1. There is NO ConfigService class. `PRP_AGENT_HARNESS` (added in Session 004) is the exact precedent: a bare-string name const + a default const in src/config/constants.ts, read at the consumer via `process.env[NAME] ?? DEFAULT`. Do NOT add normalization to configureEnvironment().\n2. INPUT: The existing constant block in src/config/constants.ts (the PRP_AGENT_HARNESS / DEFAULT_HARNESS pair near lines 88-98).\n3. LOGIC: Add to src/config/constants.ts: `export const RESEARCH_TIMEOUT = 'RESEARCH_TIMEOUT';` and `export const DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300;`. Export a small reader helper (e.g. `export function getResearchTimeoutSeconds(): number`) that parses `Number(process.env[RESEARCH_TIMEOUT] ?? DEFAULT_RESEARCH_TIMEOUT_SECONDS)`, returning the default on NaN/non-positive. Write the failing test first (tests/unit/config/ — assert the reader returns 300 by default and honors a stubbed env var via vi.stubEnv). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: The named constant, the default, and the `getResearchTimeoutSeconds()` reader, exported from src/config/constants.ts (or a new src/config/resilience.ts re-exported from constants if cleaner). Consumed by P5.M1.T1.S2.\n5. MOCKING: Use vi.stubEnv(RESEARCH_TIMEOUT, '120') / vi.unstubAllEnvals() in tests; no file-system or network mocks needed.\n6. DOCS: [Mode A] Add a `RESEARCH_TIMEOUT` row to the env-var reference table in docs/CONFIGURATION.md (default 300s, semantics: deadline in seconds for background research before synchronous fallback; cross-ref PRD §4.2). This rides WITH the work; do not create a separate docs subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T1.S2",
+                  "title": "Deadline-wrap ResearchQueue.waitForPRP with abandonment state",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P5.M1.T1.S1"],
+                  "prd_selectors": ["h3.3", "h4.1", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R1 and implementation_notes.md §4. ResearchQueue (src/core/research-queue.ts) has NO timeout today. `waitForPRP(taskId)` awaits the in-flight promise from the `researching` Map directly — a hung prpGenerator.generate() hangs it forever. Public fields: `researching: Map<string, Promise<PRPDocument>>`, `results: Map<string, PRPDocument>`. JS promises cannot be cancelled — abandonment means stop waiting, not abort.\n2. INPUT: `getResearchTimeoutSeconds()` from P5.M1.T1.S1. The existing `waitForPRP(taskId): Promise<PRPDocument>` and `getPRP(taskId): PRPDocument | null`.\n3. LOGIC: Implement PRD §4.2. Wrap the await in `Promise.race([inFlightPromise, deadlineTimeout])` keyed off `getResearchTimeoutSeconds()`. On timeout: (a) do NOT await the original promise further; (b) record an abandonment state for taskId (e.g. a new `abandoned: Set<string>` and/or a typed return) so callers can distinguish 'still running' from 'timed out'; (c) if a late background result eventually lands for an abandoned taskId, ignore it (dedup via results Map). Expose a way for the orchestrator to detect abandonment — e.g. change waitForPRP to resolve to a discriminated result `{ status: 'ready', prp } | { status: 'abandoned' }`, OR add `isAbandoned(taskId): boolean` + keep waitForPRP throwing a typed `ResearchTimeoutError`. Prefer the discriminated-result or typed-error approach so the orchestrator branch is explicit. Polling semantics: the orchestrator checks process liveness AND presence of the PRP artifact. Write the failing test first (tests/unit/core/research-queue.test.ts already exists — extend it; cover: resolves normally when under deadline; abandons after timeout; abandoned late result is ignored; getPRP still returns cache). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: Deadline-guarded ResearchQueue API usable by P5.M1.T1.S3. JSDoc on new functions.\n5. MOCKING: Inject a fake/infinite-duration prpGenerator.generate() (stub the PRPGenerator or pass a controlled promise) and a very small timeout via vi.stubEnv(RESEARCH_TIMEOUT, '0'/'1') so the test exercises the abandonment path deterministically. Do not hit the network.\n6. DOCS: [Mode A] JSDoc on the new deadline/abandonment functions explaining the deadline + synchronous-fallback contract (PRD §4.2). No standalone docs subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T1.S3",
+                  "title": "Orchestrator synchronous re-research fallback after deadline",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P5.M1.T1.S2"],
+                  "prd_selectors": ["h3.3", "h4.1", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R1 and implementation_notes.md §6. TaskOrchestrator (src/core/task-orchestrator.ts) calls `researchQueue.waitForPRP(id)` / `getPRP(id)` inside executeSubtask (around the agent-run site, ~lines where setStatus('Researching') transitions to execution). The PRPGenerator is owned by the ResearchQueue. refreshBacklog() re-reads in-memory, NOT disk.\n2. INPUT: The deadline-guarded ResearchQueue API (abandonment state) from P5.M1.T1.S2; `this.researchQueue` (readonly field) on TaskOrchestrator; access to a synchronous generate path (expose `researchQueue.researchNow(taskId, backlog): Promise<PRPDocument>` or call the underlying PRPGenerator.generate inline and await it).\n3. LOGIC: Implement PRD §4.2 fallback. When waitForPRP reports the item was abandoned (deadline exceeded), the orchestrator re-researches the item SYNCHRONOUSLY, inline: call the synchronous generate path and await it directly (blocking the loop) rather than relying on the abandoned background work. Log the abandonment + inline re-research at info level. Ensure the dedup/ignore contract from S2 holds (a late background result must not clobber the inline result). Write the failing test first (tests/unit/core/task-orchestrator.test.ts — simulate waitForPRP abandonment via a stubbed researchQueue and assert the inline re-research runs once and the subtask proceeds). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: executeSubtask no longer blocks indefinitely on hung background research; it falls back to synchronous research. Consumed downstream by the normal execution path.\n5. MOCKING: Stub researchQueue (waitForPRP returns abandoned on first call, then a ready PRP after the inline call); stub prpRuntime to avoid real agent execution. No network.\n6. DOCS: [Mode A] none beyond inline comments — no user-facing/config/API surface change at the orchestrator layer. The CONFIGURATION.md row was handled in S1."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P5.M1.T2",
+              "title": "Task 5.1.2: Issue-Driven Re-planning Loop (R2)",
+              "status": "Planned",
+              "description": "Introduce the Coder Agent `issue` outcome — distinct from `fail` (implementation problem → existing fix-and-retry) and `success`. An `issue` signals a recoverable PLANNING gap. On issue: save feedback to issue_feedback.md, delete the stale PRP, reset the item to Planned (not Failed), re-research with feedback injected, bounded by ISSUE_RETRY_MAX (default 3) (PRD §4.5, §9.2.2, §9.3.2).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T2.S1",
+                  "title": "Add ISSUE_RETRY_MAX config constant + default",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.6", "h4.1", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See implementation_notes.md §1 (config pattern) and §3 (ISSUE_RETRY_MAX is a DIFFERENT retry dimension from TaskRetryManager.maxAttempts — it bounds re-planning, not transient-error retries). Follow the exact PRP_AGENT_HARNESS precedent; no ConfigService.\n2. INPUT: The existing constant block in src/config/constants.ts.\n3. LOGIC: Add `export const ISSUE_RETRY_MAX = 'ISSUE_RETRY_MAX';` and `export const DEFAULT_ISSUE_RETRY_MAX = 3;` plus a reader `getIssueRetryMax(): number` (parse env, default on NaN/non-positive). Write the failing test first (tests/unit/config/). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: Named constant + default + reader, consumed by P5.M1.T2.S4.\n5. MOCKING: vi.stubEnv(ISSUE_RETRY_MAX, '5'); no FS/network mocks.\n6. DOCS: [Mode A] Add an `ISSUE_RETRY_MAX` row to the env-var reference table in docs/CONFIGURATION.md (default 3; semantics: max issue-driven re-planning attempts per item before hard-fail; cross-ref PRD §4.5). Rides WITH the work."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T2.S2",
+                  "title": "Extend ExecutionResult to tri-state; surface the issue outcome",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.6", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See implementation_notes.md §2 and delta_impact.md §R2. src/agents/prp-executor.ts ALREADY has the tri-state internally: `interface ExecuteResult { result: 'error' | 'success' | 'issue'; message: string }` (line ~147). The PUBLIC `ExecutionResult` (line ~67) only has `success: boolean`. Line ~309 `if (coderResult.result !== 'success')` collapses BOTH error and issue into `{ success: false }` — so the issue signal is parsed but DISCARDED. PRPRuntime.executeSubtask (src/agents/prp-runtime.ts) returns ExecutionResult.\n2. INPUT: The existing internal ExecuteResult (do NOT change its parsing) and the public ExecutionResult interface.\n3. LOGIC: Implement PRD §4.5 outcome distinction. Extend the public `ExecutionResult` to carry an explicit outcome: add `readonly outcome?: 'success' | 'fail' | 'issue'` (or a discriminated union) plus `readonly issueMessage?: string`. Keep `success: boolean` for backward compatibility (success = outcome==='success'). In PRPExecutor.execute, replace the collapsing `if (coderResult.result !== 'success')` branch with: when `coderResult.result === 'issue'`, return `{ success: false, outcome: 'issue', issueMessage: coderResult.message, validationResults: [], artifacts: [], error: coderResult.message, fixAttempts: 0 }`; when 'error', return `{ success: false, outcome: 'fail', ... }`; on full success keep outcome:'success'. Propagate through PRPRuntime (pass-through, no behavior change). Write the failing test first: extend tests/unit/agents/prp-executor.test.ts and tests/unit/agents/prp-runtime.test.ts to assert the issue outcome surfaces distinctly from fail (per implementation_notes.md §7, update existing success===true/false assertions in the SAME subtask). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: The extended ExecutionResult consumed by P5.M1.T2.S4 (orchestrator issue branch). Backward compatible: existing `result.success` reads keep working.\n5. MOCKING: Stub the coder agent response to return JSON with `\"result\":\"issue\"` / `\"result\":\"error\"` / `\"result\":\"success\"`; stub validation gates. No network.\n6. DOCS: [Mode A] JSDoc on ExecutionResult explaining the tri-state (success/fail/issue) and that `issue` = recoverable planning gap (PRD §4.5). The docs/WORKFLOWS.md subsection is added in S4 (it needs the full flow)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T2.S3",
+                  "title": "Inject issue_feedback into the blueprint prompt + PRPGenerator",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.6", "h3.11"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R2. createPRPBlueprintPrompt(task, backlog, codebasePath?) is in src/agents/prompts/prp-blueprint-prompt.ts (constructUserPrompt builds the user message; PRP_BLUEPRINT_PROMPT is the system HEREDOC in src/agents/prompts.ts line 157). PRPGenerator.generate(task, backlog) is in src/agents/prp-generator.ts and calls createPRPBlueprintPrompt.\n2. INPUT: The current createPRPBlueprintPrompt signature and PRPGenerator.generate signature.\n3. LOGIC: Implement the PRD §4.5 feedback-injection point. Add an optional param `issueFeedback?: string` to createPRPBlueprintPrompt (and pass through constructUserPrompt). When provided and non-empty, inject a clearly-delimited `<issue_feedback>...</issue_feedback>` block into the user prompt so the Researcher re-researches WITH the gap addressed. Add the same optional param to PRPGenerator.generate and plumb it through to the prompt builder. Keep the param optional so the normal (no-feedback) path is unchanged. Write the failing test first (tests/unit/agents/prompts/prp-blueprint-prompt.test.ts — assert the feedback block appears when provided, and is absent when omitted; tests/unit/agents/prp-generator.test.ts — assert generate forwards the feedback). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: The feedback-aware prompt + generator API consumed by P5.M1.T2.S4.\n5. MOCKING: No agent/network — assert on the constructed prompt string and generator call args (spy/stub).\n6. DOCS: [Mode A] JSDoc on createPRPBlueprintPrompt and PRPGenerator.generate documenting the new issueFeedback param and the `<issue_feedback>` block semantics. No standalone docs subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T2.S4",
+                  "title": "Orchestrator issue-handling flow bounded by ISSUE_RETRY_MAX",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P5.M1.T2.S1", "P5.M1.T2.S2", "P5.M1.T2.S3"],
+                  "prd_selectors": ["h3.6", "h4.1", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See implementation_notes.md §3 and delta_impact.md §R2. TaskOrchestrator.executeSubtask (src/core/task-orchestrator.ts ~lines 712-747) does `executeWithRetry(...)` then `if (result.success) setStatus('Complete') else setStatus('Failed')`. The agent-run result is the ExecutionResult from P5.M1.T2.S2. SessionManager exposes the session dir path (sessionManager.currentSession.metadata.path) for writing issue_feedback.md. Per implementation_notes.md §8, issue_feedback.md is IMPLICITLY protected by the catch-all '$SESSION_DIR root' rule — do NOT edit PROTECTED_FILES.\n2. INPUT: tri-state ExecutionResult (S2), feedback-aware PRPGenerator/prompt (S3), getIssueRetryMax() reader (S1), the session dir path, and the ability to delete a PRP file (node:fs/promises unlink on the PRP path from the research queue) and to reset status via setStatus(id,'Planned').\n3. LOGIC: Implement the full PRD §4.5 flow. In executeSubtask, when result.outcome === 'issue': (1) write `coderResult.message` / result.issueMessage to `<sessionDir>/issue_feedback.md` (atomic write via session-utils atomicWrite); (2) delete the offending PRP file so it cannot be reused; (3) reset the item to 'Planned' (NOT 'Failed'); (4) re-research with the feedback injected (call the generator path from S3 with issueFeedback=read-back); (5) bound retries by getIssueRetryMax() using a per-item counter (in-memory Map<taskId, number>) — when exceeded, the item HARD-FAILs (setStatus('Failed') + log) and exits the loop. Keep the item's original ID + dependency links unchanged. Do NOT cancel background research on dependents — they simply block until the re-planned item completes (existing waitForDependencies handles this). For `fail` outcomes (real implementation failures), keep the existing fix-and-retry path (TaskRetryManager) — do NOT route them through re-planning. Write the failing test first (tests/unit/core/task-orchestrator.test.ts — simulate outcome:'issue' from the runtime stub, assert feedback file written, PRP deleted, status reset to Planned, generator re-invoked with feedback, and that after ISSUE_RETRY_MAX issues the item goes Failed; also assert a 'fail' outcome still uses the existing path). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: The complete issue-driven re-planning loop wired into the execution loop. This closes R2.\n5. MOCKING: Stub prpRuntime to return controlled outcome ('issue' N times then 'success', or 'issue' > ISSUE_RETRY_MAX); stub PRPGenerator/researchQueue for the re-research; use a temp session dir + vi.stubEnv(ISSUE_RETRY_MAX,'2'). No network.\n6. DOCS: [Mode A] Add an 'Issue-driven re-planning' subsection to docs/WORKFLOWS.md describing the success/fail/issue tri-state and the reset → delete-PRP → re-research-with-feedback → ISSUE_RETRY_MAX-bound flow (PRD §4.5). Rides WITH the work."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P5.M1.T3",
+              "title": "Task 5.1.3: Documentation Two-Mode Sync Rule (R3, prompts)",
+              "status": "Planned",
+              "description": "Prompt-engineering change (no new runtime code): encode the two-mode documentation-sync rule into the Task Breakdown System Prompt (Mode A DOCS line inside a subtask's context_scope; Mode B final 'Sync changeset-level documentation' task depending on all implementing subtasks), mirroring the existing implicit-TDD rule; and require each delta item to declare its documentation impact at authoring time (PRD §6.1, §6.4).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T3.S1",
+                  "title": "Add two-mode doc-sync rule to TASK_BREAKDOWN_PROMPT",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.10", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R3. TASK_BREAKDOWN_PROMPT is the HEREDOC system prompt in src/agents/prompts.ts (line ~33) fed to the Architect agent via createArchitectPrompt (src/agents/prompts/architect-prompt.ts: `system: TASK_BREAKDOWN_PROMPT`, responseFormat BacklogSchema). It already encodes implicit TDD ('docs never a standalone subtask'). This subtask ADDS the explicit two-mode rule text.\n2. INPUT: The existing TASK_BREAKDOWN_PROMPT HEREDOC text and the implicit-TDD framing already in it.\n3. LOGIC: Implement PRD §6.1 two-mode rule. Append/insert a clear 'DOCUMENTATION SYNC (TWO MODES)' section into TASK_BREAKDOWN_PROMPT stating: Mode A (default) — docs a subtask directly touches (config, public API, CLI, env vars, exported types) are updated INSIDE that subtask's context_scope, declared via a `DOCS:` line; Mode B — cross-cutting docs that only make sense once the whole change lands (README, feature overviews, architecture summaries) become a FINAL 'Sync changeset-level documentation' task depending on all implementing subtasks. Explicitly state: 'Documentation is never a standalone subtask — it rides with the work, mirroring the implicit-TDD rule' and include a decision rule (per-file → Mode A; whole-feature/overview → Mode B; when in doubt, both). Write the failing test first (tests/unit/agents/prompts.test.ts — assert the TASK_BREAKDOWN_PROMPT string contains the Mode A / Mode B / 'DOCS:' line requirement and the 'never a standalone subtask' rule). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: Updated TASK_BREAKDOWN_PROMPT consumed unchanged by createArchitectPrompt (no signature change). This closes the Mode A/B rule half of R3.\n5. MOCKING: None — pure string assertion on the prompt constant.\n6. DOCS: [Mode A] none — this subtask IS the doc-sync mechanism (the prompt text itself). No external doc file is touched."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M1.T3.S2",
+                  "title": "Require doc-impact declaration in the delta/blueprint prompt",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.13", "h3.11", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R3. DELTA_PRD_PROMPT (src/agents/prompts.ts ~line 696) and PRP_BLUEPRINT_PROMPT (~line 157) are HEREDOC system prompts for the Change-Manager and Researcher personas. PRD §6.4 requires each affected delta item to declare its documentation impact at authoring time.\n2. INPUT: The existing DELTA_PRD_PROMPT and PRP_BLUEPRINT_PROMPT HEREDOC text.\n3. LOGIC: Implement PRD §6.4 doc-impact declaration. Add an explicit instruction to DELTA_PRD_PROMPT: each affected item in a delta MUST declare its documentation impact at authoring time — either a Mode A `DOCS:` line (per-item doc that item touches) or a Mode B changeset-level note (cross-cutting doc deferred to the final task), per the §6.1 rule. Add a lighter-weight reminder to PRP_BLUEPRINT_PROMPT that every PRP it generates should surface the item's declared DOCS impact. Write the failing test first (tests/unit/agents/prompts/delta-analysis-prompt.test.ts — assert DELTA_PRD_PROMPT requires a doc-impact declaration per item; tests/unit/agents/prompts/prp-blueprint-prompt.test.ts — assert the blueprint prompt references the DOCS impact). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: Updated prompts consumed unchanged by their existing generators (no signature changes). This closes R3.\n5. MOCKING: None — pure string assertions on prompt constants.\n6. DOCS: [Mode A] none — this subtask IS the doc-declaration mechanism."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P5.M2",
+          "title": "Milestone 5.2: State Resilience (tasks.json Protection & Smart Recovery)",
+          "status": "Planned",
+          "description": "Make tasks.json survive agent corruption (truncated writes, partial edits, schema-invalid mutations) without human intervention. After each agent run, re-read tasks.json and re-apply only the legitimate status delta; on parse/validation failure, restore the last valid version from git history, re-applying in-flight changes; preserve Researching/Retrying status. Non-fatal and logged (PRD §5.1, §9.3.2).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P5.M2.T1",
+              "title": "Task 5.2.1: tasks.json Protection & Smart Recovery (R4)",
+              "status": "Planned",
+              "description": "Build git file-history/restore utilities (none exist today), a smart-recovery routine that re-applies the legitimate status delta after each agent run and restores from git history on corruption, and wire it into the orchestrator's agent-run site.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P5.M2.T1.S1",
+                  "title": "Add git file-history + file-restore utilities to git-mcp.ts",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h3.7", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See implementation_notes.md §5 and delta_impact.md §R4. src/tools/git-mcp.ts currently wraps ONLY gitStatus/gitDiff/gitAdd/gitCommit via simple-git. There is NO gitLog/gitShow/gitRestore. simple-git provides .log({file}), .show('commit:path'), and checkout/show blob-fetch. Follow the existing module patterns (async, typed return objects, throw on non-zero exit).\n2. INPUT: The existing git-mcp.ts module (its simple-git instance + the export style) and src/core/session-utils.ts readTasksJSON/writeTasksJSON/atomicWrite.\n3. LOGIC: Implement new exported functions in git-mcp.ts (or a new src/tools/git-history.ts re-exported alongside): `gitFileHistory(filePath): Promise<{commit:string,date:string}[]>` (wraps simple-git .log({file:filePath})); `gitReadFileAtCommit(filePath, commit): Promise<string>` (fetches the blob at `commit:filePath` via .show or a raw `git show <commit>:<path>`); `gitRestoreFile(filePath, commit?): Promise<void>` (restores a prior valid version — writes the blob to disk via atomicWrite). Keep them generic over any file path. Write the failing test first (tests/unit/tools/git-mcp.test.ts — use a real temp git repo fixture or a stubbed simple-git; assert history returns ordered commits, read-at-commit returns the prior content, restore writes the prior content to disk). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: The history/restore utilities consumed by P5.M2.T1.S2.\n5. MOCKING: Prefer a real ephemeral git repo in a tmpdir (init + commit a known tasks.json + corrupt it) for an honest integration-style unit test; or stub simple-git methods. No network.\n6. DOCS: [Mode A] JSDoc on the new git-history/restore functions. No external doc file change for these primitives (the ARCHITECTURE.md smart-recovery narrative is added in S2)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M2.T1.S2",
+                  "title": "Smart-recovery routine: re-apply legitimate delta + git-history restore",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P5.M2.T1.S1"],
+                  "prd_selectors": ["h3.7", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R4 and implementation_notes.md §6, plus the Status enum note in system_context.md (NO 'Ready' status; preserve Researching and Retrying). src/core/state-validator.ts has validateBacklogState(backlog): StateValidationResult, createBackup(tasksPath), repairBacklog(...) (mutates in place, does NOT write). src/core/session-utils.ts has readTasksJSON(path) and writeTasksJSON(path, backlog). The git-history/restore primitives come from P5.M2.T1.S1.\n2. INPUT: The session tasks.json path; the legitimate status delta for the run (the item id + the status the orchestrator intends/just applied, e.g. ('P5.M1.T2.S4','Complete')); the git restore primitives from S1.\n3. LOGIC: Implement PRD §5.1 smart recovery. Create a new module (e.g. src/core/tasks-json-recovery.ts) exporting `recoverTasksJson(tasksPath, legitimateDelta: {itemId, status}, opts?): Promise<{restored:boolean, source:'disk'|'git', reason?:string}>`. Behavior: (1) read tasks.json from disk (readTasksJSON); if it parses and validates (validateBacklogState.isValid), re-apply ONLY the legitimate status change for legitimateDelta.itemId (discard any other unauthorized mutations the agent made), then writeTasksJSON. (2) If it FAILS to parse/validate: walk git history of the file via S1's gitFileHistory; for each prior commit, gitReadFileAtCommit + try parse/validate; on the first valid version, restore it (writeTasksJSON of the restored backlog), then re-apply the legitimate status delta AND preserve any items currently in 'Researching' or 'Retrying' status (copy those statuses forward from the restored version — do NOT drop them to 'Planned'). (3) Always non-fatal: on total failure to recover, log an error and leave state as-is (never throw to terminate the session). Return a typed result for observability. Write the failing test first (a dedicated unit test — tests/unit/core/tasks-json-recovery.test.ts; cover: clean disk → just re-apply delta; truncated/invalid JSON → restore from git + re-apply delta; preserved Researching status survives a restore; unauthorized agent mutation of an unrelated item is discarded). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: recoverTasksJson consumed by P5.M2.T1.S3.\n5. MOCKING: Use an ephemeral tmpdir with a real git repo (init, commit valid tasks.json, then corrupt on disk) for honest recovery tests; or stub readTasksJSON/git primitives. No network.\n6. DOCS: [Mode A] Document the smart-recovery behavior in docs/ARCHITECTURE.md state-management section (re-apply legitimate delta; git-history restore; preserve Researching/Retrying; non-fatal + logged) and add JSDoc on recoverTasksJson. Rides WITH the work."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M2.T1.S3",
+                  "title": "Wire smart-recovery into the orchestrator after each agent run",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P5.M2.T1.S2"],
+                  "prd_selectors": ["h3.7", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_impact.md §R4 and implementation_notes.md §6. TaskOrchestrator.executeSubtask runs the agent between setStatus('Implementing') and setStatus('Complete'|'Failed') + flushUpdates(). sessionManager.currentSession.metadata.path gives the session dir; tasks.json lives at `<sessionDir>/tasks.json`. recoverTasksJson comes from P5.M2.T1.S2.\n2. INPUT: recoverTasksJson(tasksPath, legitimateDelta) from S2; the orchestrator's knowledge of which item it just ran and the status it intends.\n3. LOGIC: Implement PRD §5.1/§9.3.2 'Re-apply after every agent run.' In executeSubtask, immediately after the agent run returns (before smartCommit/flushUpdates), call recoverTasksJson with the legitimate delta {itemId: subtask.id, status: <intended 'Complete'|'Failed'|'Planned'>}, then refreshBacklog() so #backlog reflects the recovered+re-applied disk state. Because refreshBacklog() re-reads in-memory only, explicitly reload from the recovered disk file (readTasksJSON) into the session's taskRegistry, OR add a disk-reload step. Ensure the flow is non-fatal (wrap in try/catch + structured log; a recovery failure must not terminate the session). Write the failing test first (tests/unit/core/task-orchestrator.test.ts — simulate an agent that corrupts tasks.json mid-run; assert recoverTasksJson is invoked, the legitimate status is applied, unrelated mutations are discarded, and execution continues without throwing). Implement, pass `npm run validate` + `npm run test:run`.\n4. OUTPUT: The orchestrator now self-heals tasks.json after every agent run. This closes R4.\n5. MOCKING: Stub prpRuntime for the agent run; use a tmpdir session with a real tasks.json (corrupt it in the stub to exercise recovery); stub or use real git. No network.\n6. DOCS: [Mode A] none beyond inline comments — the ARCHITECTURE.md narrative was added in S2; the per-run hook is an internal integration detail."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P5.M3",
+          "title": "Milestone 5.3: Sync Changeset-Level Documentation (Mode B)",
+          "status": "Planned",
+          "description": "Mode B (per the two-mode rule this very session introduces in R3): cross-cutting docs that only make sense once R1-R4 are all in place. A single final task depending on every implementing subtask, reconciling the README + overview docs into a coherent 'Pipeline Resilience' narrative.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P5.M3.T1",
+              "title": "Task 5.3.1: Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Sweep the cross-cutting docs: README.md capability/resilience blurb and a coherent end-to-end resilience narrative across docs/WORKFLOWS.md and docs/ARCHITECTURE.md. This depends on ALL implementing subtasks (R1-R4) so it runs last.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P5.M3.T1.S1",
+                  "title": "Add self-healing/resilience blurb to README.md",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P5.M1.T1.S1", "P5.M1.T1.S2", "P5.M1.T1.S3", "P5.M1.T2.S1", "P5.M1.T2.S2", "P5.M1.T2.S3", "P5.M1.T2.S4", "P5.M1.T3.S1", "P5.M1.T3.S2", "P5.M2.T1.S1", "P5.M2.T1.S2", "P5.M2.T1.S3"],
+                  "prd_selectors": ["h3.10", "h3.13", "h2.5", "h3.3", "h3.6", "h3.7"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_prd.md §3. README.md (project root) currently has NO resilience/self-healing blurb (grep for 'resilien|self-heal|recovery|re-plan' returns nothing relevant). If it lists pipeline capabilities, add a concise 'Self-healing / resilience' blurb covering: research deadline + synchronous fallback (RESEARCH_TIMEOUT), issue-driven re-planning (ISSUE_RETRY_MAX), and tasks.json corruption recovery (git-history restore).\n2. INPUT: The implemented features from all R1-R4 subtasks (this depends on every implementing subtask, so the content is stable).\n3. LOGIC: Implement the Mode B changeset-level doc sweep per PRD §6.1/§6.4. Edit README.md only where it surfaces pipeline capabilities/features — add a short, accurate 'Self-healing / resilience' subsection (or rows in an existing features/env-var table) naming the three resilience mechanisms and their env-var knobs. Do NOT duplicate the detailed per-item docs already added in Mode A (docs/CONFIGURATION.md rows, docs/WORKFLOWS.md subsection, docs/ARCHITECTURE.md narrative) — link to them instead. Keep it non-stale: only state what is implemented. Run `npm run docs:lint` to satisfy markdownlint.\n4. OUTPUT: README.md updated with a coherent resilience blurb; `npm run docs:lint` and `npm run format:check` green.\n5. MOCKING: None — documentation only.\n6. DOCS: [Mode B] This IS the changeset-level doc sweep. Depends on all implementing subtasks by design."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P5.M3.T1.S2",
+                  "title": "Reconcile WORKFLOWS.md + ARCHITECTURE.md into a coherent resilience narrative",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P5.M1.T1.S1", "P5.M1.T1.S2", "P5.M1.T1.S3", "P5.M1.T2.S1", "P5.M1.T2.S2", "P5.M1.T2.S3", "P5.M1.T2.S4", "P5.M1.T3.S1", "P5.M1.T3.S2", "P5.M2.T1.S1", "P5.M2.T1.S2", "P5.M2.T1.S3"],
+                  "prd_selectors": ["h3.10", "h3.13", "h2.5", "h3.3", "h3.6", "h3.7", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See delta_prd.md §3. R2.S4 already added an 'Issue-driven re-planning' subsection to docs/WORKFLOWS.md (Mode A), and R4.S2 added a smart-recovery narrative to docs/ARCHITECTURE.md (Mode A). This subtask reconciles them end-to-end so the execution-loop and state-recovery narratives are coherent as a single 'Pipeline Resilience' overview, and adds the research-deadline piece (R1) to the execution-loop narrative.\n2. INPUT: The per-item Mode A doc additions from R1/R2/R4 (now landed).\n3. LOGIC: Implement the Mode B reconciliation. In docs/WORKFLOWS.md: ensure the execution-loop narrative (Phase 4: Backlog Execution area) mentions the RESEARCH_TIMEOUT deadline + synchronous fallback (R1) and cross-references the issue re-planning subsection (R2). If warranted, add a short 'Pipeline Resilience' overview that ties research-deadline, issue-re-planning, and tasks.json-recovery together, linking to the detailed ARCHITECTURE.md state-management narrative. In docs/ARCHITECTURE.md: ensure the smart-recovery section (R4) is discoverable from the state-management overview. Do NOT restate full per-item detail — link. Keep docs non-stale and accurate to what shipped. Run `npm run docs:lint` and `npm run format:check`.\n4. OUTPUT: Coherent cross-cutting resilience docs; markdownlint + prettier green.\n5. MOCKING: None — documentation only.\n6. DOCS: [Mode B] This IS the changeset-level doc sweep. Depends on all implementing subtasks by design."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
