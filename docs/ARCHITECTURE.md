@@ -541,7 +541,7 @@ graph LR
 
 ## State Management and Persistence
 
-The PRP Pipeline uses a robust state management system with immutable data structures and atomic persistence.
+The PRP Pipeline uses a robust state management system with immutable data structures and atomic persistence. It also self-heals `tasks.json` corruption automatically after every agent run — see [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery).
 
 ### Session Directory Structure
 

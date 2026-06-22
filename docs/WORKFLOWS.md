@@ -9,6 +9,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Pipeline Resilience](#pipeline-resilience)
 - [Workflow Architecture](#workflow-architecture)
   - [Groundswell Workflow Base Class](#groundswell-workflow-base-class)
   - [@Step Decorator Pattern](#step-decorator-pattern)
@@ -20,6 +21,7 @@
   - [Phase 2: PRD Decomposition](#phase-2-prd-decomposition)
   - [Phase 3: Delta Handling](#phase-3-delta-handling)
   - [Phase 4: Backlog Execution](#phase-4-backlog-execution)
+  - [Issue-Driven Re-planning](#issue-driven-re-planning)
   - [Phase 5: QA Cycle](#phase-5-qa-cycle)
   - [Phase 6: Cleanup](#phase-6-cleanup)
   - [State Machine](#state-machine)
@@ -82,6 +84,25 @@ The PRP Pipeline uses a **workflow orchestration system** built on Groundswell t
 - **Observability**: All phases use `@Step({ trackTiming: true })` decorators for automatic timing
 - **Resilience**: Graceful shutdown support with state preservation for resumption
 - **Quality**: Built-in QA workflow with adversarial testing mindset
+
+---
+
+## Pipeline Resilience
+
+The pipeline recovers from common agent failures without human intervention. Three mechanisms — woven into
+the execution loop and the state layer — keep a session running:
+
+- **Research deadline & synchronous fallback** — background research for the next item is bounded by
+  `RESEARCH_TIMEOUT` (default `300`s; PRD §4.2); on expiry the work is abandoned and re-researched inline.
+  See [Phase 4: Backlog Execution](#phase-4-backlog-execution).
+- **Issue-driven re-planning** — when a coder reports an `issue` (a recoverable planning gap), the stale PRP
+  is deleted and research re-runs with the captured feedback, bounded by `ISSUE_RETRY_MAX` (default `3`;
+  PRD §4.5). See [Issue-Driven Re-planning](#issue-driven-re-planning).
+- **`tasks.json` corruption recovery** — after every agent run the orchestrator re-applies only the
+  legitimate status delta and restores a corrupted `tasks.json` from git history; automatic and non-fatal.
+  See [tasks.json Protection & Smart Recovery](./ARCHITECTURE.md#tasksjson-protection--smart-recovery).
+
+For the environment-variable knobs, see [Resilience Tuning](./CONFIGURATION.md#resilience-tuning).
 
 ---
 
@@ -373,6 +394,18 @@ if (this.shutdownRequested) {
   break;
 }
 ```
+
+**Resilience During Execution:**
+
+Two mechanisms keep the loop moving when agents misbehave:
+
+- **Research deadline & synchronous fallback** — while executing item _N_, the orchestrator researches item
+  _N+1_ in the background, bounded by `RESEARCH_TIMEOUT` (default `300`s; PRD §4.2). If the deadline elapses,
+  the in-flight research is abandoned and the item is re-researched synchronously, inline, so a single hung
+  agent cannot stall the pipeline.
+- **Tri-state outcomes** — each item's execution reports `success`, `fail`, or `issue`. An `issue` (a
+  recoverable planning gap, not a code failure) triggers bounded re-research with feedback; see
+  [Issue-Driven Re-planning](#issue-driven-re-planning).
 
 ### Issue-Driven Re-planning
 

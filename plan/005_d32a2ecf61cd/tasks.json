@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P5",
       "title": "Phase 5: Pipeline Resilience & Self-Healing",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Delta session (005) adding self-healing to the execution loop and state layer so a single hung agent, planning gap, or corrupting agent cannot stall or terminate the pipeline. No new subsystems — enhancements to existing orchestrator/state/retry/prompts components. Driver: plan/005_d32a2ecf61cd/delta_prd.md (purely additive diff: 37 PRD lines added, 0 removed). Four requirements R1-R4 plus a Mode B changeset-level doc sync.",
       "milestones": [
         {
@@ -239,14 +239,14 @@
           "type": "Milestone",
           "id": "P5.M3",
           "title": "Milestone 5.3: Sync Changeset-Level Documentation (Mode B)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Mode B (per the two-mode rule this very session introduces in R3): cross-cutting docs that only make sense once R1-R4 are all in place. A single final task depending on every implementing subtask, reconciling the README + overview docs into a coherent 'Pipeline Resilience' narrative.",
           "tasks": [
             {
               "type": "Task",
               "id": "P5.M3.T1",
               "title": "Task 5.3.1: Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Sweep the cross-cutting docs: README.md capability/resilience blurb and a coherent end-to-end resilience narrative across docs/WORKFLOWS.md and docs/ARCHITECTURE.md. This depends on ALL implementing subtasks (R1-R4) so it runs last.",
               "subtasks": [
                 {
@@ -283,7 +283,7 @@
                   "type": "Subtask",
                   "id": "P5.M3.T1.S2",
                   "title": "Reconcile WORKFLOWS.md + ARCHITECTURE.md into a coherent resilience narrative",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P5.M1.T1.S1",
