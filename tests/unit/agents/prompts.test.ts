@@ -135,4 +135,43 @@ describe('agents/prompts', () => {
       expect(BUG_HUNT_PROMPT).toContain('$(cat "$TASKS_FILE")');
     });
   });
+
+  describe('two-mode documentation sync rule (PRD §6.1)', () => {
+    it('should declare documentation is never a standalone subtask, mirroring implicit TDD', () => {
+      expect(TASK_BREAKDOWN_PROMPT).toContain('never a standalone subtask');
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/mirror/i);
+    });
+
+    it('should define Mode A (doc-with-work) requiring a DOCS: line inside context_scope', () => {
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/Mode A/i);
+      expect(TASK_BREAKDOWN_PROMPT).toContain('DOCS:');
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/context_scope/i);
+      // Mode A category list (PRD §6.1):
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/config/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/public API/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/CLI/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/env var/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/exported type/i);
+    });
+
+    it('should define Mode B (changeset-level) as a final doc-sync task depending on all implementing subtasks', () => {
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/Mode B/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/changeset-level|changeset level/i);
+      // Mode B category list (PRD §6.1):
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/README/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/overview/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/architecture summar/i);
+      // Mode B is a FINAL task that depends on all implementing subtasks:
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/final/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/depend/i);
+    });
+
+    it('should include the decision rule (per-file -> Mode A; whole-feature/overview -> Mode B; when in doubt, both)', () => {
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/per-file|per file/i);
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(
+        /whole-feature|whole feature|overview/i
+      );
+      expect(TASK_BREAKDOWN_PROMPT).toMatch(/when in doubt/i);
+    });
+  });
 });

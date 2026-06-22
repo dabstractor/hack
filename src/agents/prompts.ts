@@ -77,6 +77,14 @@ For every Subtask, the \`context_scope\` must be a **strict set of instructions*
 - **OUTPUT:** What exact interface does this subtask expose?
 - **MOCKING:** What external services must be mocked to keep this subtask isolated?
 
+### 5. DOCUMENTATION SYNC (TWO MODES)
+
+**Documentation is never a standalone subtask — it rides with the work, mirroring the implicit-TDD rule.** Every documentation change falls into one of two modes:
+
+- **MODE A (doc-with-work, default):** Documentation a subtask _directly_ touches — config, public API, CLI, env vars, exported types — is updated **INSIDE** that subtask's \`context_scope\` and declared via a \`DOCS:\` line (e.g. \`DOCS: update docs/CONFIGURATION.md FEATURE_TIMEOUT row\`). Per-file docs → Mode A.
+- **MODE B (changeset-level):** Cross-cutting docs that only make sense once the whole change lands — README, feature overviews, architecture summaries — become a **FINAL "Sync changeset-level documentation" task** that depends on all implementing subtasks. Whole-feature/overview docs → Mode B.
+- **DECISION RULE:** per-file → Mode A; whole-feature/overview → Mode B; **when in doubt, both.**
+
 ---
 
 ## PROCESS
