@@ -2,119 +2,167 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M2.T2.S2_1782137547920_complete_b76d4190",
+      "id": "P1.M2.T2.S2_1782138872576_coder-response_60d97f9e",
+      "taskId": "P1.M2.T2.S2",
+      "label": "After Coder Agent response",
+      "state": {
+        "prpPath": "/tmp/test.md",
+        "stage": "coder-response",
+        "coderResponse": "```json\n{\n  \"result\": \"success\",\n  \"message\": \"Implementation complete\"\n}\n```",
+        "coderResult": {
+          "result": "success",
+          "message": "Implementation complete"
+        },
+        "validationResults": [],
+        "timestamp": "2026-06-22T14:34:32.576Z"
+      },
+      "createdAt": "2026-06-22T14:34:32.576Z"
+    },
+    {
+      "id": "P1.M2.T2.S2_1782138872782_validation-gate-4_39f872a8",
+      "taskId": "P1.M2.T2.S2",
+      "label": "After validation gate 4",
+      "state": {
+        "prpPath": "/tmp/test.md",
+        "stage": "validation-gate-4",
+        "coderResponse": "```json\n{\n  \"result\": \"success\",\n  \"message\": \"Implementation complete\"\n}\n```",
+        "coderResult": {
+          "result": "success",
+          "message": "Implementation complete"
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Syntax check",
+            "success": true,
+            "command": "echo \"Syntax check passed\"",
+            "stdout": "\"Syntax check passed\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 2,
+            "description": "Unit tests",
+            "success": true,
+            "command": "echo \"Unit tests passed\"",
+            "stdout": "\"Unit tests passed\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 3,
+            "description": "Integration tests",
+            "success": true,
+            "command": "echo \"Integration tests passed\"",
+            "stdout": "\"Integration tests passed\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 4,
+            "description": "Manual review",
+            "success": true,
+            "command": null,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": null,
+            "skipped": true
+          }
+        ],
+        "timestamp": "2026-06-22T14:34:32.782Z"
+      },
+      "createdAt": "2026-06-22T14:34:32.782Z"
+    },
+    {
+      "id": "P1.M2.T2.S2_1782138872783_complete_f886019c",
       "taskId": "P1.M2.T2.S2",
       "label": "Task completed successfully",
       "state": {
         "prpPath": "/tmp/test.md",
         "stage": "complete",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
+        "coderResponse": "```json\n{\n  \"result\": \"success\",\n  \"message\": \"Implementation complete\"\n}\n```",
         "coderResult": {
           "result": "success",
-          "message": ""
+          "message": "Implementation complete"
         },
         "validationResults": [
           {
             "level": 1,
-            "description": "Echo test",
+            "description": "Syntax check",
             "success": true,
-            "command": "echo \"test output\"",
-            "stdout": "\"test output\"\n",
+            "command": "echo \"Syntax check passed\"",
+            "stdout": "\"Syntax check passed\"\n",
             "stderr": "",
             "exitCode": 0,
             "skipped": false
+          },
+          {
+            "level": 2,
+            "description": "Unit tests",
+            "success": true,
+            "command": "echo \"Unit tests passed\"",
+            "stdout": "\"Unit tests passed\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 3,
+            "description": "Integration tests",
+            "success": true,
+            "command": "echo \"Integration tests passed\"",
+            "stdout": "\"Integration tests passed\"\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false
+          },
+          {
+            "level": 4,
+            "description": "Manual review",
+            "success": true,
+            "command": null,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": null,
+            "skipped": true
           }
         ],
-        "timestamp": "2026-06-22T14:12:27.920Z"
+        "timestamp": "2026-06-22T14:34:32.783Z"
       },
-      "createdAt": "2026-06-22T14:12:27.920Z"
+      "createdAt": "2026-06-22T14:34:32.783Z"
     },
     {
-      "id": "P1.M2.T2.S2_1782137547921_pre-execution_f0378c62",
+      "id": "P1.M2.T2.S2_1782138872784_pre-execution_0b8ff66d",
       "taskId": "P1.M2.T2.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-06-22T14:12:27.921Z"
+        "timestamp": "2026-06-22T14:34:32.784Z"
       },
-      "createdAt": "2026-06-22T14:12:27.921Z"
+      "createdAt": "2026-06-22T14:34:32.784Z"
     },
     {
-      "id": "P1.M2.T2.S2_1782137547922_coder-response_983a4eac",
+      "id": "P1.M2.T2.S2_1782138872785_coder-response_864a521e",
       "taskId": "P1.M2.T2.S2",
       "label": "After Coder Agent response",
       "state": {
         "prpPath": "/tmp/test.md",
         "stage": "coder-response",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
+        "coderResponse": "not valid json at all",
         "coderResult": {
-          "result": "success",
-          "message": ""
+          "result": "error",
+          "message": "Failed to parse Coder Agent response: not valid json at all"
         },
         "validationResults": [],
-        "timestamp": "2026-06-22T14:12:27.922Z"
+        "timestamp": "2026-06-22T14:34:32.785Z"
       },
-      "createdAt": "2026-06-22T14:12:27.922Z"
-    },
-    {
-      "id": "P1.M2.T2.S2_1782137547979_validation-gate-1_aa42747f",
-      "taskId": "P1.M2.T2.S2",
-      "label": "After validation gate 1",
-      "state": {
-        "prpPath": "/tmp/test.md",
-        "stage": "validation-gate-1",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
-        "coderResult": {
-          "result": "success",
-          "message": ""
-        },
-        "validationResults": [
-          {
-            "level": 1,
-            "description": "Stderr test",
-            "success": false,
-            "command": "sh -c \"echo error >&2; echo success\"",
-            "stdout": "",
-            "stderr": "error: -c: line 1: unexpected EOF while looking for matching `\"'\n",
-            "exitCode": 2,
-            "skipped": false
-          }
-        ],
-        "timestamp": "2026-06-22T14:12:27.979Z"
-      },
-      "createdAt": "2026-06-22T14:12:27.979Z"
-    },
-    {
-      "id": "P1.M2.T2.S2_1782137550039_validation-gate-1_0ac2a6ff",
-      "taskId": "P1.M2.T2.S2",
-      "label": "After validation gate 1",
-      "state": {
-        "prpPath": "/tmp/test.md",
-        "stage": "validation-gate-1",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"\"}",
-        "coderResult": {
-          "result": "success",
-          "message": ""
-        },
-        "validationResults": [
-          {
-            "level": 1,
-            "description": "Stderr test",
-            "success": false,
-            "command": "sh -c \"echo error >&2; echo success\"",
-            "stdout": "",
-            "stderr": "error: -c: line 1: unexpected EOF while looking for matching `\"'\n",
-            "exitCode": 2,
-            "skipped": false
-          }
-        ],
-        "fixAttempt": 1,
-        "timestamp": "2026-06-22T14:12:30.039Z"
-      },
-      "createdAt": "2026-06-22T14:12:30.039Z"
+      "createdAt": "2026-06-22T14:34:32.785Z"
     }
   ],
-  "lastModified": "2026-06-22T14:12:30.039Z"
+  "lastModified": "2026-06-22T14:34:32.785Z"
 }

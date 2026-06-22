@@ -10,8 +10,11 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ResearchQueue } from '../../../src/core/research-queue.js';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import {
+  ResearchQueue,
+  ResearchTimeoutError,
+} from '../../../src/core/research-queue.js';
 import type { SessionManager } from '../../../src/core/session-manager.js';
 import type {
   Backlog,
@@ -19,6 +22,7 @@ import type {
   Subtask,
 } from '../../../src/core/models.js';
 import { Status } from '../../../src/core/models.js';
+import { RESEARCH_TIMEOUT } from '../../../src/config/constants.js';
 
 // Mock the prp-generator module
 vi.mock('../../../src/agents/prp-generator.js', () => ({
@@ -1740,6 +1744,200 @@ describe('ResearchQueue', () => {
       // VERIFY: Task 2 should complete despite task 1 failure
       expect(result).toBeDefined();
       expect(result.taskId).toBe('P1.M1.T1.S2');
+    });
+  });
+
+  describe('waitForPRP deadline & abandonment', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.useFakeTimers();
+      vi.stubEnv(RESEARCH_TIMEOUT, '5'); // 5s deadline; POSITIVE (S1 guards <=0 → 300)
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    });
+
+    // Helper: create a standard queue + subtask + backlog for deadline tests
+    const createDeadlineTestFixtures = () => {
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      const queue = new ResearchQueue(
+        mockManager,
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+      const taskId = 'P1.M1.T1.S1';
+      const task = createTestSubtask(taskId, 'Test Subtask', 'Planned');
+      const backlog = createTestBacklog([]);
+      return { queue, taskId, task, backlog };
+    };
+
+    it('should resolve normally when generation completes under deadline', async () => {
+      // SETUP: mock generate resolves after 1s (under 5s deadline)
+      const expectedPRP = createTestPRPDocument('P1.M1.T1.S1');
+      const mockGenerate = vi
+        .fn()
+        .mockImplementation(
+          () =>
+            new Promise<PRPDocument>(r =>
+              setTimeout(() => r(expectedPRP), 1000)
+            )
+        );
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const { queue, taskId, task, backlog } = createDeadlineTestFixtures();
+
+      // EXECUTE
+      await queue.enqueue(task, backlog);
+      const p = queue.waitForPRP(taskId);
+      await vi.advanceTimersByTimeAsync(1000);
+      const prp = await p;
+
+      // VERIFY
+      expect(prp).toEqual(expectedPRP);
+      expect(queue.isAbandoned(taskId)).toBe(false);
+    });
+
+    it('should abandon after timeout and throw ResearchTimeoutError', async () => {
+      // SETUP: mock generate NEVER resolves
+      const mockGenerate = vi
+        .fn()
+        .mockImplementation(() => new Promise<PRPDocument>(() => {}));
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const { queue, taskId, task, backlog } = createDeadlineTestFixtures();
+
+      // EXECUTE
+      await queue.enqueue(task, backlog);
+      const p = queue.waitForPRP(taskId);
+      // Attach rejection handler BEFORE advancing timers to prevent vitest
+      // unhandled-rejection detection (timer fires → promise rejects before
+      // expect().rejects can attach its handler).
+      const errorPromise = p.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(5_000); // past the 5s deadline
+      const err = await errorPromise;
+
+      // VERIFY
+      expect(err).toBeInstanceOf(ResearchTimeoutError);
+      expect((err as ResearchTimeoutError).message).toMatch(/exceeded the 5s/);
+      expect(queue.isAbandoned(taskId)).toBe(true);
+    });
+
+    it('should ignore a late resolved result for an abandoned task (not cached)', async () => {
+      // SETUP: deferred promise that we control
+      let resolveGen!: (p: PRPDocument) => void;
+      const gen = new Promise<PRPDocument>(r => {
+        resolveGen = r;
+      });
+      const mockGenerate = vi.fn().mockReturnValue(gen);
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const expectedPRP = createTestPRPDocument('P1.M1.T1.S1');
+      const { queue, taskId, task, backlog } = createDeadlineTestFixtures();
+
+      // EXECUTE: enqueue, wait past deadline → abandoned
+      await queue.enqueue(task, backlog);
+      const p = queue.waitForPRP(taskId);
+      // Attach rejection handler before advancing timers (see test (b) rationale)
+      const errorPromise = p.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const err = await errorPromise;
+
+      // VERIFY: abandonment
+      expect(err).toBeInstanceOf(ResearchTimeoutError);
+      expect(queue.isAbandoned(taskId)).toBe(true);
+
+      // EXECUTE: late result arrives (resolve the deferred generate)
+      resolveGen(expectedPRP);
+      await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+      // VERIFY: NOT cached (dedup)
+      expect(queue.getPRP(taskId)).toBeNull();
+      expect(queue.isAbandoned(taskId)).toBe(true);
+    });
+
+    it('should still return cache via getPRP for a non-abandoned completed task', async () => {
+      // SETUP: mock generate resolves fast (1s)
+      const expectedPRP = createTestPRPDocument('P1.M1.T1.S1');
+      const mockGenerate = vi
+        .fn()
+        .mockImplementation(
+          () =>
+            new Promise<PRPDocument>(r =>
+              setTimeout(() => r(expectedPRP), 1000)
+            )
+        );
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const { queue, taskId, task, backlog } = createDeadlineTestFixtures();
+
+      // EXECUTE: enqueue, advance past 1s resolve, await waitForPRP
+      await queue.enqueue(task, backlog);
+      await vi.advanceTimersByTimeAsync(1000);
+      await queue.waitForPRP(taskId);
+
+      // VERIFY
+      expect(queue.getPRP(taskId)).toEqual(expectedPRP);
+      expect(queue.isAbandoned(taskId)).toBe(false);
+    });
+
+    it('should not surface a late background failure on an abandoned task', async () => {
+      // SETUP: deferred-reject promise
+      let rejectGen!: (err: Error) => void;
+      const gen = new Promise<PRPDocument>((_, rej) => {
+        rejectGen = rej;
+      });
+      const mockGenerate = vi.fn().mockReturnValue(gen);
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const { queue, taskId, task, backlog } = createDeadlineTestFixtures();
+
+      // EXECUTE: enqueue, advance past deadline → abandoned
+      await queue.enqueue(task, backlog);
+      const p = queue.waitForPRP(taskId);
+      // Attach rejection handler before advancing timers (see test (b) rationale)
+      const errorPromise = p.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const err = await errorPromise;
+
+      // VERIFY: abandonment
+      expect(err).toBeInstanceOf(ResearchTimeoutError);
+      expect(queue.isAbandoned(taskId)).toBe(true);
+
+      // EXECUTE: late failure arrives
+      rejectGen(new Error('late gen boom'));
+      await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+      // VERIFY: still abandoned, no cache, no unhandled rejection
+      expect(queue.isAbandoned(taskId)).toBe(true);
+      expect(queue.getPRP(taskId)).toBeNull();
+    });
+
+    it('should return false for isAbandoned on a never-abandoned/unknown task', async () => {
+      // SETUP
+      const mockGenerate = vi
+        .fn()
+        .mockResolvedValue(createTestPRPDocument('P1.M1.T1.S1'));
+      MockPRPGenerator.mockImplementation(() => ({ generate: mockGenerate }));
+
+      const { queue } = createDeadlineTestFixtures();
+
+      // VERIFY
+      expect(queue.isAbandoned('P1.M1.T1.S999')).toBe(false);
     });
   });
 });

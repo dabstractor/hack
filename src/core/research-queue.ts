@@ -24,11 +24,66 @@ import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import type { PRPDocument, Task, Subtask, Backlog } from './models.js';
 import type { SessionManager } from './session-manager.js';
+import { getResearchTimeoutSeconds } from '../config/constants.js';
 
 /**
  * Task or Subtask that can be enqueued for PRP generation
  */
 type TaskOrSubtask = Task | Subtask;
+
+/**
+ * Module-private sentinel so the deadline win is unambiguous vs. a PRPDocument.
+ *
+ * @remarks
+ * Used inside `waitForPRP`'s `Promise.race` to distinguish the timeout path
+ * from the in-flight-resolution path. A `unique symbol` guarantees zero
+ * collision risk with any PRPDocument value.
+ */
+const DEADLINE_SENTINEL: unique symbol = Symbol('ResearchQueue.deadline');
+
+/**
+ * Error thrown when background research for a task exceeds the
+ * `RESEARCH_TIMEOUT` deadline (PRD §4.2).
+ *
+ * @remarks
+ * This is a typed, catchable error that the orchestrator (S3) can
+ * detect via `instanceof ResearchTimeoutError` to trigger a synchronous
+ * fallback re-research of the abandoned task.
+ *
+ * Abandonment does NOT cancel the background generation (JS promises
+ * cannot be cancelled). The abandoned background work keeps running;
+ * its late result is silently ignored (dedup via `ResearchQueue.abandoned`).
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   const prp = await queue.waitForPRP(taskId);
+ * } catch (err) {
+ *   if (err instanceof ResearchTimeoutError) {
+ *     console.log(`Task ${err.taskId} abandoned after ${err.timeoutSeconds}s`);
+ *     // re-research synchronously...
+ *   }
+ * }
+ * ```
+ */
+export class ResearchTimeoutError extends Error {
+  /**
+   * Creates a new ResearchTimeoutError
+   *
+   * @param taskId - The task ID whose research exceeded the deadline
+   * @param timeoutSeconds - The configured deadline in seconds
+   */
+  constructor(
+    public readonly taskId: string,
+    public readonly timeoutSeconds: number
+  ) {
+    super(
+      `Background research for ${taskId} exceeded the ${timeoutSeconds}s ` +
+        `RESEARCH_TIMEOUT deadline and was abandoned.`
+    );
+    this.name = 'ResearchTimeoutError';
+  }
+}
 
 /**
  * Manages parallel PRP generation in background
@@ -81,6 +136,15 @@ export class ResearchQueue {
 
   /** Completed PRP results: taskId -> PRPDocument */
   readonly results: Map<string, PRPDocument> = new Map();
+
+  /**
+   * Task IDs whose background research exceeded the RESEARCH_TIMEOUT deadline (PRD §4.2).
+   *
+   * @remarks
+   * Abandoned tasks are never removed from this set (cheap, harmless).
+   * Any late background result for an abandoned taskId is silently ignored.
+   */
+  readonly abandoned: Set<string> = new Set();
 
   /**
    * Creates a new ResearchQueue
@@ -165,6 +229,14 @@ export class ResearchQueue {
     const promise = this.#prpGenerator
       .generate(task, backlog)
       .then(prp => {
+        // Ignore late result for abandoned tasks (dedup per PRD §4.2)
+        if (this.abandoned.has(task.id)) {
+          this.#logger.debug(
+            { taskId: task.id },
+            'Ignoring late PRP result for abandoned task'
+          );
+          return prp;
+        }
         // Cache successful result
         this.results.set(task.id, prp);
         return prp;
@@ -223,14 +295,31 @@ export class ResearchQueue {
   }
 
   /**
-   * Waits for PRP to be ready
+   * Checks if a task was abandoned due to a research timeout (PRD §4.2).
+   *
+   * @param taskId - Task ID to check
+   * @returns true iff waitForPRP previously timed out (abandoned) for taskId
+   */
+  isAbandoned(taskId: string): boolean {
+    return this.abandoned.has(taskId);
+  }
+
+  /**
+   * Waits for PRP to be ready, with a configurable deadline
    *
    * @remarks
-   * Returns immediately if cached. Waits for in-flight promise
-   * if currently generating. Throws if task not found in either.
+   * Returns immediately if cached. If currently generating, races the
+   * in-flight promise against a `getResearchTimeoutSeconds()`-keyed deadline.
+   * On deadline expiry, records abandonment and throws `ResearchTimeoutError`
+   * so the caller (orchestrator) can re-research synchronously.
+   *
+   * Success return type is unchanged (`Promise<PRPDocument>`) so existing
+   * happy-path callers/tests are unaffected.
    *
    * @param taskId - Task ID to wait for
-   * @returns PRPDocument when ready
+   * @returns PRPDocument when ready (under the deadline)
+   * @throws {ResearchTimeoutError} If generation does not complete within
+   *   `getResearchTimeoutSeconds()` (abandoned; `isAbandoned(taskId)` becomes `true`).
    * @throws {Error} If task not enqueued or generation failed
    */
   async waitForPRP(taskId: string): Promise<PRPDocument> {
@@ -240,10 +329,24 @@ export class ResearchQueue {
       return cached;
     }
 
-    // Check in-flight
+    // Check in-flight → race against the deadline
     const inFlight = this.researching.get(taskId);
     if (inFlight) {
-      return inFlight;
+      const deadlineMs = getResearchTimeoutSeconds() * 1000;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<typeof DEADLINE_SENTINEL>(resolve => {
+        timer = setTimeout(() => resolve(DEADLINE_SENTINEL), deadlineMs);
+      });
+      try {
+        const winner = await Promise.race([inFlight, deadline]);
+        if (winner === DEADLINE_SENTINEL) {
+          this.abandoned.add(taskId);
+          throw new ResearchTimeoutError(taskId, getResearchTimeoutSeconds());
+        }
+        return winner;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     }
 
     // Not found
