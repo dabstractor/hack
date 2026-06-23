@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "typecheck:watch": "tsc --noEmit --watch",
     "prebuild": "npm run lint && npm run typecheck",
+    "postbuild": "node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
     "=== Pipeline ===": "",
     "pipeline": "tsx src/index.ts",
     "pipeline:dev": "nodemon --exec tsx src/index.ts",
