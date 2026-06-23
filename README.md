@@ -628,7 +628,7 @@ npm run typecheck
 | `npm run test:coverage` | Generate coverage report        |
 | `npm run lint`          | Run ESLint                      |
 | `npm run format`        | Format code with Prettier       |
-| `npm run validate`      | Run all validation checks       |
+| `npm run validate`      | Lint, format, typecheck & tests |
 | `npm run fix`           | Auto-fix linting and formatting |
 
 ### Running Tests

@@ -690,7 +690,7 @@ describe('TaskOrchestrator', () => {
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         { subtaskId: 'P1.M1.T1.S1' },
-        'Starting PRPRuntime execution'
+        'Starting PRPRuntime execution with retry'
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({ subtaskId: 'P1.M1.T1.S1' }),
@@ -2043,7 +2043,7 @@ describe('TaskOrchestrator', () => {
 
     describe('waitForDependencies()', () => {
       beforeEach(() => {
-        vi.useFakeTimers();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
       });
 
       afterEach(() => {
@@ -2144,18 +2144,17 @@ describe('TaskOrchestrator', () => {
           ['P1.M1.T1.S1']
         );
 
-        // EXECUTE: Wait with short timeout
-        const waitPromise = orchestrator.waitForDependencies(subtask, {
-          timeout: 500,
-          interval: 100,
-        });
+        // Use real timers for timeout-based tests (Date.now() drives loop exit)
+        vi.useRealTimers();
 
-        // Advance past timeout
-        await vi.advanceTimersByTimeAsync(600);
-
-        // VERIFY: Should reject with timeout error
-        await expect(waitPromise).rejects.toThrow(
-          'Timeout waiting for dependencies of P1.M1.T1.S2 after 500ms'
+        // EXECUTE: Wait with very short timeout so it resolves quickly
+        await expect(
+          orchestrator.waitForDependencies(subtask, {
+            timeout: 10,
+            interval: 5,
+          })
+        ).rejects.toThrow(
+          'Timeout waiting for dependencies of P1.M1.T1.S2 after 10ms'
         );
       });
 
@@ -2192,18 +2191,17 @@ describe('TaskOrchestrator', () => {
           ['P1.M1.T1.S1']
         );
 
-        // EXECUTE: Use custom timeout of 200ms
-        const waitPromise = orchestrator.waitForDependencies(subtask, {
-          timeout: 200,
-          interval: 50,
-        });
+        // Use real timers for timeout-based tests (Date.now() drives loop exit)
+        vi.useRealTimers();
 
-        // Advance past timeout
-        await vi.advanceTimersByTimeAsync(250);
-
-        // VERIFY: Should use custom timeout
-        await expect(waitPromise).rejects.toThrow(
-          'Timeout waiting for dependencies of P1.M1.T1.S2 after 200ms'
+        // EXECUTE: Use custom timeout of 5ms
+        await expect(
+          orchestrator.waitForDependencies(subtask, {
+            timeout: 5,
+            interval: 2,
+          })
+        ).rejects.toThrow(
+          'Timeout waiting for dependencies of P1.M1.T1.S2 after 5ms'
         );
       });
     });

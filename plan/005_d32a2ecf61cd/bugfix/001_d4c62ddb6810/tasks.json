@@ -1,0 +1,216 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Session 005 Validation Bug Fixes",
+      "status": "Planned",
+      "description": "Fix the three issues identified during comprehensive end-to-end validation of Session 005 ('Pipeline Resilience & Self-Healing'). Issue 1 (Major): process.setMaxListeners(30) in logger.ts breaks 14 progress-display tests. Issue 2 (Minor): npm run validate does not include test:run. Issue 3 (Minor): No integration tests for R1-R4 resilience features. All issues target the codebase state at main branch commit 4e6d2ef — the working directory is on a detached HEAD and implementation agents must work against code matching main at 4e6d2ef.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Fix Test-Suite Regression (Issue 1 — Major)",
+          "status": "Complete",
+          "description": "Fix the process.setMaxListeners(30) regression in src/utils/logger.ts:448 that causes 14 of 44 tests in tests/unit/utils/progress-display.test.ts to fail with 'TypeError: process.setMaxListeners is not a function'. The root cause is that setMaxListeners is inherited from EventEmitter.prototype (not an own property of process), so partial process stubs via vi.stubGlobal lose it. Fix is optional chaining (process.setMaxListeners?.(30)). Also add a regression test.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Fix process.setMaxListeners optional-chaining regression in logger.ts",
+              "status": "Complete",
+              "description": "Apply a one-character fix (optional chaining) to the process.setMaxListeners(30) call in src/utils/logger.ts getLogger() function so it is a no-op when setMaxListeners is absent (i.e., under a partial process stub in tests). Then add a regression test in tests/unit/logger.test.ts that verifies getLogger does not throw when process lacks setMaxListeners.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Apply optional-chaining fix to process.setMaxListeners in getLogger",
+                  "status": "Complete",
+                  "story_points": 0.5,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/test-infrastructure.md §'The Offending Code'. The code is at src/utils/logger.ts line 448 inside getLogger(). The current code is: `process.setMaxListeners(30);` guarded by `if (!loggerCache.size)`. The loggerCache is `const loggerCache = new Map<string, Logger>()` at line 204. The guard ensures this only runs on first logger creation.\n2. INPUT: The existing src/utils/logger.ts file on the main branch (commit 4e6d2ef). The function getLogger(context, options?) at line 437. The offending block at lines 445-449.\n3. LOGIC: Change `process.setMaxListeners(30);` to `process.setMaxListeners?.(30);` (add optional chaining operator `?.`). This is a one-character change. The comment above should be updated to explain WHY optional chaining is used: 'setMaxListeners is inherited from EventEmitter.prototype, not an own property of process; partial stubs via vi.stubGlobal lose it. Optional chaining keeps this safe in tests while preserving production behavior.' Validate with `npm run lint && npm run format:check && npm run typecheck` and `npx vitest run tests/unit/utils/progress-display.test.ts` — all 44 tests must now pass (previously 14 failed).\n4. OUTPUT: The modified src/utils/logger.ts file where getLogger() no longer throws when process.setMaxListeners is undefined. All 44 progress-display tests pass.\n5. DOCS: none — no user-facing/config/API surface change. This is an internal hardening fix. The code comment update IS the documentation.",
+                  "prd_selectors": [
+                    "h2.2",
+                    "h2.2/h3.0",
+                    "h2.0",
+                    "code.8"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "Add regression test verifying getLogger works under partial process stub lacking setMaxListeners",
+                  "status": "Complete",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/test-infrastructure.md §'Where to Add the Regression Test'. The test file is tests/unit/logger.test.ts (NOT tests/unit/utils/logger.test.ts — the PRD suggested path was slightly wrong). It is 470 lines. It imports `{ getLogger, LogLevel, Logger, LoggerConfig, clearLoggerCache, getGlobalConfig }` from `'../../src/utils/logger.js'`. The beforeEach/afterEach already call clearLoggerCache(). There is an existing `describe('getLogger()', ...)` block at line 72.\n2. INPUT: The fixed src/utils/logger.ts from P1.M1.T1.S1 (with optional chaining applied).\n3. LOGIC: Add a new test inside the existing `describe('getLogger()', ...)` block (or as a new describe block 'process.setMaxListeners hardening' within 'Logger utility'). The test should simulate a partial process stub that lacks setMaxListeners. Two approaches: (a) use `vi.stubGlobal('process', { ...process, on: vi.fn(), off: vi.fn() })` — the spread copies own properties but setMaxListeners is inherited so it will be absent; then call getLogger('PartialStubTest') and assert it does not throw; then call `vi.unstubAllGlobals()` in cleanup. (b) Alternatively, use `delete (process as any).setMaxListeners` before getLogger and restore in finally. Approach (a) more closely mirrors the actual progress-display.test.ts failure scenario. Ensure clearLoggerCache() is called so the first-logger-creation path (where setMaxListeners runs) is exercised. Assert: `expect(() => getLogger('PartialStubTest')).not.toThrow()`. Verify the test FAILS without the fix from S1 (by temporarily reverting) and PASSES with the fix. Run `npx vitest run tests/unit/logger.test.ts` — all tests including the new one must pass.\n4. OUTPUT: A new test in tests/unit/logger.test.ts that guards against this regression recurring.\n5. DOCS: none — test-only change, no documentation surface.",
+                  "prd_selectors": [
+                    "h2.2",
+                    "h2.2/h3.0",
+                    "h2.4"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Strengthen Commit-Time Validation Gate (Issue 2 — Minor)",
+          "status": "Complete",
+          "description": "The npm run validate script in package.json runs lint + format:check + typecheck but does NOT include test:run. This allowed commit 4e6d2ef to ship with 14 broken tests (a false-green validate signal). Fix by adding && npm run test:run to the validate script so the gate is self-contained and catches test regressions at commit time.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Include test:run in the npm run validate script",
+              "status": "Complete",
+              "description": "Add && npm run test:run to the validate script in package.json so the commit-time gate includes the test suite. Update docs/TESTING.md to document that validate now includes test execution.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Add test:run to validate script and update TESTING.md",
+                  "status": "Complete",
+                  "story_points": 0.5,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/test-infrastructure.md §'Issue 2: Validate Script'. The current script in package.json (on main at 4e6d2ef) is: `\"validate\": \"npm run lint && npm run format:check && npm run typecheck\"`. The docs/TESTING.md file has sections including 'Testing Philosophy', 'Layered Testing Approach', 'Unit vs Integration vs E2E Tests', and 'Mocking Strategies'. There is no CONTRIBUTING.md on main.\n2. INPUT: The fixed codebase from P1.M1.T1.S1 (the logger regression must be fixed FIRST, otherwise adding test:run to validate would cause validate to fail due to the 14 broken progress-display tests). The package.json file and docs/TESTING.md file on main at 4e6d2ef.\n3. LOGIC: (a) In package.json, change the validate script to: `\"validate\": \"npm run lint && npm run format:check && npm run typecheck && npm run test:run\"`. (b) In docs/TESTING.md, add or update a note in the 'Layered Testing Approach' or 'Testing Philosophy' section stating that `npm run validate` now includes `test:run` (the full test suite) in addition to lint, format check, and typecheck. This ensures developers know the convenience script is a complete gate. Verify by running `npm run validate` — it must exit 0 with all tests passing.\n4. OUTPUT: Updated package.json with a self-contained validate script, and updated docs/TESTING.md documenting the change.\n5. DOCS: [Mode A] Update docs/TESTING.md to note that `npm run validate` now includes `npm run test:run`. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h2.3",
+                    "h2.3/h3.1",
+                    "h2.0"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Add Resilience Feature Integration Tests (Issue 3 — Minor)",
+          "status": "Planned",
+          "description": "All R1-R4 resilience feature coverage is currently unit-level with heavy mocking. Add integration tests under tests/integration/core/ that exercise the real seams: orchestrator <-> researchQueue <-> PRPRuntime <-> disk/git. Three integration tests: (1) Deadline fallback end-to-end (R1), (2) Issue re-plan end-to-end (R2), (3) Smart recovery end-to-end (R4). These follow the patterns established by existing integration tests like task-orchestrator-e2e.test.ts and research-queue.test.ts.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "Deadline fallback end-to-end integration test (R1)",
+              "status": "Complete",
+              "description": "Create tests/integration/core/research-deadline-fallback.test.ts that exercises the RESEARCH_TIMEOUT deadline -> ResearchTimeoutError -> researchNow synchronous fallback -> completion flow using a real ResearchQueue with mocked PRPGenerator timing.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "Create research-deadline-fallback.test.ts integration test",
+                  "status": "Complete",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/resilience-features.md §'R1: Background Research Deadline & Fallback'. Key types: ResearchTimeoutError (src/core/research-queue.ts:70), DEADLINE_SENTINEL (line 43), waitForPRP(taskId) (line 427), researchNow(task, backlog, issueFeedback?) (line 340), abandoned Set (line 142). Config: getResearchTimeoutSeconds() in src/config/constants.ts reads process.env[RESEARCH_TIMEOUT] (default 300). The orchestrator calls researchNow as fallback at src/core/task-orchestrator.ts line ~728. Existing integration test pattern: tests/integration/core/research-queue.test.ts uses vi.hoisted() for mock setup, mocks logger.js and prp-generator.js, tests the real ResearchQueue. Existing e2e pattern: tests/integration/core/task-orchestrator-e2e.test.ts uses mkdtempSync for tmpdir, real SessionManager + TaskOrchestrator, mocks PRPRuntime and git-commit.ts.\n2. INPUT: The fixed codebase from P1.M1.T1.S1 (logger regression must be fixed so test suite is green). Real ResearchQueue class from src/core/research-queue.ts. Real SessionManager from src/core/session-manager.ts. Backlog/Subtask/PRPDocument types from src/core/models.ts.\n3. LOGIC: Create tests/integration/core/research-deadline-fallback.test.ts. Test plan: (a) Set process.env.RESEARCH_TIMEOUT to '1' (1 second) in beforeEach, restore in afterEach. (b) Use vi.hoisted() and vi.mock to mock src/agents/prp-generator.js — the mock PRPGenerator.generate should delay beyond the timeout (e.g. await new Promise(r => setTimeout(r, 3000))). (c) Also mock src/utils/logger.js with a no-op logger. (d) Create a real SessionManager in a tmpdir (mkdtempSync), initialize a session. (e) Create a real ResearchQueue (new ResearchQueue(sessionManager, concurrency, ...)). (f) Enqueue a task via researchQueue.enqueue(task, backlog). (g) Call researchQueue.waitForPRP(task.id) inside a try/catch — assert it throws ResearchTimeoutError. (h) Assert researchQueue.isAbandoned(task.id) is true. (i) Then call researchQueue.researchNow(task, backlog) — assert it returns a PRPDocument (the mock generator completes synchronously). (j) Assert the late result from the abandoned background research is ignored (dedup) — if waitForPRP is called again, it should use the researchNow result, not the late background result. Use real filesystem (tmpdir) with rmSync cleanup in afterEach. Verify with `npx vitest run tests/integration/core/research-deadline-fallback.test.ts`.\n4. OUTPUT: A passing integration test file at tests/integration/core/research-deadline-fallback.test.ts that exercises the deadline -> fallback -> completion flow end-to-end with real ResearchQueue.\n5. DOCS: none — test-only addition, no user-facing documentation surface change.",
+                  "prd_selectors": [
+                    "h2.3",
+                    "h2.3/h3.2",
+                    "h2.0",
+                    "h2.4"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Issue-driven re-planning end-to-end integration test (R2)",
+              "status": "Planned",
+              "description": "Create tests/integration/core/issue-replan-loop.test.ts that exercises the issue outcome -> issue_feedback.md capture -> deletePRP -> reset-to-Planned -> feedback-injected re-research -> re-execute -> complete flow, and the ISSUE_RETRY_MAX boundary (hard-fail after max attempts).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "Create issue-replan-loop.test.ts integration test",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/resilience-features.md §'R2: Issue-Driven Re-planning Loop'. Key types: ExecutionResult (src/agents/prp-executor.ts:90) with tri-state outcome ('success' | 'fail' | 'issue') and issueMessage field. ExecutionResultLike (src/core/task-orchestrator.ts:59). Config: getIssueRetryMax() in src/config/constants.ts reads process.env[ISSUE_RETRY_MAX] (default 3). Orchestrator logic at src/core/task-orchestrator.ts lines ~820-860: on outcome='issue', writes issue_feedback.md via atomicWrite, calls researchQueue.deletePRP(subtask.id), resets to Planned, calls researchQueue.researchNow(subtask, backlog, feedback), re-executes. After ISSUE_RETRY_MAX issue outcomes, hard-fails to Failed. The orchestrator uses smartCommit (src/utils/git-commit.ts:127) after completion. Existing e2e pattern: tests/integration/core/task-orchestrator-e2e.test.ts mocks PRPRuntime via vi.mock and uses real SessionManager + TaskOrchestrator in tmpdir.\n2. INPUT: The fixed codebase from P1.M1.T1.S1. Real TaskOrchestrator from src/core/task-orchestrator.ts. Real SessionManager from src/core/session-manager.ts. ExecutionResult type from src/agents/prp-executor.ts. Backlog/Subtask/Status types from src/core/models.ts.\n3. LOGIC: Create tests/integration/core/issue-replan-loop.test.ts. TEST 1 (happy re-plan): (a) Use vi.hoisted() with a mock counter. Mock src/agents/prp-runtime.js — executeSubtask returns { success: false, outcome: 'issue', issueMessage: 'Missing /health endpoint contract' } on first call, then { success: true, outcome: 'success', validationResults: [...], artifacts: [], fixAttempts: 0 } on second call. (b) Mock src/utils/git-commit.js smartCommit to return a fake hash. (c) Create real SessionManager in tmpdir, initialize session with a simple backlog (one phase > milestone > task > subtask). (d) Create real TaskOrchestrator. (e) Execute the subtask. (f) Assert issue_feedback.md exists in the session directory (readFileSync). (g) Assert the subtask status ends as Complete. TEST 2 (ISSUE_RETRY_MAX boundary): (a) Set process.env.ISSUE_RETRY_MAX to '1'. (b) Mock executeSubtask to always return outcome='issue'. (c) Execute the subtask. (d) Assert the subtask status ends as Failed (hard-fail after 1 issue attempt). Use real filesystem (tmpdir) with rmSync cleanup in afterEach. Verify with `npx vitest run tests/integration/core/issue-replan-loop.test.ts`.\n4. OUTPUT: A passing integration test file at tests/integration/core/issue-replan-loop.test.ts with two test cases: happy-path re-plan and ISSUE_RETRY_MAX boundary.\n5. DOCS: none — test-only addition, no user-facing documentation surface change.",
+                  "prd_selectors": [
+                    "h2.3",
+                    "h2.3/h3.2",
+                    "h2.0",
+                    "h2.4"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T3",
+              "title": "Smart recovery end-to-end integration test (R4)",
+              "status": "Complete",
+              "description": "Create tests/integration/core/tasks-json-recovery-e2e.test.ts that exercises a real git repo + corrupt tasks.json mid-run -> recoverTasksJson restores from git history -> Researching state preserved -> run continues. This test uses real git operations in tmpdir.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T3.S1",
+                  "title": "Create tasks-json-recovery-e2e.test.ts integration test",
+                  "status": "Complete",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/resilience-features.md §'R4: tasks.json Protection & Smart Recovery'. Key types: TasksJsonRecoveryResult { restored: boolean; source: 'disk' | 'git'; reason?: string } and RecoverTasksJsonOptions { baselineBacklog?: Backlog; repoPath?: string }. recoverTasksJson(sessionPath, legitimateDelta, opts?) in src/core/tasks-json-recovery.ts:157. Git primitives: gitFileHistory(filePath, repoPath) and gitReadFileAtCommit(filePath, commitHash, repoPath) in src/tools/git-mcp.ts. Three paths: PATH A (clean disk re-apply), PATH B (corrupt disk -> git restore + Researching/Retrying preservation), PATH C (non-fatal). Orchestrator calls recoverTasksJson at src/core/task-orchestrator.ts line ~977 before sessionManager.flushUpdates(). Existing unit test pattern: tests/unit/core/tasks-json-recovery.test.ts already uses real tmpdir git repos (git init, git add, git commit) — reference it for git setup.\n2. INPUT: The fixed codebase from P1.M1.T1.S1. Real recoverTasksJson from src/core/tasks-json-recovery.ts. Real git primitives from src/tools/git-mcp.ts. Backlog/Status/AnyItem types from src/core/models.ts.\n3. LOGIC: Create tests/integration/core/tasks-json-recovery-e2e.test.ts. Test plan: (a) Create a tmpdir, run `git init` in it (use simple-git or child_process execSync). (b) Create a valid tasks.json in the session directory (e.g. sessionDir/prp-sessions/<session-id>/tasks.json or wherever SessionManager writes it — check SessionManager implementation for the exact path). (c) `git add` and `git commit` the valid tasks.json. (d) Create a real SessionManager pointing at this session dir. Create a Backlog with items — one subtask in 'Researching' status, one in 'Planned'. (e) Corrupt tasks.json on disk: write invalid JSON (e.g. '{ corrupted') or a structurally invalid backlog. (f) Call recoverTasksJson(sessionPath, { itemId: 'P1.M1.T1.S1', status: 'Complete' }, { baselineBacklog: trustedBacklog, repoPath: sessionPath }). (g) Assert the result is { restored: true, source: 'git' }. (h) Read the restored tasks.json from disk — assert it is valid JSON, the 'Complete' delta was applied to the specified item, AND the subtask that was 'Researching' is still 'Researching' (preserved from the git-restored version). (i) Optionally test PATH A: with a clean (valid) tasks.json on disk, call recoverTasksJson and assert { restored: false, source: 'disk' }. Use rmSync cleanup in afterEach. Verify with `npx vitest run tests/integration/core/tasks-json-recovery-e2e.test.ts`.\n4. OUTPUT: A passing integration test file at tests/integration/core/tasks-json-recovery-e2e.test.ts that exercises corrupt-disk -> git-restore -> delta-apply -> Researching-preservation end-to-end with real git operations.\n5. DOCS: none — test-only addition, no user-facing documentation surface change.",
+                  "prd_selectors": [
+                    "h2.3",
+                    "h2.3/h3.2",
+                    "h2.0",
+                    "h2.4"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T4",
+              "title": "Sync changeset-level documentation",
+              "status": "Complete",
+              "description": "Final cross-cutting documentation task. Update README.md testing/validation sections to reflect that npm run validate now includes test:run, and that new integration tests cover the R1-R4 resilience features. This task must run AFTER all implementing subtasks are complete.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T4.S1",
+                  "title": "Update README.md and overview docs to reflect validate script and integration test changes",
+                  "status": "Complete",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M2.T1.S1",
+                    "P1.M3.T1.S1",
+                    "P1.M3.T2.S1",
+                    "P1.M3.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/005_d32a2ecf61cd/bugfix/001_d4c62ddb6810/architecture/system_context.md and test-infrastructure.md. On main at 4e6d2ef, README.md line 627-631 lists npm scripts including `npm run test:run` (Run tests once) and `npm run validate` (Run all validation checks). Line 631 currently describes validate as 'Run all validation checks' — this is still accurate but should be updated to clarify it includes the full test suite. README.md line 120-138 has a 'Self-Healing & Resilience' section referencing docs/CONFIGURATION.md resilience tuning. docs/TESTING.md was already updated in P1.M2.T1.S1 (Mode A) to note validate includes test:run.\n2. INPUT: All completed subtask outputs from P1.M1.T1.S1 (logger fix), P1.M1.T1.S2 (regression test), P1.M2.T1.S1 (validate script + TESTING.md), P1.M3.T1.S1 (deadline test), P1.M3.T2.S1 (issue re-plan test), P1.M3.T3.S1 (recovery test).\n3. LOGIC: (a) In README.md, update the script table entry for `npm run validate` to clarify it includes the full test suite (lint + format:check + typecheck + test:run). If there is a 'Self-Healing & Resilience' section, verify it mentions that integration tests now cover the R1-R4 flows. (b) Review docs/ARCHITECTURE.md and docs/WORKFLOWS.md — if they mention testing or validation gates, ensure they are consistent with the updated validate script. (c) Do NOT duplicate what docs/TESTING.md already says (that was updated in Mode A by P1.M2.T1.S1). Focus on README.md and any overview docs that span the whole changeset. Verify formatting with `npm run format:check`.\n4. OUTPUT: Updated README.md (and any overview docs) reflecting the validate script change and integration test additions. All format/lint checks pass.\n5. DOCS: [Mode B] This IS the changeset-level documentation sync task. It updates README.md and cross-cutting overview docs that span the whole changeset.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.2",
+                    "h2.3",
+                    "h2.3/h3.1",
+                    "h2.3/h3.2",
+                    "h2.4"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -15,7 +15,7 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getLogger,
   LogLevel,
@@ -109,6 +109,26 @@ describe('Logger utility', () => {
     it('should accept LogLevel enum for level option', () => {
       const logger = getLogger('TestContext', { level: LogLevel.DEBUG });
       expect(logger).toBeDefined();
+    });
+
+    it('should not throw when process lacks setMaxListeners (partial stub)', () => {
+      // Mirror the real progress-display.test.ts stub: spread copies OWN enumerable
+      // props only, so the INHERITED setMaxListeners (from EventEmitter.prototype) is
+      // absent. On main/4e6d2ef this made getLogger() throw
+      // "TypeError: process.setMaxListeners is not a function".
+      vi.stubGlobal('process', {
+        ...process,
+        on: vi.fn(),
+        off: vi.fn(),
+      });
+      try {
+        // Cache MUST be empty so the first-creation path (where setMaxListeners runs)
+        // is exercised. beforeEach already cleared it; be explicit for robustness.
+        clearLoggerCache();
+        expect(() => getLogger('PartialStubTest')).not.toThrow();
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 

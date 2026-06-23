@@ -1,0 +1,11 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+  h3.0 Issue 1: process.setMaxListeners(30) in logger.ts breaks 14 progress-display tests (test-suite regression)
+ h2.3 Minor Issues (Nice to Fix)
+  h3.1 Issue 2: npm run validate does not include test:run, so the regression above was not caught at commit time
+  h3.2 Issue 3: No integration tests for the resilience features (R1–R4)
+ h2.4 Testing Summary
+---
+code:8 para:31 list:6

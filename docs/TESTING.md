@@ -113,6 +113,9 @@ graph TB
 - **Integration tests (42 files)**: Multi-component interaction tests
 - **E2E tests (2 files)**: Complete workflow validation
 
+> **Note:** `npm run validate` enforces all layers at commit time — it runs `lint`,
+> `format:check`, `typecheck`, **and `test:run`** (the full unit + integration + E2E suite).
+
 ### API Endpoint Enforcement
 
 **CRITICAL**: All tests MUST use the z.ai API endpoint, never Anthropic's official API.
@@ -684,6 +687,11 @@ npm run test:bail
 # or
 vitest run --bail=1
 ```
+
+> **Commit-time gate:** The `npm run validate` convenience script runs the **complete**
+> pre-commit gate, in order — `npm run lint && npm run format:check && npm run typecheck
+&& npm run test:run`. It is the single command to run before committing and includes the
+> full test suite (`test:run`), not just static checks.
 
 ### Coverage Reports
 

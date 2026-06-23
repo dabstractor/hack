@@ -445,7 +445,7 @@ export function getLogger(context: string, options?: LoggerConfig): Logger {
   // Prevent MaxListenersExceededWarning from pino transport workers
   // Each transport worker attaches an exit listener to process
   if (!loggerCache.size) {
-    process.setMaxListeners(30);
+    process.setMaxListeners?.(30);
   }
 
   // Auto-generate correlation ID if not provided
