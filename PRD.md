@@ -335,10 +335,10 @@ Configuration is loaded in the following order (later sources override earlier o
 
 Models are specified as provider-qualified strings (`provider/model`), independent of the harness (see §9.4). The pipeline reads model names from the environment at runtime and qualifies them with the `zai` provider.
 
-- **`ANTHROPIC_DEFAULT_SONNET_MODEL`**: Model for complex reasoning tasks (default: `GLM-4.7` → resolved as `zai/GLM-4.7`)
-- **`ANTHROPIC_DEFAULT_HAIKU_MODEL`**: Model for faster/lighter tasks (default: `GLM-4.5-Air` → resolved as `zai/GLM-4.5-Air`)
+- **`ANTHROPIC_DEFAULT_SONNET_MODEL`**: Model for complex reasoning tasks (default: `glm-5.2` → resolved as `zai/glm-5.2`)
+- **`ANTHROPIC_DEFAULT_HAIKU_MODEL`**: Model for faster/lighter tasks (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`)
 
-These values should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/GLM-4.7` is invalid).
+These values should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/glm-5.2` is invalid). Model ids are **lowercase** as registered in the Pi model registry (run `pi --list-models zai` to verify available ids).
 
 #### 9.2.4 API Endpoint Safeguards
 
@@ -474,7 +474,7 @@ configureHarnesses({
 
 #### 9.4.3 Critical Rules
 
-- **The harness never appears in the model string.** `pi/zai/GLM-4.7` and `cc/anthropic/...` are **invalid**. Always use `provider/model` (e.g. `zai/GLM-4.7`).
+- **The harness never appears in the model string.** `pi/zai/glm-5.2` and `cc/anthropic/...` are **invalid**. Always use `provider/model` (e.g. `zai/glm-5.2`).
 - **Provider/harness compatibility.** `claude-code` runs `anthropic/*` models only. Requesting the z.ai provider on `claude-code` is a configuration error surfaced at `initialize()`/`execute()`.
 - **Feature parity.** All features (MCP tools, skills, hooks, `AgentResponse`, caching, workflow events) MUST work identically across both harnesses. Tool execution flows through `MCPHandler` for both, so `pi`'s lack of built-in MCP/LSP is **not** a capability gap.
 - **Cache isolation.** Cache keys incorporate **both** the harness and the provider/model.

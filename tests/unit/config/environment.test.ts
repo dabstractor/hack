@@ -131,7 +131,7 @@ describe('config/environment', () => {
       // EXECUTE & VERIFY
       expect(getModel('haiku')).toBe(
         `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.haiku}`
-      ); // 'zai/GLM-4.5-Air'
+      ); // 'zai/glm-5-turbo'
     });
 
     it('should qualify environment override for opus tier', () => {

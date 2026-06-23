@@ -19,7 +19,7 @@
  * validateEnvironment();
  *
  * // Get model name for agent creation
- * const model = getModel('sonnet'); // 'zai/GLM-4.7'
+ * const model = getModel('sonnet'); // 'zai/glm-5.2'
  * ```
  */
 
@@ -77,25 +77,25 @@ export function configureEnvironment(): void {
  * for overrides first, then falling back to default values.
  *
  * Model tier mappings:
- * - 'opus': GLM-4.7 (highest quality, complex reasoning, Architect agent)
- * - 'sonnet': GLM-4.7 (balanced, default for most agents)
- * - 'haiku': GLM-4.5-Air (fastest, simple operations, quick tasks)
+ * - 'opus': glm-5.2 (highest quality, complex reasoning, Architect agent)
+ * - 'sonnet': glm-5.2 (balanced, default for most agents)
+ * - 'haiku': glm-5-turbo (fastest, simple operations, quick tasks)
  *
  * @param tier - The model tier identifier ('opus' | 'sonnet' | 'haiku')
- * @returns The provider-qualified model string (e.g. 'zai/GLM-4.7')
+ * @returns The provider-qualified model string (e.g. 'zai/glm-5.2')
  *
  * @example
  * ```ts
  * import { getModel } from './config/environment.js';
  * import type { ModelTier } from './config/types.js';
  *
- * const opusModel = getModel('opus'); // 'zai/GLM-4.7'
- * const sonnetModel = getModel('sonnet'); // 'zai/GLM-4.7'
- * const haikuModel = getModel('haiku'); // 'zai/GLM-4.5-Air'
+ * const opusModel = getModel('opus'); // 'zai/glm-5.2'
+ * const sonnetModel = getModel('sonnet'); // 'zai/glm-5.2'
+ * const haikuModel = getModel('haiku'); // 'zai/glm-5-turbo'
  *
  * // Can be overridden with environment variables
- * process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'GLM-4.7';
- * const customHaiku = getModel('haiku'); // 'zai/GLM-4.7'
+ * process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'glm-5.2';
+ * const customHaiku = getModel('haiku'); // 'zai/glm-5.2'
  * ```
  */
 
@@ -107,16 +107,16 @@ export function configureEnvironment(): void {
  * (default: DEFAULT_MODEL_PROVIDER === 'zai'). Never produces a 3-segment
  * (harness-qualified) string.
  *
- * @param name - Bare model name (e.g. 'GLM-4.7') OR an already-qualified 'provider/model'.
+ * @param name - Bare model name (e.g. 'glm-5.2') OR an already-qualified 'provider/model'.
  * @param provider - Provider prefix; defaults to {@link DEFAULT_MODEL_PROVIDER} ('zai').
  * @returns The provider-qualified model string.
  *
  * @example
- *   qualifyModel('GLM-4.7');            // 'zai/GLM-4.7'
- *   qualifyModel('GLM-4.5-Air');        // 'zai/GLM-4.5-Air'
+ *   qualifyModel('glm-5.2');            // 'zai/glm-5.2'
+ *   qualifyModel('glm-5-turbo');        // 'zai/glm-5-turbo'
  *   qualifyModel('anthropic/foo');      // 'anthropic/foo'  (unchanged)
- *   qualifyModel('zai/GLM-4.7');        // 'zai/GLM-4.7'    (unchanged)
- *   qualifyModel('GLM-4.7', 'anthropic'); // 'anthropic/GLM-4.7'
+ *   qualifyModel('zai/glm-5.2');        // 'zai/glm-5.2'    (unchanged)
+ *   qualifyModel('glm-5.2', 'anthropic'); // 'anthropic/glm-5.2'
  */
 export function qualifyModel(
   name: string,

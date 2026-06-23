@@ -28,25 +28,25 @@ export const DEFAULT_BASE_URL = 'https://api.z.ai/api/anthropic' as const;
  * Maps each model tier to its corresponding GLM model name.
  * Uses const assertion to preserve literal types.
  *
- * - opus: GLM-4.7 (highest quality, complex reasoning)
- * - sonnet: GLM-4.7 (balanced, default for most agents)
- * - haiku: GLM-4.5-Air (fastest, simple operations)
+ * - opus: glm-5.2 (highest quality, complex reasoning)
+ * - sonnet: glm-5.2 (balanced, default for most agents)
+ * - haiku: glm-5-turbo (fastest, simple operations)
  *
  * @example
  * ```ts
  * import { MODEL_NAMES } from './config/constants.js';
  *
- * const opusModel = MODEL_NAMES.opus; // 'GLM-4.7'
- * const haikuModel = MODEL_NAMES.haiku; // 'GLM-4.5-Air'
+ * const opusModel = MODEL_NAMES.opus; // 'glm-5.2'
+ * const haikuModel = MODEL_NAMES.haiku; // 'glm-5-turbo'
  * ```
  */
 export const MODEL_NAMES = {
   /** Highest quality model for complex reasoning tasks */
-  opus: 'GLM-4.7',
+  opus: 'glm-5.2',
   /** Balanced model, default for most agents */
-  sonnet: 'GLM-4.7',
+  sonnet: 'glm-5.2',
   /** Fast model for simple operations */
-  haiku: 'GLM-4.5-Air',
+  haiku: 'glm-5-turbo',
 } as const;
 
 /**
@@ -59,7 +59,7 @@ export const MODEL_NAMES = {
  * @example
  * ```ts
  * // In shell:
- * export ANTHROPIC_DEFAULT_OPUS_MODEL="GLM-4.7"
+ * export ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.2"
  * ```
  */
 export const MODEL_ENV_VARS = {

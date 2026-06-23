@@ -9,9 +9,9 @@
  *
  * @remarks
  * Each tier corresponds to a specific GLM model with different capabilities:
- * - 'opus': Highest quality, GLM-4.7 (complex reasoning, Architect agent)
- * - 'sonnet': Balanced, GLM-4.7 (default for most agents)
- * - 'haiku': Fastest, GLM-4.5-Air (simple operations, quick tasks)
+ * - 'opus': Highest quality, glm-5.2 (complex reasoning, Architect agent)
+ * - 'sonnet': Balanced, glm-5.2 (default for most agents)
+ * - 'haiku': Fastest, glm-5-turbo (simple operations, quick tasks)
  *
  * @example
  * ```ts
@@ -38,9 +38,9 @@ export type ModelTier = 'opus' | 'sonnet' | 'haiku';
  * const config: EnvironmentConfig = {
  *   apiKey: 'sk-ant-...',
  *   baseURL: 'https://api.z.ai/api/anthropic',
- *   opusModel: 'zai/GLM-4.7',
- *   sonnetModel: 'zai/GLM-4.7',
- *   haikuModel: 'zai/GLM-4.5-Air',
+ *   opusModel: 'zai/glm-5.2',
+ *   sonnetModel: 'zai/glm-5.2',
+ *   haikuModel: 'zai/glm-5-turbo',
  * };
  * ```
  */
@@ -49,11 +49,11 @@ export interface EnvironmentConfig {
   readonly apiKey: string;
   /** Base URL for z.ai API endpoint */
   readonly baseURL: string;
-  /** Provider-qualified model name for opus tier (e.g. 'zai/GLM-4.7') */
+  /** Provider-qualified model name for opus tier (e.g. 'zai/glm-5.2') */
   readonly opusModel: string;
-  /** Provider-qualified model name for sonnet tier (e.g. 'zai/GLM-4.7') */
+  /** Provider-qualified model name for sonnet tier (e.g. 'zai/glm-5.2') */
   readonly sonnetModel: string;
-  /** Provider-qualified model name for haiku tier (e.g. 'zai/GLM-4.5-Air') */
+  /** Provider-qualified model name for haiku tier (e.g. 'zai/glm-5-turbo') */
   readonly haikuModel: string;
 }
 

@@ -48,6 +48,7 @@ export function getStatusColor(status: Status): (text: string) => string {
     Researching: chalk.cyan,
     Retrying: chalk.yellow,
     Planned: chalk.gray,
+    Ready: chalk.magenta,
     Failed: chalk.red,
     Obsolete: chalk.dim,
   };
@@ -82,6 +83,7 @@ export function getStatusIndicator(status: Status): string {
     Researching: '◐',
     Retrying: '↻',
     Planned: '○',
+    Ready: '◎',
     Failed: '✗',
     Obsolete: '⊘',
   };
@@ -112,6 +114,7 @@ export function getPlainStatusIndicator(status: Status): string {
     Researching: '◐',
     Retrying: '↻',
     Planned: '○',
+    Ready: '◎',
     Failed: '✗',
     Obsolete: '⊘',
   };

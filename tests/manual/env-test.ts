@@ -84,7 +84,7 @@ if (opusModel === 'GLM-4.7') {
 if (sonnetModel === 'GLM-4.7') {
   console.log('✓ Sonnet model correct');
 }
-if (haikuModel === 'GLM-4.5-Air') {
+if (haikuModel === 'glm-5-turbo') {
   console.log('✓ Haiku model correct');
 }
 

@@ -232,9 +232,9 @@ npm run dev -- --prd ./PRD.md --no-cache
 | `ANTHROPIC_AUTH_TOKEN`           | Yes\*    | -                                | API authentication token (mapped to `ANTHROPIC_API_KEY`) |
 | `ANTHROPIC_API_KEY`              | Yes\*    | -                                | API key (mapped from `ANTHROPIC_AUTH_TOKEN` if not set)  |
 | `ANTHROPIC_BASE_URL`             | No       | `https://api.z.ai/api/anthropic` | API endpoint (z.ai required, not Anthropic)              |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `GLM-4.7`                        | Model for Architect agent (highest quality)              |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `GLM-4.7`                        | Model for Researcher/Coder agents (balanced)             |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `GLM-4.5-Air`                    | Model for simple operations (fastest)                    |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `glm-5.2`                        | Model for Architect agent (highest quality)              |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `glm-5.2`                        | Model for Researcher/Coder agents (balanced)             |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `glm-5-turbo`                    | Model for simple operations (fastest)                    |
 
 _Note: Either `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` is required._
 
@@ -254,9 +254,9 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 
 ### Model Tiers
 
-- **Opus** (GLM-4.7): Highest quality, used for Architect agent
-- **Sonnet** (GLM-4.7): Balanced quality/speed, default for most agents
-- **Haiku** (GLM-4.5-Air): Fastest, used for simple operations
+- **Opus** (glm-5.2): Highest quality, used for Architect agent
+- **Sonnet** (glm-5.2): Balanced quality/speed, default for most agents
+- **Haiku** (glm-5-turbo): Fastest, used for simple operations
 
 ### How It Works
 
@@ -340,9 +340,9 @@ The PRP Pipeline uses **z.ai** as the API endpoint, not Anthropic's official API
 
 | Tier   | Model       | Use Case                            |
 | ------ | ----------- | ----------------------------------- |
-| Opus   | GLM-4.7     | Architect agent (complex reasoning) |
-| Sonnet | GLM-4.7     | Researcher/Coder agents (default)   |
-| Haiku  | GLM-4.5-Air | Simple operations (fastest)         |
+| Opus   | glm-5.2     | Architect agent (complex reasoning) |
+| Sonnet | glm-5.2     | Researcher/Coder agents (default)   |
+| Haiku  | glm-5-turbo | Simple operations (fastest)         |
 
 **Example .env File:**
 
@@ -356,9 +356,9 @@ ANTHROPIC_AUTH_TOKEN=your-zai-api-token-here
 # ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
 
 # Optional: Model overrides
-# ANTHROPIC_DEFAULT_OPUS_MODEL=GLM-4.7
-# ANTHROPIC_DEFAULT_SONNET_MODEL=GLM-4.7
-# ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.5-Air
+# ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.2
+# ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.2
+# ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5-turbo
 
 # Optional: Request timeout (milliseconds)
 # API_TIMEOUT_MS=300000
@@ -390,7 +390,7 @@ export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
 export ANTHROPIC_API_KEY="your-api-key-here"
 ```
 
-**"Model not found: GLM-4.7" error**
+**"Model not found: glm-5.2" error**
 
 The z.ai endpoint may not support the configured model.
 

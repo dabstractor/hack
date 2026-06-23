@@ -99,3 +99,32 @@ export function configureHarness(): AgentHarness {
   // Step 6: Return resolved harness for downstream consumers
   return harness;
 }
+
+/**
+ * Initialize the resolved agent harness (PRD §9.4.2).
+ *
+ * @remarks
+ * `configureHarness()` only *registers* a live `PiHarness` in the
+ * `HarnessRegistry`; it does NOT call `PiHarness.initialize()`. Groundswell's
+ * `Agent` layer assumes the harness is already initialized and never calls
+ * `initialize()` itself, so without this step every `agent.prompt()` fails
+ * sub-second with `"PiHarness not initialized"` — an error the harness wraps
+ * into an `{ status: 'error' }` response (not a throw), which upstream code
+ * silently dropped.
+ *
+ * This performs the async initialization (`await import(pi-sdk)`, build the
+ * in-memory model registry, bind the API key) exactly once. Idempotent:
+ * `HarnessRegistry.initializeProvider()` caches the initialized state, and the
+ * `has('pi')` guard mirrors `configureHarness()` to avoid double-registration.
+ *
+ * MUST be called after `configureEnvironment()` (so `ANTHROPIC_API_KEY` is
+ * populated) and before any agent runs.
+ */
+export async function ensureHarnessInitialized(): Promise<void> {
+  const registry = HarnessRegistry.getInstance();
+  if (!registry.has('pi')) {
+    registry.register(new PiHarness());
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  await registry.initializeProvider('pi', apiKey ? { apiKey } : undefined);
+}

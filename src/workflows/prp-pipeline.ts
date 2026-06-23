@@ -767,26 +767,35 @@ export class PRPPipeline extends Workflow {
 
       // Get PRD content from session snapshot
       const prdContent = this.sessionManager.currentSession?.prdSnapshot ?? '';
+      const sessionPath = this.sessionManager.currentSession!.metadata.path;
 
-      // Create properly typed prompt with PRD content
-      const architectPrompt = createArchitectPrompt(prdContent);
+      // Create properly typed prompt with PRD content.
+      // Pass the session path so $TASKS_FILE / $SESSION_DIR placeholders in the
+      // system prompt resolve to absolute paths inside the session directory.
+      const architectPrompt = createArchitectPrompt(prdContent, sessionPath);
 
       // Generate backlog with retry logic
       this.logger.info('[PRPPipeline] Calling Architect agent...');
-      const _result = await retryAgentPrompt(
+      const result = await retryAgentPrompt(
         () => architectAgent.prompt(architectPrompt),
         { agentType: 'Architect', operation: 'decomposePRD' }
       );
+
+      // Surface agent-level failures instead of masking them as a later ENOENT.
+      // Groundswell wraps harness/LLM failures into { status: 'error' } responses
+      // (no throw); without this check a failed agent would leave tasks.json
+      // unwritten and the readFile below would throw a confusing ENOENT.
+      if (result.status === 'error') {
+        const errMsg = result.error?.message ?? 'unknown agent error';
+        throw new Error(`Architect agent failed: ${errMsg}`);
+      }
 
       // Parse the result - architect agent returns { backlog: Backlog }
       // Note: The architect agent writes to $TASKS_FILE, but we can also parse from response
       // For this implementation, we'll read from the file the agent writes
       const { readFile } = await import('node:fs/promises');
       const { resolve } = await import('node:path');
-      const tasksPath = resolve(
-        this.sessionManager.currentSession!.metadata.path,
-        'tasks.json'
-      );
+      const tasksPath = resolve(sessionPath, 'tasks.json');
       const tasksContent = await readFile(tasksPath, 'utf-8');
       const parsedBacklog = JSON.parse(tasksContent) as Backlog;
 

@@ -175,6 +175,7 @@ export const ContextScopeSchema: z.ZodType<string> = z
 export type Status =
   | 'Planned'
   | 'Researching'
+  | 'Ready'
   | 'Implementing'
   | 'Retrying'
   | 'Complete'
@@ -199,6 +200,7 @@ export type Status =
 export const StatusEnum = z.enum([
   'Planned',
   'Researching',
+  'Ready',
   'Implementing',
   'Retrying',
   'Complete',
@@ -367,8 +369,11 @@ export const SubtaskSchema: z.ZodType<Subtask> = z.object({
   status: StatusEnum,
   story_points: z
     .number({ invalid_type_error: 'Story points must be a number' })
-    .int('Story points must be an integer')
-    .min(1, 'Story points must be at least 1')
+    // TASK_BREAKDOWN_PROMPT allows 0.5 / 1 / 2 SP per subtask; accept half-point
+    // granularity (0.5 multiples) with a 0.5 floor. The prior .int().min(1)
+    // rejected the prompt's own 0.5-SP examples.
+    .multipleOf(0.5, 'Story points must be in 0.5 increments')
+    .min(0.5, 'Story points must be at least 0.5')
     .max(21, 'Story points cannot exceed 21'),
   dependencies: z.array(z.string()).min(0),
   context_scope: ContextScopeSchema,
@@ -1104,12 +1109,37 @@ export interface ValidationGate {
  * // result.success === true
  * ```
  */
-export const ValidationGateSchema: z.ZodType<ValidationGate> = z.object({
-  level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
-  description: z.string().min(1, 'Description is required'),
-  command: z.string().nullable(),
-  manual: z.boolean(),
-});
+export const ValidationGateSchema = z
+  .object({
+    // Accept the natural shapes reasoning models emit: a numeric level (1-4),
+    // a descriptive string ("L1 — typecheck..."), or "L1"-style prefixes.
+    // Normalize to one of 1|2|3|4 so the executor can sort numerically.
+    level: z.union([z.number(), z.string()]),
+    description: z.string().optional(),
+    command: z.string().nullable(),
+    manual: z.boolean().optional(),
+  })
+  .transform((g): ValidationGate => {
+    let level: 1 | 2 | 3 | 4;
+    if (typeof g.level === 'number') {
+      level = Math.max(1, Math.min(4, Math.trunc(g.level))) as 1 | 2 | 3 | 4;
+    } else {
+      const m = g.level.match(/([1-4])/);
+      if (!m) {
+        // No numeric hint — assign level 1 (syntax/style) as a safe default.
+        level = 1;
+      } else {
+        level = Number(m[1]) as 1 | 2 | 3 | 4;
+      }
+    }
+    const command = g.command ?? null;
+    return {
+      level,
+      description: g.description ?? `Level ${level} gate`,
+      command,
+      manual: g.manual ?? command === null,
+    };
+  });
 
 /**
  * Represents a single success criterion checkbox from the PRP "What" section
@@ -1179,9 +1209,11 @@ export interface SuccessCriterion {
  * // result.success === true
  * ```
  */
-export const SuccessCriterionSchema: z.ZodType<SuccessCriterion> = z.object({
+export const SuccessCriterionSchema = z.object({
   description: z.string().min(1, 'Description is required'),
-  satisfied: z.boolean(),
+  // satisfied is an executor-state field; default to false on ingestion so the
+  // agent doesn't have to emit it (it has no way to know satisfaction state).
+  satisfied: z.boolean().default(false),
 });
 
 /**
@@ -1332,7 +1364,7 @@ export interface PRPDocument {
  * // result.success === true
  * ```
  */
-export const PRPDocumentSchema: z.ZodType<PRPDocument> = z.object({
+export const PRPDocumentSchema = z.object({
   taskId: z.string().min(1, 'Task ID is required'),
   objective: z.string().min(1, 'Objective is required'),
   context: z.string().min(1, 'Context is required'),

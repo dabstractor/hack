@@ -628,11 +628,20 @@ export class PRPGenerator {
       this.#logger.debug('Cache bypassed via --no-cache flag');
     }
 
+    // Compute the PRP output path BEFORE building the prompt so we can tell
+    // the researcher exactly where to write. Filename mirrors what
+    // #writePRPToFile / PRPRuntime expect: {sanitizedId}.md (we write JSON
+    // content into it — the coder agent reads it as-is via prpPath).
+    const sanitizedId = task.id.replace(/\./g, '_');
+    const prpOutputPath = join(this.sessionPath, 'prps', `${sanitizedId}.json`);
+    await mkdir(join(this.sessionPath, 'prps'), { recursive: true });
+
     // Step 1: Build prompt with task context (pass issueFeedback for re-planning)
     const prompt = createPRPBlueprintPrompt(
       task,
       backlog,
       process.cwd(),
+      prpOutputPath,
       issueFeedback
     );
 
@@ -643,8 +652,44 @@ export class PRPGenerator {
       { agentType: 'Researcher', operation: 'generatePRP' }
     );
 
-    // Step 3: Validate against schema (defensive programming)
-    const validated = PRPDocumentSchema.parse(result);
+    // Step 3: Surface agent-level failures. Groundswell wraps harness/LLM
+    // failures into { status: 'error' } responses (no throw).
+    if (result.status === 'error') {
+      throw new Error(
+        `Researcher agent failed: ${result.error?.message ?? 'unknown agent error'}`
+      );
+    }
+
+    // Step 4: Read the PRP JSON the researcher wrote to the file (the file is
+    // the contract — mirrors the architect pattern). Reasoning models like
+    // glm-5.2 reliably write files but do NOT reliably honor responseFormat
+    // for structured JSON, so we cannot trust result.data here.
+    let prpJsonText: string;
+    try {
+      prpJsonText = await readFile(prpOutputPath, 'utf-8');
+    } catch {
+      throw new Error(`Researcher did not write PRP file at ${prpOutputPath}`);
+    }
+    // Tolerate a markdown-fenced JSON block ONLY if the raw file isn't itself
+    // valid JSON (some agents wrap output in ```json fences). Parse the raw
+    // text first; a non-greedy regex sweep would corrupt valid JSON whose
+    // string VALUES contain code fences (e.g. a ```yaml block inside `context`).
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(prpJsonText);
+    } catch {
+      const fenced = prpJsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenced) {
+        parsed = JSON.parse(fenced[1].trim());
+      } else {
+        throw new Error(
+          `Researcher wrote non-JSON PRP file at ${prpOutputPath}`
+        );
+      }
+    }
+
+    // Step 5: Validate the file contents against the schema.
+    const validated = PRPDocumentSchema.parse(parsed);
 
     // Step 4: Apply compression if enabled
     const { compressed, originalTokens, compressedTokens } =

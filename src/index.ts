@@ -36,6 +36,7 @@
  */
 
 import { configureEnvironment } from './config/environment.js';
+import { ensureHarnessInitialized } from './config/harness.js';
 import { parseCLIArgs, type ValidatedCLIArgs } from './cli/index.js';
 import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
@@ -110,6 +111,11 @@ async function main(): Promise<number> {
 
   // CRITICAL: Configure environment before any API operations
   configureEnvironment();
+
+  // CRITICAL: Initialize the agent harness before any agent runs.
+  // The harness is registered at module-load but never initialized; without
+  // this, every agent.prompt() fails instantly (see ensureHarnessInitialized()).
+  await ensureHarnessInitialized();
 
   // Initialize root logger
   const logger: Logger = getLogger('App', {

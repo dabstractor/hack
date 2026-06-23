@@ -145,20 +145,19 @@ async function executeBashCommand(
         })()
       : undefined;
 
-  // PATTERN: Parse command into executable and arguments
-  // Simple split on spaces - for production, use proper shell parsing
-  const args = command.split(' ');
-  const executable = args[0] ?? '';
-  const commandArgs = args.slice(1);
-
   let child: ChildProcess;
 
-  // CRITICAL: Handle spawn errors that throw synchronously
+  // CRITICAL: Run the command via the system shell (shell: true) so that
+  // shell constructs (for/while loops, &&, ||, pipes, redirects, $()) work.
+  // The prior implementation split on spaces with shell:false, which meant
+  // only a single bare binary (npx, npm) could execute — ANY validation gate
+  // using `for ... done`, `&&`, or `|` would silently fail with exitCode:null.
+  // The full command string is passed to /bin/sh -c by Node's spawn.
   try {
-    child = spawn(executable, commandArgs, {
+    child = spawn(command, {
       cwd: workingDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false,
+      shell: true,
     });
   } catch (error) {
     return Promise.resolve({

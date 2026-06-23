@@ -215,11 +215,11 @@ class ZAiValidator {
         checks.push(false);
       }
 
-      if (haikuModel === 'GLM-4.5-Air') {
-        success('Haiku model is GLM-4.5-Air');
+      if (haikuModel === 'glm-5-turbo') {
+        success('Haiku model is glm-5-turbo');
         checks.push(true);
       } else {
-        warn(`Haiku model is ${haikuModel}, expected GLM-4.5-Air`);
+        warn(`Haiku model is ${haikuModel}, expected glm-5-turbo`);
         checks.push(false);
       }
 
@@ -711,7 +711,7 @@ class ZAiValidator {
       log('  1. ANTHROPIC_AUTH_TOKEN is set correctly', 'gray');
       log('  2. ANTHROPIC_BASE_URL is correct', 'gray');
       log('  3. z.ai API is accessible from your network', 'gray');
-      log('  4. Models GLM-4.7 and GLM-4.5-Air are available', 'gray');
+      log('  4. Models GLM-4.7 and glm-5-turbo are available', 'gray');
       log('', 'reset');
       process.exit(1);
     } else {

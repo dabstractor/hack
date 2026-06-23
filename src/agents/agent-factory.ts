@@ -16,7 +16,7 @@
  * import { createBaseConfig } from './agents/agent-factory.js';
  *
  * const architectConfig = createBaseConfig('architect');
- * // Returns AgentConfig with maxTokens: 8192, model: 'zai/GLM-4.7', harness: 'pi'
+ * // Returns AgentConfig with maxTokens: 8192, model: 'zai/glm-5.2', harness: 'pi'
  * ```
  */
 
@@ -96,7 +96,7 @@ export interface AgentConfig {
   readonly name: string;
   /** System prompt for the agent */
   readonly system: string;
-  /** Model identifier — provider-qualified 'provider/model' (e.g. 'zai/GLM-4.7'); never harness-qualified */
+  /** Model identifier — provider-qualified 'provider/model' (e.g. 'zai/glm-5.2'); never harness-qualified */
   readonly model: string;
   /** Agent runtime harness id (PRD §9.4.2) — 'pi' | 'claude-code' */
   readonly harness: AgentHarness;
@@ -132,7 +132,7 @@ const PERSONA_TOKEN_LIMITS = {
  *
  * @remarks
  * Generates a Groundswell-compatible agent configuration optimized for
- * the specified persona. All personas use the sonnet model tier (GLM-4.7)
+ * the specified persona. All personas use the sonnet model tier (glm-5.2)
  * with caching and reflection enabled for optimal performance.
  *
  * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)
@@ -146,15 +146,15 @@ const PERSONA_TOKEN_LIMITS = {
  * import { createBaseConfig } from './agents/agent-factory.js';
  *
  * const architectConfig = createBaseConfig('architect');
- * // { name: 'ArchitectAgent', model: 'zai/GLM-4.7', harness: 'pi', maxTokens: 8192, ... }
+ * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', harness: 'pi', maxTokens: 8192, ... }
  *
  * const coderConfig = createBaseConfig('coder');
- * // { name: 'CoderAgent', model: 'zai/GLM-4.7', harness: 'pi', maxTokens: 4096, ... }
+ * // { name: 'CoderAgent', model: 'zai/glm-5.2', harness: 'pi', maxTokens: 4096, ... }
  * ```
  */
 export function createBaseConfig(persona: AgentPersona): AgentConfig {
   // PATTERN: Use getModel() to resolve model tier to actual model name
-  const model = getModel('sonnet'); // All personas use sonnet → GLM-4.7
+  const model = getModel('sonnet'); // All personas use sonnet → glm-5.2
 
   // PATTERN: Persona-specific naming (PascalCase with "Agent" suffix)
   const name = `${persona.charAt(0).toUpperCase() + persona.slice(1)}Agent`;

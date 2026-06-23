@@ -5,7 +5,7 @@
  *
  * @remarks
  * Provides accurate token counting for text content using tiktoken.
- * Uses GPT-4 tokenizer (cl100k_base) as approximation for GLM-4.7
+ * Uses GPT-4 tokenizer (cl100k_base) as approximation for glm-5.2
  * compatibility since tiktoken doesn't have native GLM-4 support.
  *
  * @example

@@ -11,6 +11,7 @@
 
 // PATTERN: Import Groundswell prompt creation utilities
 import { createPrompt, type Prompt } from 'groundswell';
+import { z } from 'zod';
 
 // CRITICAL: Use .js extension for ES module imports
 import type {
@@ -19,11 +20,7 @@ import type {
   Milestone,
   Task,
   Subtask,
-  PRPDocument,
 } from '../../core/models.js';
-import { PRPDocumentSchema } from '../../core/models.js';
-
-// PATTERN: Import system prompt from sibling prompts file
 import { PRP_BLUEPRINT_PROMPT } from '../prompts.js';
 
 // PATTERN: Import task utilities for context extraction
@@ -146,6 +143,7 @@ function constructUserPrompt(
   task: Task | Subtask,
   backlog: Backlog,
   codebasePath?: string,
+  prpOutputPath?: string,
   issueFeedback?: string
 ): string {
   // Extract the description based on task type
@@ -197,8 +195,25 @@ ${issueFeedback}
       : '';
 
   // Construct the complete user prompt
-  return `
-# Work Item Context
+  const writeFileBanner =
+    prpOutputPath !== undefined
+      ? `## ⚠️ DELIVERABLE — READ FIRST (overrides any conflicting instruction below)
+
+Your FINAL deliverable is a JSON object written to this file:
+
+    ${prpOutputPath}
+
+Use your file-write tool to create that file with a single JSON object matching:
+{ "taskId": string, "objective": string, "context": string, "implementationSteps": string[], "validationGates": [{"level":string,"command":string|null}], "successCriteria": [{"description":string}], "references": string[] }
+
+Do NOT put the JSON in your chat reply. Do NOT wrap it in markdown. WRITE IT TO THE FILE. Your chat reply should be a one-line confirmation like "PRP written to <path>". The JSON in the file is the ONLY thing the system reads.
+
+---
+
+`
+      : '';
+
+  return `${writeFileBanner}# Work Item Context
 
 ## Task Information
 
@@ -273,22 +288,38 @@ export function createPRPBlueprintPrompt(
   task: Task | Subtask,
   backlog: Backlog,
   codebasePath?: string,
+  prpOutputPath?: string,
   issueFeedback?: string
-): Prompt<PRPDocument> {
-  // PATTERN: Use createPrompt with responseFormat for structured output
+): Prompt<unknown> {
+  // Substitute the output path into the system prompt so the researcher knows
+  // EXACTLY where to write the PRP JSON. Without this the prompt's vague
+  // "path specified in your instructions" never resolves, and the agent either
+  // writes to the wrong location or returns markdown prose (which fails
+  // responseFormat validation). The file is the contract (mirrors the
+  // architect pattern), so responseFormat is permissive (z.unknown()).
+  const systemPrompt =
+    prpOutputPath !== undefined
+      ? PRP_BLUEPRINT_PROMPT.replace(
+          // Tell the agent the absolute output path.
+          /Store the PRP and documentation at the path specified in your instructions\./,
+          `You MUST write your final PRP as a JSON object to the file: ${prpOutputPath}\nThe JSON must match the schema: { taskId, objective, context, implementationSteps[], validationGates[], successCriteria[], references[] }. Write ONLY valid JSON to that file (no markdown fence). After writing, return a brief one-line confirmation.`
+        )
+      : PRP_BLUEPRINT_PROMPT;
+
   return createPrompt({
     // The user prompt contains the task context with placeholders replaced
-    user: constructUserPrompt(task, backlog, codebasePath, issueFeedback),
+    user: constructUserPrompt(
+      task,
+      backlog,
+      codebasePath,
+      prpOutputPath,
+      issueFeedback
+    ),
 
     // The system prompt is the PRP_BLUEPRINT_PROMPT (Researcher persona)
-    system: PRP_BLUEPRINT_PROMPT,
+    system: systemPrompt,
 
-    // CRITICAL: responseFormat enables type-safe structured output
-    // Groundswell validates LLM output against this schema
-    responseFormat: PRPDocumentSchema,
-
-    // CRITICAL: Enable reflection for complex PRP generation
-    // Reflection provides error recovery for structured output
-    enableReflection: true,
+    // Permissive schema — the FILE is the contract (mirrors the architect).
+    responseFormat: z.unknown(),
   });
 }

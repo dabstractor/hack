@@ -44,20 +44,18 @@ const PROTECTED_FILES = [
 // ===== HELPER FUNCTIONS =====
 
 /**
- * Filters out protected files from a list of files
+ * Filters out protected files from a list of files.
  *
- * @param files - Array of file paths to filter
- * @returns Array of file paths excluding protected files
+ * @returns Array of file paths excluding protected pipeline-control files.
  *
  * @remarks
- * Uses basename comparison to handle both relative and absolute paths.
- * Protected files are defined in PROTECTED_FILES constant.
- *
- * @example
- * ```typescript
- * filterProtectedFiles(['src/index.ts', 'tasks.json', 'README.md']);
- * // Returns: ['src/index.ts', 'README.md']
- * ```
+ * Excludes only the PROTECTED_FILES (the PRD input) by basename. Everything
+ * else under plan/ — including per-task artifacts (checkpoints.json,
+ * validation results, summaries), the task registry, and research — is
+ * committed WITH the task in a single commit. The duplicate-named noise
+ * commits are prevented upstream by executeSubtask skipping already-Complete
+ * subtasks on resume, so each task runs exactly once and its artifacts ride
+ * in its one commit.
  */
 export function filterProtectedFiles(files: string[]): string[] {
   return files.filter(file => {
@@ -140,8 +138,15 @@ export async function smartCommit(
       return null;
     }
 
+    // CRITICAL: Git operations run at the REPO ROOT (process.cwd()), NOT the
+    // session path. The session path is the metadata dir (plan/001_.../) where
+    // pipeline state lives; the actual implementation files the coder writes
+    // land at the project root. Running git status/add/commit against the
+    // session path would only ever see protected metadata files.
+    const repoRoot = process.cwd();
+
     // Get repository status
-    const statusResult = await gitStatus({ path: sessionPath });
+    const statusResult = await gitStatus({ path: repoRoot });
     if (!statusResult.success) {
       logger.error(`Git status failed: ${statusResult.error}`);
       return null;
@@ -171,7 +176,7 @@ export async function smartCommit(
 
     // Stage the files
     const addResult = await gitAdd({
-      path: sessionPath,
+      path: repoRoot,
       files: filteredFiles,
     });
 
@@ -185,7 +190,7 @@ export async function smartCommit(
 
     // Create commit
     const commitResult = await gitCommit({
-      path: sessionPath,
+      path: repoRoot,
       message: formattedMessage,
     });
 

@@ -80,7 +80,7 @@ describe('Groundswell cache-key isolation — harness × provider/model (PRD §9
       expect(zai).not.toBe(ant);
     });
 
-    it('keys differ when ONLY the model differs (GLM-4.7 vs GLM-4.5-Air), same harness + provider', () => {
+    it('keys differ when ONLY the model differs (GLM-4.7 vs glm-5-turbo), same harness + provider', () => {
       const a = generateCacheKey({
         ...baseInputs,
         harness: 'pi',
@@ -91,7 +91,7 @@ describe('Groundswell cache-key isolation — harness × provider/model (PRD §9
         ...baseInputs,
         harness: 'pi',
         provider: 'zai',
-        model: 'GLM-4.5-Air',
+        model: 'glm-5-turbo',
       });
       expect(a).not.toBe(b);
     });

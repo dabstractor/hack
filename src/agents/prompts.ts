@@ -53,7 +53,8 @@ export const TASK_BREAKDOWN_PROMPT = `
 ### 1. RESEARCH-DRIVEN ARCHITECTURE (NEW PRIORITY)
 
 - **VALIDATE BEFORE BREAKING DOWN:** You cannot plan what you do not understand.
-- **SPAWN SUBAGENTS:** Use your tools to spawn agents to research the codebase and external documentation _before_ defining the hierarchy.
+- **READ THE PRD FIRST; SUBAGENTS ARE OPTIONAL:** The PRD is already in your context and is frequently self-contained (full reference implementations, schemas, and configs in its appendices). Read it end-to-end BEFORE any research. If it is self-contained, proceed directly to decomposition.
+- **NEVER LOOP ON SUBAGENT CALLS:** The only subagents that may exist are built-ins (e.g. context-builder, delegate, oracle). Do NOT invent names like "researcher", "coder", or "codebase-analysis". If a subagent call returns "Unknown agent", STOP calling subagents entirely and decompose from the PRD you already have. Never retry a failed subagent name.
 - **REALITY CHECK:** Verify that the PRD's requests match the current codebase state (e.g., don't plan a React hook if the project is vanilla JS).
 - **PERSISTENCE:** You must store architectural findings in \`$SESSION_DIR/architecture/\` so the downstream PRP (Product Requirement Prompt) agents have access to them.
 
@@ -188,14 +189,14 @@ Be aware that the executing AI agent only receives:
 
 ## Research Process
 
-> During the research process, create clear tasks and spawn as many agents and subagents as needed using the batch tools. The deeper research we do here the better the PRP will be. We optimize for chance of success, not for speed.
+> Research directly with your own shell/file/web tools. **Subagents are OPTIONAL and may be unavailable** — the only subagents that may exist are built-ins (e.g. context-builder, delegate, oracle). Do NOT invent names like "researcher" or "coder". If a subagent call returns "Unknown agent", STOP calling subagents and do the research yourself. Never loop on failed subagent calls. The deeper the research, the better the PRP — but do it yourself if no subagents are available.
 
 1. **Codebase Analysis in depth**
-   - Create clear todos and spawn subagents to search the codebase for similar features/patterns. Think hard and plan your approach
+   - Search the codebase (using your shell/file tools, or built-in subagents if available) for similar features/patterns. Think hard and plan your approach
    - Identify all the necessary files to reference in the PRP
    - Note all existing conventions to follow
    - Check existing test patterns for validation approach, if none are found plan to find a new one
-   - Use the batch tools to spawn subagents to search the codebase for similar features/patterns
+   - Search the codebase (yourself, or via built-in subagents if available) for similar features/patterns
 
 2. **Internal Research at scale**
    - Use relevant research and plan information in the plan/architecture directory
@@ -203,14 +204,13 @@ Be aware that the executing AI agent only receives:
      previously completed work items and guard against harming future work items in your plan
 
 3. **External Research at scale**
-   - Create clear todos and spawn subagents with instructions to do deep research for similar features/patterns online and include urls to documentation and examples
+   - Research similar features/patterns online (yourself, or via built-in subagents if available) and include urls to documentation and examples
    - Library documentation (include specific URLs)
-   - Store all research in the work item's research/ subdirectory and reference critical pieces of documentation in the PRP with clear
+   - Store all research notes in the work item's research/ subdirectory and reference critical pieces of documentation in the PRP with clear
      reasoning and instructions
    - Implementation examples (GitHub/StackOverflow/blogs)
    - New validation approach none found in existing codebase and user confirms they would like one added
    - Best practices and common pitfalls found during research
-   - Use the batch tools to spawn subagents to search for similar features/patterns online and include urls to documentation and examples
 
 4. **User Clarification**
    - Ask for clarification if you need it
@@ -257,7 +257,7 @@ After research completion, create comprehensive PRP writing plan using TodoWrite
 
 ## Output
 
-Store the PRP and documentation at the path specified in your instructions.
+**You MUST return your PRP as structured JSON in your conversational response, matching the response schema exactly (taskId, objective, context, implementationSteps, validationGates, successCriteria, references).** Do NOT write the PRP to a file — the system validates your JSON response and persists it for you. You may write supporting research notes to the research/ subdirectory, but the final PRP itself MUST be returned as JSON in your response. Populate the context field with the full curated PRP body (you may use markdown inside the string). Populate validationGates with the actual executable validation commands (e.g. npm test) you verified.
 
 ## PRP Quality Gates
 

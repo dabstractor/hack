@@ -653,6 +653,18 @@ export class TaskOrchestrator {
    * Triggers background research for next tasks after starting execution.
    */
   async executeSubtask(subtask: Subtask): Promise<void> {
+    // Skip subtasks that are already Complete (e.g. on --continue resume).
+    // Without this, every resume re-runs every completed subtask, wasting
+    // 10+ min each and producing duplicate commits whose only changed file
+    // is regenerated execution telemetry.
+    if (subtask.status === 'Complete') {
+      this.#logger.info(
+        { subtaskId: subtask.id },
+        'Already complete, skipping'
+      );
+      return;
+    }
+
     this.#logger.info(
       { subtaskId: subtask.id, title: subtask.title },
       'Executing Subtask'
@@ -716,19 +728,26 @@ export class TaskOrchestrator {
     // PATTERN: Wrap execution in try/catch for error handling
     try {
       // PRD §4.2: await background research (deadline-guarded by ResearchQueue — S2); fall back to
-      // synchronous inline re-research if the background work was abandoned (hung/crashed agent).
+      // synchronous inline re-research if the background work was abandoned (hung/crashed agent)
+      // OR if the subtask was never pre-enqueued (happens when resolveScope returns leaf-only
+      // subtasks for {type:'all'} scope — the parent Task's executeTask/enqueue is skipped).
       try {
         await this.researchQueue.waitForPRP(subtask.id);
       } catch (error) {
-        if (error instanceof ResearchTimeoutError) {
+        const notEnqueued =
+          error instanceof Error &&
+          /No PRP available|not been enqueued/i.test(error.message);
+        if (error instanceof ResearchTimeoutError || notEnqueued) {
           this.#logger.info(
             { subtaskId: subtask.id },
-            'Background research abandoned (deadline exceeded); re-researching synchronously inline'
+            error instanceof ResearchTimeoutError
+              ? 'Background research abandoned (deadline exceeded); re-researching synchronously inline'
+              : 'Subtask not pre-enqueued for research; generating PRP synchronously inline'
           );
           await this.researchQueue.researchNow(subtask, this.#backlog);
           this.#logger.info(
             { subtaskId: subtask.id },
-            'Synchronous inline re-research complete'
+            'Synchronous inline research complete'
           );
         } else {
           throw error; // real generation error → outer catch → Failed + rethrow

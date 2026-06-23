@@ -762,6 +762,7 @@ export class InspectCommand {
       Researching: '◐',
       Retrying: '↻',
       Planned: '○',
+      Ready: '◎',
       Failed: '✗',
       Obsolete: '⊘',
     };
@@ -771,6 +772,7 @@ export class InspectCommand {
       Researching: chalk.cyan,
       Retrying: chalk.yellow,
       Planned: chalk.gray,
+      Ready: chalk.magenta,
       Failed: chalk.red,
       Obsolete: chalk.dim,
     };

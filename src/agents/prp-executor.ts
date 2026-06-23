@@ -20,10 +20,11 @@
 
 // CRITICAL: Import patterns - use .js extensions for ES modules
 import { createCoderAgent } from './agent-factory.js';
-import { PRP_BUILDER_PROMPT } from './prompts.js';
+import { z } from 'zod';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
-import type { Agent, Prompt, AgentResponse } from 'groundswell';
+import { createPrompt } from 'groundswell';
+import type { Agent, AgentResponse } from 'groundswell';
 import type { PRPDocument, ValidationGate } from '../core/models.js';
 import { BashMCP } from '../tools/bash-mcp.js';
 import { retryAgentPrompt } from '../utils/retry.js';
@@ -294,11 +295,15 @@ export class PRPExecutor {
     let fixAttempts = 0;
     const maxFixAttempts = 2;
 
-    // STEP 1: Inject PRP path into prompt
-    const injectedPrompt = PRP_BUILDER_PROMPT.replace(
-      /\$PRP_FILE_PATH/g,
-      prpPath
-    );
+    // STEP 1: Build a Prompt with the PRP path injected. The prompt must be a
+    // real Prompt object (with buildUserMessage()), not a bare string — the
+    // prior cast `as unknown as Prompt<unknown>` hid a runtime TypeError.
+    // PRP_BUILDER_PROMPT is the coder agent's SYSTEM prompt (set in
+    // createCoderAgent); the USER message just names the PRP file to read.
+    const injectedPrompt = createPrompt({
+      user: `Execute the PRP located at: ${prpPath}\n\nRead it with your file tools, then implement it following your system instructions.`,
+      responseFormat: z.unknown(),
+    });
 
     try {
       // CHECKPOINT: Pre-execution - before Coder Agent
@@ -317,8 +322,7 @@ export class PRPExecutor {
       // STEP 2: Execute Coder Agent with retry logic
       this.#logger.info({ prpTaskId: prp.taskId }, 'Starting PRP execution');
       const coderAgentResponse = await retryAgentPrompt(
-        () =>
-          this.#coderAgent.prompt(injectedPrompt as unknown as Prompt<unknown>),
+        () => this.#coderAgent.prompt(injectedPrompt),
         { agentType: 'Coder', operation: 'executePRP' }
       );
 
@@ -509,10 +513,14 @@ export class PRPExecutor {
         continue;
       }
 
-      // Execute command via BashMCP
+      // Execute command via BashMCP at the PROJECT ROOT (process.cwd()),
+      // where the coder agent writes implementation files. The prior
+      // `cwd: this.sessionPath` ran gates inside the plan/ metadata dir,
+      // so every path-relative check (test -d, tsc, npm test) saw the wrong
+      // tree and failed spuriously.
       const result = await this.#bashMCP.execute_bash({
         command: gate.command,
-        cwd: this.sessionPath,
+        cwd: process.cwd(),
         timeout: 120000, // 2 minute timeout for validation commands
       });
 
@@ -580,8 +588,10 @@ Error: ${g.stderr}
       )
       .join('\n');
 
-    // Create fix prompt
-    const fixPrompt = `
+    // Create fix prompt (a real Prompt object — the coder agent needs
+    // buildUserMessage(); a bare string throws at runtime).
+    const fixPrompt = createPrompt({
+      user: `
 The previous implementation failed validation. Please fix the issues.
 
 PRP Task ID: ${prp.taskId}
@@ -598,16 +608,15 @@ Output your result in the same JSON format:
   "result": "success" | "error" | "issue",
   "message": "Detailed explanation"
 }
-    `.trim();
+    `.trim(),
+      responseFormat: z.unknown(),
+    });
 
     // Execute fix attempt with retry logic
-    await retryAgentPrompt(
-      () => this.#coderAgent.prompt(fixPrompt as unknown as Prompt<unknown>),
-      {
-        agentType: 'Coder',
-        operation: 'fixValidation',
-      }
-    );
+    await retryAgentPrompt(() => this.#coderAgent.prompt(fixPrompt), {
+      agentType: 'Coder',
+      operation: 'fixValidation',
+    });
   }
 
   /**
