@@ -298,12 +298,91 @@ export function getNextPendingItem(backlog: Backlog): HierarchyItem | null {
  * console.assert(updatedItem?.status === 'Complete');
  * ```
  */
+
+/**
+ * Promote a parent (Task/Milestone/Phase) status given its children's statuses.
+ *
+ * @remarks
+ * Returns 'Complete' only when ALL non-obsolete children are 'Complete'.
+ * Otherwise returns `current` unchanged. Crucially this is MONOTONIC: it only
+ * ever upgrades toward 'Complete' and never touches a parent that is already
+ * 'Complete' or explicitly 'Obsolete'. That makes it safe to run after every
+ * status mutation without clobbering explicit overrides (e.g. task-patcher
+ * marking a task 'Obsolete', or a parent pre-set to 'Complete').
+ */
+function promoteIfAllComplete(
+  children: { status: Status }[],
+  current: Status
+): Status {
+  if (current === 'Complete' || current === 'Obsolete') {
+    return current;
+  }
+  const active = children.filter(c => c.status !== 'Obsolete');
+  if (active.length === 0) {
+    return current;
+  }
+  return active.every(c => c.status === 'Complete') ? 'Complete' : current;
+}
+
+/**
+ * Roll completion status up the hierarchy after a leaf (subtask) change.
+ *
+ * @remarks
+ * `updateItemStatus` historically mutated only the exact target item, so a
+ * Task whose subtasks were all 'Complete' still showed 'Planned', Milestones
+ * never reached 'Complete', and a Phase stayed stuck on 'Ready' — contradicting
+ * the models.ts contract ("A Task is typically completed when all its subtasks
+ * are Complete"). This walks the tree bottom-up and promotes each ancestor to
+ * 'Complete' when all its non-obsolete children are 'Complete'.
+ *
+ * Because promotion is monotonic and short-circuits on 'Complete'/'Obsolete'
+ * parents, this is idempotent and side-effect-free for already-consistent trees
+ * (it returns the same Backlog reference when nothing changes, preserving
+ * structural sharing for unchanged subtrees).
+ */
+function rollupCompletion(backlog: Backlog): Backlog {
+  let mutated = false;
+
+  const phases = backlog.backlog.map(phase => {
+    let phaseChanged = false;
+
+    const milestones = phase.milestones.map(milestone => {
+      let milestoneChanged = false;
+
+      const tasks = milestone.tasks.map(task => {
+        const taskStatus = promoteIfAllComplete(task.subtasks, task.status);
+        if (taskStatus !== task.status) {
+          milestoneChanged = true;
+          return { ...task, status: taskStatus };
+        }
+        return task;
+      });
+
+      const milestoneStatus = promoteIfAllComplete(tasks, milestone.status);
+      if (milestoneStatus !== milestone.status || milestoneChanged) {
+        phaseChanged = true;
+        return { ...milestone, tasks, status: milestoneStatus };
+      }
+      return milestone;
+    });
+
+    const phaseStatus = promoteIfAllComplete(milestones, phase.status);
+    if (phaseStatus !== phase.status || phaseChanged) {
+      mutated = true;
+      return { ...phase, milestones, status: phaseStatus };
+    }
+    return phase;
+  });
+
+  return mutated ? { ...backlog, backlog: phases } : backlog;
+}
+
 export function updateItemStatus(
   backlog: Backlog,
   id: string,
   newStatus: Status
 ): Backlog {
-  return {
+  const updated: Backlog = {
     ...backlog,
     backlog: backlog.backlog.map(phase => {
       // Check if this is the target phase
@@ -401,4 +480,9 @@ export function updateItemStatus(
       };
     }),
   };
+
+  // Roll the change up: completing the last subtask of a task should mark the
+  // task Complete, completing the last task of a milestone marks the milestone
+  // Complete, and so on up to the phase. Monotonic + idempotent.
+  return rollupCompletion(updated);
 }

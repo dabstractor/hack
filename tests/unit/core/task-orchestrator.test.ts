@@ -780,11 +780,11 @@ describe('TaskOrchestrator', () => {
       // VERIFY: abandonment logged at info
       expect(mockLogger.info).toHaveBeenCalledWith(
         { subtaskId: 'P1.M1.T1.S1' },
-        expect.stringContaining('abandoned')
+        'Background research abandoned (deadline exceeded); re-researching synchronously inline'
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         { subtaskId: 'P1.M1.T1.S1' },
-        'Synchronous inline re-research complete'
+        'Synchronous inline research complete'
       );
     });
 
@@ -3926,10 +3926,10 @@ describe('TaskOrchestrator', () => {
       };
       rt.executeSubtask = vi.fn().mockResolvedValue(issue);
 
-      // EXECUTE
-      await orchestrator.executeSubtask(subtask);
-
-      // VERIFY: hard-failed
+      // EXECUTE: now throws after exhausting issue retries (halt-on-failure)
+      await expect(orchestrator.executeSubtask(subtask)).rejects.toThrow(
+        'Issue-driven re-planning exhausted'
+      );
       const statuses = (mockManager.updateItemStatus as any).mock.calls.map(
         (c: any) => c[1]
       );
@@ -3980,8 +3980,10 @@ describe('TaskOrchestrator', () => {
         fixAttempts: 2,
       });
 
-      // EXECUTE
-      await orchestrator.executeSubtask(subtask);
+      // EXECUTE: now throws on hard-failure (halt-on-failure contract)
+      await expect(orchestrator.executeSubtask(subtask)).rejects.toThrow(
+        'Subtask P1.M1.T1.S1 failed'
+      );
 
       // VERIFY: Failed, NO re-planning steps
       expect((mockManager.updateItemStatus as any).mock.calls.at(-1)).toEqual([
@@ -4072,7 +4074,9 @@ describe('TaskOrchestrator', () => {
           fixAttempts: 0,
         });
 
-      await orchestrator.executeSubtask(subtask);
+      await expect(orchestrator.executeSubtask(subtask)).rejects.toThrow(
+        'Subtask P1.M1.T1.S1 failed'
+      );
 
       expect(mockRecoverTasksJson).toHaveBeenCalledWith(
         '/plan/001_x/tasks.json',
@@ -4097,7 +4101,12 @@ describe('TaskOrchestrator', () => {
           fixAttempts: 0,
         });
 
-      await orchestrator.executeSubtask(subtask);
+      // The mock always returns 'issue', so re-planning eventually exhausts
+      // ISSUE_RETRY_MAX and hard-fails (throws). But each re-plan iteration
+      // first applies a 'Planned' status delta, so that call is still recorded.
+      await expect(orchestrator.executeSubtask(subtask)).rejects.toThrow(
+        'Issue-driven re-planning exhausted'
+      );
 
       expect(mockRecoverTasksJson).toHaveBeenCalledWith(
         '/plan/001_x/tasks.json',

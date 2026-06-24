@@ -823,11 +823,10 @@ export class TaskOrchestrator {
               { subtaskId: subtask.id, attempts, maxIssueRetries },
               'Issue-driven re-planning exhausted; hard-failing item'
             );
-            await this.setStatus(
-              subtask.id,
-              'Failed',
-              `Issue-driven re-planning exhausted after ${maxIssueRetries} attempts: ${result.issueMessage ?? 'unspecified planning gap'}`
-            );
+            failureReason = `Issue-driven re-planning exhausted after ${maxIssueRetries} attempts: ${
+              result.issueMessage ?? 'unspecified planning gap'
+            }`;
+            await this.setStatus(subtask.id, 'Failed', failureReason);
             break;
           }
 
