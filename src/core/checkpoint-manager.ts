@@ -88,6 +88,7 @@ export interface CheckpointExecutionState {
     | 'validation-gate-2'
     | 'validation-gate-3'
     | 'validation-gate-4'
+    | 'validation-gate-5'
     | 'complete'
     | 'failed';
 
@@ -206,6 +207,7 @@ const CheckpointExecutionStateSchema = z.object({
     'validation-gate-2',
     'validation-gate-3',
     'validation-gate-4',
+    'validation-gate-5',
     'complete',
     'failed',
   ]),
