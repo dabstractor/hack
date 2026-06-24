@@ -185,7 +185,13 @@ const DEFAULT_CHECKPOINT_CONFIG: CheckpointConfig = {
  * Zod schema for ValidationGateResult validation
  */
 const ValidationGateResultSchema = z.object({
-  level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  level: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal(5),
+  ]),
   description: z.string(),
   success: z.boolean(),
   command: z.string().nullable(),
