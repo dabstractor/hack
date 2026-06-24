@@ -235,7 +235,12 @@ Transform your research findings into the template sections:
 **Goal Section**: Use research to define specific, measurable Feature Goal and concrete Deliverable based on the work item title and description
 **Context Section**: Populate YAML structure with your research findings - specific URLs, file patterns, gotchas
 **Implementation Tasks**: Create dependency-ordered tasks using information-dense keywords from codebase analysis
-**Validation Gates**: Use project-specific validation commands that you've verified work in this codebase
+**Validation Gates**: Use project-specific validation commands that you've verified work in this codebase. CRITICAL RULES for gate commands:
+- **ONE command per gate.** Do NOT chain multiple checks with semicolons or && into a single gate. Each gate level gets exactly ONE simple command.
+- **Prefer standard tooling**: \`npm test\`, \`npm run typecheck\`, \`npx vitest run <file>\`, \`npx eslint <file>\`. These are robust and well-tested.
+- **NEVER write \`grep\` patterns with mixed single/double quotes.** The quoting dance \`["'"'']\` is malformed shell — it collapses during execution and produces false-positive failures. If you must check file contents, use a simple \`grep -q 'pattern' file\` with a single-quoted pattern that contains NO single quotes inside it, or use \`grep -F\` (fixed string).
+- **NEVER embed heredocs, \`for\` loops, or multi-line scripts** in a gate command. Gates are single-line commands.
+- **If a scope boundary check is needed** (e.g., "don't modify file X", "don't import library Y"), express it as a simple \`grep -q\` with a plain pattern, or better yet as a success criterion the coder follows rather than a shell gate.
 **Docs Impact**: Every PRP must surface the item's declared DOCS impact — echo the item's Mode A \`DOCS:\` line (the per-item doc it touches) or, if the item defers to Mode B, note the changeset-level doc synced in the final task. Never let a PRP silently drop documentation.
 
 ### Step 4: Information Density Standards
