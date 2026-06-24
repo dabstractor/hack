@@ -1457,26 +1457,33 @@ describe('core/models Zod Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should reject validation gate with invalid level', () => {
-      // SETUP: Invalid level (not 1-4)
-      const invalid = { ...validGate, level: 5 };
+    it('should accept validation gate with level 5 (scope guard)', () => {
+      // SETUP: Level 5 (now valid — scope guard level)
+      const level5 = { ...validGate, level: 5 };
 
       // EXECUTE
-      const result = ValidationGateSchema.safeParse(invalid);
+      const result = ValidationGateSchema.safeParse(level5);
 
-      // VERIFY
-      expect(result.success).toBe(false);
+      // VERIFY: level 5 is accepted (not rejected)
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.level).toBe(5);
+      }
     });
 
-    it('should reject validation gate with level 0', () => {
-      // SETUP: Invalid level 0
+    it('should clamp validation gate with level 0 to level 1', () => {
+      // SETUP: Invalid level 0 (below minimum)
+      // The schema clamps rather than rejects, so 0 becomes 1.
       const invalid = { ...validGate, level: 0 };
 
       // EXECUTE
       const result = ValidationGateSchema.safeParse(invalid);
 
-      // VERIFY
-      expect(result.success).toBe(false);
+      // VERIFY: clamped to 1, not rejected
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.level).toBe(1);
+      }
     });
 
     it('should reject validation gate with empty description', () => {
@@ -1696,12 +1703,13 @@ describe('core/models Zod Schemas', () => {
     });
 
     it('should reject PRP with invalid validation gate', () => {
-      // SETUP: Invalid validation gate in array
+      // SETUP: Invalid validation gate — null level is not a number/string,
+      // so the schema rejects it (numeric/string levels 1-5 are accepted).
       const invalid = {
         ...validPRP,
         validationGates: [
           {
-            level: 5, // Invalid level
+            level: null, // Not a number/string
             description: 'Invalid gate',
             command: 'test',
             manual: false,
@@ -1914,14 +1922,14 @@ describe('core/models Zod Schemas', () => {
       // Invalid Level Tests
       // -------------------------------------------------------------------------
 
-      it('should reject ValidationGate with invalid level (5)', () => {
-        // SETUP: ValidationGate with level 5 (invalid)
+      it('should accept ValidationGate with level 5 (scope guard level)', () => {
+        // SETUP: ValidationGate with level 5 (now valid)
         const prp = createTestPRPDocument({
           validationGates: [
             {
-              level: 5 as any, // Type assertion to bypass TS
-              description: 'Invalid level',
-              command: 'npm test',
+              level: 5,
+              description: 'Scope guard',
+              command: 'grep -q forbidden file',
               manual: false,
             },
           ],
@@ -1930,12 +1938,16 @@ describe('core/models Zod Schemas', () => {
         // EXECUTE
         const result = PRPDocumentSchema.safeParse(prp);
 
-        // VERIFY: Validation fails
-        expect(result.success).toBe(false);
+        // VERIFY: level 5 is accepted
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.validationGates[0].level).toBe(5);
+        }
       });
 
-      it('should reject ValidationGate with invalid level (0)', () => {
-        // SETUP: ValidationGate with level 0 (invalid)
+      it('should clamp ValidationGate with level 0 to level 1', () => {
+        // SETUP: ValidationGate with level 0 (below minimum)
+        // The schema clamps rather than rejects.
         const prp = createTestPRPDocument({
           validationGates: [
             {
@@ -1947,9 +1959,12 @@ describe('core/models Zod Schemas', () => {
           ],
         });
 
-        // EXECUTE & VERIFY
+        // EXECUTE & VERIFY: clamped to 1, not rejected
         const result = PRPDocumentSchema.safeParse(prp);
-        expect(result.success).toBe(false);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.validationGates[0].level).toBe(1);
+        }
       });
 
       it('should accept null command for manual validation', () => {

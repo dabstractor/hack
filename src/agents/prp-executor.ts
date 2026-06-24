@@ -39,8 +39,8 @@ import type { CheckpointExecutionState } from '../core/checkpoint-manager.js';
  * including success status, captured output, and exit code.
  */
 export interface ValidationGateResult {
-  /** Validation level (1-4) */
-  readonly level: 1 | 2 | 3 | 4;
+  /** Validation level (1-5) */
+  readonly level: 1 | 2 | 3 | 4 | 5;
   /** Description of what this level validates */
   readonly description: string;
   /** Whether the validation passed */

@@ -51,8 +51,8 @@ import type { Logger } from '../utils/logger.js';
  * The PRPExecutor also defines ValidationGateResult for execution results.
  */
 export interface ValidationGateResult {
-  /** Validation level (1-4) */
-  readonly level: 1 | 2 | 3 | 4;
+  /** Validation level (1-5) */
+  readonly level: 1 | 2 | 3 | 4 | 5;
   /** Description of what this level validates */
   readonly description: string;
   /** Whether the validation passed */

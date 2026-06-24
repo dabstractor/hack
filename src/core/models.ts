@@ -1044,7 +1044,7 @@ export interface DeltaSession extends SessionState {
  */
 export interface ValidationGate {
   /**
-   * Validation level in the progressive system (1-4)
+   * Validation level in the progressive system (1-5)
    *
    * @remarks
    * Each level represents a distinct validation gate:
@@ -1052,8 +1052,9 @@ export interface ValidationGate {
    * - 2: Unit Tests (component-level validation)
    * - 3: Integration Testing (system-level validation)
    * - 4: Manual/Creative (end-to-end workflows, domain-specific)
+   * - 5: Scope guard (verify task boundaries respected, no forbidden imports)
    */
-  readonly level: 1 | 2 | 3 | 4;
+  readonly level: 1 | 2 | 3 | 4 | 5;
 
   /**
    * Human-readable description of what this level validates
@@ -1113,23 +1114,28 @@ export const ValidationGateSchema = z
   .object({
     // Accept the natural shapes reasoning models emit: a numeric level (1-4),
     // a descriptive string ("L1 — typecheck..."), or "L1"-style prefixes.
-    // Normalize to one of 1|2|3|4 so the executor can sort numerically.
+    // Normalize to one of 1|2|3|4|5 so the executor can sort numerically.
     level: z.union([z.number(), z.string()]),
     description: z.string().optional(),
     command: z.string().nullable(),
     manual: z.boolean().optional(),
   })
   .transform((g): ValidationGate => {
-    let level: 1 | 2 | 3 | 4;
+    let level: 1 | 2 | 3 | 4 | 5;
     if (typeof g.level === 'number') {
-      level = Math.max(1, Math.min(4, Math.trunc(g.level))) as 1 | 2 | 3 | 4;
+      level = Math.max(1, Math.min(5, Math.trunc(g.level))) as
+        | 1
+        | 2
+        | 3
+        | 4
+        | 5;
     } else {
-      const m = g.level.match(/([1-4])/);
+      const m = g.level.match(/([1-5])/);
       if (!m) {
         // No numeric hint — assign level 1 (syntax/style) as a safe default.
         level = 1;
       } else {
-        level = Number(m[1]) as 1 | 2 | 3 | 4;
+        level = Number(m[1]) as 1 | 2 | 3 | 4 | 5;
       }
     }
     const command = g.command ?? null;
