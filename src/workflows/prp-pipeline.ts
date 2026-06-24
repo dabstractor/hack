@@ -1004,7 +1004,13 @@ export class PRPPipeline extends Workflow {
             );
           }
         } catch (taskError) {
-          // CATCH: Individual task failure - track and continue
+          // CATCH: Individual task failure.
+          //
+          // A TaskError thrown by executeSubtask means a subtask hard-failed
+          // (validation exhausted after retries). By DEFAULT we HALT the
+          // pipeline — the prior always-continue behavior committed broken
+          // code and cascaded into dependent tasks. Pass --continue-on-error
+          // to soldier on.
           const currentItemId =
             this.taskOrchestrator.currentItemId ?? `iteration-${iterations}`;
           const taskId = currentItemId;
@@ -1013,19 +1019,27 @@ export class PRPPipeline extends Workflow {
             phase: this.currentPhase,
           });
 
-          this.logger.warn(
-            '[PRPPipeline] Task failed, continuing to next task',
-            {
-              taskId,
-              error:
-                taskError instanceof Error
-                  ? taskError.message
-                  : String(taskError),
-            }
-          );
+          const errMsg =
+            taskError instanceof Error ? taskError.message : String(taskError);
 
-          // Continue to next iteration - don't re-throw
-          // TaskOrchestrator already set status to Failed
+          if (this.#continueOnError) {
+            this.logger.warn(
+              '[PRPPipeline] Task failed, continuing (--continue-on-error)',
+              { taskId, error: errMsg }
+            );
+            continue; // next iteration
+          }
+
+          // Halt: stop processing further tasks. The tracked failure surfaces
+          // as a non-empty failedTasks set so run() reports failure (exit 1).
+          this.logger.error(
+            '[PRPPipeline] Task failed — halting pipeline. ' +
+              'Fix the failing task and resume with --continue, or pass ' +
+              '--continue-on-error to proceed past failures.',
+            { taskId, error: errMsg }
+          );
+          this.currentPhase = 'backlog_halted';
+          break;
         }
       }
 

@@ -40,6 +40,7 @@ import { getDependencies } from '../utils/task-utils.js';
 import type { Scope } from './scope-resolver.js';
 import { resolveScope } from './scope-resolver.js';
 import { smartCommit } from '../utils/git-commit.js';
+import { TaskError } from '../utils/errors.js';
 import { atomicWrite, readTasksJSON } from './session-utils.js';
 import { recoverTasksJson } from './tasks-json-recovery.js';
 import { join } from 'node:path';
@@ -764,6 +765,8 @@ export class TaskOrchestrator {
       // executeWithRetry (TaskRetryManager) wraps each runtime call INSIDE the loop (transient infra retries).
       // #issueAttempts accumulates OUTSIDE (orchestrator-level re-planning count).
       const maxIssueRetries = getIssueRetryMax();
+      let succeeded = false; // tracks whether this subtask passed validation
+      let failureReason = ''; // captured on hard-fail for the thrown TaskError
       // eslint-disable-next-line no-constant-condition -- bounded by internal break/continue
       while (true) {
         // Wrap PRPRuntime execution with retry logic
@@ -788,27 +791,13 @@ export class TaskOrchestrator {
           'PRPRuntime execution complete'
         );
 
-        // NEW: Trigger background research for next pending tasks
-        // Fire-and-forget: don't await, log errors
-        this.researchQueue.processNext(this.#backlog).catch(error => {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.#logger.error(
-            { error: errorMessage },
-            'Background research error'
-          );
-        });
-
-        // Log updated queue statistics
-        const stats = this.researchQueue.getStats();
-        this.#logger.debug(
-          {
-            queued: stats.queued,
-            researching: stats.researching,
-            cached: stats.cached,
-          },
-          'Research queue stats'
-        );
+        // NOTE: No fire-and-forget background research here. The pipeline runs
+        // STRICTLY SEQUENTIALLY — one task is fully researched, executed, and
+        // committed before the next begins. The prior researchQueue.processNext()
+        // pre-fetched PRPs for upcoming tasks in the background (concurrency 3),
+        // which meant 'research across multiple items at once' and left tasks
+        // dangling in 'Researching' when the process was interrupted. Each task
+        // self-serves its PRP via the inline researchNow() fallback above.
 
         // --- Tri-state outcome handling (PRD §4.5) ---
 
@@ -819,6 +808,7 @@ export class TaskOrchestrator {
             'Complete',
             'Implementation completed successfully'
           );
+          succeeded = true;
           break;
         }
 
@@ -878,39 +868,59 @@ export class TaskOrchestrator {
           continue; // next loop iteration re-executes against the fresh PRP
         }
 
-        // FAIL: real implementation failure → existing Failed path, NO re-planning
-        await this.setStatus(
-          subtask.id,
-          'Failed',
-          result.error ?? 'Execution failed'
-        );
+        // FAIL: real implementation failure → mark Failed, capture reason, exit loop.
+        // (The throw + commit-skip happen after the loop.)
+        failureReason = result.error ?? 'Execution failed';
+        await this.setStatus(subtask.id, 'Failed', failureReason);
         break;
       }
 
-      // Smart commit after subtask completion (success, hard-fail, or fail)
-      try {
-        const sessionPath = this.sessionManager.currentSession?.metadata.path;
-        if (!sessionPath) {
-          this.#logger.warn('Session path not available for smart commit');
-        } else {
-          const commitMessage = `${subtask.id}: ${subtask.title}`;
-          const commitHash = await smartCommit(sessionPath, commitMessage);
-
-          if (commitHash) {
-            this.#logger.info({ commitHash }, 'Commit created');
+      // Smart commit ONLY on success. Failed tasks must NOT auto-commit their
+      // broken code — the prior unconditional commit polluted history with
+      // failed deliverables under a [PRP Auto] message indistinguishable from
+      // real work. Broken output stays in the working tree (uncommitted) for
+      // inspection.
+      if (succeeded) {
+        try {
+          const sessionPath = this.sessionManager.currentSession?.metadata.path;
+          if (!sessionPath) {
+            this.#logger.warn('Session path not available for smart commit');
           } else {
-            this.#logger.info('No files to commit');
+            const commitMessage = `${subtask.id}: ${subtask.title}`;
+            const commitHash = await smartCommit(sessionPath, commitMessage);
+
+            if (commitHash) {
+              this.#logger.info({ commitHash }, 'Commit created');
+            } else {
+              this.#logger.info('No files to commit');
+            }
           }
+        } catch (error) {
+          // Don't fail the subtask if commit fails
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.#logger.error({ error: errorMessage }, 'Smart commit failed');
         }
-      } catch (error) {
-        // Don't fail the subtask if commit fails
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.#logger.error({ error: errorMessage }, 'Smart commit failed');
+      } else {
+        this.#logger.warn(
+          { subtaskId: subtask.id, reason: failureReason },
+          'Subtask failed — skipping commit (broken output left uncommitted)'
+        );
       }
 
       // FLUSH: Batch write after subtask completes (success or failure)
       await this.sessionManager.flushUpdates();
+
+      // Halt-on-failure: throw a TaskError so executeBacklog can halt the
+      // pipeline (unless --continue-on-error). The prior code returned normally
+      // on validation failure, so executeBacklog silently continued to the next
+      // task — committing broken code and cascading into dependent work.
+      if (!succeeded) {
+        throw new TaskError(`Subtask ${subtask.id} failed: ${failureReason}`, {
+          taskId: subtask.id,
+          operation: 'executeSubtask',
+        });
+      }
     } catch (error) {
       // PATTERN: Set 'Failed' status on exception with error details
       const errorMessage =
