@@ -272,12 +272,14 @@ export class FixCycleWorkflow extends Workflow {
       `[FixCycleWorkflow] Testing against ${completedTasks.length} completed tasks`
     );
 
-    // Run BugHuntWorkflow
+    // Run BugHuntWorkflow — pass sessionPath so it uses file-as-contract
+    // (without it, the bug-hunt falls back to responseFormat and fails with
+    // VALIDATION_ERROR on reasoning models that return prose instead of JSON)
     const bugHuntWorkflow = new BugHuntWorkflow(
       this.prdContent,
       completedTasks
     );
-    const results = await bugHuntWorkflow.run();
+    const results = await bugHuntWorkflow.run(this.sessionPath);
 
     // Store results
     this.currentResults = results;
