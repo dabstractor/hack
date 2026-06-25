@@ -879,6 +879,12 @@ export class TaskOrchestrator {
       // failed deliverables under a [PRP Auto] message indistinguishable from
       // real work. Broken output stays in the working tree (uncommitted) for
       // inspection.
+      //
+      // FLUSH FIRST: write the batched status delta to disk (tasks.json) BEFORE
+      // committing, so the task commit includes the status change (subtask →
+      // Complete) riding alongside the deliverables.
+      await this.sessionManager.flushUpdates();
+
       if (succeeded) {
         try {
           const sessionPath = this.sessionManager.currentSession?.metadata.path;
@@ -906,9 +912,6 @@ export class TaskOrchestrator {
           'Subtask failed — skipping commit (broken output left uncommitted)'
         );
       }
-
-      // FLUSH: Batch write after subtask completes (success or failure)
-      await this.sessionManager.flushUpdates();
 
       // Halt-on-failure: throw a TaskError so executeBacklog can halt the
       // pipeline (unless --continue-on-error). The prior code returned normally

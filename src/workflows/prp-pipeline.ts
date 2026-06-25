@@ -1204,8 +1204,37 @@ export class PRPPipeline extends Workflow {
         this.logger.info('[PRPPipeline] Bugs detected, starting fix cycle');
 
         try {
+          // Create a bugfix child session directory. The FixCycleWorkflow
+          // validates that its sessionPath contains 'bugfix' (PRD §5.1: bug
+          // fix operations must only occur in bugfix sessions). We create a
+          // bugfix/ subdirectory under the current session, copy TEST_RESULTS.md
+          // into it (the workflow reads it from there), and pass that path.
+          const { resolve } = await import('node:path');
+          const { mkdir, copyFile } = await import('node:fs/promises');
+          const bugfixSessionPath = resolve(sessionPath, 'bugfix');
+          await mkdir(bugfixSessionPath, { recursive: true });
+          const testResultsPath = resolve(sessionPath, 'TEST_RESULTS.md');
+          try {
+            await copyFile(
+              testResultsPath,
+              resolve(bugfixSessionPath, 'TEST_RESULTS.md')
+            );
+          } catch {
+            // TEST_RESULTS.md may not exist if writeBugReport skipped (no
+            // critical/major bugs); copy bug_hunt_results.json as fallback.
+            await copyFile(
+              resolve(sessionPath, 'bug_hunt_results.json'),
+              resolve(bugfixSessionPath, 'TEST_RESULTS.md')
+            ).catch(() => {
+              /* nothing to copy — fix-cycle will error on load */
+            });
+          }
+          this.logger.info(
+            `[PRPPipeline] Bugfix session: ${bugfixSessionPath}`
+          );
+
           const fixCycleWorkflow = new FixCycleWorkflow(
-            sessionPath,
+            bugfixSessionPath,
             prdContent,
             this.taskOrchestrator,
             this.sessionManager

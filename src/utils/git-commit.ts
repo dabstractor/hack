@@ -35,8 +35,10 @@ const logger = getLogger('smartCommit');
  * These files contain pipeline state and must remain uncommitted
  * to enable clean pipeline resumption and state management.
  */
+// Files excluded from per-task commits. tasks.json is intentionally NOT here:
+// the user requires each task commit to include the status delta (subtask →
+// Complete) so the task registry tracks alongside the deliverables.
 const PROTECTED_FILES = [
-  'tasks.json', // Pipeline task registry
   'PRD.md', // Original PRD document
   'prd_snapshot.md', // PRD snapshot for delta detection
 ] as const;
