@@ -590,6 +590,68 @@ export function isPipelineError(error: unknown): error is PipelineError {
 }
 
 /**
+ * Robustly extract a human-readable message from ANY thrown value.
+ *
+ * @remarks
+ * `error instanceof Error ? error.message : String(error)` is the common
+ * pattern, but it produces the useless literal `"[object Object]"` when a
+ * plain object is thrown (e.g. a groundswell AgentResponse error, a ZodError
+ * without the standard prototype, or a raw `{message: {...}}` payload). This
+ * handles all those shapes so error reports and logs always carry real text.
+ *
+ * Handles: Error (uses .message), string (as-is), plain objects (.message if
+ * string, else JSON), ZodError (.issues/.errors), arrays, null/undefined.
+ */
+export function toErrorMessage(error: unknown): string {
+  if (error == null) {
+    return 'Unknown error (null/undefined)';
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message || error.constructor?.name || 'Error (empty message)';
+  }
+  if (typeof error === 'object') {
+    const obj = error as Record<string, unknown>;
+    // Groundswell AgentResponse error: { code, message, details, recoverable }
+    if (typeof obj.message === 'string' && obj.message.length > 0) {
+      const code = typeof obj.code === 'string' ? obj.code : undefined;
+      return code ? `${obj.message} (${code})` : obj.message;
+    }
+    // ZodError: has .issues or .errors array
+    const issues = (obj.issues ?? obj.errors) as unknown;
+    if (Array.isArray(issues) && issues.length > 0) {
+      const parts = issues
+        .map((i: unknown) => {
+          if (typeof i === 'string') return i;
+          if (i && typeof i === 'object') {
+            const io = i as Record<string, unknown>;
+            const path = io.path;
+            const msg = io.message;
+            const pathStr = Array.isArray(path)
+              ? path.join('.')
+              : typeof path === 'string'
+                ? path
+                : 'root';
+            return typeof msg === 'string' ? `${pathStr}: ${msg}` : pathStr;
+          }
+          return String(i);
+        })
+        .slice(0, 10); // cap to avoid huge reports
+      return `Validation failed: ${parts.join('; ')}`;
+    }
+    // Last resort: JSON (never produces [object Object])
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return `${error.constructor?.name ?? 'Object'} (unserializable)`;
+    }
+  }
+  return String(error);
+}
+
+/**
  * Type guard for SessionError
  *
  * @remarks

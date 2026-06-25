@@ -31,7 +31,11 @@ import type { Backlog, Status, DeltaAnalysis, Task } from '../core/models.js';
 import type { Scope } from '../core/scope-resolver.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
-import { isPipelineError, isFatalError } from '../utils/errors.js';
+import {
+  isPipelineError,
+  isFatalError,
+  toErrorMessage,
+} from '../utils/errors.js';
 import {
   validateNestedExecution,
   isNestedExecutionError,
@@ -458,8 +462,11 @@ export class PRPPipeline extends Workflow {
     error: unknown,
     context?: { phase?: string; milestone?: string; taskTitle?: string }
   ): void {
-    // Extract error information
-    const errorObj = error instanceof Error ? error : new Error(String(error));
+    // Extract error information — use toErrorMessage so plain objects,
+    // ZodErrors, and groundswell AgentResponse errors serialize to real text
+    // instead of the useless "[object Object]" literal.
+    const message = toErrorMessage(error);
+    const errorObj = error instanceof Error ? error : new Error(message);
     let errorCode: string | undefined;
 
     // Extract error code from PipelineError

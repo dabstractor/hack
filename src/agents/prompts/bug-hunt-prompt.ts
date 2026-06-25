@@ -10,6 +10,7 @@
 
 // PATTERN: Import Groundswell prompt creation utilities
 import { createPrompt, type Prompt } from 'groundswell';
+import { z } from 'zod';
 
 // CRITICAL: Use .js extension for ES module imports
 import type { TestResults, Task } from '../../core/models.js';
@@ -122,22 +123,46 @@ ${BUG_HUNT_PROMPT}
  */
 export function createBugHuntPrompt(
   prd: string,
-  completedTasks: Task[]
+  completedTasks: Task[],
+  outputPath?: string
 ): Prompt<TestResults> {
-  // PATTERN: Use createPrompt with responseFormat for structured output
-  return createPrompt({
-    // The user prompt contains PRD + completed tasks + BUG_HUNT_PROMPT
-    user: constructUserPrompt(prd, completedTasks),
+  // FILE-AS-CONTRACT: reasoning models (glm-5.2) reliably WRITE files but do
+  // NOT reliably honor responseFormat for structured JSON in the conversation.
+  // When outputPath is provided, instruct the agent to write its TestResults
+  // JSON there; the caller reads the file back and validates it. The prior
+  // responseFormat-only path failed with VALIDATION_ERROR ('Expected object,
+  // received string') because the model returned prose markdown instead of
+  // JSON — the exact bug already fixed for the architect/researcher agents.
+  const fileBanner =
+    outputPath !== undefined
+      ? `## ⚠️ DELIVERABLE — READ FIRST (overrides any conflicting instruction below)
 
-    // The system prompt is the BUG_HUNT_PROMPT (QA Engineer persona)
+Your FINAL deliverable is a JSON object written to this file:
+
+    ${outputPath}
+
+Use your file-write tool to create that file with a single JSON object matching:
+{ "hasBugs": boolean, "bugs": [{ "id": string, "title": string, "severity": "critical"|"major"|"minor"|"cosmetic", "description": string, "reproduction": string, "expected": string, "actual": string, "location": string, "suggestedFix": string }], "summary": string, "recommendations": string[] }
+
+Write ONLY valid JSON to that file (no markdown fence). After writing, return a one-line confirmation like "Bug report written to <path>". The JSON in the file is the ONLY thing the system reads.
+
+---
+
+`
+      : '';
+
+  // Build the config. responseFormat is REQUIRED by PromptConfig, but when
+  // using file-as-contract the file is the source of truth — so use a
+  // permissive z.unknown() (mirrors the architect pattern) so the agent's
+  // one-line confirmation doesn't trip JSON validation.
+  const prompt = createPrompt({
+    user: fileBanner + constructUserPrompt(prd, completedTasks),
     system: BUG_HUNT_PROMPT,
-
-    // CRITICAL: responseFormat enables type-safe structured output
-    // Groundswell validates LLM output against TestResultsSchema
-    responseFormat: TestResultsSchema,
-
-    // CRITICAL: Enable reflection for complex bug analysis
-    // Reflection provides error recovery for structured output
+    responseFormat: outputPath !== undefined ? z.unknown() : TestResultsSchema,
     enableReflection: true,
   });
+  // When using file-as-contract the response is a free-form confirmation, not
+  // TestResults — but the caller treats the FILE as the contract, so cast the
+  // prompt type to satisfy the Prompt<TestResults> signature.
+  return prompt as Prompt<TestResults>;
 }

@@ -24,13 +24,15 @@
  */
 
 import { Workflow, Step } from 'groundswell';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import type { Task, TestResults } from '../core/models.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
 import { createQAAgent } from '../agents/agent-factory.js';
 import { createBugHuntPrompt } from '../agents/prompts/bug-hunt-prompt.js';
 import { retryAgentPrompt } from '../utils/retry.js';
+import { toErrorMessage } from '../utils/errors.js';
 import { atomicWrite } from '../core/session-utils.js';
 import { TestResultsSchema } from '../core/models.js';
 
@@ -60,6 +62,9 @@ export class BugHuntWorkflow extends Workflow {
 
   /** Generated test results (null until report phase completes) */
   testResults: TestResults | null = null;
+
+  /** Session path for file-as-contract output (set by run()) */
+  private sessionPath?: string;
 
   /** Correlation logger with correlation ID for tracing */
   private correlationLogger: Logger;
@@ -262,26 +267,49 @@ export class BugHuntWorkflow extends Workflow {
       const qaAgent = createQAAgent();
       this.correlationLogger.info('[BugHuntWorkflow] QA agent created');
 
-      // PATTERN: Create bug hunt prompt with PRD and completed tasks
-      const prompt = createBugHuntPrompt(this.prdContent, this.completedTasks);
-      this.correlationLogger.info('[BugHuntWorkflow] Bug hunt prompt created');
+      // FILE-AS-CONTRACT: write TestResults JSON to a file the agent controls,
+      // then read it back. Reasoning models reliably write files but do NOT
+      // reliably honor responseFormat for structured JSON (the prior
+      // responseFormat-only path failed with VALIDATION_ERROR because the
+      // model returned prose). The file is the source of truth.
+      const outputPath =
+        this.sessionPath !== undefined
+          ? join(this.sessionPath, 'bug_hunt_results.json')
+          : undefined;
 
-      // PATTERN: Execute QA agent with retry logic and extract results from AgentResponse
+      // PATTERN: Create bug hunt prompt with PRD, completed tasks, and output path
+      const prompt = createBugHuntPrompt(
+        this.prdContent,
+        this.completedTasks,
+        outputPath
+      );
+      this.correlationLogger.info('[BugHuntWorkflow] Bug hunt prompt created', {
+        usingFileContract: outputPath !== undefined,
+        outputPath,
+      });
+
+      // PATTERN: Execute QA agent with retry logic
       const agentResponse = await retryAgentPrompt(
         () => qaAgent.prompt(prompt),
         { agentType: 'QA', operation: 'bugHunt' }
       );
 
-      // Extract TestResults from AgentResponse
-      if (agentResponse.status !== 'success' || agentResponse.data === null) {
-        const errorMessage =
-          agentResponse.status === 'error' && agentResponse.error
-            ? agentResponse.error.message
-            : 'Unknown error';
-        throw new Error(`QA agent failed: ${errorMessage}`);
-      }
+      let results: TestResults;
 
-      const results: TestResults = agentResponse.data;
+      if (outputPath !== undefined) {
+        // FILE-AS-CONTRACT path: read + validate the JSON file the agent wrote
+        results = await this.#readResultsFile(outputPath);
+      } else {
+        // Legacy responseFormat path: extract from AgentResponse
+        if (agentResponse.status !== 'success' || agentResponse.data === null) {
+          const errorMessage =
+            agentResponse.status === 'error' && agentResponse.error
+              ? toErrorMessage(agentResponse.error)
+              : 'Unknown error';
+          throw new Error(`QA agent failed: ${errorMessage}`);
+        }
+        results = agentResponse.data;
+      }
 
       // Store results for observability
       this.testResults = results;
@@ -309,8 +337,7 @@ export class BugHuntWorkflow extends Workflow {
 
       return results;
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = toErrorMessage(error);
       this.correlationLogger.error(
         '[BugHuntWorkflow] Failed to generate bug report',
         {
@@ -319,6 +346,49 @@ export class BugHuntWorkflow extends Workflow {
       );
       throw new Error(`Bug report generation failed: ${errorMessage}`);
     }
+  }
+
+  /**
+   * Reads + validates the TestResults JSON file written by the QA agent.
+   *
+   * @remarks
+   * File-as-contract reader (mirrors the architect/prp-generator pattern).
+   * Tolerates a leading/trailing markdown fence and parses-first, then
+   * validates against TestResultsSchema. Throws a clear AgentError if the
+   * file is missing, unparseable, or fails schema validation.
+   */
+  async #readResultsFile(outputPath: string): Promise<TestResults> {
+    let raw: string;
+    try {
+      raw = await readFile(outputPath, 'utf-8');
+    } catch {
+      throw new Error(`QA agent did not write results file: ${outputPath}`);
+    }
+    let parsed: unknown = raw;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Tolerate a ```json ... ``` fence (some models wrap the file)
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenced) {
+        try {
+          parsed = JSON.parse(fenced[1].trim());
+        } catch (e) {
+          throw new Error(
+            `QA results file is not valid JSON: ${toErrorMessage(e)}`
+          );
+        }
+      } else {
+        throw new Error('QA results file is not valid JSON');
+      }
+    }
+    const result = TestResultsSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(
+        `QA results file failed validation: ${toErrorMessage(result.error)}`
+      );
+    }
+    return result.data;
   }
 
   /**
@@ -383,8 +453,7 @@ export class BugHuntWorkflow extends Workflow {
         { resultsPath }
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = toErrorMessage(error);
       this.correlationLogger.error(
         '[BugHuntWorkflow] Failed to write bug report',
         { error: errorMessage, resultsPath }
@@ -421,6 +490,7 @@ export class BugHuntWorkflow extends Workflow {
    */
   async run(sessionPath?: string): Promise<TestResults> {
     this.setStatus('running');
+    this.sessionPath = sessionPath;
     this.correlationLogger.info('[BugHuntWorkflow] Starting bug hunt workflow');
     this.correlationLogger.info('[BugHuntWorkflow] Starting bug hunt workflow');
 
@@ -454,8 +524,7 @@ export class BugHuntWorkflow extends Workflow {
     } catch (error) {
       // PATTERN: Set status to failed on error
       this.setStatus('failed');
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = toErrorMessage(error);
       this.correlationLogger.error(
         '[BugHuntWorkflow] Bug hunt workflow failed',
         {
