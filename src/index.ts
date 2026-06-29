@@ -36,7 +36,11 @@
  */
 
 import { configureEnvironment } from './config/environment.js';
-import { ensureHarnessInitialized } from './config/harness.js';
+import {
+  ensureHarnessInitialized,
+  runAuthPreflight,
+} from './config/harness.js';
+import { AuthPreflightError } from './config/types.js';
 import { parseCLIArgs, type ValidatedCLIArgs } from './cli/index.js';
 import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
@@ -111,6 +115,11 @@ async function main(): Promise<number> {
 
   // CRITICAL: Configure environment before any API operations
   configureEnvironment();
+
+  // CRITICAL: Fail-fast auth preflight (PRD §9.2.7). Aborts here if no credential
+  // is configured for the selected harness + provider/model — BEFORE any session
+  // directory is created or any agent is invoked.
+  await runAuthPreflight();
 
   // CRITICAL: Initialize the agent harness before any agent runs.
   // The harness is registered at module-load but never initialized; without
@@ -304,6 +313,10 @@ async function main(): Promise<number> {
  * The promise result is used as the exit code.
  */
 void main().catch((error: unknown) => {
+  if (error instanceof AuthPreflightError) {
+    console.error(`\n❌ ${error.message}`); // ONE actionable message (PRD §9.2.7)
+    process.exit(1);
+  }
   console.error('\n❌ Fatal error in main():', error);
   process.exit(1);
 });

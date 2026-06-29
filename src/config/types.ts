@@ -160,3 +160,80 @@ export class HarnessProviderMismatchError extends Error {
     this.provider = provider;
   }
 }
+
+/**
+ * Error thrown by the fail-fast auth preflight when no credential is configured for the
+ * selected harness + provider/model (PRD §9.2.7).
+ *
+ * @remarks
+ * Thrown by {@link runAuthPreflight} (src/config/harness.ts) when neither the hacky-hack
+ * resolver (override/env) NOR pi's file-backed AuthStorage (~/.pi/agent/auth.json) resolves a
+ * credential for the provider of the resolved model. The pipeline aborts at startup — before any
+ * session directory is created or any agent is invoked.
+ *
+ * The message names: the selected harness + provider/model; every empty source checked
+ * (override `PRP_API_KEY`, the provider env-var name, the `~/.pi/agent/auth.json` path); and the
+ * exact remediation.
+ *
+ * @example
+ * ```ts
+ * import { AuthPreflightError } from './config/types.js';
+ *
+ * throw new AuthPreflightError({ harness: 'pi', provider: 'zai', model: 'zai/glm-5.2' });
+ * ```
+ */
+export class AuthPreflightError extends Error {
+  /** The selected agent harness id (e.g. 'pi', 'claude-code'). */
+  readonly harness: string;
+  /** The provider whose credential was missing (e.g. 'zai', 'anthropic'). */
+  readonly provider: string;
+  /** The resolved provider/model string (e.g. 'zai/glm-5.2'). */
+  readonly model: string;
+
+  constructor(opts: { harness: string; provider: string; model: string }) {
+    super(buildPreflightMessage(opts));
+    this.name = 'AuthPreflightError';
+    this.harness = opts.harness;
+    this.provider = opts.provider;
+    this.model = opts.model;
+  }
+}
+
+/**
+ * Build the PRD §9.2.7 actionable preflight failure message.
+ *
+ * @remarks
+ * Module-local helper. Pure — reads only the provider→env-var-name mapping
+ * and `PI_CODING_AGENT_DIR` for the auth.json path display.
+ */
+function buildPreflightMessage(opts: {
+  harness: string;
+  provider: string;
+  model: string;
+}): string {
+  const { harness, provider, model } = opts;
+  const envVars =
+    provider === 'anthropic'
+      ? 'ANTHROPIC_API_KEY / ANTHROPIC_OAUTH_TOKEN'
+      : provider === 'zai'
+        ? 'ZAI_API_KEY'
+        : `${provider.toUpperCase()}_API_KEY`;
+  const authPath = process.env.PI_CODING_AGENT_DIR
+    ? `${process.env.PI_CODING_AGENT_DIR}/auth.json`
+    : '~/.pi/agent/auth.json';
+  const exportCmd =
+    provider === 'anthropic'
+      ? 'export ANTHROPIC_API_KEY=<your-key>'
+      : `export ${provider === 'zai' ? 'ZAI_API_KEY' : `${provider.toUpperCase()}_API_KEY`}=<your-key>`;
+  return (
+    `Authentication preflight failed: no credential configured for provider '${provider}' ` +
+    `(harness '${harness}', model '${model}').\n\n` +
+    `Checked sources (all empty):\n` +
+    `  • Override:     PRP_API_KEY\n` +
+    `  • Environment:  ${envVars}\n` +
+    `  • pi auth.json: ${authPath}\n\n` +
+    `Remediation (pick one):\n` +
+    `  • pi /login                       # writes ${authPath}\n` +
+    `  • ${exportCmd}   # provider-native env var`
+  );
+}

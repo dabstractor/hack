@@ -139,14 +139,14 @@
               "type": "Task",
               "id": "P7.M1.T3",
               "title": "Fail-Fast Authentication Preflight (PRD §9.2.7)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add the startup auth preflight so a misconfigured credential aborts BEFORE a session directory is created or an agent is invoked. Hard-depends on T2.S1's provider-aware resolver.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P7.M1.T3.S1",
                   "title": "Wire the auth preflight onto the startup path",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P7.M1.T2.S1"
@@ -164,7 +164,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T3.S2",
                   "title": "Harness-specific + acceptance tests for the preflight",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P7.M1.T3.S1"
@@ -189,7 +189,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T4.S1",
                   "title": "README.md — rewrite auth + logging framing to the new reality",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P7.M1.T1.S3",

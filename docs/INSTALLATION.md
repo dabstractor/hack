@@ -62,12 +62,26 @@ Get up and running in under 5 minutes:
    cd ~/projects/hacky-hack && npm link groundswell
    ```
 
-4. **Configure environment variables**
+4. **Configure authentication**
+
+   The default provider (`zai`) can be authenticated via `pi /login` or an environment variable.
 
    ```bash
-   export ANTHROPIC_AUTH_TOKEN=zk-xxxxx
-   export ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+   # Option A: Use pi's built-in login (writes ~/.pi/agent/auth.json)
+   pi /login
+
+   # Option B: Set the provider env var directly
+   export ZAI_API_KEY=<your-key>
    ```
+
+   For the `claude-code` harness (Anthropic-only), set an Anthropic credential:
+
+   ```bash
+   export ANTHROPIC_API_KEY=<your-key>
+   ```
+
+   > **Note:** The `ANTHROPIC_BASE_URL` defaults to `https://api.z.ai/api/anthropic` for the `zai` provider.
+   > You can override it: `export ANTHROPIC_BASE_URL=https://custom.endpoint.com`
 
 5. **Verify installation**
 
@@ -236,18 +250,24 @@ The project requires certain environment variables to function. These can be set
 
 **Required Variables**:
 
-| Variable               | Required | Default                          | Description                                                              |
-| ---------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------ |
-| `ANTHROPIC_AUTH_TOKEN` | Yes      | None                             | z.ai API authentication token (mapped to `ANTHROPIC_API_KEY` internally) |
-| `ANTHROPIC_BASE_URL`   | Yes      | `https://api.z.ai/api/anthropic` | z.ai API endpoint                                                        |
+| Variable             | Required | Default                          | Description                                                         |
+| -------------------- | -------- | -------------------------------- | ------------------------------------------------------------------- |
+| `ZAI_API_KEY`        | No\*     | None                             | z.ai API key (primary; alternatively use `pi /login` for auth.json) |
+| `ANTHROPIC_BASE_URL` | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint (auto-set for `zai` provider)                     |
+
+> \*\*One of `ZAI_API_KEY` or `pi /login` (which writes `~/.pi/agent/auth.json`) must be configured.
+> A startup preflight aborts with an actionable error if neither is present (PRD §9.2.7).
 
 **Optional Variables**:
 
-| Variable                         | Required | Default       | Description                            |
-| -------------------------------- | -------- | ------------- | -------------------------------------- |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `GLM-4.7`     | Model for Sonnet tier (default agents) |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `GLM-4.5-Air` | Model for Haiku tier (fast operations) |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `GLM-4.7`     | Model for Opus tier (architect agent)  |
+| Variable                         | Required | Default           | Description                                                                    |
+| -------------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------ |
+| `ANTHROPIC_API_KEY`              | No       | None              | Anthropic provider API key (for `claude-code` harness or `anthropic/*` models) |
+| `ANTHROPIC_AUTH_TOKEN`           | No       | None              | Legacy alias for `ANTHROPIC_API_KEY` (anthropic provider only)                 |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `zai/glm-5.2`     | Model for Sonnet tier (default agents)                                         |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `zai/glm-5-turbo` | Model for Haiku tier (fast operations)                                         |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `zai/glm-5.2`     | Model for Opus tier (architect agent)                                          |
+| `PRP_AGENT_HARNESS`              | No       | `pi`              | Agent harness: `pi` (default) or `claude-code`                                 |
 
 **Setting Environment Variables (Shell)**:
 
@@ -279,9 +299,17 @@ ANTHROPIC_DEFAULT_OPUS_MODEL=GLM-4.7
 
 **Security Note**: Never commit `.env` to version control. The project `.gitignore` excludes `.env` files by default.
 
-**Important: Environment Variable Mapping**
+**Authentication at startup**:
 
-The shell uses `ANTHROPIC_AUTH_TOKEN`, but the SDK expects `ANTHROPIC_API_KEY`. The system automatically maps `AUTH_TOKEN` to `API_KEY` at startup via `configureEnvironment()` in `src/config/environment.ts`.
+The pipeline runs a fail-fast auth preflight after environment configuration. If no credential is
+found for the selected provider, the process aborts immediately with exit code 1 and an actionable
+error message — before any session directory is created or any agent is invoked (PRD §9.2.7).
+
+**Auth sources checked (first non-empty wins)**:
+
+1. Override env var: `PRP_API_KEY`
+2. Provider-native env var: `ZAI_API_KEY` (zai) or `ANTHROPIC_API_KEY` / `ANTHROPIC_OAUTH_TOKEN` (anthropic)
+3. pi auth file: `~/.pi/agent/auth.json` (overridable via `PI_CODING_AGENT_DIR`)
 
 ### Configuration File
 
@@ -514,6 +542,46 @@ The `ANTHROPIC_BASE_URL` is pointing to the wrong endpoint. Tests enforce z.ai u
    ```bash
    npm test
    ```
+
+---
+
+### "Startup fails with 'Authentication preflight failed'"
+
+**What you see**:
+
+```
+❌ Authentication preflight failed: no credential configured for provider 'zai' (harness 'pi', model 'zai/glm-5.2').
+
+Checked sources (all empty):
+  • Override:     PRP_API_KEY
+  • Environment:  ZAI_API_KEY
+  • pi auth.json: ~/.pi/agent/auth.json
+
+Remediation (pick one):
+  • pi /login                       # writes ~/.pi/agent/auth.json
+  • export ZAI_API_KEY=<your-key>   # provider-native env var
+```
+
+**Why it happens**:
+No credential was found for the selected provider. The preflight checks the override env var,
+the provider-native env var, and `~/.pi/agent/auth.json` — all were empty or absent.
+
+**How to fix**:
+
+1. Use pi's built-in login (recommended):
+   ```bash
+   pi /login
+   ```
+2. Or set the provider env var directly:
+   ```bash
+   export ZAI_API_KEY=<your-key>
+   ```
+
+For the `claude-code` harness or `anthropic/*` models, set an Anthropic credential:
+
+```bash
+export ANTHROPIC_API_KEY=<your-key>
+```
 
 ---
 

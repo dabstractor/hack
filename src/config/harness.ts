@@ -18,6 +18,7 @@
  */
 
 import { configureHarnesses, PiHarness, HarnessRegistry } from 'groundswell';
+import { AuthStorage } from '@earendil-works/pi-coding-agent';
 import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL_PROVIDER,
@@ -25,9 +26,9 @@ import {
   PRP_API_KEY,
   SUPPORTED_HARNESSES,
 } from './constants.js';
-import { getResolvedProvider } from './environment.js';
+import { getResolvedProvider, getModel } from './environment.js';
 import type { AgentHarness } from './types.js';
-import { HarnessProviderMismatchError } from './types.js';
+import { HarnessProviderMismatchError, AuthPreflightError } from './types.js';
 
 /**
  * Get the provider-native env-var value for API key lookup (PRD §9.2.6).
@@ -192,4 +193,52 @@ export async function ensureHarnessInitialized(): Promise<void> {
   }
   const apiKey = resolveApiKeyForProvider(getResolvedProvider());
   await registry.initializeProvider('pi', apiKey ? { apiKey } : undefined);
+}
+
+/**
+ * Run the fail-fast auth preflight (PRD §9.2.7).
+ *
+ * @remarks
+ * Invoked in `main()` AFTER {@link configureEnvironment} and BEFORE
+ * {@link ensureHarnessInitialized} / `new PRPPipeline(...)`. Resolves the selected
+ * harness + provider/model and verifies that at least one auth source (PRD §9.2.6) is
+ * available for that provider:
+ *   1. hacky-hack override/env — {@link resolveApiKeyForProvider} (trims; empty/whitespace
+ *      == "not configured").
+ *   2. pi's file-backed `AuthStorage.create()` — `getAuthStatus(provider).configured` (the
+ *      SAME resolver the `pi` harness uses at runtime; honors `~/.pi/agent/auth.json`).
+ *
+ * For the `claude-code` harness the check targets the `anthropic` provider (that harness is
+ * Anthropic-only). On failure, throws {@link AuthPreflightError} — the pipeline then aborts
+ * at startup with exit code 1, BEFORE any session directory is created or any agent is invoked.
+ *
+ * @throws {AuthPreflightError} When no credential is resolvable for the selected provider.
+ *
+ * @example
+ * ```ts
+ * import { runAuthPreflight } from './config/harness.js';
+ *
+ * configureEnvironment();
+ * await runAuthPreflight();        // throws AuthPreflightError if misconfigured
+ * await ensureHarnessInitialized();
+ * ```
+ */
+export async function runAuthPreflight(): Promise<void> {
+  const harness = process.env[PRP_AGENT_HARNESS] ?? DEFAULT_HARNESS;
+  const model = getModel('sonnet');
+  const provider =
+    harness === 'claude-code' ? 'anthropic' : getResolvedProvider();
+
+  // Source 1+2: hacky-hack override/env (empty/whitespace == not configured via .trim()).
+  if (resolveApiKeyForProvider(provider)) {
+    return; // configured
+  }
+
+  // Source 3: pi file-backed AuthStorage — auth.json (SAME resolver the harness uses at runtime).
+  // getAuthStatus().configured is false for the `environment` source → whitespace env does NOT pass.
+  if (AuthStorage.create().getAuthStatus(provider).configured) {
+    return; // configured (auth.json)
+  }
+
+  throw new AuthPreflightError({ harness, provider, model });
 }
