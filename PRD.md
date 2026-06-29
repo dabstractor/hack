@@ -272,7 +272,8 @@ While the Bash script is functional, the rewrite in a higher-level language (Pyt
 2.  **Structured State:** Replace `jq` parsing with native JSON serialization/deserialization to prevent corruption of `tasks.json`.
 3.  **Observability:** structured logging instead of `print -P` (see §9.6 for the logging architecture — lazy loggers and synchronous destinations are mandatory).
 4.  **Tool Abstraction:** Instead of relying on `tsk` CLI, integrate the task management logic directly into the codebase.
-5.  **Error Handling:** Stronger retry logic and exception handling for API calls and tool failures.
+5.  **Error Handling:** Stronger retry logic and exception handling for API calls and tool failures — including a **fail-fast auth preflight** (§9.2.7) so credential misconfiguration is caught at startup instead of deep inside the first agent run.
+6.  **Provider-Agnostic Authentication:** Authenticate the **resolved provider** (`~/.pi/agent/auth.json` or the provider's native env var, e.g. `ZAI_API_KEY`), not Anthropic-shell env vars; `ANTHROPIC_AUTH_TOKEN` is a backward-compat alias, never a hard requirement (see §9.2.6).
 
 ## 8. Development Roadmap (Bootstrap)
 
@@ -292,8 +293,8 @@ This section details the implementation strategy leveraging the local [Groundswe
 
 - **Runtime**: Node.js 20+ / TypeScript 5.2+
 - **Core Framework**: Groundswell (local library at `~/projects/groundswell`)
-- **Agent Harness**: `pi` (pi.dev) — vendor-neutral default runtime; `claude-code` available as an option (see §9.4)
-- **LLM Provider**: z.ai (Anthropic-compatible API), orthogonal to the harness
+- **Agent Harness**: `pi` (pi.dev) — the vendor-neutral, **first-class default** runtime. `claude-code` is a **second-class, parity-maintained** option retained specifically for users locked into Anthropic's walled-garden ecosystem (e.g. subscribers who want to spend an Anthropic coding-plan quota); see §9.4.
+- **LLM Provider**: z.ai (Anthropic-compatible API), orthogonal to the harness; the default provider. Authentication is **provider-aware** (see §9.2.6) and does **not** assume Anthropic credentials.
 - **State Management**: Groundswell `@ObservedState` & `Workflow` persistence
 
 ### 9.2 Environment Configuration
@@ -310,9 +311,10 @@ Configuration is loaded in the following order (later sources override earlier o
 
 #### 9.2.2 Required Environment Variables
 
-- **API Connection**:
-  - `ANTHROPIC_AUTH_TOKEN`: z.ai API authentication token (mapped to `ANTHROPIC_API_KEY` for SDK compatibility)
-  - `ANTHROPIC_BASE_URL`: API endpoint (defaults to `https://api.z.ai/api/anthropic` if not set)
+- **API Connection** — **provider-native, not a single hard-coded env var.** See §9.2.6 for the complete auth model. Summary:
+  - Default path (`pi` + `zai`): authenticate via `pi /login` (writes `~/.pi/agent/auth.json`) **or** `export ZAI_API_KEY=…`. **No Anthropic env var is required.**
+  - `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`: accepted **only** for the `anthropic` provider (and as a backward-compat alias: when `ANTHROPIC_AUTH_TOKEN` is set and `ANTHROPIC_API_KEY` is unset, the former is mapped to the latter). They must **never** be a hard requirement of the default path.
+  - `ANTHROPIC_BASE_URL`: provider endpoint, resolved against the selected provider; defaults to `https://api.z.ai/api/anthropic` **only** when the provider is `zai` (see §9.2.4 safeguard).
 
 - **Agent Runtime (Harness)**:
   - `PRP_AGENT_HARNESS`: Agent runtime/SDK to use — `pi` (pi.dev, default) or `claude-code`. Orthogonal to the LLM provider; see §9.4.
@@ -372,6 +374,51 @@ This prevents the massive usage spikes that occurred when tests were accidentall
 - In bug fix mode, prevent creating sessions in main `plan/` directory
 - Bug fix session paths must contain "bugfix" in the path
 - Provides debug logging showing `PLAN_DIR`, `SESSION_DIR`, and `SKIP_BUG_FINDING` values
+
+#### 9.2.6 Authentication Model (Provider-Agnostic)
+
+**Strategic framing.** Anthropic's ecosystem became a walled garden after the original spec was written, so Anthropic is downgraded to a second-class citizen. The default use case is now the vendor-neutral `pi` harness, whose natural auth flows are pi-native (`pi /login` → `auth.json`, or the provider's own env var). Auth must therefore be **provider-aware**: it authenticates the provider of the resolved model (default `zai`), and it must not gate the pipeline on Anthropic-shell conventions.
+
+**Problem (root cause of the auth bypass).** The original design assumed Anthropic shell conventions as the primary auth path: `ANTHROPIC_AUTH_TOKEN` was the single required credential, mapped to `ANTHROPIC_API_KEY`, captured into each agent config, and forwarded into the harness. Under the `pi`-default model this is wrong on three counts:
+
+1. **Wrong contract for `pi` users.** `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` are Anthropic-shell conventions. A `pi` user authenticates through pi's native sources — `pi /login` writing `~/.pi/agent/auth.json`, or the provider's own env var (`ZAI_API_KEY`, etc.). Requiring an Anthropic env var is an unnatural hard gate, and `pi`'s native env lookup for `zai` consults `ZAI_API_KEY`, **not** the Anthropic names.
+2. **`auth.json` is silently ignored.** Groundswell's `PiHarness.initialize()` constructs `AuthStorage.inMemory()` + `ModelRegistry.inMemory(...)`. An in-memory auth store reads **only** runtime overrides and env vars — it never reads the `~/.pi/agent/auth.json` file. Consequently a user who runs `pi /login` (the canonical `pi` auth flow) has a valid `zai` credential on disk that the pipeline cannot see. (The Anthropic env var only works today because hacky-hack force-injects it as a provider-keyed runtime override, bypassing pi's normal resolution — not because pi reads it natively for `zai`.)
+3. **Empty-string shadowing.** `createBaseConfig()` forwards `process.env.ANTHROPIC_API_KEY ?? ''`. When the Anthropic env vars are unset, an empty string is threaded into the agent config; pi currently ignores an empty override, but the contract is fragile and obscures "unset" from "misconfigured".
+
+**Resolved auth resolution order (per selected provider).** The pipeline authenticates the **provider of the resolved model** (default `zai`), not Anthropic. Auth for a given provider is resolved in this order; the first available source wins:
+
+1. **Explicit override** — a non-empty pipeline-level credential passed via the harness `options.apiKey` (e.g. a future `--api-key` flag or `PRP_API_KEY` env var). Highest precedence; forwarded only when non-empty.
+2. **Provider-native env var** — the env var pi assigns to that provider (`ZAI_API_KEY` for `zai`, `ANTHROPIC_API_KEY` / `ANTHROPIC_OAUTH_TOKEN` for `anthropic`, etc.), resolved via pi's `getEnvApiKey(provider)` mapping.
+3. **`pi` auth.json** — `~/.pi/agent/auth.json`, written by `pi /login` / `pi /auth`. **This must be honored** (see Groundswell contract change below); it is the canonical auth flow for interactive `pi` users.
+
+**`ANTHROPIC_AUTH_TOKEN` demotion.** `ANTHROPIC_AUTH_TOKEN` is no longer required and is not the documented primary path. It MAY be accepted as a backward-compat alias (mapped to `ANTHROPIC_API_KEY` when the latter is unset) so existing Anthropic-provider setups keep working. It must never be the only accepted credential, and the default (`pi` + `zai`) path must not depend on it.
+
+**Groundswell contract change (auth.json support).** Because hacky-hack is the `pi` harness's primary consumer, the harness MUST consult pi's on-disk auth store rather than an in-memory one. Concretely, `pi` harness initialization must replace `AuthStorage.inMemory()` with `AuthStorage.create()` (file-backed `FileAuthStorageBackend`, default path `getAgentDir()/auth.json`) — or accept a caller-supplied, file-backed `authStorage` / `ModelRegistry`. hacky-hack must NOT inject an empty `apiKey` into the harness options; it forwards an override only when a non-empty credential is explicitly resolved (§9.2.7). Track as a cross-cutting change against `~/projects/groundswell` `src/harnesses/pi-harness.ts`.
+
+**Provider-aware base URL.** The endpoint (`ANTHROPIC_BASE_URL` today) is a property of the **provider**, not a global Anthropic setting. It must be resolved against the selected provider and default to the z.ai endpoint only when the provider is `zai`. The §9.2.4 safeguard remains in force for the `zai` provider.
+
+#### 9.2.7 Authentication Preflight (Fail-Fast)
+
+**Problem.** `validateEnvironment()` exists but is never invoked on the pipeline's startup path — only by `scripts/validate-api.ts`. A misconfigured credential (the single most common install failure) is therefore not detected until the first agent actually calls the model, where it surfaces as a deep, misleading error (`Pi agent execution failed: No API key found for zai.`) inside `decomposePRD`, after a session directory has already been created and an `ERROR_REPORT.md` written.
+
+**Requirement.** The pipeline MUST run an auth preflight on the startup path, after `configureEnvironment()` and before `ensureHarnessInitialized()` / any agent run. The preflight resolves the selected **harness + provider/model** and verifies that at least one auth source from §9.2.6 is available for that provider.
+
+**Failure behavior.** On failure, the pipeline MUST abort **before** creating a session or invoking an agent, and emit an actionable error naming:
+
+- the selected harness and provider/model,
+- every auth source that was checked and found empty (override, the provider env var name, and the `~/.pi/agent/auth.json` path),
+- the exact remediation (`pi /login`, or `export <PROVIDER>_API_KEY=…`).
+
+**Empty-string policy.** The preflight MUST treat empty / whitespace-only credentials as "not configured." Empty strings must never be forwarded into harness options as auth (eliminating the `?? ''` shadowing).
+
+**Harness-specific check.** For the `claude-code` harness, the preflight verifies an Anthropic credential (that harness is Anthropic-only). For the `pi` harness, the preflight uses the provider-aware resolution in §9.2.6.
+
+**Acceptance criteria.**
+
+- A run with **no** credential configured for the selected provider aborts at startup with a single actionable message and exit code `1` — **no** session directory is created, **no** agent is invoked.
+- A run authenticated via `~/.pi/agent/auth.json` alone (no env vars) succeeds under the `pi` + `zai` default.
+- A run authenticated via `ZAI_API_KEY` alone succeeds under the `pi` + `zai` default.
+- A run authenticated via `ANTHROPIC_AUTH_TOKEN` succeeds **only** when the provider is `anthropic` (or via the backward-compat alias); it is **not** required by the default path.
 
 ### 9.3 System Components (Groundswell Mapping)
 
@@ -443,7 +490,7 @@ const architectPrompt = createPrompt({
 
 ### 9.4 Agent Harness System (Runtime Selection)
 
-This project adopts Groundswell's pluggable **harness** model (Groundswell PRD §7). The **harness** is the agent runtime/SDK that drives prompting, tool execution, and streaming; it is **orthogonal** to the LLM **provider/model**. The two are selected independently.
+This project adopts Groundswell's pluggable **harness** model (Groundswell PRD §7). The **harness** is the agent runtime/SDK that drives prompting, tool execution, and streaming; it is **orthogonal** to the LLM **provider/model**. The two are selected independently. **Primacy:** `pi` is the first-class default; `claude-code` is a second-class, parity-maintained option retained for Anthropic loyalists (see §9.1). Auth for either harness is provider-aware (§9.2.6) and gated by a fail-fast preflight (§9.2.7).
 
 #### 9.4.1 Supported Harnesses
 
@@ -460,10 +507,12 @@ This project adopts Groundswell's pluggable **harness** model (Groundswell PRD �
 import { configureHarnesses } from 'groundswell';
 
 configureHarnesses({
-  defaultHarness: 'pi', // vendor-neutral default (pi.dev)
+  defaultHarness: 'pi', // vendor-neutral, first-class default (pi.dev)
   defaultModelProvider: 'zai', // LLM host — independent of harness
   harnessDefaults: {
-    'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY },
+    // 'pi': auth resolved provider-natively (override / env var / ~/.pi/agent/auth.json);
+    //       see §9.2.6. Do NOT inject an empty apiKey — forward an override only when non-empty.
+    'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY }, // Anthropic-only harness
   },
 });
 ```
@@ -496,7 +545,9 @@ configureHarnesses({
 1.  **Project Setup**:
     - Initialize TypeScript project.
     - Link `groundswell` (`npm link ~/projects/groundswell`).
-    - Implement `ConfigService` to normalize z.ai env vars.
+    - Implement the **provider-agnostic auth bootstrap** (§9.2.6): resolve the selected provider's credential via override → provider env var (`ZAI_API_KEY` for `zai`) → `~/.pi/agent/auth.json`; forward a non-empty override only.
+    - Implement the **fail-fast auth preflight** (§9.2.7): abort before any agent run with an actionable error when no credential is resolvable for the selected harness + provider/model.
+    - **Cross-repo:** switch the `pi` harness to a file-backed `AuthStorage` (`AuthStorage.create()`) in `~/projects/groundswell` `src/harnesses/pi-harness.ts` so `~/.pi/agent/auth.json` is honored.
     - Call `configureHarnesses({ defaultHarness: 'pi', defaultModelProvider: 'zai' })` at startup (see §9.4).
 
 2.  **Core Workflows**:
