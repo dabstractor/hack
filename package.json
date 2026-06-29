@@ -83,6 +83,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.8",
     "@types/cli-progress": "^3.11.6",
     "@types/ms": "^2.1.0",
     "@types/node": "^20.10.0",

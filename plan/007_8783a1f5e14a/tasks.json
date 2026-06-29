@@ -78,7 +78,7 @@
               "type": "Task",
               "id": "P7.M1.T2",
               "title": "Provider-Agnostic Authentication Model (PRD §9.2.6)",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Replace the Anthropic-shell auth path with provider-aware resolution for the resolved provider (default zai). Includes a cross-repo Groundswell change so ~/.pi/agent/auth.json is honored. Independent of the logging workstream (T1).",
               "subtasks": [
                 {
@@ -119,7 +119,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T2.S3",
                   "title": "Tests for the provider-aware auth resolution order",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P7.M1.T2.S1",
@@ -146,7 +146,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T3.S1",
                   "title": "Wire the auth preflight onto the startup path",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P7.M1.T2.S1"
