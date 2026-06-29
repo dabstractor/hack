@@ -111,23 +111,16 @@ describe('Logger utility', () => {
       expect(logger).toBeDefined();
     });
 
-    it('should not throw when process lacks setMaxListeners (partial stub)', () => {
-      // Mirror the real progress-display.test.ts stub: spread copies OWN enumerable
-      // props only, so the INHERITED setMaxListeners (from EventEmitter.prototype) is
-      // absent. On main/4e6d2ef this made getLogger() throw
-      // "TypeError: process.setMaxListeners is not a function".
-      vi.stubGlobal('process', {
-        ...process,
-        on: vi.fn(),
-        off: vi.fn(),
-      });
+    it('REQ-L1 — getLogger() does not call process.setMaxListeners (no transport workers)', () => {
+      // After S1: sync destinations → no workers → no exit listeners → no need for
+      // the setMaxListeners band-aid that was removed from getLogger().
+      const setMaxListenersSpy = vi.spyOn(process, 'setMaxListeners');
       try {
-        // Cache MUST be empty so the first-creation path (where setMaxListeners runs)
-        // is exercised. beforeEach already cleared it; be explicit for robustness.
         clearLoggerCache();
-        expect(() => getLogger('PartialStubTest')).not.toThrow();
+        getLogger('NoSetMaxListenersTest');
+        expect(setMaxListenersSpy).not.toHaveBeenCalled();
       } finally {
-        vi.unstubAllGlobals();
+        setMaxListenersSpy.mockRestore();
       }
     });
   });
@@ -485,6 +478,63 @@ describe('Logger utility', () => {
       requestLogger.debug('Request details', { endpoint: '/api/tasks' });
 
       expect(true).toBe(true);
+    });
+  });
+
+  // ========================================================================
+  // REQ-L1 — Synchronous destinations (no worker threads)
+  // ========================================================================
+
+  describe('REQ-L1 — Synchronous destinations', () => {
+    it('should not attach process exit listeners for transport workers', () => {
+      // With sync destinations, pino creates no ThreadStream/Worker, so no
+      // process.on('exit') handler is registered by the logger factory.
+      const onSpy = vi.spyOn(process, 'on');
+      try {
+        clearLoggerCache();
+        const beforeCalls = onSpy.mock.calls.length;
+        getLogger('NoExitListenerTest');
+        getLogger('NoExitListenerJson', { machineReadable: true });
+        const newCalls = onSpy.mock.calls.slice(beforeCalls);
+        const exitCalls = newCalls.filter(call => call[0] === 'exit');
+        expect(exitCalls).toHaveLength(0);
+      } finally {
+        onSpy.mockRestore();
+      }
+    });
+
+    it('should create working loggers using synchronous destination streams', () => {
+      clearLoggerCache();
+      const prettyLogger = getLogger('SyncDestPretty');
+      const jsonLogger = getLogger('SyncDestJson', { machineReadable: true });
+
+      // Both must be valid Logger instances
+      expect(typeof prettyLogger.info).toBe('function');
+      expect(typeof jsonLogger.info).toBe('function');
+      expect(typeof prettyLogger.child).toBe('function');
+      expect(typeof jsonLogger.child).toBe('function');
+
+      // Both must actually produce output without error
+      expect(() => prettyLogger.info('pretty message')).not.toThrow();
+      expect(() => jsonLogger.info('json message')).not.toThrow();
+
+      // Children must also work
+      const child = prettyLogger.child({ taskId: 'test' });
+      expect(() => child.info('child message')).not.toThrow();
+    });
+
+    it('should not spawn worker threads when creating multiple loggers', () => {
+      clearLoggerCache();
+      // Create several loggers — all must work without spawning workers.
+      // The exit-listener test above proves no ThreadStream was created.
+      const l1 = getLogger('Multi1');
+      const l2 = getLogger('Multi2', { verbose: true });
+      const l3 = getLogger('Multi3', { level: LogLevel.DEBUG });
+      const l4 = getLogger('Multi4', { machineReadable: true });
+      expect(() => l1.info('test')).not.toThrow();
+      expect(() => l2.info('test')).not.toThrow();
+      expect(() => l3.info('test')).not.toThrow();
+      expect(() => l4.info('test')).not.toThrow();
     });
   });
 });

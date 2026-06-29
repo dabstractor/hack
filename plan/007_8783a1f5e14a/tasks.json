@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P7",
       "title": "Auth & Logging Hardening (Delta D1)",
-      "status": "Ready",
+      "status": "Planned",
       "description": "Delta session implementing exactly three new, currently-unimplemented PRD sections against the existing (fully-implemented §1–9.5) pipeline: (1) PRD §9.6 Logging Architecture — lazy loggers + synchronous destinations to fix a measured ~10s CLI teardown stall; (2) PRD §9.2.6 Provider-Agnostic Authentication Model — replace the Anthropic-shell auth path with provider-aware resolution (default pi+ziai) honoring ~/.pi/agent/auth.json, incl. a cross-repo Groundswell change; (3) PRD §9.2.7 Fail-Fast Authentication Preflight — abort at startup before any session dir/agent run when no credential is resolvable. Nothing else in the PRD requires work. See plan/007_8783a1f5e14a/delta_prd.md and architecture/system_context.md.",
       "milestones": [
         {
@@ -25,11 +25,17 @@
                   "type": "Subtask",
                   "id": "P7.M1.T1.S1",
                   "title": "Synchronous logger destinations (REQ-L1)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h2.8", "h3.21", "h4.15", "h4.16", "h4.17"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/utils/logger.ts createLoggerConfig() returns `transport: { target: 'pino-pretty', options: {...} }` in its `if (!machineReadable)` branch — this spawns one ThreadStream worker per logger (FORBIDDEN by REQ-L1). It is the ONLY logging `transport:` in src/ (the three `transport: this.transport` hits in src/tools/*-mcp.ts are unrelated MCP transports). See architecture/implementation_notes.md §T1.S1 and architecture/external_deps.md §1. Also: logger.ts has a top-level module-eval block `{ const { createRequire } = await import('module'); syncPino = require('pino'); syncStdTime = pinoRequire.stdTimeFunctions; }` that eagerly loads pino at import time — defer it into a lazy getPino() accessor invoked on first getLogger().\n2. INPUT: existing getLogger(context, options) API, wrapPinoLogger(), loggerCache, createLoggerConfig(), and the syncPino/syncStdTime module-locals in src/utils/logger.ts.\n3. LOGIC: (a) Import pino-pretty as a default ESM import (`import pretty from 'pino-pretty'`); add an interop fallback `(prettyNs as any).default ?? prettyNs` if the default is wrapped. (b) In getLogger(), build the pretty stream as a DESTINATION: `const dest = pretty({ colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname', messageFormat: '[{correlationId}] [{context}] {msg}', singleLine: false })` and pass it as the 2nd arg to `syncPino({ ...config, base:{context,correlationId} }, dest)` for the human-readable path. Leave `destination` unset (defaults to process.stdout) — do NOT pass a file path (would re-introduce SonicBoom async flush + a blocking exit handler). (c) NEVER mix forms (transport + pretty() double-formats AND spawns a worker). (d) Remove the `process.setMaxListeners?.(30)` band-aid in getLogger() — it existed only for transport-worker exit listeners. (e) Defer the eager pino load into a memoized getPino().\n4. OUTPUT: getLogger() constructs zero worker threads for either the JSON or pretty path; preserves the existing Logger interface + context-keyed cache (no duplicate instances). Acceptance grep: `rg -n \"transport\\s*:\" src/utils/logger.ts` returns ZERO hits.\n5. DOCS: [Mode A] Update JSDoc on getLogger() in src/utils/logger.ts to document the lazy + sync-destination contract (REQ-L1/L2/L3), and refresh docs/CONFIGURATION.md `--verbose`/logging prose if it implies worker-thread transports. Rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/utils/logger.ts createLoggerConfig() returns `transport: { target: 'pino-pretty', options: {...} }` in its `if (!machineReadable)` branch — this spawns one ThreadStream worker per logger (FORBIDDEN by REQ-L1). It is the ONLY logging `transport:` in src/ (the three `transport: this.transport` hits in src/tools/*-mcp.ts are unrelated MCP transports). See architecture/implementation_notes.md §T1.S1 and architecture/external_deps.md §1. Also: logger.ts has a top-level module-eval block `{ const { createRequire } = await import('module'); syncPino = require('pino'); syncStdTime = pinoRequire.stdTimeFunctions; }` that eagerly loads pino at import time — defer it into a lazy getPino() accessor invoked on first getLogger().\n2. INPUT: existing getLogger(context, options) API, wrapPinoLogger(), loggerCache, createLoggerConfig(), and the syncPino/syncStdTime module-locals in src/utils/logger.ts.\n3. LOGIC: (a) Import pino-pretty as a default ESM import (`import pretty from 'pino-pretty'`); add an interop fallback `(prettyNs as any).default ?? prettyNs` if the default is wrapped. (b) In getLogger(), build the pretty stream as a DESTINATION: `const dest = pretty({ colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname', messageFormat: '[{correlationId}] [{context}] {msg}', singleLine: false })` and pass it as the 2nd arg to `syncPino({ ...config, base:{context,correlationId} }, dest)` for the human-readable path. Leave `destination` unset (defaults to process.stdout) — do NOT pass a file path (would re-introduce SonicBoom async flush + a blocking exit handler). (c) NEVER mix forms (transport + pretty() double-formats AND spawns a worker). (d) Remove the `process.setMaxListeners?.(30)` band-aid in getLogger() — it existed only for transport-worker exit listeners. (e) Defer the eager pino load into a memoized getPino().\n4. OUTPUT: getLogger() constructs zero worker threads for either the JSON or pretty path; preserves the existing Logger interface + context-keyed cache (no duplicate instances). Acceptance grep: `rg -n \"transport\\s*:\" src/utils/logger.ts` returns ZERO hits.\n5. DOCS: [Mode A] Update JSDoc on getLogger() in src/utils/logger.ts to document the lazy + sync-destination contract (REQ-L1/L2/L3), and refresh docs/CONFIGURATION.md `--verbose`/logging prose if it implies worker-thread transports. Rides WITH the work.",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.21",
+                    "h4.15",
+                    "h4.16",
+                    "h4.17"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -37,9 +43,16 @@
                   "title": "Lazy logger instantiation (REQ-L2) — migrate all 31 module-scope declarations",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P7.M1.T1.S1"],
-                  "prd_selectors": ["h2.8", "h3.21", "h4.16", "h4.17"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Exactly 31 top-level `const logger = getLogger(...)` declarations exist in src/ (grep `^(export )?(const|let) \\w+ = getLogger\\(`). The stall-critical chain: src/index.ts imports src/cli/index.ts which has `const logger = getLogger('CLI')` at line 40, so even `--help` constructs a logger (+ worker) during import. Full 31-file list is in architecture/implementation_notes.md §T1.S2 (verify with the live grep before migrating — line numbers may drift after S1 edits logger.ts).\n2. INPUT: the lazy getLogger() factory from P7.M1.T1.S1 (unchanged public signature).\n3. LOGIC: Replace each top-level `const logger = getLogger('X')` with a lazy accessor so the logger is constructed only on first use. PREFERRED minimal-churn pattern: hold the logger behind a module-local memoized function `let _logger: Logger | undefined; const logger = (): Logger => (_logger ??= getLogger('X'))` and update that module's call sites `logger.x(...)` → `logger().x(...)`. Apply ONE pattern uniformly across all 31 files. Preserve the context-keyed cache so no duplicate instances are created.\n4. OUTPUT: Acceptance grep `rg -n \"^(export )?(const|let) \\w+ = getLogger\\(\" src/` returns ZERO hits; all 31 sites migrated; existing behavior unchanged.\n5. DOCS: none — internal refactor with no user-facing/config/API surface change (JSDoc on getLogger() is handled in S1)."
+                  "dependencies": [
+                    "P7.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Exactly 31 top-level `const logger = getLogger(...)` declarations exist in src/ (grep `^(export )?(const|let) \\w+ = getLogger\\(`). The stall-critical chain: src/index.ts imports src/cli/index.ts which has `const logger = getLogger('CLI')` at line 40, so even `--help` constructs a logger (+ worker) during import. Full 31-file list is in architecture/implementation_notes.md §T1.S2 (verify with the live grep before migrating — line numbers may drift after S1 edits logger.ts).\n2. INPUT: the lazy getLogger() factory from P7.M1.T1.S1 (unchanged public signature).\n3. LOGIC: Replace each top-level `const logger = getLogger('X')` with a lazy accessor so the logger is constructed only on first use. PREFERRED minimal-churn pattern: hold the logger behind a module-local memoized function `let _logger: Logger | undefined; const logger = (): Logger => (_logger ??= getLogger('X'))` and update that module's call sites `logger.x(...)` → `logger().x(...)`. Apply ONE pattern uniformly across all 31 files. Preserve the context-keyed cache so no duplicate instances are created.\n4. OUTPUT: Acceptance grep `rg -n \"^(export )?(const|let) \\w+ = getLogger\\(\" src/` returns ZERO hits; all 31 sites migrated; existing behavior unchanged.\n5. DOCS: none — internal refactor with no user-facing/config/API surface change (JSDoc on getLogger() is handled in S1).",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.21",
+                    "h4.16",
+                    "h4.17"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -47,9 +60,17 @@
                   "title": "Single root logger per process (REQ-L3) + teardown validation tests",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P7.M1.T1.S1", "P7.M1.T1.S2"],
-                  "prd_selectors": ["h2.8", "h3.21", "h4.16", "h4.17"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: REQ-L3 bounds the process to ONE synchronous destination stream and zero workers. Current getLogger() builds an independent logger (each potentially its own pretty stream) per distinct context key. See architecture/external_deps.md §1 Finding 6 for worker-thread spy patterns (vi.spyOn on worker_threads.Worker; inspecting pino.symbols.streamSym).\n2. INPUT: the sync-destination getLogger() from S1 and the lazy call sites from S2.\n3. LOGIC: Derive component loggers from a single shared root pino (one synchronous destination stream for the whole process). Add/extend a test (e.g. tests/unit/utils/logger-teardown.test.ts or extend logger.test.ts) asserting: (a) the fast-exit code paths — spawn the built CLI and assert `hack --help`, `-h`, `--version`, and an invalid flag each finish < 2s wall; (b) no worker thread is spawned during getLogger() construction (spy on `worker_threads.Worker`, expect not-called, and/or assert the destination is not a ThreadStream).\n4. OUTPUT: one synchronous stream per process; REQ-L3 acceptance criteria (§9.6.3) met — fast CLI exits, no top-level getLogger, no `transport:` in logger config.\n5. DOCS: none beyond the JSDoc updated in S1 (validation is test-only)."
+                  "dependencies": [
+                    "P7.M1.T1.S1",
+                    "P7.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: REQ-L3 bounds the process to ONE synchronous destination stream and zero workers. Current getLogger() builds an independent logger (each potentially its own pretty stream) per distinct context key. See architecture/external_deps.md §1 Finding 6 for worker-thread spy patterns (vi.spyOn on worker_threads.Worker; inspecting pino.symbols.streamSym).\n2. INPUT: the sync-destination getLogger() from S1 and the lazy call sites from S2.\n3. LOGIC: Derive component loggers from a single shared root pino (one synchronous destination stream for the whole process). Add/extend a test (e.g. tests/unit/utils/logger-teardown.test.ts or extend logger.test.ts) asserting: (a) the fast-exit code paths — spawn the built CLI and assert `hack --help`, `-h`, `--version`, and an invalid flag each finish < 2s wall; (b) no worker thread is spawned during getLogger() construction (spy on `worker_threads.Worker`, expect not-called, and/or assert the destination is not a ThreadStream).\n4. OUTPUT: one synchronous stream per process; REQ-L3 acceptance criteria (§9.6.3) met — fast CLI exits, no top-level getLogger, no `transport:` in logger config.\n5. DOCS: none beyond the JSDoc updated in S1 (validation is test-only).",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.21",
+                    "h4.16",
+                    "h4.17"
+                  ]
                 }
               ]
             },
@@ -67,8 +88,16 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.5", "h4.3", "h4.1", "h3.19", "h4.12"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/config/harness.ts ensureHarnessInitialized() reads `process.env.ANTHROPIC_API_KEY` and forwards `apiKey ? { apiKey } : undefined` into registry.initializeProvider('pi', ...) — wrong contract for pi users; a `pi /login` user (valid ~/.pi/agent/auth.json) is invisible. configureHarness() sets harnessDefaults 'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY }. configureEnvironment() maps ANTHROPIC_AUTH_TOKEN→ANTHROPIC_API_KEY. Provider env-var mapping (pi-ai getEnvApiKey): zai→ZAI_API_KEY; anthropic→ANTHROPIC_OAUTH_TOKEN then ANTHROPIC_API_KEY. Resolved provider is `getModel('sonnet').split('/')[0]` (default 'zai'). See architecture/groundswell_auth_api.md §2/§5 and architecture/implementation_notes.md §T2.S1.\n2. INPUT: configureHarness(), ensureHarnessInitialized(), configureEnvironment(), getModel()/qualifyModel() from src/config/{harness,environment,constants}.ts; constants DEFAULT_MODEL_PROVIDER='zai', DEFAULT_BASE_URL, PRP_AGENT_HARNESS.\n3. LOGIC: Add a provider-aware resolver that, for the resolved provider, checks in priority order (first non-empty wins): (1) explicit override (options.apiKey / future PRP_API_KEY env); (2) provider-native env var via pi's getEnvApiKey(provider) (ZAI_API_KEY for zai); (3) ~/.pi/agent/auth.json (forwarded implicitly once P7.M1.T2.S2 lands the file-backed store — hacky-hack forwards NOTHING and lets pi resolve natively when only the file is present). FORWARD AN OVERRIDE ONLY WHEN NON-EMPTY — eliminate the `?? ''` empty-string shadowing; whitespace-only == 'not configured'. Demote ANTHROPIC_AUTH_TOKEN to a backward-compat alias used ONLY when provider is anthropic. Resolve ANTHROPIC_BASE_URL against the selected provider (default z.ai endpoint ONLY when provider is zai); keep the §9.2.4 endpoint safeguard (src/config/endpoint-guard.ts) intact. Update ensureHarnessInitialized() to use the resolver.\n4. OUTPUT: The default pi+zai path succeeds with ONLY ZAI_API_KEY OR ~/.pi/agent/auth.json (no Anthropic env var required); ANTHROPIC_AUTH_TOKEN/API_KEY valid only for the anthropic provider. Existing tests (tests/unit/config/harness*.test.ts, environment.test.ts, endpoint-guard.test.ts) updated to pass under ZAI_API_KEY-only.\n5. DOCS: [Mode A] Rewrite `.env.example` lines 9–17 / 24–25 (the 'API AUTHENTICATION' block) so the primary path is `pi /login` or `ZAI_API_KEY`, demoting ANTHROPIC_AUTH_TOKEN to an optional alias; add JSDoc on the new resolver functions in src/config/harness.ts; refresh docs/CONFIGURATION.md auth prose (lines ~40, 56–71, 281–285, 412–425). Rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/config/harness.ts ensureHarnessInitialized() reads `process.env.ANTHROPIC_API_KEY` and forwards `apiKey ? { apiKey } : undefined` into registry.initializeProvider('pi', ...) — wrong contract for pi users; a `pi /login` user (valid ~/.pi/agent/auth.json) is invisible. configureHarness() sets harnessDefaults 'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY }. configureEnvironment() maps ANTHROPIC_AUTH_TOKEN→ANTHROPIC_API_KEY. Provider env-var mapping (pi-ai getEnvApiKey): zai→ZAI_API_KEY; anthropic→ANTHROPIC_OAUTH_TOKEN then ANTHROPIC_API_KEY. Resolved provider is `getModel('sonnet').split('/')[0]` (default 'zai'). See architecture/groundswell_auth_api.md §2/§5 and architecture/implementation_notes.md §T2.S1.\n2. INPUT: configureHarness(), ensureHarnessInitialized(), configureEnvironment(), getModel()/qualifyModel() from src/config/{harness,environment,constants}.ts; constants DEFAULT_MODEL_PROVIDER='zai', DEFAULT_BASE_URL, PRP_AGENT_HARNESS.\n3. LOGIC: Add a provider-aware resolver that, for the resolved provider, checks in priority order (first non-empty wins): (1) explicit override (options.apiKey / future PRP_API_KEY env); (2) provider-native env var via pi's getEnvApiKey(provider) (ZAI_API_KEY for zai); (3) ~/.pi/agent/auth.json (forwarded implicitly once P7.M1.T2.S2 lands the file-backed store — hacky-hack forwards NOTHING and lets pi resolve natively when only the file is present). FORWARD AN OVERRIDE ONLY WHEN NON-EMPTY — eliminate the `?? ''` empty-string shadowing; whitespace-only == 'not configured'. Demote ANTHROPIC_AUTH_TOKEN to a backward-compat alias used ONLY when provider is anthropic. Resolve ANTHROPIC_BASE_URL against the selected provider (default z.ai endpoint ONLY when provider is zai); keep the §9.2.4 endpoint safeguard (src/config/endpoint-guard.ts) intact. Update ensureHarnessInitialized() to use the resolver.\n4. OUTPUT: The default pi+zai path succeeds with ONLY ZAI_API_KEY OR ~/.pi/agent/auth.json (no Anthropic env var required); ANTHROPIC_AUTH_TOKEN/API_KEY valid only for the anthropic provider. Existing tests (tests/unit/config/harness*.test.ts, environment.test.ts, endpoint-guard.test.ts) updated to pass under ZAI_API_KEY-only.\n5. DOCS: [Mode A] Rewrite `.env.example` lines 9–17 / 24–25 (the 'API AUTHENTICATION' block) so the primary path is `pi /login` or `ZAI_API_KEY`, demoting ANTHROPIC_AUTH_TOKEN to an optional alias; add JSDoc on the new resolver functions in src/config/harness.ts; refresh docs/CONFIGURATION.md auth prose (lines ~40, 56–71, 281–285, 412–425). Rides WITH the work.",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.5",
+                    "h4.3",
+                    "h4.1",
+                    "h3.19",
+                    "h4.12"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -77,8 +106,14 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.5", "h3.19", "h4.12"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: ~/projects/groundswell/src/harnesses/pi-harness.ts initialize() (lines 144–145) hard-codes `this.authStorage = AuthStorage.inMemory()` + `ModelRegistry.inMemory(this.authStorage)`. An in-memory store NEVER reads ~/.pi/agent/auth.json. VERIFIED API (architecture/groundswell_auth_api.md): `AuthStorage.create(authPath?)` → file-backed FileAuthStorageBackend, default `join(getAgentDir(),'auth.json')` = ~/.pi/agent/auth.json (overridable via PI_CODING_AGENT_DIR); `ModelRegistry.create(authStorage, modelsJsonPath?)` is file-backed; both static factories REQUIRE a caller-supplied AuthStorage. HarnessOptions (~/projects/groundswell/src/types/harnesses.ts) is explicitly designed to be extended per-harness (PRD §7.5) — adding authStorage?/modelRegistry? there is the type-safe seam. AuthStorage.inMemory(data?) accepts a seed AuthStorageData for tests.\n2. INPUT: PiHarness.initialize(options?), terminate(), the declared private fields (sdk/authStorage/modelRegistry/options), HarnessOptions type.\n3. LOGIC: In pi-harness.ts initialize() change to `this.authStorage = options?.authStorage ?? AuthStorage.create();` and `this.modelRegistry = options?.modelRegistry ?? ModelRegistry.create(this.authStorage);`. Add `authStorage?: AuthStorage` and `modelRegistry?: ModelRegistry` to HarnessOptions (~/projects/groundswell/src/types/harnesses.ts). Keep initialize() idempotent (`if (this.sdk) return;`) and terminate() nulling the fields. Update/extend Groundswell's own pi-harness tests (~​/projects/groundswell/tests/...) to seed `AuthStorage.inMemory({ zai: { type:'api_key', key:'...' } })` rather than relying on the old in-memory default.\n4. OUTPUT: ~/.pi/agent/auth.json is honored end-to-end; callers may inject a custom authStorage/modelRegistry; Groundswell's own tests pass and hacky-hack still links cleanly (verify via `npm run validate:groundswell` / tests/unit/groundswell/imports.test.ts). NOTE in the commit that this is a tracked cross-cutting change against the Groundswell repo per PRD §9.2.6/§9.5.\n5. DOCS: none in hacky-hack — this edits the Groundswell repo; update Groundswell's own inline JSDoc on initialize() and HarnessOptions (no hacky-hack doc surface here)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: ~/projects/groundswell/src/harnesses/pi-harness.ts initialize() (lines 144–145) hard-codes `this.authStorage = AuthStorage.inMemory()` + `ModelRegistry.inMemory(this.authStorage)`. An in-memory store NEVER reads ~/.pi/agent/auth.json. VERIFIED API (architecture/groundswell_auth_api.md): `AuthStorage.create(authPath?)` → file-backed FileAuthStorageBackend, default `join(getAgentDir(),'auth.json')` = ~/.pi/agent/auth.json (overridable via PI_CODING_AGENT_DIR); `ModelRegistry.create(authStorage, modelsJsonPath?)` is file-backed; both static factories REQUIRE a caller-supplied AuthStorage. HarnessOptions (~/projects/groundswell/src/types/harnesses.ts) is explicitly designed to be extended per-harness (PRD §7.5) — adding authStorage?/modelRegistry? there is the type-safe seam. AuthStorage.inMemory(data?) accepts a seed AuthStorageData for tests.\n2. INPUT: PiHarness.initialize(options?), terminate(), the declared private fields (sdk/authStorage/modelRegistry/options), HarnessOptions type.\n3. LOGIC: In pi-harness.ts initialize() change to `this.authStorage = options?.authStorage ?? AuthStorage.create();` and `this.modelRegistry = options?.modelRegistry ?? ModelRegistry.create(this.authStorage);`. Add `authStorage?: AuthStorage` and `modelRegistry?: ModelRegistry` to HarnessOptions (~/projects/groundswell/src/types/harnesses.ts). Keep initialize() idempotent (`if (this.sdk) return;`) and terminate() nulling the fields. Update/extend Groundswell's own pi-harness tests (~​/projects/groundswell/tests/...) to seed `AuthStorage.inMemory({ zai: { type:'api_key', key:'...' } })` rather than relying on the old in-memory default.\n4. OUTPUT: ~/.pi/agent/auth.json is honored end-to-end; callers may inject a custom authStorage/modelRegistry; Groundswell's own tests pass and hacky-hack still links cleanly (verify via `npm run validate:groundswell` / tests/unit/groundswell/imports.test.ts). NOTE in the commit that this is a tracked cross-cutting change against the Groundswell repo per PRD §9.2.6/§9.5.\n5. DOCS: none in hacky-hack — this edits the Groundswell repo; update Groundswell's own inline JSDoc on initialize() and HarnessOptions (no hacky-hack doc surface here).",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.5",
+                    "h3.19",
+                    "h4.12"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -86,9 +121,17 @@
                   "title": "Tests for the provider-aware auth resolution order",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P7.M1.T2.S1", "P7.M1.T2.S2"],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.5", "h4.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §9.2.6 acceptance and §9.2.7 acceptance overlap on the auth-only cases. AuthStorage.hasAuth(provider)/getAuthStatus(provider) check runtime+auth.json+env+fallback (architecture/groundswell_auth_api.md §2). For deterministic tests, override HOME or set PI_CODING_AGENT_DIR to a temp dir containing a stub ~/.pi/agent/auth.json, OR seed AuthStorage.inMemory({ zai: { type:'api_key', key:'...' } }). No network/LLM calls — mock the harness provider init.\n2. INPUT: the provider-aware resolver from P7.M1.T2.S1 and the file-backed AuthStorage from P7.M1.T2.S2.\n3. LOGIC: Cover (no network): (a) explicit override wins; (b) ZAI_API_KEY-only succeeds under pi+zai; (c) auth.json-only (no env vars) succeeds under pi+zai (seed temp-dir ~/.pi/agent/auth.json); (d) empty/whitespace strings treated as 'not configured'; (e) ANTHROPIC_AUTH_TOKEN succeeds ONLY when the provider is anthropic. Mock registry.initializeProvider / configureHarnesses as the existing harness tests do (tests/unit/config/harness-provider-compat.test.ts is the pattern).\n4. OUTPUT: A test file (e.g. tests/unit/config/auth-resolution.test.ts) proving all five resolution-order cases; existing config tests still green.\n5. DOCS: none — test-only; per-file auth docs ride with S1 (Mode A)."
+                  "dependencies": [
+                    "P7.M1.T2.S1",
+                    "P7.M1.T2.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §9.2.6 acceptance and §9.2.7 acceptance overlap on the auth-only cases. AuthStorage.hasAuth(provider)/getAuthStatus(provider) check runtime+auth.json+env+fallback (architecture/groundswell_auth_api.md §2). For deterministic tests, override HOME or set PI_CODING_AGENT_DIR to a temp dir containing a stub ~/.pi/agent/auth.json, OR seed AuthStorage.inMemory({ zai: { type:'api_key', key:'...' } }). No network/LLM calls — mock the harness provider init.\n2. INPUT: the provider-aware resolver from P7.M1.T2.S1 and the file-backed AuthStorage from P7.M1.T2.S2.\n3. LOGIC: Cover (no network): (a) explicit override wins; (b) ZAI_API_KEY-only succeeds under pi+zai; (c) auth.json-only (no env vars) succeeds under pi+zai (seed temp-dir ~/.pi/agent/auth.json); (d) empty/whitespace strings treated as 'not configured'; (e) ANTHROPIC_AUTH_TOKEN succeeds ONLY when the provider is anthropic. Mock registry.initializeProvider / configureHarnesses as the existing harness tests do (tests/unit/config/harness-provider-compat.test.ts is the pattern).\n4. OUTPUT: A test file (e.g. tests/unit/config/auth-resolution.test.ts) proving all five resolution-order cases; existing config tests still green.\n5. DOCS: none — test-only; per-file auth docs ride with S1 (Mode A).",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.5",
+                    "h4.6"
+                  ]
                 }
               ]
             },
@@ -105,9 +148,17 @@
                   "title": "Wire the auth preflight onto the startup path",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P7.M1.T2.S1"],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.6", "h4.5", "h4.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/config/environment.ts exports validateEnvironment() but it is ONLY called by src/scripts/validate-api.ts — NOT on main()'s startup path. src/index.ts main() order today: parseCLIArgs() → configureEnvironment() → await ensureHarnessInitialized() → new PRPPipeline(...).run(); a bad credential surfaces deep inside decomposePRD after a session dir + ERROR_REPORT.md are created. The ACCURATE, drift-proof preflight primitive is AuthStorage.hasAuth(provider)/getAuthStatus(provider) (the SAME resolver the harness uses at runtime) — NOT a hand-rolled process.env check (architecture/groundswell_auth_api.md §2).\n2. INPUT: configureEnvironment() and ensureHarnessInitialized() in src/index.ts main(); the provider-aware resolver from P7.M1.T2.S1; getModel() to resolve the selected harness + provider/model.\n3. LOGIC: Add runAuthPreflight() invoked in main() AFTER configureEnvironment() and BEFORE ensureHarnessInitialized()/new PRPPipeline(...). pi harness: resolve selected provider/model and verify ≥1 auth source via AuthStorage.hasAuth(provider)/getAuthStatus(provider) (reuse T2.S1's resolver). claude-code harness: verify an Anthropic credential (that harness is Anthropic-only). Treat empty/whitespace-only as 'not configured'. On failure: abort with exit code 1, emit ONE actionable message naming the selected harness+provider/model, every empty source checked (override, the provider env-var name e.g. ZAI_API_KEY, and the ~/.pi/agent/auth.json path), and the exact remediation (`pi /login` or `export ZAI_API_KEY=…`). No session dir created, no agent invoked.\n4. OUTPUT: A misconfigured credential aborts at startup before any session/agent work; a credential via ~/.pi/agent/auth.json alone (no env) or ZAI_API_KEY alone proceeds.\n5. DOCS: [Mode A] Add the preflight failure mode + remediation to docs/INSTALLATION.md setup/troubleshooting section and JSDoc on runAuthPreflight(). Rides WITH the work."
+                  "dependencies": [
+                    "P7.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/config/environment.ts exports validateEnvironment() but it is ONLY called by src/scripts/validate-api.ts — NOT on main()'s startup path. src/index.ts main() order today: parseCLIArgs() → configureEnvironment() → await ensureHarnessInitialized() → new PRPPipeline(...).run(); a bad credential surfaces deep inside decomposePRD after a session dir + ERROR_REPORT.md are created. The ACCURATE, drift-proof preflight primitive is AuthStorage.hasAuth(provider)/getAuthStatus(provider) (the SAME resolver the harness uses at runtime) — NOT a hand-rolled process.env check (architecture/groundswell_auth_api.md §2).\n2. INPUT: configureEnvironment() and ensureHarnessInitialized() in src/index.ts main(); the provider-aware resolver from P7.M1.T2.S1; getModel() to resolve the selected harness + provider/model.\n3. LOGIC: Add runAuthPreflight() invoked in main() AFTER configureEnvironment() and BEFORE ensureHarnessInitialized()/new PRPPipeline(...). pi harness: resolve selected provider/model and verify ≥1 auth source via AuthStorage.hasAuth(provider)/getAuthStatus(provider) (reuse T2.S1's resolver). claude-code harness: verify an Anthropic credential (that harness is Anthropic-only). Treat empty/whitespace-only as 'not configured'. On failure: abort with exit code 1, emit ONE actionable message naming the selected harness+provider/model, every empty source checked (override, the provider env-var name e.g. ZAI_API_KEY, and the ~/.pi/agent/auth.json path), and the exact remediation (`pi /login` or `export ZAI_API_KEY=…`). No session dir created, no agent invoked.\n4. OUTPUT: A misconfigured credential aborts at startup before any session/agent work; a credential via ~/.pi/agent/auth.json alone (no env) or ZAI_API_KEY alone proceeds.\n5. DOCS: [Mode A] Add the preflight failure mode + remediation to docs/INSTALLATION.md setup/troubleshooting section and JSDoc on runAuthPreflight(). Rides WITH the work.",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.6",
+                    "h4.5",
+                    "h4.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -115,9 +166,15 @@
                   "title": "Harness-specific + acceptance tests for the preflight",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P7.M1.T3.S1"],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §9.2.7 acceptance criteria are explicit (no-credential abort with exit 1 + no session dir; auth.json-only succeeds; ZAI_API_KEY-only succeeds; ANTHROPIC_AUTH_TOKEN succeeds only under anthropic). Mock the harness provider so no real LLM call occurs; assert no plan/ session directory is created on the abort path.\n2. INPUT: runAuthPreflight() from P7.M1.T3.S1.\n3. LOGIC: Assert (no network): (a) no-credential run aborts at startup with ONE message + exit 1 and creates NO session dir; (b) auth.json-only run proceeds; (c) ZAI_API_KEY-only run proceeds; (d) ANTHROPIC_AUTH_TOKEN proceeds ONLY under the anthropic provider; (e) claude-code harness requires an Anthropic credential. Pattern: invoke the preflight with controlled env/HOME overrides and assert thrown error shape + message contents (harness, provider/model, checked sources, remediation).\n4. OUTPUT: tests/unit/config/auth-preflight.test.ts (or extend) proving all five acceptance cases from PRD §9.2.7.\n5. DOCS: none — test-only; per-file preflight docs ride with S1 (Mode A)."
+                  "dependencies": [
+                    "P7.M1.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §9.2.7 acceptance criteria are explicit (no-credential abort with exit 1 + no session dir; auth.json-only succeeds; ZAI_API_KEY-only succeeds; ANTHROPIC_AUTH_TOKEN succeeds only under anthropic). Mock the harness provider so no real LLM call occurs; assert no plan/ session directory is created on the abort path.\n2. INPUT: runAuthPreflight() from P7.M1.T3.S1.\n3. LOGIC: Assert (no network): (a) no-credential run aborts at startup with ONE message + exit 1 and creates NO session dir; (b) auth.json-only run proceeds; (c) ZAI_API_KEY-only run proceeds; (d) ANTHROPIC_AUTH_TOKEN proceeds ONLY under the anthropic provider; (e) claude-code harness requires an Anthropic credential. Pattern: invoke the preflight with controlled env/HOME overrides and assert thrown error shape + message contents (harness, provider/model, checked sources, remediation).\n4. OUTPUT: tests/unit/config/auth-preflight.test.ts (or extend) proving all five acceptance cases from PRD §9.2.7.\n5. DOCS: none — test-only; per-file preflight docs ride with S1 (Mode A).",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.6"
+                  ]
                 }
               ]
             },
@@ -134,9 +191,20 @@
                   "title": "README.md — rewrite auth + logging framing to the new reality",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P7.M1.T1.S3", "P7.M1.T2.S3", "P7.M1.T3.S2"],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.5", "h4.6", "h3.21", "h3.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: README.md currently frames Anthropic-shell as primary — Prerequisites (line 81: 'Anthropic API key (via ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)'), the env-var table + Authentication/Setup block (lines ~232–279), and the 'How It Works / Variable Mapping' narrative (lines ~267–279: 'AUTH_TOKEN mapped to API_KEY on startup'). These are stale once T2 lands. README logging prose (if any implies worker-thread transports) is also touched by T1.\n2. INPUT: the final provider-agnostic auth model (P7.M1.T2.S1), the fail-fast preflight (P7.M1.T3.S1), and the logging teardown behavior (P7.M1.T1.S1–S3).\n3. LOGIC: Rewrite README to make `pi /login` / `ZAI_API_KEY` the PRIMARY auth path; demote ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY to OPTIONAL anthropic-provider aliases; DROP the 'AUTH_TOKEN mapped to API_KEY on startup' narrative as the primary flow (it may remain as a backward-compat note under the anthropic provider). Update Prerequisites, the env-var table, and the Authentication/Setup block to match the implemented resolver + preflight remediation. Ensure logging prose does not imply worker-thread transports.\n4. OUTPUT: README.md auth + logging sections consistent with the shipped behavior; no stale Anthropic-primary framing.\n5. DOCS: [Mode B] This subtask IS the documentation deliverable (the final changeset-level sweep). No separate docs subtask is created for it."
+                  "dependencies": [
+                    "P7.M1.T1.S3",
+                    "P7.M1.T2.S3",
+                    "P7.M1.T3.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: README.md currently frames Anthropic-shell as primary — Prerequisites (line 81: 'Anthropic API key (via ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)'), the env-var table + Authentication/Setup block (lines ~232–279), and the 'How It Works / Variable Mapping' narrative (lines ~267–279: 'AUTH_TOKEN mapped to API_KEY on startup'). These are stale once T2 lands. README logging prose (if any implies worker-thread transports) is also touched by T1.\n2. INPUT: the final provider-agnostic auth model (P7.M1.T2.S1), the fail-fast preflight (P7.M1.T3.S1), and the logging teardown behavior (P7.M1.T1.S1–S3).\n3. LOGIC: Rewrite README to make `pi /login` / `ZAI_API_KEY` the PRIMARY auth path; demote ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY to OPTIONAL anthropic-provider aliases; DROP the 'AUTH_TOKEN mapped to API_KEY on startup' narrative as the primary flow (it may remain as a backward-compat note under the anthropic provider). Update Prerequisites, the env-var table, and the Authentication/Setup block to match the implemented resolver + preflight remediation. Ensure logging prose does not imply worker-thread transports.\n4. OUTPUT: README.md auth + logging sections consistent with the shipped behavior; no stale Anthropic-primary framing.\n5. DOCS: [Mode B] This subtask IS the documentation deliverable (the final changeset-level sweep). No separate docs subtask is created for it.",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.5",
+                    "h4.6",
+                    "h3.21",
+                    "h3.10"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -144,9 +212,20 @@
                   "title": "docs/ARCHITECTURE.md — refresh top-level capability framing (Anthropic-only / worker-thread logging)",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P7.M1.T1.S3", "P7.M1.T2.S3", "P7.M1.T3.S2"],
-                  "prd_selectors": ["h2.8", "h3.17", "h4.5", "h3.21", "h3.19", "h3.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: docs/ARCHITECTURE.md (27KB) may imply Anthropic-only auth or worker-thread/pino-transport logging in its top-level capability framing. Scan it (rg -n -i 'anthropic|pino|transport|worker|auth|pi harness|zai') and reconcile with the shipped pi-native auth model (P7.M1.T2) and synchronous-destination logging (P7.M1.T1).\n2. INPUT: the shipped auth model + logging architecture.\n3. LOGIC: Update any framing that (a) implies Anthropic is the primary/only provider, (b) implies worker-thread transports or that logging is async/transport-based, or (c) omits the harness/provider orthogonality (pi default + zai default). Keep the doc's existing structure; edit only the stale capability/auth/logging statements.\n4. OUTPUT: docs/ARCHITECTURE.md consistent with the shipped pi+zai default and sync-destination logging; if no stale framing exists, document that finding (no-op edit is acceptable, but verify explicitly).\n5. DOCS: [Mode B] This subtask IS the documentation deliverable."
+                  "dependencies": [
+                    "P7.M1.T1.S3",
+                    "P7.M1.T2.S3",
+                    "P7.M1.T3.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: docs/ARCHITECTURE.md (27KB) may imply Anthropic-only auth or worker-thread/pino-transport logging in its top-level capability framing. Scan it (rg -n -i 'anthropic|pino|transport|worker|auth|pi harness|zai') and reconcile with the shipped pi-native auth model (P7.M1.T2) and synchronous-destination logging (P7.M1.T1).\n2. INPUT: the shipped auth model + logging architecture.\n3. LOGIC: Update any framing that (a) implies Anthropic is the primary/only provider, (b) implies worker-thread transports or that logging is async/transport-based, or (c) omits the harness/provider orthogonality (pi default + zai default). Keep the doc's existing structure; edit only the stale capability/auth/logging statements.\n4. OUTPUT: docs/ARCHITECTURE.md consistent with the shipped pi+zai default and sync-destination logging; if no stale framing exists, document that finding (no-op edit is acceptable, but verify explicitly).\n5. DOCS: [Mode B] This subtask IS the documentation deliverable.",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h3.17",
+                    "h4.5",
+                    "h3.21",
+                    "h3.19",
+                    "h3.10"
+                  ]
                 }
               ]
             }

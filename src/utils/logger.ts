@@ -45,6 +45,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import pretty from 'pino-pretty';
+
+const nodeRequire = createRequire(import.meta.url);
 
 // ===== TYPES =====
 
@@ -212,44 +216,26 @@ const loggerCache = new Map<string, Logger>();
 let globalConfig: LoggerConfig = {};
 
 /**
- * Synchronous pino reference (initialized on first call)
+ * Memoized pino accessor — lazily loads pino on first getLogger() call.
  *
  * @remarks
- * Using createRequire for synchronous loading to work with ES modules.
- * Top-level await is used to initialize pino at module load time.
- *
- * eslint-disable-next-line @typescript-eslint/no-explicit-any
+ * Pino is CommonJS and loaded via createRequire (same mechanism as before S1),
+ * but deferred out of module-eval scope so importing logger.ts has zero side
+ * effects. The bundle is memoized: after the first call the cached
+ * { pino, stdTimeFunctions } is returned without touching require again.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let syncPino: any = null;
+type PinoBundle = { pino: any; stdTimeFunctions: any };
 
-/**
- * Synchronous stdTimeFunctions reference
- *
- * eslint-disable-next-line @typescript-eslint/no-explicit-any
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let syncStdTime: any = null;
+let _pinoBundle: PinoBundle | undefined;
 
-/**
- * Initialize pino at module load time
- *
- * @remarks
- * Uses top-level await with createRequire to load pino synchronously
- * in ES module context. This ensures pino is available when getLogger()
- * is called.
- */
-{
-  // Use createRequire for synchronous loading in ES modules
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createRequire } = await import('module');
-  const require = createRequire(import.meta.url);
-  const pinoRequire = require('pino');
-  // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  syncPino = pinoRequire.default ?? pinoRequire;
-  syncStdTime = pinoRequire.stdTimeFunctions;
+function getPino(): PinoBundle {
+  if (_pinoBundle) return _pinoBundle;
+  const pinoRequire = nodeRequire('pino');
+  const pino = pinoRequire; // CJS module.exports IS the factory
+  _pinoBundle = { pino, stdTimeFunctions: pinoRequire.stdTimeFunctions };
+  return _pinoBundle;
 }
 
 // ===== HELPER FUNCTIONS =====
@@ -279,18 +265,17 @@ function generateCorrelationId(): string {
  * Creates pino logger configuration
  *
  * @param options - Logger configuration options
- * @returns Pino LoggerOptions object
+ * @param stdTimeFunctions - pino stdTimeFunctions for ISO timestamps (from getPino())
+ * @returns Pino LoggerOptions object (never contains a pino transport config key)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function createLoggerConfig(options: LoggerConfig = {}): any {
-  const {
-    level = LogLevel.INFO,
-    machineReadable = false,
-    verbose = false,
-  } = options;
+function createLoggerConfig(
+  options: LoggerConfig = {},
+  stdTimeFunctions?: any
+): any {
+  const { level = LogLevel.INFO, verbose = false } = options;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const baseConfig: any = {
+  return {
     // Define custom levels with Pino numeric values
     customLevels: PINO_LEVELS,
     // Set log level based on verbose flag or explicit level
@@ -302,7 +287,7 @@ function createLoggerConfig(options: LoggerConfig = {}): any {
       remove: false, // Keep the key with censored value
     },
     // Timestamp in ISO format for log aggregation
-    timestamp: syncStdTime?.isoTime ?? (() => new Date().toISOString()),
+    timestamp: stdTimeFunctions.isoTime,
     // Custom formatters
     formatters: {
       level: (label: string) => {
@@ -310,25 +295,6 @@ function createLoggerConfig(options: LoggerConfig = {}): any {
       },
     },
   };
-
-  // Add pretty print transport for development mode (not machine-readable)
-  if (!machineReadable) {
-    return {
-      ...baseConfig,
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'HH:MM:ss',
-          ignore: 'pid,hostname',
-          messageFormat: '[{correlationId}] [{context}] {msg}', // Add correlationId and context prefix
-          singleLine: false,
-        },
-      },
-    };
-  }
-
-  return baseConfig;
 }
 
 /**
@@ -416,6 +382,19 @@ function wrapPinoLogger(pinoLogger: any): Logger {
  * for distributed tracing. Child loggers automatically inherit the parent's
  * correlation ID.
  *
+ * **Lazy pino loading (REQ-L2):** pino is loaded on first `getLogger()` call via
+ * a memoized `getPino()` accessor — no module-eval side effects. This allows
+ * call sites to import the logger module without triggering pino initialization
+ * until logging is actually needed.
+ *
+ * **Synchronous destinations (REQ-L1):** both the JSON (machine-readable) and
+ * pretty-print paths use synchronous in-process destination streams. No pino
+ * transport config key is ever produced — zero worker threads, zero blocking
+ * `process.on('exit')` handlers. The process can exit as soon as work is done.
+ *
+ * **Single root direction (REQ-L3):** future work will derive all loggers from a
+ * single process-wide root to bound total destinations to one sync stream.
+ *
  * @example
  * ```typescript
  * // Default configuration (INFO level, pretty print)
@@ -442,25 +421,35 @@ export function getLogger(context: string, options?: LoggerConfig): Logger {
     return cached;
   }
 
-  // Prevent MaxListenersExceededWarning from pino transport workers
-  // Each transport worker attaches an exit listener to process
-  if (!loggerCache.size) {
-    process.setMaxListeners?.(30);
-  }
-
   // Auto-generate correlation ID if not provided
   const correlationId = options?.correlationId || generateCorrelationId();
 
-  // Create new logger
-  const config = createLoggerConfig(options);
-  const pinoLogger = syncPino({
-    ...config,
-    // Add context and correlationId as base fields
-    base: {
-      context,
-      correlationId,
-    },
-  });
+  // Lazy-load pino (deferred from module-eval; memoized after first call).
+  // Supports REQ-L2 (lazy call-site migration in S2).
+  const { pino, stdTimeFunctions } = getPino();
+
+  // Build configuration — never produces a pino transport config key (REQ-L1).
+  const config = createLoggerConfig(options, stdTimeFunctions);
+
+  // Build synchronous in-process destination stream.
+  // Pretty path: pino-pretty as a destination Transform (zero worker threads).
+  // JSON path: default stdout (sync), no destination stream needed.
+  // Both paths avoid pino transport workers and their blocking exit handlers.
+  const machineReadable = options?.machineReadable ?? false;
+  const dest = machineReadable
+    ? undefined
+    : pretty({
+        colorize: true,
+        translateTime: 'HH:MM:ss',
+        ignore: 'pid,hostname',
+        messageFormat: '[{correlationId}] [{context}] {msg}',
+        singleLine: false,
+      });
+
+  const pinoLogger = pino(
+    { ...config, base: { context, correlationId } },
+    dest
+  );
 
   // Wrap with our Logger interface
   const logger = wrapPinoLogger(pinoLogger);
