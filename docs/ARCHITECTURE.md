@@ -348,14 +348,31 @@ Observed state provides:
 
 ### Agent Creation
 
-Agents are created using Groundswell's `createAgent` function:
+Agents are created using Groundswell's `createAgent` function. At startup the
+pipeline first configures the **harness** — the agent runtime/SDK — via
+`configureHarnesses()`, selecting the runtime (`pi`, the vendor-neutral
+default, or `claude-code`) **independently** of the LLM **provider/model**
+(default `zai`). See the [Groundswell Guide](./GROUNDSWELL_GUIDE.md) and
+PRD §9.4.
 
 ```typescript
-import { createAgent } from 'groundswell';
+import { configureHarnesses, createAgent } from 'groundswell';
 
+// 1. Configure the harness once at startup (harness ⟂ provider/model).
+configureHarnesses({
+  defaultHarness: 'pi', // vendor-neutral default (pi.dev); 'claude-code' is Anthropic-only
+  defaultModelProvider: 'zai', // LLM host — independent of the harness
+  harnessDefaults: {
+    'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY },
+  },
+});
+
+// 2. Create an agent. Models are provider-qualified ('zai/glm-5.2'), never
+//    harness-qualified ('pi/zai/glm-5.2' is invalid). Auth is resolved
+//    provider-aware (override → provider env var → ~/.pi/agent/auth.json);
+//    the default path passes no top-level apiKey.
 const coderAgent = createAgent({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-  model: 'claude-opus-4-5-20251101',
+  model: 'zai/glm-5.2', // default reasoning tier (PRD §9.2.3)
   maxTokens: 8192,
   systemPrompt: CODER_SYSTEM_PROMPT,
 });
@@ -906,7 +923,8 @@ flowchart TD
 ### External References
 
 - [Groundswell Framework](https://github.com/anthropics/groundswell) - Agentic workflow primitives
-- [Anthropic Claude API](https://docs.anthropic.com/claude/reference/) - LLM API documentation
+- [Anthropic Claude API](https://docs.anthropic.com/claude/reference/) - Reference for the **optional** `anthropic` provider / `claude-code` harness (default uses z.ai)
+- [z.ai provider configuration](./CONFIGURATION.md) - Default LLM provider (z.ai) + auth model
 - [TypeScript Documentation](https://www.typescriptlang.org/docs/) - TypeScript language reference
 - [Mermaid Diagrams](https://mermaid-js.github.io/) - Diagram syntax reference
 

@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P7",
       "title": "Auth & Logging Hardening (Delta D1)",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Delta session implementing exactly three new, currently-unimplemented PRD sections against the existing (fully-implemented §1–9.5) pipeline: (1) PRD §9.6 Logging Architecture — lazy loggers + synchronous destinations to fix a measured ~10s CLI teardown stall; (2) PRD §9.2.6 Provider-Agnostic Authentication Model — replace the Anthropic-shell auth path with provider-aware resolution (default pi+ziai) honoring ~/.pi/agent/auth.json, incl. a cross-repo Groundswell change; (3) PRD §9.2.7 Fail-Fast Authentication Preflight — abort at startup before any session dir/agent run when no credential is resolvable. Nothing else in the PRD requires work. See plan/007_8783a1f5e14a/delta_prd.md and architecture/system_context.md.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P7.M1",
           "title": "Resilience & Auth Hardening",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Land all three workstreams (logging teardown fix, provider-agnostic auth, fail-fast preflight) plus a final changeset-level documentation sweep. Logging (T1) and Auth (T2) are independent workstreams and may be parallelized; Preflight (T3) hard-depends on T2.S1's resolver; Docs (T4) runs last and depends on all implementing subtasks.",
           "tasks": [
             {
@@ -182,7 +182,7 @@
               "type": "Task",
               "id": "P7.M1.T4",
               "title": "Sync changeset-level documentation (Mode B)",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Cross-cutting docs that only make sense once the whole delta lands: the default auth FLOW changes from Anthropic-shell to pi-native, and the CLI teardown behavior changes (no worker-thread logging). These cannot be honestly written until T1–T3 are in. Runs LAST; depends on every implementing subtask. Per-file docs (.env.example, docs/CONFIGURATION.md, docs/INSTALLATION.md, JSDoc) are Mode A and already ride with the implementing subtasks.",
               "subtasks": [
                 {
@@ -210,7 +210,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T4.S2",
                   "title": "docs/ARCHITECTURE.md — refresh top-level capability framing (Anthropic-only / worker-thread logging)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P7.M1.T1.S3",
