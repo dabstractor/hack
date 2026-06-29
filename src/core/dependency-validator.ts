@@ -32,7 +32,7 @@
 import type { Backlog, Subtask } from './models.js';
 import { getAllSubtasks } from '../utils/task-utils.js';
 import { ValidationError, ErrorCodes } from '../utils/errors.js';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, type Logger } from '../utils/logger.js';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -41,7 +41,8 @@ import { getLogger } from '../utils/logger.js';
 /**
  * Logger instance for dependency validation
  */
-const logger = getLogger('DependencyValidator');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('DependencyValidator'));
 
 /**
  * Dependency graph adjacency list
@@ -428,7 +429,7 @@ export function detectCircularDeps(backlog: Backlog): void {
   // Step 4: Warn about long chains (non-blocking)
   const longChains = detectLongChains(graph, 5);
   for (const chain of longChains) {
-    logger.warn(
+    logger().warn(
       {
         taskId: chain.taskId,
         depth: chain.depth,

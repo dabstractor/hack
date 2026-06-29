@@ -32,9 +32,10 @@ import { writeFile, readFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { simpleGit, GitError } from 'simple-git';
 import type { ModuleErrorVerifyResult } from './module-resolution-verifier.js';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('BuildLogger');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('BuildLogger'));
 
 // =============================================================================
 // TYPES
@@ -144,7 +145,7 @@ export async function documentBuildSuccess(
   // CRITICAL: Only log when module resolution succeeded
   if (!verification.resolved) {
     const message = `Skipping build log - module resolution not verified. ${verification.message}`;
-    logger.info(message);
+    logger().info(message);
     return {
       logged: false,
       path: '',
@@ -178,7 +179,7 @@ export async function documentBuildSuccess(
     });
 
     const message = `Build log entry created at ${logPath}`;
-    logger.info(message);
+    logger().info(message);
 
     return {
       logged: true,
@@ -188,7 +189,7 @@ export async function documentBuildSuccess(
   } catch (error) {
     // PATTERN: Handle errors gracefully, don't throw
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(`Failed to document build success: ${errorMessage}`);
+    logger().error(`Failed to document build success: ${errorMessage}`);
 
     return {
       logged: false,
@@ -220,10 +221,10 @@ async function getCommitHash(projectPath: string): Promise<string | null> {
   } catch (error) {
     // PATTERN: Handle git errors gracefully
     if (error instanceof GitError) {
-      logger.warn(`Git error retrieving commit hash: ${error.message}`);
+      logger().warn(`Git error retrieving commit hash: ${error.message}`);
       return null;
     }
-    logger.warn(`Unexpected error retrieving commit hash: ${error}`);
+    logger().warn(`Unexpected error retrieving commit hash: ${error}`);
     return null;
   }
 }
@@ -262,7 +263,7 @@ async function checkFileExists(filePath: string): Promise<boolean> {
  */
 async function createBuildLog(logPath: string): Promise<void> {
   await writeFile(logPath, BUILD_LOG_HEADER, 'utf-8');
-  logger.debug(`Created new build log at ${logPath}`);
+  logger().debug(`Created new build log at ${logPath}`);
 }
 
 /**
@@ -285,7 +286,7 @@ async function appendToBuildLog(
   const updatedContent = existingContent + newEntry;
 
   await writeFile(logPath, updatedContent, 'utf-8');
-  logger.debug(`Appended entry to build log: ${entry.timestamp}`);
+  logger().debug(`Appended entry to build log: ${entry.timestamp}`);
 }
 
 /**

@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P7.M1.T1",
               "title": "Logging Architecture — Lazy Loggers & Synchronous Destinations (PRD §9.6)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Implement REQ-L1/L2/L3 so hack --help, -h, --version, and an invalid flag each return in under 2 seconds with zero pino worker threads spawned. Independent of the auth workstream (T2).",
               "subtasks": [
                 {
@@ -41,7 +41,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T1.S2",
                   "title": "Lazy logger instantiation (REQ-L2) — migrate all 31 module-scope declarations",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P7.M1.T1.S1"
@@ -58,7 +58,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T1.S3",
                   "title": "Single root logger per process (REQ-L3) + teardown validation tests",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P7.M1.T1.S1",

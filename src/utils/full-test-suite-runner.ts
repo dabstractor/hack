@@ -46,7 +46,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import {
   detectMemoryErrorInTestOutput,
   parseVitestTestCounts,
@@ -54,7 +54,8 @@ import {
 } from './memory-error-detector.js';
 import type { SingleTestResult } from './single-test-runner.js';
 
-const logger = getLogger('FullTestSuiteRunner');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('FullTestSuiteRunner'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -235,7 +236,7 @@ export async function runFullTestSuite(
       'Cannot run full suite - single test failed or has memory issues. ' +
       `S1 success: ${singleTestResult.success}, hasMemoryError: ${singleTestResult.hasMemoryError}`;
 
-    logger.error(errorMessage);
+    logger().error(errorMessage);
 
     return buildFullSuiteResult(
       false,
@@ -248,7 +249,7 @@ export async function runFullTestSuite(
     );
   }
 
-  logger.debug('Running full test suite (1688 tests)');
+  logger().debug('Running full test suite (1688 tests)');
 
   // PATTERN: Safe spawn execution - handle synchronous errors
   let child: ChildProcess;
@@ -274,7 +275,7 @@ export async function runFullTestSuite(
       errorMessage += `: ${error instanceof Error ? error.message : String(error)}`;
     }
 
-    logger.error(errorMessage);
+    logger().error(errorMessage);
 
     return buildFullSuiteResult(
       false,
@@ -295,7 +296,7 @@ export async function runFullTestSuite(
 
     // Timeout handler with SIGTERM/SIGKILL escalation
     const timeoutId = setTimeout(() => {
-      logger.warn(
+      logger().warn(
         `Test suite timed out after ${DEFAULT_TIMEOUT}ms, sending SIGTERM`
       );
       timedOut = true;
@@ -304,7 +305,7 @@ export async function runFullTestSuite(
 
       // Escalate to SIGKILL after 10s if SIGTERM doesn't work
       setTimeout(() => {
-        logger.warn('Test suite still running, escalating to SIGKILL');
+        logger().warn('Test suite still running, escalating to SIGKILL');
         child.kill('SIGKILL');
       }, SIGKILL_TIMEOUT);
     }, DEFAULT_TIMEOUT);
@@ -354,16 +355,16 @@ export async function runFullTestSuite(
       const testCounts = parseVitestTestCounts(combinedOutput);
 
       if (exitCode === 0) {
-        logger.debug('Test suite executed successfully (all tests passed)');
+        logger().debug('Test suite executed successfully (all tests passed)');
       } else if (exitCode === 1) {
         // Exit code 1 means some tests failed, but not necessarily memory errors
         if (memoryCheck.hasMemoryError) {
-          logger.warn('Test suite had memory errors');
+          logger().warn('Test suite had memory errors');
         } else {
-          logger.debug('Test suite executed with some test failures');
+          logger().debug('Test suite executed with some test failures');
         }
       } else {
-        logger.warn(`Test suite exited with unexpected code ${exitCode}`);
+        logger().warn(`Test suite exited with unexpected code ${exitCode}`);
       }
 
       resolve(
@@ -394,7 +395,7 @@ export async function runFullTestSuite(
         errorMessage += `: ${error.message}`;
       }
 
-      logger.error(errorMessage);
+      logger().error(errorMessage);
 
       resolve(
         buildFullSuiteResult(

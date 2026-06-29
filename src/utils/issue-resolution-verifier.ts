@@ -47,10 +47,11 @@
  * ```
  */
 
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import { detectMemoryErrorInTestOutput } from './memory-error-detector.js';
 
-const logger = getLogger('IssueResolutionVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('IssueResolutionVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -237,7 +238,7 @@ function checkMemoryIssueResolution(
     matchedPatterns.push(detectionResult.matchedPattern);
   }
 
-  logger.debug('Memory issue resolution check', {
+  logger().debug('Memory issue resolution check', {
     hasMemoryErrors,
     detectedMemoryError: detectionResult.hasMemoryError,
     resolved,
@@ -279,7 +280,7 @@ function checkPromiseIssueResolution(
   // Resolution = flag is false AND no patterns detected
   const resolved = !hasPromiseRejections && matchedPatterns.length === 0;
 
-  logger.debug('Promise rejection resolution check', {
+  logger().debug('Promise rejection resolution check', {
     hasPromiseRejections,
     patternsFound: matchedPatterns.length,
     resolved,
@@ -384,7 +385,7 @@ export function verifyNoMemoryOrPromiseErrors(
 ): IssueResolutionStatus {
   // Handle null/undefined input gracefully
   if (!testResult) {
-    logger.warn(
+    logger().warn(
       'verifyNoMemoryOrPromiseErrors called with null/undefined input'
     );
     return buildIssueResolutionStatus(
@@ -396,7 +397,7 @@ export function verifyNoMemoryOrPromiseErrors(
     );
   }
 
-  logger.debug('Verifying issue resolution for Issues 2 and 3', {
+  logger().debug('Verifying issue resolution for Issues 2 and 3', {
     hasMemoryErrors: testResult.hasMemoryErrors,
     hasPromiseRejections: testResult.hasPromiseRejections,
     exitCode: testResult.exitCode,
@@ -432,12 +433,12 @@ export function verifyNoMemoryOrPromiseErrors(
 
   // Log findings
   if (status.allResolved) {
-    logger.info('Both Issue 2 and Issue 3 resolved', {
+    logger().info('Both Issue 2 and Issue 3 resolved', {
       memoryIssuesResolved: status.memoryIssuesResolved,
       promiseIssuesResolved: status.promiseIssuesResolved,
     });
   } else {
-    logger.warn('Issues remain unresolved', {
+    logger().warn('Issues remain unresolved', {
       memoryIssuesResolved: status.memoryIssuesResolved,
       promiseIssuesResolved: status.promiseIssuesResolved,
       remainingIssues: status.remainingIssues,

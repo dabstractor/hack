@@ -23,7 +23,7 @@
 import { configureEnvironment, getModel } from '../config/environment.js';
 import { configureHarness } from '../config/harness.js';
 import type { AgentHarness } from '../config/types.js';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, type Logger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
 import {
   TASK_BREAKDOWN_PROMPT,
@@ -46,7 +46,8 @@ configureEnvironment();
 const RESOLVED_HARNESS: AgentHarness = configureHarness();
 
 // Module-level logger for agent factory
-const logger = getLogger('AgentFactory');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('AgentFactory'));
 
 /**
  * Singleton MCP server instances
@@ -205,7 +206,10 @@ export function createArchitectAgent(): Agent {
     system: TASK_BREAKDOWN_PROMPT,
     mcps: MCP_TOOLS,
   };
-  logger.debug({ persona: 'architect', model: config.model }, 'Creating agent');
+  logger().debug(
+    { persona: 'architect', model: config.model },
+    'Creating agent'
+  );
   return createAgent(config);
 }
 
@@ -233,7 +237,7 @@ export function createResearcherAgent(): Agent {
     system: PRP_BLUEPRINT_PROMPT,
     mcps: MCP_TOOLS,
   };
-  logger.debug(
+  logger().debug(
     { persona: 'researcher', model: config.model },
     'Creating agent'
   );
@@ -264,7 +268,7 @@ export function createCoderAgent(): Agent {
     system: PRP_BUILDER_PROMPT,
     mcps: MCP_TOOLS,
   };
-  logger.debug({ persona: 'coder', model: config.model }, 'Creating agent');
+  logger().debug({ persona: 'coder', model: config.model }, 'Creating agent');
   return createAgent(config);
 }
 
@@ -292,7 +296,7 @@ export function createQAAgent(): Agent {
     system: BUG_HUNT_PROMPT,
     mcps: MCP_TOOLS,
   };
-  logger.debug({ persona: 'qa', model: config.model }, 'Creating agent');
+  logger().debug({ persona: 'qa', model: config.model }, 'Creating agent');
   return createAgent(config);
 }
 

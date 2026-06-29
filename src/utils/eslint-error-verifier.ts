@@ -40,10 +40,11 @@
  * ```
  */
 
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import type { ESLintResultReport } from './eslint-result-parser.js';
 
-const logger = getLogger('ESLintErrorVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('ESLintErrorVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -323,7 +324,7 @@ export function verifyESLintErrorStatus(
 ): ESLintErrorStatus {
   // Handle null/undefined input gracefully
   if (!eslintReport) {
-    logger.warn('verifyESLintErrorStatus called with null/undefined input');
+    logger().warn('verifyESLintErrorStatus called with null/undefined input');
     return buildESLintErrorStatus(false, [], false);
   }
 
@@ -332,7 +333,7 @@ export function verifyESLintErrorStatus(
 
   // Short-circuit: no errors means success
   if (!hasErrors) {
-    logger.info('No ESLint errors detected', {
+    logger().info('No ESLint errors detected', {
       errorCount: eslintReport.errorCount,
       warningCount: eslintReport.warningCount,
     });
@@ -350,12 +351,12 @@ export function verifyESLintErrorStatus(
 
   // Log findings
   if (acceptable) {
-    logger.info('ESLint errors are all deferrable', {
+    logger().info('ESLint errors are all deferrable', {
       totalErrors: eslintReport.errorCount,
       deferrableErrors: errorClassification.deferrableErrors.length,
     });
   } else {
-    logger.warn('Critical ESLint errors detected', {
+    logger().warn('Critical ESLint errors detected', {
       totalErrors: eslintReport.errorCount,
       criticalErrors: errorClassification.criticalErrors.length,
       deferrableErrors: errorClassification.deferrableErrors.length,

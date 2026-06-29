@@ -33,9 +33,10 @@
  */
 
 import type { CliHelpResult } from './cli-help-executor.js';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('StartupErrorVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('StartupErrorVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -184,7 +185,7 @@ export function verifyStartupErrors(
   if (!helpResult.success) {
     const spawnError = helpResult.error || 'Unknown spawn error';
 
-    logger.warn(`CLI spawn failed: ${spawnError}`);
+    logger().warn(`CLI spawn failed: ${spawnError}`);
 
     return {
       hasErrors: true,
@@ -215,9 +216,9 @@ export function verifyStartupErrors(
   const hasErrors = errorTypes.length > 0;
 
   if (hasErrors) {
-    logger.warn(`Runtime errors detected: ${errorTypes.join(', ')}`);
+    logger().warn(`Runtime errors detected: ${errorTypes.join(', ')}`);
   } else {
-    logger.debug('Clean startup - no runtime errors detected');
+    logger().debug('Clean startup - no runtime errors detected');
   }
 
   return {

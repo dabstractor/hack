@@ -38,10 +38,11 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import type { PackageJsonScriptsReadResult } from './package-json-reader.js';
 
-const logger = getLogger('PackageJsonUpdater');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('PackageJsonUpdater'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -317,10 +318,10 @@ function writePackageJson(
       'utf-8'
     );
 
-    logger.info(`Successfully wrote updated scripts to ${packageJsonPath}`);
+    logger().info(`Successfully wrote updated scripts to ${packageJsonPath}`);
     return true;
   } catch (error) {
-    logger.error(`Failed to write package.json: ${error}`);
+    logger().error(`Failed to write package.json: ${error}`);
     return false;
   }
 }
@@ -381,7 +382,7 @@ export function updateTestScriptsWithMemoryLimit(
 
   // PATTERN: Validate input
   if (!input.success) {
-    logger.error(
+    logger().error(
       'Invalid input: PackageJsonScriptsResult.success must be true'
     );
     return buildErrorResult(
@@ -402,7 +403,7 @@ export function updateTestScriptsWithMemoryLimit(
 
     // Check for missing/undefined/null script (empty string is valid)
     if (currentCommand === undefined || currentCommand === null) {
-      logger.warn(
+      logger().warn(
         `Script "${scriptName}" not found in scripts object, skipping`
       );
       continue;
@@ -411,13 +412,13 @@ export function updateTestScriptsWithMemoryLimit(
     // PATTERN: Check for existing NODE_OPTIONS
     if (hasNodeOptions(currentCommand)) {
       if (onExistingOptions === 'error') {
-        logger.error(`Script "${scriptName}" already has NODE_OPTIONS`);
+        logger().error(`Script "${scriptName}" already has NODE_OPTIONS`);
         return buildErrorResult(
           `Script "${scriptName}" already has NODE_OPTIONS`,
           'DUPLICATE_OPTIONS'
         );
       } else if (onExistingOptions === 'skip') {
-        logger.info(
+        logger().info(
           `Script "${scriptName}" already has NODE_OPTIONS, skipping`
         );
         continue;
@@ -436,7 +437,7 @@ export function updateTestScriptsWithMemoryLimit(
     updatedScripts[scriptName] = newCommand;
     updated.push(scriptName);
 
-    logger.debug(
+    logger().debug(
       `Updated script "${scriptName}": ${currentCommand} → ${newCommand}`
     );
   }
@@ -446,12 +447,12 @@ export function updateTestScriptsWithMemoryLimit(
   const writeSuccess = writePackageJson(packageJsonPath, updatedScripts);
 
   if (!writeSuccess) {
-    logger.error('Failed to write package.json');
+    logger().error('Failed to write package.json');
     return buildErrorResult('Failed to write package.json', 'WRITE_FAILED');
   }
 
   // PATTERN: Return success result
-  logger.info(
+  logger().info(
     `Successfully updated ${updated.length} test script(s) with memory limit`
   );
   return buildUpdateResult(updated, updatedScripts);

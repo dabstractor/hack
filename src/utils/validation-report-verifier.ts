@@ -33,9 +33,11 @@
  */
 
 import type { PrdValidationResult } from './prd-validation-executor.js';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('ValidationReportVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger =>
+  (_logger ??= getLogger('ValidationReportVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -169,7 +171,7 @@ export function verifyValidationReportFormat(
 ): ValidationReportFormatResult {
   // PATTERN: Early return when validation command failed
   if (!validationResult.success) {
-    logger.warn(
+    logger().warn(
       'Skipping validation report format check: validation command failed'
     );
 
@@ -193,9 +195,9 @@ export function verifyValidationReportFormat(
   const formatValid = missingSections.length === 0;
 
   if (formatValid) {
-    logger.debug('All expected sections detected in validation report');
+    logger().debug('All expected sections detected in validation report');
   } else {
-    logger.warn(
+    logger().warn(
       `Missing sections in validation report: ${missingSections.join(', ')}`
     );
   }

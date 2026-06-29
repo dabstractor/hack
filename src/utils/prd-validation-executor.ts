@@ -38,9 +38,10 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('PrdValidationExecutor');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('PrdValidationExecutor'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -168,7 +169,7 @@ export async function executePrdValidation(
 ): Promise<PrdValidationResult> {
   const root = projectRoot ?? process.cwd();
 
-  logger.debug(`Executing PRD validation for: ${prdPath}`);
+  logger().debug(`Executing PRD validation for: ${prdPath}`);
 
   // PATTERN: Safe spawn execution - handle synchronous errors
   let child: ChildProcess;
@@ -197,7 +198,7 @@ export async function executePrdValidation(
       errorMessage += `: ${error instanceof Error ? error.message : String(error)}`;
     }
 
-    logger.error(errorMessage);
+    logger().error(errorMessage);
 
     return {
       success: false,
@@ -216,14 +217,14 @@ export async function executePrdValidation(
 
     // Timeout handler with SIGTERM/SIGKILL escalation
     const timeoutId = setTimeout(() => {
-      logger.warn('PRD validation timed out after 10s, sending SIGTERM');
+      logger().warn('PRD validation timed out after 10s, sending SIGTERM');
       timedOut = true;
       killed = true;
       child.kill('SIGTERM');
 
       // Escalate to SIGKILL after 5s if SIGTERM doesn't work
       setTimeout(() => {
-        logger.warn('PRD validation still running, escalating to SIGKILL');
+        logger().warn('PRD validation still running, escalating to SIGKILL');
         child.kill('SIGKILL');
       }, SIGKILL_TIMEOUT);
     }, DEFAULT_TIMEOUT);
@@ -263,11 +264,11 @@ export async function executePrdValidation(
       const parsed = parseValidationOutput(combinedOutput);
 
       if (exitCode === 0) {
-        logger.debug('PRD validation executed successfully (valid)');
+        logger().debug('PRD validation executed successfully (valid)');
       } else if (exitCode === 1) {
-        logger.debug('PRD validation executed successfully (invalid PRD)');
+        logger().debug('PRD validation executed successfully (invalid PRD)');
       } else {
-        logger.warn(`PRD validation exited with unexpected code ${exitCode}`);
+        logger().warn(`PRD validation exited with unexpected code ${exitCode}`);
       }
 
       resolve({
@@ -293,7 +294,7 @@ export async function executePrdValidation(
         errorMessage += `: ${error.message}`;
       }
 
-      logger.error(errorMessage);
+      logger().error(errorMessage);
 
       resolve({
         success: false,

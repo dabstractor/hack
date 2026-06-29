@@ -26,14 +26,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { resolve, join, dirname, basename } from 'node:path';
 import { TextDecoder } from 'node:util';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, type Logger } from '../utils/logger.js';
 import type { Backlog, PRPDocument } from './models.js';
 import { BacklogSchema, PRPDocumentSchema } from './models.js';
 
 /**
  * Logger instance for session-utils debug logging
  */
-const logger = getLogger('session-utils');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('session-utils'));
 
 /**
  * Error thrown when a session file operation fails
@@ -104,7 +105,7 @@ export async function atomicWrite(
     `.${basename(targetPath)}.${randomBytes(8).toString('hex')}.tmp`
   );
 
-  logger.debug(
+  logger().debug(
     {
       targetPath,
       tempPath,
@@ -119,7 +120,7 @@ export async function atomicWrite(
     await writeFile(tempPath, data, { mode: 0o644 });
     const writeDuration = performance.now() - writeStart;
 
-    logger.debug(
+    logger().debug(
       {
         tempPath,
         size: data.length,
@@ -133,7 +134,7 @@ export async function atomicWrite(
     await rename(tempPath, targetPath);
     const renameDuration = performance.now() - renameStart;
 
-    logger.debug(
+    logger().debug(
       {
         tempPath,
         targetPath,
@@ -143,7 +144,7 @@ export async function atomicWrite(
       'Temp file renamed to target'
     );
 
-    logger.debug(
+    logger().debug(
       {
         targetPath,
         size: data.length,
@@ -153,7 +154,7 @@ export async function atomicWrite(
     );
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         targetPath,
         tempPath,
@@ -167,9 +168,12 @@ export async function atomicWrite(
     // Clean up temp file on error
     try {
       await unlink(tempPath);
-      logger.debug({ tempPath, operation: 'cleanup' }, 'Temp file cleaned up');
+      logger().debug(
+        { tempPath, operation: 'cleanup' },
+        'Temp file cleaned up'
+      );
     } catch (cleanupError) {
-      logger.warn(
+      logger().warn(
         {
           tempPath,
           cleanupErrorCode: (cleanupError as NodeJS.ErrnoException)?.code,
@@ -230,20 +234,20 @@ export async function readUTF8FileStrict(
  */
 export async function hashPRD(prdPath: string): Promise<string> {
   try {
-    logger.debug(
+    logger().debug(
       { prdPath, operation: 'hashPRD' },
       'Reading PRD for hash computation'
     );
     const content = await readFile(prdPath, 'utf-8');
     const fullHash = createHash('sha256').update(content).digest('hex');
-    logger.debug(
+    logger().debug(
       { prdPath, hash: fullHash.slice(0, 12), fullHashLength: fullHash.length },
       'PRD hash computed'
     );
     return fullHash;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         prdPath,
         errorCode: err?.code,
@@ -294,7 +298,7 @@ export async function createSessionDirectory(
     const fullHash = await hashPRD(prdPath);
     const sessionHash = fullHash.slice(0, 12);
 
-    logger.debug({ prdPath, sessionHash, sequence }, 'Session hash computed');
+    logger().debug({ prdPath, sessionHash, sequence }, 'Session hash computed');
 
     // Build session ID and path
     const sessionId = `${String(sequence).padStart(3, '0')}_${sessionHash}`;
@@ -308,7 +312,7 @@ export async function createSessionDirectory(
       join(sessionPath, 'artifacts'),
     ];
 
-    logger.debug(
+    logger().debug(
       {
         sessionId,
         sessionPath,
@@ -320,18 +324,18 @@ export async function createSessionDirectory(
 
     for (const dir of directories) {
       const dirName = basename(dir);
-      logger.debug(
+      logger().debug(
         { dir, dirName, operation: 'mkdir' },
         'Creating subdirectory'
       );
       try {
         await mkdir(dir, { recursive: true, mode: 0o755 });
-        logger.debug({ dir, result: 'created' }, 'Subdirectory created');
+        logger().debug({ dir, result: 'created' }, 'Subdirectory created');
       } catch (error: unknown) {
         // EEXIST is OK (directory already exists)
         const err = error as NodeJS.ErrnoException;
         if (err.code !== 'EEXIST') {
-          logger.error(
+          logger().error(
             {
               dir,
               errorCode: err?.code,
@@ -342,11 +346,14 @@ export async function createSessionDirectory(
           );
           throw error;
         }
-        logger.debug({ dir, result: 'exists' }, 'Subdirectory already exists');
+        logger().debug(
+          { dir, result: 'exists' },
+          'Subdirectory already exists'
+        );
       }
     }
 
-    logger.info({ sessionId, sessionPath }, 'Session directory created');
+    logger().info({ sessionId, sessionPath }, 'Session directory created');
 
     return sessionPath;
   } catch (error) {
@@ -354,7 +361,7 @@ export async function createSessionDirectory(
       throw error;
     }
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         prdPath,
         sequence,
@@ -399,7 +406,7 @@ export async function writeTasksJSON(
   backlog: Backlog
 ): Promise<void> {
   try {
-    logger.debug(
+    logger().debug(
       {
         sessionPath,
         itemCount: backlog.backlog.length,
@@ -411,7 +418,7 @@ export async function writeTasksJSON(
     // Validate with Zod schema
     const validated = BacklogSchema.parse(backlog);
 
-    logger.debug(
+    logger().debug(
       {
         sessionPath,
         validated: true,
@@ -426,7 +433,7 @@ export async function writeTasksJSON(
     // Write atomically
     const tasksPath = resolve(sessionPath, 'tasks.json');
 
-    logger.debug(
+    logger().debug(
       {
         tasksPath,
         size: content.length,
@@ -437,7 +444,7 @@ export async function writeTasksJSON(
 
     await atomicWrite(tasksPath, content);
 
-    logger.info(
+    logger().info(
       {
         tasksPath,
         size: content.length,
@@ -451,7 +458,7 @@ export async function writeTasksJSON(
     }
     // Zod validation error or other error
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         sessionPath,
         tasksPath: resolve(sessionPath, 'tasks.json'),
@@ -491,7 +498,7 @@ export async function writeTasksJSON(
  */
 export async function readTasksJSON(sessionPath: string): Promise<Backlog> {
   try {
-    logger.debug(
+    logger().debug(
       {
         sessionPath,
         operation: 'readTasksJSON',
@@ -504,7 +511,7 @@ export async function readTasksJSON(sessionPath: string): Promise<Backlog> {
     const parsed = JSON.parse(content);
     const validated = BacklogSchema.parse(parsed);
 
-    logger.debug(
+    logger().debug(
       {
         sessionPath,
         itemCount: validated.backlog.length,
@@ -515,7 +522,7 @@ export async function readTasksJSON(sessionPath: string): Promise<Backlog> {
     return validated;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         sessionPath,
         tasksPath: resolve(sessionPath, 'tasks.json'),
@@ -686,7 +693,7 @@ export async function snapshotPRD(
   prdPath: string
 ): Promise<void> {
   try {
-    logger.debug(
+    logger().debug(
       {
         sessionPath,
         prdPath,
@@ -702,7 +709,7 @@ export async function snapshotPRD(
     // Read PRD with strict UTF-8 validation
     const content = await readUTF8FileStrict(absPRDPath, 'read PRD');
 
-    logger.debug(
+    logger().debug(
       {
         prdPath: absPRDPath,
         size: content.length,
@@ -714,7 +721,7 @@ export async function snapshotPRD(
     const snapshotPath = resolve(absSessionPath, 'prd_snapshot.md');
 
     // Write snapshot with mode 0o644
-    logger.debug(
+    logger().debug(
       {
         snapshotPath,
         size: content.length,
@@ -726,7 +733,7 @@ export async function snapshotPRD(
 
     await writeFile(snapshotPath, content, { mode: 0o644 });
 
-    logger.info(
+    logger().info(
       {
         snapshotPath,
         size: content.length,
@@ -737,7 +744,7 @@ export async function snapshotPRD(
     // Re-throw SessionFileError without wrapping
     if (error instanceof SessionFileError) {
       // Log before re-throwing for visibility
-      logger.debug(
+      logger().debug(
         {
           sessionPath,
           prdPath,
@@ -749,7 +756,7 @@ export async function snapshotPRD(
     }
     // Wrap unexpected errors in SessionFileError
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         sessionPath,
         prdPath,
@@ -786,7 +793,7 @@ export async function snapshotPRD(
  * ```
  */
 export async function loadSnapshot(sessionPath: string): Promise<string> {
-  logger.debug(
+  logger().debug(
     {
       sessionPath,
       operation: 'loadSnapshot',
@@ -802,7 +809,7 @@ export async function loadSnapshot(sessionPath: string): Promise<string> {
     // Read snapshot with strict UTF-8 validation
     const content = await readUTF8FileStrict(snapshotPath, 'read PRD snapshot');
 
-    logger.debug(
+    logger().debug(
       {
         sessionPath,
         snapshotPath,
@@ -814,7 +821,7 @@ export async function loadSnapshot(sessionPath: string): Promise<string> {
     return content;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    logger.error(
+    logger().error(
       {
         sessionPath,
         snapshotPath,

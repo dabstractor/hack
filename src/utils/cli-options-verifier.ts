@@ -30,9 +30,10 @@
  */
 
 import type { StartupErrorResult } from './startup-error-verifier.js';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('CliOptionsVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('CliOptionsVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -169,7 +170,7 @@ export function verifyCliOptions(
 ): CliOptionsResult {
   // PATTERN: Early return when startup had errors
   if (errorResult.hasErrors) {
-    logger.warn(
+    logger().warn(
       `Skipping CLI options verification due to startup errors: ${errorResult.errorTypes.join(', ')}`
     );
 
@@ -196,9 +197,9 @@ export function verifyCliOptions(
   const allOptionsPresent = missingOptions.length === 0;
 
   if (allOptionsPresent) {
-    logger.debug('All expected CLI options detected in help output');
+    logger().debug('All expected CLI options detected in help output');
   } else {
-    logger.warn(`Missing CLI options: ${missingOptions.join(', ')}`);
+    logger().warn(`Missing CLI options: ${missingOptions.join(', ')}`);
   }
 
   return {

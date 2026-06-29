@@ -26,9 +26,10 @@ import {
   CacheManager,
   type CacheStatistics,
 } from '../../utils/cache-manager.js';
-import { getLogger } from '../../utils/logger.js';
+import { getLogger, type Logger } from '../../utils/logger.js';
 
-const logger = getLogger('CacheCommand');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('CacheCommand'));
 
 /**
  * Cache command options
@@ -109,7 +110,7 @@ export class CacheCommand {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.error(chalk.red('Error:'), errorMessage);
-      logger.error({ error }, 'Cache command failed');
+      logger().error({ error }, 'Cache command failed');
       process.exit(1);
     }
   }

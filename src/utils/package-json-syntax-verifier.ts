@@ -31,9 +31,11 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('PackageJsonSyntaxVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger =>
+  (_logger ??= getLogger('PackageJsonSyntaxVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -179,7 +181,7 @@ export function verifyPackageJsonSyntax(
     ? path.resolve(filePath)
     : path.join(process.cwd(), PACKAGE_JSON_FILENAME);
 
-  logger.debug(`Verifying package.json syntax at: ${packageJsonPath}`);
+  logger().debug(`Verifying package.json syntax at: ${packageJsonPath}`);
 
   try {
     // PATTERN: Read file with explicit encoding
@@ -189,7 +191,7 @@ export function verifyPackageJsonSyntax(
     try {
       JSON.parse(fileContent);
 
-      logger.info('package.json has valid JSON syntax');
+      logger().info('package.json has valid JSON syntax');
 
       // PATTERN: Return success result
       return buildSyntaxResult(true, null, packageJsonPath);
@@ -200,7 +202,7 @@ export function verifyPackageJsonSyntax(
           ? parseError.message
           : String(parseError);
 
-      logger.error(`Invalid JSON in package.json: ${syntaxError}`);
+      logger().error(`Invalid JSON in package.json: ${syntaxError}`);
 
       // PATTERN: Return syntax error result
       return buildSyntaxResult(false, syntaxError, packageJsonPath);
@@ -215,7 +217,7 @@ export function verifyPackageJsonSyntax(
           ? `Permission denied reading ${packageJsonPath}`
           : `Error reading package.json: ${readError}`;
 
-    logger.error(errorMessage);
+    logger().error(errorMessage);
 
     // PATTERN: Return file read error result
     return buildSyntaxResult(false, errorMessage, packageJsonPath);

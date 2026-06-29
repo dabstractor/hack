@@ -35,10 +35,11 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import { detectMemoryErrorInTestOutput } from './memory-error-detector.js';
 
-const logger = getLogger('SingleTestRunner');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('SingleTestRunner'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -216,7 +217,7 @@ export async function runSingleTestFile(
   const root = projectRoot ?? process.cwd();
   const file = testFile ?? DEFAULT_TEST_FILE;
 
-  logger.debug(`Running single test file: ${file}`);
+  logger().debug(`Running single test file: ${file}`);
 
   // PATTERN: Safe spawn execution - handle synchronous errors
   let child: ChildProcess;
@@ -241,7 +242,7 @@ export async function runSingleTestFile(
       errorMessage += `: ${error instanceof Error ? error.message : String(error)}`;
     }
 
-    logger.error(errorMessage);
+    logger().error(errorMessage);
 
     return buildTestResult(false, false, '', null, null, errorMessage);
   }
@@ -254,7 +255,7 @@ export async function runSingleTestFile(
 
     // Timeout handler with SIGTERM/SIGKILL escalation
     const timeoutId = setTimeout(() => {
-      logger.warn(
+      logger().warn(
         `Test execution timed out after ${DEFAULT_TIMEOUT}ms, sending SIGTERM`
       );
       timedOut = true;
@@ -263,7 +264,7 @@ export async function runSingleTestFile(
 
       // Escalate to SIGKILL after 5s if SIGTERM doesn't work
       setTimeout(() => {
-        logger.warn('Test execution still running, escalating to SIGKILL');
+        logger().warn('Test execution still running, escalating to SIGKILL');
         child.kill('SIGKILL');
       }, SIGKILL_TIMEOUT);
     }, DEFAULT_TIMEOUT);
@@ -309,11 +310,11 @@ export async function runSingleTestFile(
       );
 
       if (exitCode === 0) {
-        logger.debug('Test file executed successfully (all tests passed)');
+        logger().debug('Test file executed successfully (all tests passed)');
       } else if (exitCode === 1) {
-        logger.debug('Test file executed with some test failures');
+        logger().debug('Test file executed with some test failures');
       } else {
-        logger.warn(`Test file exited with unexpected code ${exitCode}`);
+        logger().warn(`Test file exited with unexpected code ${exitCode}`);
       }
 
       resolve(
@@ -342,7 +343,7 @@ export async function runSingleTestFile(
         errorMessage += `: ${error.message}`;
       }
 
-      logger.error(errorMessage);
+      logger().error(errorMessage);
 
       resolve(
         buildTestResult(false, false, stdout + stderr, null, null, errorMessage)

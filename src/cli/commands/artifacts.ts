@@ -32,9 +32,10 @@ import {
 } from '../../utils/display/syntax-highlighter.js';
 import { ArtifactDiffer } from '../../utils/artifact-differ.js';
 import { getStatusIndicator } from '../../utils/display/status-colors.js';
-import { getLogger } from '../../utils/logger.js';
+import { getLogger, type Logger } from '../../utils/logger.js';
 
-const logger = getLogger('ArtifactsCommand');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('ArtifactsCommand'));
 
 /**
  * Artifact metadata for listing
@@ -218,7 +219,7 @@ export class ArtifactsCommand {
         chalk.red('Error:'),
         error instanceof Error ? error.message : error
       );
-      logger.error({ error }, 'Artifacts command failed');
+      logger().error({ error }, 'Artifacts command failed');
       process.exit(1);
     }
   }

@@ -44,9 +44,10 @@
  * ```
  */
 
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('PassRateAnalyzer');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('PassRateAnalyzer'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -431,7 +432,7 @@ export function analyzePassRate(
 ): PassRateAnalysis {
   // Handle null/undefined input gracefully
   if (!testResult) {
-    logger.warn('analyzePassRate called with null/undefined input');
+    logger().warn('analyzePassRate called with null/undefined input');
     return buildPassRateAnalysis(0, 0, 0, 0, []);
   }
 
@@ -457,7 +458,7 @@ export function analyzePassRate(
   );
 
   // Log findings
-  logger.debug('Pass rate analysis details', {
+  logger().debug('Pass rate analysis details', {
     passRate: analysis.passRate,
     baselinePassRate: analysis.baselinePassRate,
     delta: analysis.delta,
@@ -470,13 +471,13 @@ export function analyzePassRate(
   });
 
   if (analysis.improved) {
-    logger.info('Pass rate meets or exceeds baseline', {
+    logger().info('Pass rate meets or exceeds baseline', {
       passRate: analysis.passRate,
       baseline: analysis.baselinePassRate,
       delta: analysis.delta,
     });
   } else {
-    logger.warn('Pass rate below baseline', {
+    logger().warn('Pass rate below baseline', {
       passRate: analysis.passRate,
       baseline: analysis.baselinePassRate,
       delta: analysis.delta,
@@ -484,7 +485,7 @@ export function analyzePassRate(
   }
 
   if (failingTests.length > 0) {
-    logger.warn(`Failing tests detected: ${failingTests.length}`, {
+    logger().warn(`Failing tests detected: ${failingTests.length}`, {
       failingTests,
       allFailuresAcceptable: analysis.allFailuresAcceptable,
     });

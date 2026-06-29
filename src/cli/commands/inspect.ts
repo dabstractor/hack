@@ -29,7 +29,7 @@ import {
   isSubtask,
   filterByStatus,
 } from '../../utils/task-utils.js';
-import { getLogger } from '../../utils/logger.js';
+import { getLogger, type Logger } from '../../utils/logger.js';
 import {
   formatSessionTable,
   formatTaskHierarchyTable,
@@ -43,7 +43,8 @@ import {
   renderPendingTree,
 } from '../../utils/display/tree-renderer.js';
 
-const logger = getLogger('InspectCommand');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('InspectCommand'));
 
 /**
  * Options for the inspect command
@@ -163,7 +164,7 @@ export class InspectCommand {
    * ```
    */
   async execute(options: InspectorOptions): Promise<void> {
-    logger.debug({ options }, 'InspectCommand.execute called');
+    logger().debug({ options }, 'InspectCommand.execute called');
 
     // Discover and load session
     const sessionState = await this.#loadSession(options);

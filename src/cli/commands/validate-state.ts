@@ -34,9 +34,10 @@ import { readTasksJSON, writeTasksJSON } from '../../core/session-utils.js';
 import { resolve, dirname } from 'node:path';
 import chalk from 'chalk';
 import { createInterface } from 'node:readline';
-import { getLogger } from '../../utils/logger.js';
+import { getLogger, type Logger } from '../../utils/logger.js';
 
-const logger = getLogger('ValidateStateCommand');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('ValidateStateCommand'));
 
 /**
  * Options for validate-state command
@@ -102,7 +103,7 @@ export class ValidateStateCommand {
    * ```
    */
   async execute(options: ValidateStateOptions): Promise<void> {
-    logger.debug({ options }, 'ValidateStateCommand.execute called');
+    logger().debug({ options }, 'ValidateStateCommand.execute called');
 
     let backlog: Backlog;
     let sessionPath: string;

@@ -40,9 +40,10 @@ import { BacklogSchema } from './models.js';
 import { readTasksJSON, writeTasksJSON } from './session-utils.js';
 import { validateBacklogState } from './state-validator.js';
 import { gitFileHistory, gitReadFileAtCommit } from '../tools/git-mcp.js';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, type Logger } from '../utils/logger.js';
 
-const logger = getLogger('tasks-json-recovery');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('tasks-json-recovery'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -206,7 +207,7 @@ export async function recoverTasksJson(
           legitimateDelta.status
         );
         await writeTasksJSON(sessionDir, reconstructed);
-        logger.info(
+        logger().info(
           { commit: entry.commit },
           'tasks.json restored from git history'
         );
@@ -222,7 +223,7 @@ export async function recoverTasksJson(
     }
 
     // ---- PATH C: no valid version found in history ----
-    logger.error(
+    logger().error(
       { relPath, historyLength: history.length },
       'tasks.json recovery failed: no valid version in git history'
     );
@@ -233,7 +234,7 @@ export async function recoverTasksJson(
     };
   } catch (error) {
     // ---- PATH C: any uncaught error (git threw, write threw, etc.) — non-fatal ----
-    logger.error(
+    logger().error(
       { tasksPath, err: (error as Error).message },
       'tasks.json recovery failed (non-fatal); leaving state as-is'
     );

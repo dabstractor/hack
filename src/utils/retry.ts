@@ -43,7 +43,7 @@
 // IMPORTS
 // ============================================================================
 
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import {
   isValidationError,
   isPipelineError,
@@ -553,7 +553,8 @@ export async function retry<T>(
 // ============================================================================
 
 /** Logger instance for retry operations */
-const logger = getLogger('retry');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('retry'));
 
 /**
  * Creates a default onRetry handler with structured logging
@@ -587,7 +588,7 @@ export function createDefaultOnRetry(
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorCode = (error as PipelineError).code;
 
-    logger.warn(
+    logger().warn(
       {
         operation: operationName,
         attempt,

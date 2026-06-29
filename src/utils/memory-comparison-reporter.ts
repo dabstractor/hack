@@ -30,10 +30,12 @@
  * ```
  */
 
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 import type { FullTestSuiteResult } from './full-test-suite-runner.js';
 
-const logger = getLogger('MemoryComparisonReporter');
+let _logger: Logger | undefined;
+const logger = (): Logger =>
+  (_logger ??= getLogger('MemoryComparisonReporter'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -230,7 +232,7 @@ export function compareMemoryUsage(
 ): MemoryComparisonResult {
   // Handle null/undefined input gracefully
   if (!suiteResult) {
-    logger.warn('compareMemoryUsage called with null/undefined input');
+    logger().warn('compareMemoryUsage called with null/undefined input');
     return buildComparisonResult(
       false,
       BEFORE_STATE,
@@ -266,7 +268,7 @@ export function compareMemoryUsage(
   };
 
   // Log findings
-  logger.debug('Memory usage comparison details', {
+  logger().debug('Memory usage comparison details', {
     improved,
     beforeState: BEFORE_STATE,
     afterState,
@@ -274,13 +276,13 @@ export function compareMemoryUsage(
   });
 
   if (improved) {
-    logger.info('Memory improvement confirmed', {
+    logger().info('Memory improvement confirmed', {
       before: BEFORE_STATE,
       after: afterState,
       testResults,
     });
   } else {
-    logger.warn('No memory improvement detected', {
+    logger().warn('No memory improvement detected', {
       before: BEFORE_STATE,
       after: afterState,
       afterCompleted,

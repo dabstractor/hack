@@ -30,9 +30,10 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('PackageJsonReader');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('PackageJsonReader'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -259,7 +260,7 @@ export function readPackageJsonScripts(): PackageJsonScriptsReadResult {
     try {
       pkg = JSON.parse(fileContent);
     } catch (parseError) {
-      logger.error(`Failed to parse package.json: ${parseError}`);
+      logger().error(`Failed to parse package.json: ${parseError}`);
       return {
         success: false,
         scripts: {},
@@ -273,7 +274,7 @@ export function readPackageJsonScripts(): PackageJsonScriptsReadResult {
     const { scripts, testScripts } = parsePackageJsonScripts(pkg);
 
     const scriptCount = Object.keys(scripts).length;
-    logger.info(
+    logger().info(
       `Successfully read package.json: ${scriptCount} scripts, ${testScripts.length} test scripts`
     );
 
@@ -289,7 +290,7 @@ export function readPackageJsonScripts(): PackageJsonScriptsReadResult {
       (readError as NodeJS.ErrnoException).code === 'ENOENT'
         ? 'FILE_NOT_FOUND'
         : 'READ_ERROR';
-    logger.error(`Failed to read package.json: ${readError}`);
+    logger().error(`Failed to read package.json: ${readError}`);
 
     return {
       success: false,

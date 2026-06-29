@@ -31,9 +31,10 @@
  */
 
 import type { ValidationReportFormatResult } from './validation-report-verifier.js';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('ConsoleLogVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('ConsoleLogVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -208,12 +209,12 @@ export function verifyConsoleLogAbsence(
 
   // Log detection results
   if (hasConsoleLog) {
-    logger.warn(
+    logger().warn(
       `Console.log patterns detected in output: ${consoleDetection.consoleLogLineCount} lines`
     );
   }
   if (usesLogger) {
-    logger.debug('Structured logger output detected');
+    logger().debug('Structured logger output detected');
   }
 
   return {

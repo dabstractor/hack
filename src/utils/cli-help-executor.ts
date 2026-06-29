@@ -32,9 +32,10 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('CliHelpExecutor');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('CliHelpExecutor'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -155,7 +156,7 @@ export async function executeCliHelp(
 ): Promise<CliHelpResult> {
   const root = projectRoot ?? process.cwd();
 
-  logger.debug(`Executing CLI help in directory: ${root}`);
+  logger().debug(`Executing CLI help in directory: ${root}`);
 
   // PATTERN: Safe spawn execution - handle synchronous errors
   let child: ChildProcess;
@@ -180,7 +181,7 @@ export async function executeCliHelp(
       errorMessage += `: ${error instanceof Error ? error.message : String(error)}`;
     }
 
-    logger.error(errorMessage);
+    logger().error(errorMessage);
 
     return {
       success: false,
@@ -199,14 +200,14 @@ export async function executeCliHelp(
 
     // Timeout handler with SIGTERM/SIGKILL escalation
     const timeoutId = setTimeout(() => {
-      logger.warn('CLI help execution timed out after 10s, sending SIGTERM');
+      logger().warn('CLI help execution timed out after 10s, sending SIGTERM');
       timedOut = true;
       killed = true;
       child.kill('SIGTERM');
 
       // Escalate to SIGKILL after 5s if SIGTERM doesn't work
       setTimeout(() => {
-        logger.warn('CLI help still running, escalating to SIGKILL');
+        logger().warn('CLI help still running, escalating to SIGKILL');
         child.kill('SIGKILL');
       }, SIGKILL_TIMEOUT);
     }, DEFAULT_TIMEOUT);
@@ -248,9 +249,9 @@ export async function executeCliHelp(
       const hasHelp = sections.hasUsage && sections.hasOptions;
 
       if (success) {
-        logger.debug('CLI help executed successfully');
+        logger().debug('CLI help executed successfully');
       } else {
-        logger.warn(`CLI help exited with code ${exitCode}`);
+        logger().warn(`CLI help exited with code ${exitCode}`);
       }
 
       resolve({
@@ -276,7 +277,7 @@ export async function executeCliHelp(
         errorMessage += `: ${error.message}`;
       }
 
-      logger.error(errorMessage);
+      logger().error(errorMessage);
 
       resolve({
         success: false,

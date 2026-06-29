@@ -33,9 +33,10 @@ import { BacklogSchema } from './models.js';
 import { ZodError } from 'zod';
 import { copyFile, readdir, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, type Logger } from '../utils/logger.js';
 
-const logger = getLogger('StateValidator');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('StateValidator'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -455,7 +456,7 @@ export async function createBackup(
   const backupName = `tasks.json.backup.${timestamp}`;
   const backupPath = resolve(backupDir, backupName);
 
-  logger.debug({ tasksPath, backupPath }, 'Creating backup');
+  logger().debug({ tasksPath, backupPath }, 'Creating backup');
 
   // Create backup
   await copyFile(tasksPath, backupPath);
@@ -463,7 +464,7 @@ export async function createBackup(
   // Rotate old backups
   await rotateBackups(backupDir, maxBackups);
 
-  logger.info({ backupPath }, 'Backup created');
+  logger().info({ backupPath }, 'Backup created');
 
   return backupPath;
 }
@@ -489,7 +490,7 @@ async function rotateBackups(
   // Remove old backups
   for (const oldBackup of backups.slice(maxBackups)) {
     await unlink(resolve(backupDir, oldBackup));
-    logger.debug({ oldBackup }, 'Removed old backup');
+    logger().debug({ oldBackup }, 'Removed old backup');
   }
 }
 
@@ -535,7 +536,7 @@ export function repairOrphanedDependencies(
   };
   backlog.backlog.forEach(repairItem);
 
-  logger.info({ repaired }, 'Repaired orphaned dependencies');
+  logger().info({ repaired }, 'Repaired orphaned dependencies');
 
   return repaired;
 }
@@ -593,7 +594,7 @@ export function repairCircularDependencies(
     }
   }
 
-  logger.info({ repaired }, 'Repaired circular dependencies');
+  logger().info({ repaired }, 'Repaired circular dependencies');
 
   return repaired;
 }
@@ -620,7 +621,7 @@ export function repairMissingFields(backlog: Backlog): number {
   };
   backlog.backlog.forEach(repairItem);
 
-  logger.info({ repaired }, 'Repaired missing fields');
+  logger().info({ repaired }, 'Repaired missing fields');
 
   return repaired;
 }
@@ -673,7 +674,7 @@ export async function repairBacklog(
 
   result.repaired = result.itemsRepaired > 0;
 
-  logger.info(
+  logger().info(
     {
       repaired: result.repaired,
       itemsRepaired: result.itemsRepaired,

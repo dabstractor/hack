@@ -29,7 +29,7 @@ import { Command } from 'commander';
 import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, type Logger } from '../utils/logger.js';
 import { InspectCommand, type InspectorOptions } from './commands/inspect.js';
 import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
@@ -37,7 +37,8 @@ import { CacheCommand, type CacheOptions } from './commands/cache.js';
 import * as os from 'node:os';
 import ms from 'ms';
 
-const logger = getLogger('CLI');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('CLI'));
 
 // ===== TYPE DEFINITIONS =====
 
@@ -384,7 +385,7 @@ export function parseCLIArgs():
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        logger.error(`Inspect command failed: ${errorMessage}`);
+        logger().error(`Inspect command failed: ${errorMessage}`);
         process.exit(1);
       }
     });
@@ -411,7 +412,7 @@ export function parseCLIArgs():
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        logger.error(`Artifacts command failed: ${errorMessage}`);
+        logger().error(`Artifacts command failed: ${errorMessage}`);
         process.exit(1);
       }
     });
@@ -445,7 +446,7 @@ export function parseCLIArgs():
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        logger.error(`Validate-state command failed: ${errorMessage}`);
+        logger().error(`Validate-state command failed: ${errorMessage}`);
         process.exit(1);
       }
     });
@@ -469,7 +470,7 @@ export function parseCLIArgs():
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        logger.error(`Cache command failed: ${errorMessage}`);
+        logger().error(`Cache command failed: ${errorMessage}`);
         process.exit(1);
       }
     });
@@ -573,7 +574,7 @@ export function parseCLIArgs():
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        logger.error(`Task command failed: ${errorMessage}`);
+        logger().error(`Task command failed: ${errorMessage}`);
         process.exit(1);
       }
     });
@@ -637,8 +638,8 @@ export function parseCLIArgs():
 
   // Validate PRD file exists
   if (!existsSync(options.prd)) {
-    logger.error(`PRD file not found: ${options.prd}`);
-    logger.error('Please provide a valid PRD file path using --prd');
+    logger().error(`PRD file not found: ${options.prd}`);
+    logger().error('Please provide a valid PRD file path using --prd');
     process.exit(1);
   }
 
@@ -649,11 +650,11 @@ export function parseCLIArgs():
       // Scope is valid, continue
     } catch (error) {
       if (error instanceof ScopeParseError) {
-        logger.error(`Invalid scope "${options.scope}"`);
-        logger.error(
+        logger().error(`Invalid scope "${options.scope}"`);
+        logger().error(
           `Expected format: P1, P1.M1, P1.M1.T1, P1.M1.T1.S1, or all`
         );
-        logger.error(`Details: ${error.message}`);
+        logger().error(`Details: ${error.message}`);
         process.exit(1);
       }
       // Re-throw unexpected errors
@@ -664,7 +665,7 @@ export function parseCLIArgs():
   // Validate maxTasks
   if (options.maxTasks !== undefined) {
     if (!Number.isInteger(options.maxTasks) || options.maxTasks <= 0) {
-      logger.error('--max-tasks must be a positive integer');
+      logger().error('--max-tasks must be a positive integer');
       process.exit(1);
     }
   }
@@ -672,7 +673,9 @@ export function parseCLIArgs():
   // Validate maxDuration
   if (options.maxDuration !== undefined) {
     if (!Number.isInteger(options.maxDuration) || options.maxDuration <= 0) {
-      logger.error('--max-duration must be a positive integer (milliseconds)');
+      logger().error(
+        '--max-duration must be a positive integer (milliseconds)'
+      );
       process.exit(1);
     }
   }
@@ -685,7 +688,7 @@ export function parseCLIArgs():
       monitorInterval < 1000 ||
       monitorInterval > 60000
     ) {
-      logger.error(
+      logger().error(
         '--monitor-interval must be an integer between 1000 and 60000'
       );
       process.exit(1);
@@ -704,7 +707,7 @@ export function parseCLIArgs():
       monitorTaskInterval < 1 ||
       monitorTaskInterval > 100
     ) {
-      logger.error(
+      logger().error(
         '--monitor-task-interval must be an integer between 1 and 100'
       );
       process.exit(1);
@@ -728,7 +731,7 @@ export function parseCLIArgs():
   const parallelism = parseInt(parallelismStr, 10);
 
   if (isNaN(parallelism) || parallelism < 1 || parallelism > 10) {
-    logger.error('--parallelism must be an integer between 1 and 10');
+    logger().error('--parallelism must be an integer between 1 and 10');
     process.exit(1);
   }
 
@@ -737,17 +740,17 @@ export function parseCLIArgs():
   const freeMemoryGB = os.freemem() / 1024 ** 3;
 
   if (parallelism > cpuCores) {
-    logger.warn(
+    logger().warn(
       `⚠️  Warning: Parallelism (${parallelism}) exceeds CPU cores (${cpuCores})`
     );
-    logger.warn(`   This may cause context switching overhead.`);
-    logger.warn(`   Recommended: --parallelism ${Math.max(1, cpuCores - 1)}`);
+    logger().warn(`   This may cause context switching overhead.`);
+    logger().warn(`   Recommended: --parallelism ${Math.max(1, cpuCores - 1)}`);
   }
 
   // Memory warning
   const estimatedMemoryGB = parallelism * 0.5; // Assume 500MB per worker
   if (estimatedMemoryGB > freeMemoryGB * 0.8) {
-    logger.warn(
+    logger().warn(
       `⚠️  Warning: High parallelism may exhaust free memory (${freeMemoryGB.toFixed(1)}GB available)`
     );
   }
@@ -767,22 +770,24 @@ export function parseCLIArgs():
     researchConcurrency < 1 ||
     researchConcurrency > 10
   ) {
-    logger.error('--research-concurrency must be an integer between 1 and 10');
+    logger().error(
+      '--research-concurrency must be an integer between 1 and 10'
+    );
     process.exit(1);
   }
 
   // System resource warnings (non-blocking)
   if (researchConcurrency > cpuCores) {
-    logger.warn(
+    logger().warn(
       `⚠️  Warning: Research concurrency (${researchConcurrency}) exceeds CPU cores (${cpuCores})`
     );
-    logger.warn(`   This may cause context switching overhead.`);
+    logger().warn(`   This may cause context switching overhead.`);
   }
 
   // Memory warning (lighter than task executor - 300MB per task)
   const estimatedResearchMemoryGB = researchConcurrency * 0.3;
   if (estimatedResearchMemoryGB > freeMemoryGB * 0.8) {
-    logger.warn(
+    logger().warn(
       `⚠️  Warning: High research concurrency may exhaust free memory (${freeMemoryGB.toFixed(1)}GB available)`
     );
   }
@@ -796,7 +801,7 @@ export function parseCLIArgs():
     const taskRetry = parseInt(taskRetryStr, 10);
 
     if (isNaN(taskRetry) || taskRetry < 0 || taskRetry > 10) {
-      logger.error('--task-retry must be an integer between 0 and 10');
+      logger().error('--task-retry must be an integer between 0 and 10');
       process.exit(1);
     }
 
@@ -810,7 +815,9 @@ export function parseCLIArgs():
     const retryBackoff = parseInt(retryBackoffStr, 10);
 
     if (isNaN(retryBackoff) || retryBackoff < 100 || retryBackoff > 60000) {
-      logger.error('--retry-backoff must be an integer between 100 and 60000');
+      logger().error(
+        '--retry-backoff must be an integer between 100 and 60000'
+      );
       process.exit(1);
     }
 
@@ -824,7 +831,7 @@ export function parseCLIArgs():
     const flushRetries = parseInt(flushRetriesStr, 10);
 
     if (isNaN(flushRetries) || flushRetries < 0 || flushRetries > 10) {
-      logger.error('--flush-retries must be an integer between 0 and 10');
+      logger().error('--flush-retries must be an integer between 0 and 10');
       process.exit(1);
     }
 
@@ -841,8 +848,8 @@ export function parseCLIArgs():
 
     // CRITICAL: ms returns number when passed a string
     if (typeof cacheTtlResult !== 'number') {
-      logger.error(`Invalid duration format: "${cacheTtlStr}"`);
-      logger.error('Expected formats: 30s, 5m, 1h, 1d, etc.');
+      logger().error(`Invalid duration format: "${cacheTtlStr}"`);
+      logger().error('Expected formats: 30s, 5m, 1h, 1d, etc.');
       process.exit(1);
     }
 
@@ -850,14 +857,14 @@ export function parseCLIArgs():
 
     // Validate minimum (1 minute)
     if (cacheTtlMs < 60000) {
-      logger.error('--cache-ttl must be at least 1 minute');
+      logger().error('--cache-ttl must be at least 1 minute');
       process.exit(1);
     }
 
     // Validate maximum (30 days)
     const maxTtl = ms('30d' as ms.StringValue);
     if (cacheTtlMs > maxTtl) {
-      logger.error('--cache-ttl cannot exceed 30 days');
+      logger().error('--cache-ttl cannot exceed 30 days');
       process.exit(1);
     }
 
@@ -878,7 +885,7 @@ export function parseCLIArgs():
     const validLevels = ['off', 'standard', 'aggressive'];
     const prpCompressionStr = String(options.prpCompression).toLowerCase();
     if (!validLevels.includes(prpCompressionStr)) {
-      logger.error(
+      logger().error(
         `Invalid --prp-compression value: "${options.prpCompression}". Must be one of: ${validLevels.join(', ')}`
       );
       process.exit(1);
@@ -906,7 +913,7 @@ export function parseCLIArgs():
     const logLevelStr = String(options.logLevel).toLowerCase();
     const validLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
     if (!validLevels.includes(logLevelStr)) {
-      logger.error(
+      logger().error(
         `Invalid --log-level value: "${options.logLevel}". Must be one of: ${validLevels.join(', ')}`
       );
       process.exit(1);

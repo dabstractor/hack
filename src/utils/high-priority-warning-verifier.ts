@@ -37,9 +37,11 @@
  * ```
  */
 
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('HighPriorityWarningVerifier');
+let _logger: Logger | undefined;
+const logger = (): Logger =>
+  (_logger ??= getLogger('HighPriorityWarningVerifier'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -276,7 +278,7 @@ function extractFileSpecificWarnings(eslintReport: ESLintResultReport): {
 
   // Check if fullResults is available
   if (!eslintReport.fullResults) {
-    logger.warn(
+    logger().warn(
       'fullResults not available, cannot perform file-specific analysis'
     );
     return {
@@ -315,7 +317,7 @@ function extractFileSpecificWarnings(eslintReport: ESLintResultReport): {
     }
   }
 
-  logger.debug('File-specific warning counts extracted', {
+  logger().debug('File-specific warning counts extracted', {
     srcIndexNoConsole,
     prpRuntimeStrictBoolean,
     cliIndexStrictBoolean,
@@ -378,7 +380,9 @@ export function verifyHighPriorityWarnings(
 ): HighPriorityWarningStatus {
   // Handle null/undefined input gracefully
   if (!eslintReport) {
-    logger.warn('verifyHighPriorityWarnings called with null/undefined input');
+    logger().warn(
+      'verifyHighPriorityWarnings called with null/undefined input'
+    );
     return buildHighPriorityWarningStatus(0, 0, false, {
       srcIndexNoConsole: 0,
       prpRuntimeStrictBoolean: 0,
@@ -408,7 +412,7 @@ export function verifyHighPriorityWarnings(
 
   // Log findings
   if (highPriorityFixed) {
-    logger.info('All high-priority warnings fixed', {
+    logger().info('All high-priority warnings fixed', {
       consoleWarnings,
       priorityWarnings,
       srcIndexNoConsole: fileSpecificWarnings.srcIndexNoConsole,
@@ -416,7 +420,7 @@ export function verifyHighPriorityWarnings(
       cliIndexStrictBoolean: fileSpecificWarnings.cliIndexStrictBoolean,
     });
   } else {
-    logger.warn('High-priority warnings remain', {
+    logger().warn('High-priority warnings remain', {
       consoleWarnings,
       priorityWarnings,
       srcIndexNoConsole: fileSpecificWarnings.srcIndexNoConsole,

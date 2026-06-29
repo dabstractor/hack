@@ -38,9 +38,10 @@
  */
 
 import { execSync } from 'node:child_process';
-import { getLogger } from './logger.js';
+import { getLogger, type Logger } from './logger.js';
 
-const logger = getLogger('ESLintResultParser');
+let _logger: Logger | undefined;
+const logger = (): Logger => (_logger ??= getLogger('ESLintResultParser'));
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -216,7 +217,7 @@ function executeESLint(): string {
       stdio: ['ignore', 'pipe', 'pipe'], // Capture stderr
     });
 
-    logger.info('ESLint execution completed');
+    logger().info('ESLint execution completed');
     return output;
   } catch (error) {
     // ESLint returns non-zero exit code on warnings/errors
@@ -229,7 +230,7 @@ function executeESLint(): string {
     ) {
       const stdout = (error as { stdout: string }).stdout;
       if (stdout && stdout.length > 0) {
-        logger.warn('ESLint found warnings/errors', {
+        logger().warn('ESLint found warnings/errors', {
           exitCode: (error as { status?: number }).status,
         });
         return stdout;
@@ -237,7 +238,7 @@ function executeESLint(): string {
     }
 
     // Real error - log and return empty string
-    logger.error('ESLint execution failed', { error });
+    logger().error('ESLint execution failed', { error });
     return '';
   }
 }
@@ -259,7 +260,7 @@ function parseESLintJSON(jsonOutput: string): ESLintFileResult[] {
 
     // Validate it's an array
     if (!Array.isArray(parsed)) {
-      logger.error('ESLint output is not an array');
+      logger().error('ESLint output is not an array');
       return [];
     }
 
@@ -275,7 +276,7 @@ function parseESLintJSON(jsonOutput: string): ESLintFileResult[] {
         'warningCount' in result
     ) as ESLintFileResult[];
   } catch (error) {
-    logger.error('Failed to parse ESLint JSON output', { error });
+    logger().error('Failed to parse ESLint JSON output', { error });
     return [];
   }
 }
@@ -301,7 +302,7 @@ function aggregateCounts(results: ESLintFileResult[]): {
     warningCount += result.warningCount;
   }
 
-  logger.debug('ESLint counts aggregated', { errorCount, warningCount });
+  logger().debug('ESLint counts aggregated', { errorCount, warningCount });
 
   return { errorCount, warningCount };
 }
@@ -339,7 +340,7 @@ function categorizeByRule(results: ESLintFileResult[]): Record<string, number> {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5);
 
-  logger.debug('ESLint rule breakdown', { topRules });
+  logger().debug('ESLint rule breakdown', { topRules });
 
   return byRule;
 }
@@ -373,7 +374,7 @@ function identifyTopFiles(
     .slice(0, limit)
     .map(f => f.file);
 
-  logger.debug('Top files with warnings', { topFiles: topFiles.slice(0, 5) });
+  logger().debug('Top files with warnings', { topFiles: topFiles.slice(0, 5) });
 
   return topFiles;
 }
@@ -434,7 +435,7 @@ export function runESLintAnalysis(): ESLintResultReport {
 
   // Handle execution failure
   if (!eslintOutput) {
-    logger.warn('ESLint execution failed, returning zero counts');
+    logger().warn('ESLint execution failed, returning zero counts');
     return buildESLintResultReport(0, 0, {}, [], []);
   }
 
@@ -443,7 +444,7 @@ export function runESLintAnalysis(): ESLintResultReport {
 
   // Handle parsing failure
   if (results.length === 0) {
-    logger.warn('ESLint parsing failed, returning zero counts');
+    logger().warn('ESLint parsing failed, returning zero counts');
     return buildESLintResultReport(0, 0, {}, [], []);
   }
 
@@ -465,7 +466,7 @@ export function runESLintAnalysis(): ESLintResultReport {
     results
   );
 
-  logger.info('ESLint analysis completed', {
+  logger().info('ESLint analysis completed', {
     errorCount,
     warningCount,
     totalRules: Object.keys(byRule).length,
