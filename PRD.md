@@ -595,11 +595,16 @@ The CLI must never configure a pino `transport:` (which spawns a worker thread).
 
 ```ts
 // FORBIDDEN in this CLI: spawns a worker thread + a blocking exit handler
-pino({ transport: { target: 'pino-pretty', /* ... */ } })
+pino({ transport: { target: 'pino-pretty' /* ... */ } });
 
 // REQUIRED: pretty-print as a synchronous in-process destination
 import pretty from 'pino-pretty';
-pino({ /* ...config */ }, pretty({ colorize: true, /* ... */ }))
+pino(
+  {
+    /* ...config */
+  },
+  pretty({ colorize: true /* ... */ })
+);
 ```
 
 Transports exist to keep logging off the hot path of long-running **services**; in a CLI that exits via `process.exit()`, each transport adds one worker-thread spawn and one blocking exit handler. The machine-readable (JSON) path already uses a sync destination; the human-readable path must match it.

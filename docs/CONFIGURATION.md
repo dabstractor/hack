@@ -33,13 +33,15 @@
 
 ## Quick Reference
 
-Required environment variables for basic operation:
+Primary environment variable for the default `pi` + `zai` path:
 
-| Variable               | Required | Default                          | Description                                                               |
-| ---------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------- |
-| `ANTHROPIC_AUTH_TOKEN` | Yes      | None                             | z.ai API authentication token (mapped to `ANTHROPIC_API_KEY`)             |
-| `ANTHROPIC_BASE_URL`   | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint                                                         |
-| `PRP_AGENT_HARNESS`    | No       | `pi`                             | Agent runtime/SDK (`pi` or `claude-code`); orthogonal to the LLM provider |
+| Variable             | Required | Default                          | Description                                                               |
+| -------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------- |
+| `ZAI_API_KEY`        | Yes\*    | None                             | z.ai API key (the default-path credential).                               |
+| `ANTHROPIC_BASE_URL` | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint (default for `zai` provider only).                      |
+| `PRP_AGENT_HARNESS`  | No       | `pi`                             | Agent runtime/SDK (`pi` or `claude-code`); orthogonal to the LLM provider |
+
+\*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`), or `PRP_API_KEY` must be set for the default path. Anthropic credentials (`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`) are **optional** and only used when the provider is `anthropic`.
 
 For complete configuration, see [Environment Variables](#environment-variables) below.
 
@@ -49,26 +51,41 @@ For complete configuration, see [Environment Variables](#environment-variables) 
 
 ### API Authentication
 
-The PRP Pipeline requires API authentication to interact with the z.ai API endpoint.
+The PRP Pipeline authenticates based on the **resolved LLM provider** (default `zai`).
 
-| Variable               | Required | Default                          | Mapped From            | Description                                                                               |
-| ---------------------- | -------- | -------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
-| `ANTHROPIC_AUTH_TOKEN` | Yes\*    | None                             | -                      | Your API authentication token. Automatically mapped to `ANTHROPIC_API_KEY` at startup.    |
-| `ANTHROPIC_API_KEY`    | Yes\*    | None                             | `ANTHROPIC_AUTH_TOKEN` | API key expected by Anthropic SDK. If `ANTHROPIC_AUTH_TOKEN` is set, it takes precedence. |
-| `ANTHROPIC_BASE_URL`   | No       | `https://api.z.ai/api/anthropic` | -                      | z.ai API endpoint. **Do NOT use** `https://api.anthropic.com` (blocked by safeguards).    |
+| Variable               | Required | Default                          | Description                                                                                                    |
+| ---------------------- | -------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `ZAI_API_KEY`          | Yes\*    | None                             | z.ai API key. The default-path credential when provider is `zai`.                                              |
+| `PRP_API_KEY`          | No       | None                             | Explicit API-key override (highest precedence, any provider).                                                  |
+| `ANTHROPIC_AUTH_TOKEN` | No\*\*   | None                             | Anthropic auth token. **Only** consulted when provider is `anthropic`. Mapped to `ANTHROPIC_API_KEY` if unset. |
+| `ANTHROPIC_API_KEY`    | No\*\*   | None                             | Anthropic API key. **Only** consulted when provider is `anthropic`.                                            |
+| `ANTHROPIC_BASE_URL`   | No       | `https://api.z.ai/api/anthropic` | API endpoint. Defaults to z.ai **only** for the `zai` provider.                                                |
 
-\*Required: Either `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` must be set.
+\*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`, auto-detected), or `PRP_API_KEY` for the default `zai` path.
+\*\*Optional: Anthropic credentials are only used when the resolved provider is `anthropic` (via an `anthropic/*` model override). They are **ignored** for the default `zai` provider.
 
-**Mapping Logic:**
+**Resolution order (PRD §9.2.6):**
+
+1. **Explicit override** — `PRP_API_KEY` env var (or `options.override`)
+2. **Provider-native env var** — `ZAI_API_KEY` for `zai`; `ANTHROPIC_OAUTH_TOKEN` → `ANTHROPIC_API_KEY` for `anthropic`
+3. **`~/.pi/agent/auth.json`** — auto-detected by pi's file-backed AuthStorage (requires `pi /login`)
+
+Empty or whitespace-only values are treated as "not configured".
+
+**Provider-conditional AUTH_TOKEN mapping:**
 
 ```typescript
-// From src/config/environment.ts
-if (process.env.ANTHROPIC_AUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
+// From src/config/environment.ts — anthropic provider ONLY
+if (
+  provider === 'anthropic' &&
+  process.env.ANTHROPIC_AUTH_TOKEN &&
+  !process.env.ANTHROPIC_API_KEY
+) {
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
 }
 ```
 
-**Important:** If both `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` are set, `ANTHROPIC_AUTH_TOKEN` takes precedence and the `API_KEY` value is ignored.
+**Important:** The `ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY` mapping only applies when the resolved provider is `anthropic`. For the default `zai` provider, it is **not** consulted — use `ZAI_API_KEY` or `pi /login` instead.
 
 ### Model Selection
 
@@ -276,13 +293,13 @@ export ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
 
 The shell environment value (`https://api.z.ai/api/anthropic`) takes precedence.
 
-### Special Case: AUTH_TOKEN vs API_KEY
+### Special Case: Provider-Aware Resolution
 
-When both `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` are set:
+API key resolution is **provider-aware** (PRD §9.2.6):
 
-- `ANTHROPIC_AUTH_TOKEN` takes precedence
-- `ANTHROPIC_API_KEY` value is ignored
-- Mapping only occurs if `ANTHROPIC_API_KEY` is NOT already set
+- **Default `zai` path**: `PRP_API_KEY` → `ZAI_API_KEY` → `~/.pi/agent/auth.json` (auto-detected). Anthropic env vars are ignored.
+- **`anthropic` path**: `PRP_API_KEY` → `ANTHROPIC_OAUTH_TOKEN` → `ANTHROPIC_API_KEY`. The `ANTHROPIC_AUTH_TOKEN` alias is mapped to `ANTHROPIC_API_KEY` only when the provider is `anthropic`.
+- Empty/whitespace-only values are treated as "not configured" (nothing fake is forwarded).
 
 ---
 
@@ -332,20 +349,28 @@ Create a `.env` file in your project root:
 # API AUTHENTICATION
 # =============================================================================
 
-# Your API authentication token
-# This will be automatically mapped to ANTHROPIC_API_KEY
-ANTHROPIC_AUTH_TOKEN=your-api-token-here
+# --- PRIMARY (pi + zai default) ---
+# Option A: Use pi /login (writes ~/.pi/agent/auth.json, auto-detected by the harness)
+#
+# Option B: Set ZAI_API_KEY directly
+ZAI_API_KEY=your-zai-key-here
 
-# Or set ANTHROPIC_API_KEY directly (AUTH_TOKEN takes precedence if both set)
-# ANTHROPIC_API_KEY=your-api-key-here
+# --- OPTIONAL: Anthropic-only credentials (claude-code harness / anthropic/* models) ---
+# These are ONLY consulted when the resolved provider is 'anthropic'.
+# For the default zai provider, they are ignored.
+# ANTHROPIC_AUTH_TOKEN=your-anthropic-token-here
+# ANTHROPIC_API_KEY=your-anthropic-key-here
+
+# --- OPTIONAL: Explicit API-key override (highest precedence, any provider) ---
+# PRP_API_KEY=your-override-key-here
 
 # =============================================================================
 # API ENDPOINT
 # =============================================================================
 
-# API endpoint (defaults to z.ai proxy)
+# API endpoint (defaults to z.ai proxy for the default zai provider)
 # WARNING: Do NOT use https://api.anthropic.com (blocked by safeguards)
-ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+# ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
 
 # =============================================================================
 # MODEL CONFIGURATION
@@ -413,16 +438,18 @@ Error: Missing required environment variables: ANTHROPIC_API_KEY
 ```
 
 **Why it happens:**
-You set `ANTHROPIC_AUTH_TOKEN` but the mapping hasn't occurred yet, or you're setting `ANTHROPIC_API_KEY` directly when `ANTHROPIC_AUTH_TOKEN` takes precedence.
+For the default `zai` provider, the pipeline looks for `ZAI_API_KEY` (or `~/.pi/agent/auth.json` / `pi /login`), not Anthropic credentials. If using Anthropic models, you need an `anthropic/*` model override AND Anthropic credentials.
 
 **How to fix:**
 
 ```bash
-# Use ANTHROPIC_AUTH_TOKEN (recommended)
-export ANTHROPIC_AUTH_TOKEN=zk-xxxxx
+# For the default zai path (recommended)
+export ZAI_API_KEY=zk-xxxxx
+# Or: pi /login (writes ~/.pi/agent/auth.json)
 
-# Or use ANTHROPIC_API_KEY (but don't set both)
-export ANTHROPIC_API_KEY=zk-xxxxx
+# For Anthropic-only models
+export ANTHROPIC_DEFAULT_SONNET_MODEL="anthropic/claude-sonnet-4"
+export ANTHROPIC_API_KEY=sk-ant-xxxxx
 ```
 
 ### "Tests fail with wrong API endpoint"

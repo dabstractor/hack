@@ -29,22 +29,37 @@ describe('config/environment', () => {
   });
 
   describe('configureEnvironment', () => {
-    it('should map AUTH_TOKEN to API_KEY when API_KEY is not set', () => {
-      // SETUP: Clear API_KEY, set AUTH_TOKEN
+    it('should map AUTH_TOKEN to API_KEY when API_KEY is not set (anthropic provider only)', () => {
+      // SETUP: Clear API_KEY, set AUTH_TOKEN, force anthropic provider
       delete process.env.ANTHROPIC_API_KEY;
       vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'test-token-123');
+      vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');
 
       // EXECUTE
       configureEnvironment();
 
-      // VERIFY: API_KEY should be set from AUTH_TOKEN
+      // VERIFY: API_KEY should be set from AUTH_TOKEN (anthropic provider only)
       expect(process.env.ANTHROPIC_API_KEY).toBe('test-token-123');
     });
 
-    it('should preserve existing API_KEY when AUTH_TOKEN is also set', () => {
-      // SETUP: Both API_KEY and AUTH_TOKEN set
+    it('should NOT map AUTH_TOKEN for default zai provider', () => {
+      // SETUP: Clear API_KEY, set AUTH_TOKEN, default zai provider
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'test-token-zai');
+
+      // EXECUTE
+      configureEnvironment();
+
+      // VERIFY: AUTH_TOKEN is NOT mapped for zai
+      expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
+    });
+
+    it('should preserve existing API_KEY when AUTH_TOKEN is also set (anthropic provider)', () => {
+      // SETUP: Both API_KEY and AUTH_TOKEN set, anthropic provider
       vi.stubEnv('ANTHROPIC_API_KEY', 'original-api-key');
       vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'different-auth-token');
+      vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');
 
       // EXECUTE
       configureEnvironment();
@@ -53,11 +68,12 @@ describe('config/environment', () => {
       expect(process.env.ANTHROPIC_API_KEY).toBe('original-api-key');
     });
 
-    it('should be idempotent - calling multiple times produces same result', () => {
-      // SETUP: Set AUTH_TOKEN, clear API_KEY and BASE_URL
+    it('should be idempotent - calling multiple times produces same result (anthropic provider)', () => {
+      // SETUP: Set AUTH_TOKEN, clear API_KEY and BASE_URL, force anthropic provider
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.ANTHROPIC_BASE_URL;
       vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'test-token-456');
+      vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');
 
       // EXECUTE: Call configureEnvironment() twice
       configureEnvironment();
@@ -75,12 +91,38 @@ describe('config/environment', () => {
       // VERIFY: Results should be identical
       expect(firstResult).toEqual(secondResult);
       expect(firstResult.apiKey).toBe('test-token-456');
-      expect(firstResult.baseUrl).toBe(DEFAULT_BASE_URL);
+      // BASE_URL is NOT defaulted for anthropic provider
+      expect(firstResult.baseUrl).toBeUndefined();
     });
 
-    it('should set default BASE_URL when not provided', () => {
-      // SETUP: No BASE_URL set
+    it('should be idempotent - zai provider defaults BASE_URL to z.ai', () => {
+      // SETUP: Clear all, default zai provider
+      delete process.env.ANTHROPIC_API_KEY;
       delete process.env.ANTHROPIC_BASE_URL;
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+
+      configureEnvironment();
+      configureEnvironment();
+
+      expect(process.env.ANTHROPIC_BASE_URL).toBe(DEFAULT_BASE_URL);
+    });
+
+    it('should NOT force default BASE_URL for anthropic provider', () => {
+      // SETUP: Force anthropic provider, no BASE_URL set
+      delete process.env.ANTHROPIC_BASE_URL;
+      vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');
+
+      // EXECUTE
+      configureEnvironment();
+
+      // VERIFY: BASE_URL stays unset (z.ai default NOT forced for anthropic)
+      expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
+    });
+
+    it('should set default BASE_URL when not provided (zai provider)', () => {
+      // SETUP: No BASE_URL set, default zai provider
+      delete process.env.ANTHROPIC_BASE_URL;
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
 
       // EXECUTE
       configureEnvironment();

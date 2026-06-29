@@ -143,6 +143,24 @@ export const DEFAULT_MODEL_PROVIDER = 'zai' as const;
  */
 export const SUPPORTED_HARNESSES = ['pi', 'claude-code'] as const;
 
+/**
+ * Environment variable name: explicit API-key override for the resolved provider (PRD §9.2.6).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime by resolveApiKeyForProvider) is
+ * the highest-precedence credential source. Optional — when unset or empty,
+ * the resolver falls through to provider-native env vars and auth.json.
+ *
+ * @example
+ * ```ts
+ * import { PRP_API_KEY } from './config/constants.js';
+ *
+ * console.log(PRP_API_KEY); // 'PRP_API_KEY'
+ * console.log(process.env[PRP_API_KEY]); // e.g. 'sk-override-123'
+ * ```
+ */
+export const PRP_API_KEY = 'PRP_API_KEY';
+
 // ---------------------------------------------------------------------------
 // Resilience Tuning (PRD §4.2, §4.5, §9.2.2)
 // ---------------------------------------------------------------------------

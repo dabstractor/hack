@@ -20,8 +20,15 @@
  * ```
  */
 
-import { configureEnvironment, getModel } from '../config/environment.js';
-import { configureHarness } from '../config/harness.js';
+import {
+  configureEnvironment,
+  getModel,
+  getResolvedProvider,
+} from '../config/environment.js';
+import {
+  configureHarness,
+  resolveApiKeyForProvider,
+} from '../config/harness.js';
 import type { AgentHarness } from '../config/types.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
@@ -174,9 +181,11 @@ export function createBaseConfig(persona: AgentPersona): AgentConfig {
     enableReflection: true,
     maxTokens: PERSONA_TOKEN_LIMITS[persona],
     env: {
-      // CRITICAL: Map environment variables for SDK compatibility
-      // configureEnvironment() already mapped AUTH_TOKEN → API_KEY
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+      // CRITICAL: Provider-aware API key resolution (PRD §9.2.6).
+      // The resolver checks PRP_API_KEY → provider-native env var → auth.json (deferred).
+      // The terminal ?? '' is an honest 'genuinely unconfigured' default;
+      // the T3 preflight aborts before createBaseConfig runs with nothing configured.
+      ANTHROPIC_API_KEY: resolveApiKeyForProvider(getResolvedProvider()) ?? '',
       ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? '',
     },
   };

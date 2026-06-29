@@ -22,11 +22,74 @@ import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL_PROVIDER,
   PRP_AGENT_HARNESS,
+  PRP_API_KEY,
   SUPPORTED_HARNESSES,
 } from './constants.js';
-import { getModel } from './environment.js';
+import { getResolvedProvider } from './environment.js';
 import type { AgentHarness } from './types.js';
 import { HarnessProviderMismatchError } from './types.js';
+
+/**
+ * Get the provider-native env-var value for API key lookup (PRD §9.2.6).
+ *
+ * @remarks
+ * Mirrors pi's `getEnvApiKey(provider)` mapping (stable, identity across versions):
+ * - `zai` → `ZAI_API_KEY`
+ * - `anthropic` → `ANTHROPIC_OAUTH_TOKEN` then `ANTHROPIC_API_KEY`
+ *
+ * Pure + synchronous — reads `process.env` only.
+ *
+ * @returns The raw env value, or undefined if no known env var is set.
+ */
+function getProviderEnvApiKey(provider: string): string | undefined {
+  if (provider === 'zai') {
+    return process.env.ZAI_API_KEY;
+  }
+  if (provider === 'anthropic') {
+    return process.env.ANTHROPIC_OAUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the API key to forward into the harness options for a given provider (PRD §9.2.6).
+ *
+ * Priority (first NON-EMPTY wins; whitespace-only == "not configured"):
+ *   1. Explicit override — options.override, else process.env.PRP_API_KEY.
+ *   2. Provider-native env var — zai→ZAI_API_KEY; anthropic→OAUTH_TOKEN then API_KEY.
+ *   3. ~/.pi/agent/auth.json — hacky-hack forwards NOTHING; pi's file-backed AuthStorage
+ *      (Groundswell T2.S2) resolves natively. ⇒ returns undefined here.
+ *
+ * @param provider - The LLM provider id (e.g. 'zai', 'anthropic').
+ * @param options - Optional override; options.override takes highest precedence.
+ * @returns The non-empty resolved credential, or undefined (forward nothing; let pi resolve).
+ *
+ * @example
+ * ```ts
+ * import { resolveApiKeyForProvider } from './config/harness.js';
+ *
+ * // With ZAI_API_KEY set, no override:
+ * resolveApiKeyForProvider('zai'); // → 'the-zai-key'
+ *
+ * // With no credential configured:
+ * resolveApiKeyForProvider('zai'); // → undefined
+ * ```
+ */
+export function resolveApiKeyForProvider(
+  provider: string,
+  options?: { override?: string }
+): string | undefined {
+  // 1. Explicit override (highest precedence, non-empty only).
+  const override = (options?.override ?? process.env[PRP_API_KEY])?.trim();
+  if (override) return override;
+
+  // 2. Provider-native env var (pi's mapping; trimmed; empty == not configured).
+  const envVal = getProviderEnvApiKey(provider)?.trim();
+  if (envVal) return envVal;
+
+  // 3. auth.json — deferred to pi's file-backed AuthStorage (T2.S2). Forward nothing.
+  return undefined;
+}
 
 /**
  * Configure the global agent harness at startup (PRD §9.4.2 / §9.5).
@@ -69,7 +132,7 @@ export function configureHarness(): AgentHarness {
   const harness = raw as AgentHarness;
 
   // Step 4: Enforce harness↔provider compatibility
-  const resolvedProvider = getModel('sonnet').split('/')[0];
+  const resolvedProvider = getResolvedProvider();
   if (harness === 'claude-code' && resolvedProvider === 'zai') {
     throw new HarnessProviderMismatchError(harness, resolvedProvider);
   }
@@ -92,7 +155,9 @@ export function configureHarness(): AgentHarness {
     defaultHarness: harness,
     defaultModelProvider: DEFAULT_MODEL_PROVIDER,
     harnessDefaults: {
-      'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY },
+      'claude-code': {
+        apiKey: resolveApiKeyForProvider('anthropic') ?? undefined,
+      },
     },
   });
 
@@ -125,6 +190,6 @@ export async function ensureHarnessInitialized(): Promise<void> {
   if (!registry.has('pi')) {
     registry.register(new PiHarness());
   }
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = resolveApiKeyForProvider(getResolvedProvider());
   await registry.initializeProvider('pi', apiKey ? { apiKey } : undefined);
 }

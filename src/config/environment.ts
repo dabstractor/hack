@@ -33,18 +33,34 @@ import type { ModelTier } from './types.js';
 import { EnvironmentValidationError } from './types.js';
 
 /**
- * Configure environment variables for z.ai API compatibility
+ * Resolve the selected LLM provider id from the resolved model string (PRD §9.2.3 / §9.4.3).
+ *
+ * @returns e.g. 'zai' (default) or 'anthropic' (from an 'anthropic/*' model override).
+ *
+ * @example
+ * ```ts
+ * import { getResolvedProvider } from './config/environment.js';
+ *
+ * console.log(getResolvedProvider()); // 'zai' (when ANTHROPIC_DEFAULT_SONNET_MODEL unset)
+ * ```
+ */
+export function getResolvedProvider(): string {
+  return getModel('sonnet').split('/')[0];
+}
+
+/**
+ * Configure environment variables for API compatibility (PRD §9.2.6).
  *
  * @remarks
- * Maps ANTHROPIC_AUTH_TOKEN (shell) to ANTHROPIC_API_KEY (SDK expectation).
- * Sets default values for optional variables like ANTHROPIC_BASE_URL.
+ * Provider-conditional configuration:
+ * - **AUTH_TOKEN alias**: `ANTHROPIC_AUTH_TOKEN` is mapped to `ANTHROPIC_API_KEY` ONLY when
+ *   the resolved provider is `anthropic` (backward-compat alias). For the default `zai` path,
+ *   AUTH_TOKEN is NOT consulted.
+ * - **Base URL**: `ANTHROPIC_BASE_URL` defaults to the z.ai endpoint ONLY when the provider
+ *   is `zai`. For `anthropic`, the user/SDK default is left intact.
  *
  * This function modifies `process.env` in place as an intentional side effect.
- * The mapping is critical because the shell environment uses ANTHROPIC_AUTH_TOKEN
- * but the Anthropic SDK expects ANTHROPIC_API_KEY.
- *
- * Only maps ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY if ANTHROPIC_API_KEY is
- * not already set. This preserves existing API_KEY values.
+ * Must be called before `configureHarness()` and `ensureHarnessInitialized()`.
  *
  * @example
  * ```ts
@@ -53,18 +69,24 @@ import { EnvironmentValidationError } from './types.js';
  * // Must be called before creating agents
  * configureEnvironment();
  *
- * // After this call, process.env.ANTHROPIC_API_KEY is available
+ * // After this call, process.env.ANTHROPIC_BASE_URL is available (for zai)
  * console.log(process.env.ANTHROPIC_BASE_URL); // 'https://api.z.ai/api/anthropic'
  * ```
  */
 export function configureEnvironment(): void {
-  // Map ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY if API_KEY is not already set
-  if (process.env.ANTHROPIC_AUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
+  const provider = getResolvedProvider();
+
+  // ANTHROPIC_AUTH_TOKEN demoted to a backward-compat alias for the anthropic provider ONLY.
+  if (
+    provider === 'anthropic' &&
+    process.env.ANTHROPIC_AUTH_TOKEN &&
+    !process.env.ANTHROPIC_API_KEY
+  ) {
     process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
   }
 
-  // Set default BASE_URL if not already provided
-  if (!process.env.ANTHROPIC_BASE_URL) {
+  // Provider-aware base URL: z.ai default ONLY for zai.
+  if (!process.env.ANTHROPIC_BASE_URL && provider === 'zai') {
     process.env.ANTHROPIC_BASE_URL = DEFAULT_BASE_URL;
   }
 }

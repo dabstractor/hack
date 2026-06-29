@@ -15,22 +15,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // vi.hoisted() lifts controllable vi.fns ABOVE the vi.mock hoist boundary so the factory can reference them.
-const { mockHas, mockRegister } = vi.hoisted(() => ({
+const { mockHas, mockRegister, mockInitializeProvider } = vi.hoisted(() => ({
   mockHas: vi.fn(() => false), // default: pi NOT registered → register() runs (existing behavior)
   mockRegister: vi.fn(),
+  mockInitializeProvider: vi.fn(),
 }));
 
 // CRITICAL: mock configureHarnesses (Groundswell does NOT export reset/query helpers)
 vi.mock('groundswell', () => ({
   configureHarnesses: vi.fn(),
   HarnessRegistry: {
-    getInstance: () => ({ has: mockHas, register: mockRegister }),
+    getInstance: () => ({
+      has: mockHas,
+      register: mockRegister,
+      initializeProvider: mockInitializeProvider,
+    }),
   },
   PiHarness: class MockPiHarness {},
 }));
 
 import { configureHarnesses } from 'groundswell';
-import { configureHarness } from '../../../src/config/harness.js';
+import {
+  configureHarness,
+  ensureHarnessInitialized,
+} from '../../../src/config/harness.js';
 import { HarnessProviderMismatchError } from '../../../src/config/types.js';
 import { DEFAULT_MODEL_PROVIDER } from '../../../src/config/constants.js';
 
@@ -52,6 +60,8 @@ describe('config/harness', () => {
     // VERIFY
     expect(h).toBe('pi');
     expect(configureHarnesses).toHaveBeenCalledTimes(1);
+    // claude-code apiKey is sourced from resolveApiKeyForProvider('anthropic')
+    // which reads the stubbed ANTHROPIC_API_KEY via provider-native env lookup.
     expect(configureHarnesses).toHaveBeenCalledWith({
       defaultHarness: 'pi',
       defaultModelProvider: DEFAULT_MODEL_PROVIDER,
@@ -69,6 +79,21 @@ describe('config/harness', () => {
       expect.objectContaining({
         defaultHarness: 'pi',
         defaultModelProvider: 'zai',
+      })
+    );
+  });
+
+  it('(b2) claude-code harnessDefaults apiKey is undefined when no Anthropic credential set', () => {
+    // SETUP: No Anthropic credential → resolver returns undefined → apiKey becomes undefined
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_OAUTH_TOKEN;
+    delete process.env.PRP_API_KEY;
+
+    configureHarness();
+
+    expect(configureHarnesses).toHaveBeenCalledWith(
+      expect.objectContaining({
+        harnessDefaults: { 'claude-code': { apiKey: undefined } },
       })
     );
   });
@@ -129,5 +154,54 @@ describe('config/harness', () => {
         defaultModelProvider: 'zai',
       })
     );
+  });
+
+  describe('ensureHarnessInitialized', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockHas.mockReturnValue(false);
+    });
+
+    it('initializes the pi harness with resolved apiKey (ZAI_API_KEY)', async () => {
+      vi.stubEnv('ZAI_API_KEY', 'zai-key-456');
+      delete process.env.PRP_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+
+      await ensureHarnessInitialized();
+
+      expect(mockInitializeProvider).toHaveBeenCalledWith('pi', {
+        apiKey: 'zai-key-456',
+      });
+    });
+
+    it('forwards undefined when no credential is configured', async () => {
+      delete process.env.ZAI_API_KEY;
+      delete process.env.PRP_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+
+      await ensureHarnessInitialized();
+
+      expect(mockInitializeProvider).toHaveBeenCalledWith('pi', undefined);
+    });
+
+    it('registers PiHarness when not already registered', async () => {
+      mockHas.mockReturnValue(false);
+
+      await ensureHarnessInitialized();
+
+      expect(mockRegister).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips register when PiHarness already registered', async () => {
+      mockHas.mockReturnValue(true);
+
+      await ensureHarnessInitialized();
+
+      expect(mockRegister).not.toHaveBeenCalled();
+    });
   });
 });
