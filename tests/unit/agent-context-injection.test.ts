@@ -375,7 +375,8 @@ describe('unit/agent-context-injection > context assembly', () => {
       expect(prompt.systemOverride).toBeDefined();
       expect(typeof prompt.systemOverride).toBe('string');
       expect(prompt.responseFormat).toBeDefined();
-      expect(prompt.enableReflection).toBe(true);
+      // enableReflection is no longer set by default
+      expect(prompt.enableReflection).toBeUndefined();
     });
 
     it('should include user prompt from constructUserPrompt()', () => {
@@ -390,15 +391,15 @@ describe('unit/agent-context-injection > context assembly', () => {
       expect(prompt.user).toContain('CONTRACT DEFINITION:');
     });
 
-    it('should have enableReflection set to true', () => {
+    it('should have enableReflection unset (not set by default)', () => {
       // SETUP: Get a test subtask
       const subtask = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[0];
 
       // EXECUTE: Generate the prompt
       const prompt = createPRPBlueprintPrompt(subtask, mockBacklog);
 
-      // VERIFY: enableReflection is true for complex PRP generation
-      expect(prompt.enableReflection).toBe(true);
+      // VERIFY: enableReflection is not set
+      expect(prompt.enableReflection).toBeUndefined();
     });
 
     it('should include responseFormat (PRPDocumentSchema)', () => {
@@ -791,6 +792,7 @@ describe('unit/agent-context-injection > context completeness', () => {
     // VERIFY: Both have consistent structure
     expect(prompt1.user).toContain('# Work Item Context');
     expect(prompt2.user).toContain('# Work Item Context');
+    // Both prompts should have the same enableReflection state (both undefined)
     expect(prompt1.enableReflection).toBe(prompt2.enableReflection);
     expect(typeof prompt1.responseFormat).toBe(typeof prompt2.responseFormat);
   });

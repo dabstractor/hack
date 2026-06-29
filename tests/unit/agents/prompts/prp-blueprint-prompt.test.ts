@@ -81,7 +81,8 @@ describe('agents/prompts/prp-blueprint-prompt', () => {
       expect(prompt.systemOverride).toBeDefined();
       expect(typeof prompt.systemOverride).toBe('string');
       expect(prompt.responseFormat).toBeDefined();
-      expect(prompt.enableReflection).toBe(true);
+      // enableReflection is no longer set by default
+      expect(prompt.enableReflection).toBeUndefined();
     });
 
     it('should include task title in user prompt', () => {
@@ -179,10 +180,11 @@ describe('agents/prompts/prp-blueprint-prompt', () => {
       const feedback =
         'PRP did not specify the /health API contract; re-research with that gap filled.';
 
-      // EXECUTE: Generate the prompt with issueFeedback (codebasePath=undefined)
+      // EXECUTE: Generate the prompt with issueFeedback (codebasePath=undefined, prpOutputPath=undefined)
       const prompt = createPRPBlueprintPrompt(
         task,
         mockBacklog,
+        undefined,
         undefined,
         feedback
       );
@@ -258,15 +260,15 @@ describe('agents/prompts/prp-blueprint-prompt', () => {
       expect(prompt.user).toContain('<item_title>');
     });
 
-    it('should have enableReflection set to true', () => {
+    it('should have enableReflection unset (not set by default)', () => {
       // SETUP: Get a test subtask
       const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
 
       // EXECUTE: Generate the prompt
       const prompt = createPRPBlueprintPrompt(task, mockBacklog);
 
-      // VERIFY: enableReflection is true for complex PRP generation
-      expect(prompt.enableReflection).toBe(true);
+      // VERIFY: enableReflection is not set
+      expect(prompt.enableReflection).toBeUndefined();
     });
 
     it('should include responseFormat (PRPDocumentSchema)', () => {

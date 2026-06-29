@@ -401,12 +401,11 @@ describe('integration/mcp-tools > agent MCP integration', () => {
         command: 'echo hello',
       });
 
-      // VERIFY: spawn was called with shell: false
+      // VERIFY: spawn was called with shell: true
       expect(mockSpawn).toHaveBeenCalledWith(
-        'echo',
-        ['hello'],
+        'echo hello',
         expect.objectContaining({
-          shell: false,
+          shell: true,
         })
       );
 

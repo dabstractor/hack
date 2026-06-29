@@ -215,8 +215,7 @@ export const invalidStoryPoints = {
   },
   decimalValue: {
     ...validSubtask,
-    story_points: 0.5, // Decimal - rejected by .int()
-    // DISCREPANCY: system_context.md says 0.5 is valid
+    story_points: 0.7, // Non-0.5-multiple decimal - rejected by .multipleOf(0.5)
   },
   aboveMaximum: {
     ...validSubtask,
@@ -231,7 +230,8 @@ export const invalidStoryPoints = {
     story_points: 'two' as unknown as number, // String instead of number
   },
   validBoundaryValues: [
-    { ...validSubtask, story_points: 1 }, // Minimum valid
+    { ...validSubtask, story_points: 0.5 }, // Half-point minimum
+    { ...validSubtask, story_points: 1 }, // Minimum integer
     { ...validSubtask, story_points: 21 }, // Maximum valid
     { ...validSubtask, story_points: 2 }, // Fibonacci
     { ...validSubtask, story_points: 3 }, // Fibonacci
@@ -289,7 +289,6 @@ export const invalidContextScope = {
  * Tests that invalid status strings are rejected.
  */
 export const invalidStatusValues = [
-  'Ready',
   'Pending',
   'InProgress',
   'In Progress',
@@ -411,7 +410,7 @@ export const architectAgentSamples = {
                     type: 'Subtask' as const,
                     title: 'Subtask 1',
                     status: 'Planned' as const,
-                    story_points: 0.5, // Invalid: decimal
+                    story_points: 0.7, // Invalid: non-0.5-multiple decimal
                     dependencies: [],
                     context_scope: `CONTRACT DEFINITION:
 1. RESEARCH NOTE: Test

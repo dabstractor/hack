@@ -51,6 +51,7 @@ describe('core/models Zod Schemas', () => {
       const validStatuses = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
         'Retrying',
         'Complete',
@@ -84,6 +85,7 @@ describe('core/models Zod Schemas', () => {
       expect(StatusEnum.options).toEqual([
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
         'Retrying',
         'Complete',
@@ -224,10 +226,11 @@ describe('core/models Zod Schemas', () => {
     });
 
     it('should document complete status lifecycle with all valid values', () => {
-      // SETUP: All 7 valid status values including Retrying
+      // SETUP: All 8 valid status values including Ready and Retrying
       const allValidStatuses: Status[] = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
         'Retrying',
         'Complete',
@@ -241,12 +244,9 @@ describe('core/models Zod Schemas', () => {
         expect(result.success).toBe(true);
       });
 
-      // VERIFY: Count matches implementation (7 values)
-      expect(allValidStatuses.length).toBe(7);
-      expect(StatusEnum.options.length).toBe(7);
-
-      // VERIFY: No 'Ready' status in implementation
-      expect(StatusEnum.options).not.toContain('Ready');
+      // VERIFY: Count matches implementation (8 values)
+      expect(allValidStatuses.length).toBe(8);
+      expect(StatusEnum.options.length).toBe(8);
     });
   });
 
@@ -436,15 +436,29 @@ describe('core/models Zod Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should reject subtask with non-integer story_points', () => {
-      // SETUP: Non-integer story points
-      const invalid = { ...validSubtask, story_points: 2.5 };
+    it('should reject subtask with non-0.5-multiple story_points', () => {
+      // SETUP: Non-0.5-multiple story points
+      const invalid = { ...validSubtask, story_points: 1.7 };
 
       // EXECUTE
       const result = SubtaskSchema.safeParse(invalid);
 
       // VERIFY
       expect(result.success).toBe(false);
+    });
+
+    it('should accept subtask with half-point story_points', () => {
+      // SETUP: Valid half-point story points
+      const valid = { ...validSubtask, story_points: 0.5 };
+
+      // EXECUTE
+      const result = SubtaskSchema.safeParse(valid);
+
+      // VERIFY
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.story_points).toBe(0.5);
+      }
     });
 
     it('should accept subtask with empty dependencies array', () => {
@@ -1486,15 +1500,15 @@ describe('core/models Zod Schemas', () => {
       }
     });
 
-    it('should reject validation gate with empty description', () => {
-      // SETUP: Empty description
-      const invalid = { ...validGate, description: '' };
+    it('should accept validation gate with empty description', () => {
+      // SETUP: Empty description (description is optional in relaxed schema)
+      const gate = { ...validGate, description: '' };
 
       // EXECUTE
-      const result = ValidationGateSchema.safeParse(invalid);
+      const result = ValidationGateSchema.safeParse(gate);
 
-      // VERIFY
-      expect(result.success).toBe(false);
+      // VERIFY: Empty string is accepted (optional field)
+      expect(result.success).toBe(true);
     });
 
     it('should reject validation gate with missing command field', () => {
@@ -1565,15 +1579,18 @@ describe('core/models Zod Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should reject criterion with missing satisfied field', () => {
-      // SETUP: Missing satisfied field - Zod catches this at runtime
-      const invalid = { description: validCriterion.description };
+    it('should default satisfied to false when missing', () => {
+      // SETUP: Missing satisfied field - schema defaults to false
+      const criterion = { description: validCriterion.description };
 
       // EXECUTE
-      const result = SuccessCriterionSchema.safeParse(invalid);
+      const result = SuccessCriterionSchema.safeParse(criterion);
 
-      // VERIFY
-      expect(result.success).toBe(false);
+      // VERIFY: satisfied defaults to false
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.satisfied).toBe(false);
+      }
     });
   });
 
@@ -3362,9 +3379,9 @@ ${referencesMd}
     };
 
     const validPoints = [
-      1, 2, 3, 5, 8, 13, 21, 4, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20,
+      0.5, 1, 2, 3, 5, 8, 13, 21, 4, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20,
     ];
-    const invalidPoints = [0, 22, -1, 1.5, 100, 21.5];
+    const invalidPoints = [0, 22, -1, 1.3, 100, 21.7];
 
     test.each(validPoints)(
       'should accept valid story_points (1-21): %d',

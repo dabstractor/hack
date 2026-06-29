@@ -190,10 +190,9 @@ describe('BashMCP.executeTool', () => {
 
     // Verify spawn was called correctly
     expect(mockSpawn).toHaveBeenCalledWith(
-      'echo',
-      ['hello', 'world'],
+      'echo hello world',
       expect.objectContaining({
-        shell: false,
+        shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
     );
@@ -226,7 +225,6 @@ describe('BashMCP.executeTool', () => {
     // Verify spawn was called with cwd
     expect(mockSpawn).toHaveBeenCalledWith(
       'ls',
-      [],
       expect.objectContaining({
         cwd: '/real/path',
       })

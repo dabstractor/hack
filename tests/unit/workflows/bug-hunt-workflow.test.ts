@@ -29,6 +29,15 @@ vi.mock('../../../src/core/session-utils.js', () => ({
   atomicWrite: vi.fn(),
 }));
 
+// Mock node:fs/promises for file-as-contract pattern in generateReport
+const { mockReadFile } = vi.hoisted(() => ({
+  mockReadFile: vi.fn(),
+}));
+
+vi.mock('node:fs/promises', () => ({
+  readFile: mockReadFile,
+}));
+
 // Import mocked modules
 import { createQAAgent } from '../../../src/agents/agent-factory.js';
 import { createBugHuntPrompt } from '../../../src/agents/prompts/bug-hunt-prompt.js';
@@ -88,6 +97,9 @@ describe('BugHuntWorkflow', () => {
     });
     mockCreateBugHuntPrompt.mockReturnValue({});
     mockAtomicWrite.mockResolvedValue(undefined);
+    // By default, readFile throws (file not found) — simulates
+    // the QA agent not having written the file yet.
+    mockReadFile.mockRejectedValue(new Error('ENOENT'));
   });
 
   describe('constructor', () => {
@@ -174,7 +186,7 @@ describe('BugHuntWorkflow', () => {
       const workflow = new BugHuntWorkflow(prdContent, tasks);
 
       // Spy on logger
-      const logSpy = vi.spyOn((workflow as any).logger, 'info');
+      const logSpy = vi.spyOn((workflow as any).correlationLogger, 'info');
 
       // EXECUTE
       await workflow.analyzeScope();
@@ -212,7 +224,7 @@ describe('BugHuntWorkflow', () => {
     it('should log E2E test categories', async () => {
       // SETUP
       const workflow = new BugHuntWorkflow('PRD content', []);
-      const logSpy = vi.spyOn((workflow as any).logger, 'info');
+      const logSpy = vi.spyOn((workflow as any).correlationLogger, 'info');
 
       // EXECUTE
       await workflow.creativeE2ETesting();
@@ -252,7 +264,7 @@ describe('BugHuntWorkflow', () => {
     it('should log adversarial test categories', async () => {
       // SETUP
       const workflow = new BugHuntWorkflow('PRD content', []);
-      const logSpy = vi.spyOn((workflow as any).logger, 'info');
+      const logSpy = vi.spyOn((workflow as any).correlationLogger, 'info');
 
       // EXECUTE
       await workflow.adversarialTesting();
@@ -339,7 +351,8 @@ describe('BugHuntWorkflow', () => {
       // VERIFY
       expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith(
         prdContent,
-        completedTasks
+        completedTasks,
+        undefined
       );
     });
 
@@ -468,7 +481,7 @@ describe('BugHuntWorkflow', () => {
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
-      const logSpy = vi.spyOn((workflow as any).logger, 'info');
+      const logSpy = vi.spyOn((workflow as any).correlationLogger, 'info');
 
       // EXECUTE
       await workflow.generateReport();
@@ -812,7 +825,8 @@ describe('BugHuntWorkflow', () => {
       // VERIFY
       expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith(
         'PRD content',
-        completedTasks
+        completedTasks,
+        undefined
       );
       expect(result).toEqual(expectedResult);
     });
@@ -844,7 +858,7 @@ describe('BugHuntWorkflow', () => {
       const result = await workflow.run();
 
       // VERIFY
-      expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith('PRD content', []);
+      expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith('PRD content', [], undefined);
       expect(result).toEqual(expectedResult);
     });
 
@@ -908,6 +922,8 @@ describe('BugHuntWorkflow', () => {
       const writeBugReportSpy = vi.spyOn(workflow, 'writeBugReport');
       const sessionPath = '/path/to/session';
 
+      // SETUP: Mock readFile for file-as-contract path
+      mockReadFile.mockResolvedValue(JSON.stringify(testResults));
       // EXECUTE
       await workflow.run(sessionPath);
 
@@ -938,6 +954,8 @@ describe('BugHuntWorkflow', () => {
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
       const writeBugReportSpy = vi.spyOn(workflow, 'writeBugReport');
+
+      mockReadFile.mockResolvedValue(JSON.stringify(testResults));
 
       // EXECUTE
       await workflow.run('/path/to/session');
@@ -1008,6 +1026,9 @@ describe('BugHuntWorkflow', () => {
       mockCreateBugHuntPrompt.mockReturnValue({});
       const writeBugReportSpy = vi.spyOn(workflow, 'writeBugReport');
 
+      // SETUP: Mock readFile for file-as-contract path
+      mockReadFile.mockResolvedValue(JSON.stringify(testResults));
+
       // EXECUTE
       await workflow.run('/path/to/session');
 
@@ -1043,6 +1064,9 @@ describe('BugHuntWorkflow', () => {
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
 
+      // SETUP: Mock readFile for file-as-contract path
+      mockReadFile.mockResolvedValue(JSON.stringify(expectedResult));
+
       // EXECUTE
       const result = await workflow.run('/path/to/session');
 
@@ -1074,6 +1098,9 @@ describe('BugHuntWorkflow', () => {
       mockCreateBugHuntPrompt.mockReturnValue({});
       const writeBugReportSpy = vi.spyOn(workflow, 'writeBugReport');
       writeBugReportSpy.mockRejectedValue(new Error('Write failed'));
+
+      // SETUP: Mock readFile for file-as-contract path
+      mockReadFile.mockResolvedValue(JSON.stringify(testResults));
 
       // EXECUTE
       try {
@@ -1110,6 +1137,8 @@ describe('BugHuntWorkflow', () => {
       mockCreateBugHuntPrompt.mockReturnValue({});
       const logSpy = vi.spyOn((workflow as any).correlationLogger, 'info');
       const sessionPath = '/test/session/path';
+
+      mockReadFile.mockResolvedValue(JSON.stringify(testResults));
 
       // EXECUTE
       await workflow.run(sessionPath);
@@ -1178,6 +1207,8 @@ describe('BugHuntWorkflow', () => {
       mockCreateBugHuntPrompt.mockReturnValue({});
       const writeBugReportSpy = vi.spyOn(workflow, 'writeBugReport');
       const sessionPath = '/custom/session/path';
+
+      mockReadFile.mockResolvedValue(JSON.stringify(testResults));
 
       // EXECUTE
       await workflow.run(sessionPath);
@@ -1844,7 +1875,7 @@ describe('BugHuntWorkflow', () => {
         await expect(
           workflow.writeBugReport('/path/to/session', testResults)
         ).rejects.toThrow(
-          'Failed to write bug report to /path/to/session/TEST_RESULTS.md: [object Object]'
+          'Failed to write bug report to /path/to/session/TEST_RESULTS.md: I/O error (EIO)'
         );
       });
     });

@@ -52,11 +52,13 @@ describe('Task Breakdown Schema Validation', () => {
   // ==========================================================================
 
   describe('StatusEnum', () => {
-    it('should accept all 6 valid status values', () => {
+    it('should accept all 8 valid status values', () => {
       const validStatuses = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
+        'Retrying',
         'Complete',
         'Failed',
         'Obsolete',
@@ -266,7 +268,9 @@ describe('Task Breakdown Schema Validation', () => {
         const validStatuses = [
           'Planned',
           'Researching',
+          'Ready',
           'Implementing',
+          'Retrying',
           'Complete',
           'Failed',
           'Obsolete',
@@ -280,7 +284,7 @@ describe('Task Breakdown Schema Validation', () => {
       });
 
       it('should reject invalid status values', () => {
-        const invalidStatus = { ...validSubtask, status: 'Ready' as const };
+        const invalidStatus = { ...validSubtask, status: 'Pending' as const };
         const result = SubtaskSchema.safeParse(invalidStatus);
         expect(result.success).toBe(false);
       });
@@ -304,18 +308,24 @@ describe('Task Breakdown Schema Validation', () => {
         expect(result.success).toBe(false);
       });
 
-      it('should reject decimal story_points (DISCREPANCY: system_context.md says 0.5 is valid)', () => {
-        // CRITICAL: system_context.md (line 150) says story_points can be 0.5, 1, or 2 (max 2)
-        // But models.ts uses .int() which rejects decimals
-        // This test documents the discrepancy
+      it('should reject non-0.5-multiple story_points', () => {
+        // CRITICAL: system_context.md says 0.5 is valid, and the schema now
+        // accepts 0.5-multiple values (0.5, 1, 1.5, 2, …). Values that are
+        // not multiples of 0.5 are rejected.
         const result = SubtaskSchema.safeParse(invalidStoryPoints.decimalValue);
         expect(result.success).toBe(false);
         if (!result.success) {
-          // .int() refinement rejects decimals
+          // .multipleOf(0.5) refinement rejects non-multiples
           expect(
-            result.error.issues.some(i => i.message.includes('integer'))
+            result.error.issues.some(i => i.message.includes('increments'))
           ).toBe(true);
         }
+      });
+
+      it('should accept half-point story_points (0.5)', () => {
+        const subtask = { ...validSubtask, story_points: 0.5 };
+        const result = SubtaskSchema.safeParse(subtask);
+        expect(result.success).toBe(true);
       });
 
       it('should reject negative story_points', () => {
@@ -480,7 +490,9 @@ describe('Task Breakdown Schema Validation', () => {
         const validStatuses = [
           'Planned',
           'Researching',
+          'Ready',
           'Implementing',
+          'Retrying',
           'Complete',
           'Failed',
           'Obsolete',
@@ -612,7 +624,9 @@ describe('Task Breakdown Schema Validation', () => {
         const validStatuses = [
           'Planned',
           'Researching',
+          'Ready',
           'Implementing',
+          'Retrying',
           'Complete',
           'Failed',
           'Obsolete',
@@ -757,7 +771,9 @@ describe('Task Breakdown Schema Validation', () => {
         const validStatuses = [
           'Planned',
           'Researching',
+          'Ready',
           'Implementing',
+          'Retrying',
           'Complete',
           'Failed',
           'Obsolete',
@@ -935,7 +951,7 @@ describe('Task Breakdown Schema Validation', () => {
       }
     });
 
-    it('should validate story_points are integers 1-21 in architect output', () => {
+    it('should validate story_points are 0.5-multiples in range 0.5-21 in architect output', () => {
       const result = BacklogSchema.safeParse(validFullHierarchy);
       expect(result.success).toBe(true);
 
@@ -944,8 +960,8 @@ describe('Task Breakdown Schema Validation', () => {
           for (const milestone of phase.milestones) {
             for (const task of milestone.tasks) {
               for (const subtask of task.subtasks) {
-                expect(Number.isInteger(subtask.story_points)).toBe(true);
-                expect(subtask.story_points).toBeGreaterThanOrEqual(1);
+                expect(subtask.story_points % 0.5).toBe(0);
+                expect(subtask.story_points).toBeGreaterThanOrEqual(0.5);
                 expect(subtask.story_points).toBeLessThanOrEqual(21);
               }
             }
@@ -995,7 +1011,13 @@ describe('Task Breakdown Schema Validation', () => {
 
   describe('Edge Cases and Boundary Values', () => {
     describe('story_points boundary values', () => {
-      it('should accept story_points = 1 (minimum)', () => {
+      it('should accept story_points = 0.5 (half-point minimum)', () => {
+        const subtask = { ...validSubtask, story_points: 0.5 };
+        const result = SubtaskSchema.safeParse(subtask);
+        expect(result.success).toBe(true);
+      });
+
+      it('should accept story_points = 1 (minimum integer)', () => {
         const subtask = { ...validSubtask, story_points: 1 };
         const result = SubtaskSchema.safeParse(subtask);
         expect(result.success).toBe(true);

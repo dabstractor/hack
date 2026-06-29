@@ -51,6 +51,8 @@ describe('utils/git-commit', () => {
     mockLogger.error.mockClear();
     mockLogger.warn.mockClear();
     mockLogger.debug.mockClear();
+    // Mock process.cwd() so git operations use '/project' as repo root
+    vi.spyOn(process, 'cwd').mockReturnValue('/project');
   });
 
   describe('filterProtectedFiles', () => {
@@ -63,16 +65,22 @@ describe('utils/git-commit', () => {
         'PRD.md',
         'README.md',
         'prd_snapshot.md',
+        'delta_prd.md',
+        'delta_from.txt',
+        'TEST_RESULTS.md',
       ];
 
       // EXECUTE
       const result = filterProtectedFiles(files);
 
       // VERIFY
-      expect(result).toEqual(['src/index.ts', 'src/utils.ts', 'README.md']);
-      expect(result).not.toContain('tasks.json');
+      // tasks.json is intentionally NOT protected (status delta rides with commit)
+      expect(result).toEqual(['src/index.ts', 'tasks.json', 'src/utils.ts', 'README.md']);
       expect(result).not.toContain('PRD.md');
       expect(result).not.toContain('prd_snapshot.md');
+      expect(result).not.toContain('delta_prd.md');
+      expect(result).not.toContain('delta_from.txt');
+      expect(result).not.toContain('TEST_RESULTS.md');
     });
 
     it('should keep all files when none are protected', () => {
@@ -88,7 +96,7 @@ describe('utils/git-commit', () => {
 
     it('should return empty array when all files are protected', () => {
       // SETUP
-      const files = ['tasks.json', 'PRD.md', 'prd_snapshot.md'];
+      const files = ['PRD.md', 'prd_snapshot.md', 'delta_prd.md', 'delta_from.txt', 'TEST_RESULTS.md'];
 
       // EXECUTE
       const result = filterProtectedFiles(files);
@@ -110,8 +118,8 @@ describe('utils/git-commit', () => {
       // EXECUTE
       const result = filterProtectedFiles(files);
 
-      // VERIFY
-      expect(result).toEqual(['src/index.ts', 'src/utils.ts']);
+      // VERIFY - tasks.json NOT protected, PRD.md and prd_snapshot.md ARE protected
+      expect(result).toEqual(['src/index.ts', 'plan/session/tasks.json', 'src/utils.ts']);
     });
 
     it('should handle empty array', () => {
@@ -136,9 +144,10 @@ describe('utils/git-commit', () => {
       // EXECUTE
       const result = filterProtectedFiles(files);
 
-      // VERIFY
+      // VERIFY - tasks.json is NOT protected
       expect(result).toEqual([
         '/project/src/index.ts',
+        '/project/tasks.json',
         '/project/src/utils.ts',
       ]);
     });
@@ -255,7 +264,7 @@ describe('utils/git-commit', () => {
         });
         mockGitAdd.mockResolvedValue({
           success: true,
-          stagedCount: 1,
+          stagedCount: 2,
         });
         mockGitCommit.mockResolvedValue({
           success: true,
@@ -267,9 +276,10 @@ describe('utils/git-commit', () => {
 
         // VERIFY
         expect(result).toBe('abc123');
+        // tasks.json is NOT protected, PRD.md IS protected
         expect(mockGitAdd).toHaveBeenCalledWith({
           path: '/project',
-          files: ['src/index.ts'],
+          files: ['src/index.ts', 'tasks.json'],
         });
       });
 
@@ -277,8 +287,7 @@ describe('utils/git-commit', () => {
         // SETUP
         mockGitStatus.mockResolvedValue({
           success: true,
-          modified: ['tasks.json'],
-          untracked: ['PRD.md'],
+          modified: ['PRD.md'],
         });
 
         // EXECUTE
@@ -572,7 +581,7 @@ describe('utils/git-commit', () => {
       expect(mockGitAdd).toHaveBeenCalled();
     });
 
-    it('should filter protected files in subdirectories', async () => {
+    it('should NOT filter tasks.json in subdirectories (intentionally unprotected)', async () => {
       // SETUP
       mockGitStatus.mockResolvedValue({
         success: true,
@@ -581,7 +590,7 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({
         success: true,
-        stagedCount: 2,
+        stagedCount: 3,
       });
       mockGitCommit.mockResolvedValue({
         success: true,
@@ -591,11 +600,11 @@ describe('utils/git-commit', () => {
       // EXECUTE
       const result = await smartCommit('/project', 'Test commit');
 
-      // VERIFY
+      // VERIFY - tasks.json is NOT protected
       expect(result).toBe('abc123');
       expect(mockGitAdd).toHaveBeenCalledWith({
         path: '/project',
-        files: ['src/index.ts', 'src/utils.ts'],
+        files: ['src/index.ts', 'plan/session/tasks.json', 'src/utils.ts'],
       });
     });
   });

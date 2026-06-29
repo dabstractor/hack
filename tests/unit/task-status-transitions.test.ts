@@ -121,11 +121,13 @@ describe('Task Status Values and Transitions', () => {
 
   describe('StatusEnum', () => {
     it('should accept all valid status values', () => {
-      // SETUP: All six valid status values
+      // SETUP: All eight valid status values
       const validStatuses = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
+        'Retrying',
         'Complete',
         'Failed',
         'Obsolete',
@@ -160,13 +162,15 @@ describe('Task Status Values and Transitions', () => {
       });
     });
 
-    it('should have exactly six status values', () => {
-      // VERIFY: StatusEnum has exactly 6 options
+    it('should have exactly eight status values', () => {
+      // VERIFY: StatusEnum has exactly 8 options
       const statusValues = StatusEnum.options;
-      expect(statusValues).toHaveLength(6);
+      expect(statusValues).toHaveLength(8);
       expect(statusValues).toContain('Planned');
       expect(statusValues).toContain('Researching');
+      expect(statusValues).toContain('Ready');
       expect(statusValues).toContain('Implementing');
+      expect(statusValues).toContain('Retrying');
       expect(statusValues).toContain('Complete');
       expect(statusValues).toContain('Failed');
       expect(statusValues).toContain('Obsolete');
@@ -618,7 +622,9 @@ describe('Task Status Values and Transitions', () => {
       const statuses: Status[] = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
+        'Retrying',
         'Complete',
         'Failed',
         'Obsolete',
@@ -638,7 +644,9 @@ describe('Task Status Values and Transitions', () => {
       const statuses: Status[] = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
+        'Retrying',
         'Complete',
         'Failed',
         'Obsolete',
@@ -654,7 +662,9 @@ describe('Task Status Values and Transitions', () => {
       const statuses: Status[] = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
+        'Retrying',
         'Complete',
         'Failed',
         'Obsolete',
@@ -670,7 +680,9 @@ describe('Task Status Values and Transitions', () => {
       const statuses: Status[] = [
         'Planned',
         'Researching',
+        'Ready',
         'Implementing',
+        'Retrying',
         'Complete',
         'Failed',
         'Obsolete',

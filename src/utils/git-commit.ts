@@ -41,7 +41,10 @@ const logger = (): Logger => (_logger ??= getLogger('smartCommit'));
 // Complete) so the task registry tracks alongside the deliverables.
 const PROTECTED_FILES = [
   'PRD.md', // Original PRD document
-  'prd_snapshot.md', // PRD snapshot for delta detection
+  'prd_snapshot.md', // PRP snapshot for delta detection
+  'delta_prd.md', // Delta PRP document
+  'delta_from.txt', // Parent session reference for delta sessions
+  'TEST_RESULTS.md', // QA bug report output
 ] as const;
 
 // ===== HELPER FUNCTIONS =====

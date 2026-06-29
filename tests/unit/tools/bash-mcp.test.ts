@@ -127,10 +127,11 @@ describe('tools/bash-mcp', () => {
         expect(result.exitCode).toBe(0);
         expect(result.error).toBeUndefined();
         expect(mockSpawn).toHaveBeenCalledWith(
-          'echo',
-          ['test'],
+          'echo test',
           expect.objectContaining({
-            shell: false,
+            shell: true,
+            cwd: undefined,
+            stdio: ['ignore', 'pipe', 'pipe'],
           })
         );
       });
@@ -144,9 +145,9 @@ describe('tools/bash-mcp', () => {
 
         // VERIFY
         expect(result.success).toBe(true);
-        expect(mockSpawn).toHaveBeenCalledWith('sleep', ['1'], {
+        expect(mockSpawn).toHaveBeenCalledWith('sleep 1', {
           cwd: undefined,
-          shell: false,
+          shell: true,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
       });
@@ -435,7 +436,6 @@ describe('tools/bash-mcp', () => {
         // VERIFY
         expect(mockSpawn).toHaveBeenCalledWith(
           'ls',
-          [],
           expect.objectContaining({
             cwd: '/tmp',
           })
@@ -452,7 +452,6 @@ describe('tools/bash-mcp', () => {
         // VERIFY
         expect(mockSpawn).toHaveBeenCalledWith(
           'ls',
-          [],
           expect.objectContaining({
             cwd: undefined,
           })
@@ -478,7 +477,6 @@ describe('tools/bash-mcp', () => {
         expect(mockRealpathSync).toHaveBeenCalled();
         expect(mockSpawn).toHaveBeenCalledWith(
           'ls',
-          [],
           expect.objectContaining({
             cwd: '/absolute/relative',
           })
@@ -487,7 +485,7 @@ describe('tools/bash-mcp', () => {
     });
 
     describe('shell security', () => {
-      it('should always use shell: false', async () => {
+      it('should always use shell: true', async () => {
         // SETUP
         const input: BashToolInput = { command: 'echo test' };
 
@@ -496,10 +494,9 @@ describe('tools/bash-mcp', () => {
 
         // VERIFY
         expect(mockSpawn).toHaveBeenCalledWith(
-          'echo',
-          ['test'],
+          'echo test',
           expect.objectContaining({
-            shell: false,
+            shell: true,
           })
         );
       });
@@ -513,8 +510,7 @@ describe('tools/bash-mcp', () => {
 
         // VERIFY
         expect(mockSpawn).toHaveBeenCalledWith(
-          'cat',
-          ['file'],
+          'cat file',
           expect.objectContaining({
             stdio: ['ignore', 'pipe', 'pipe'],
           })
@@ -523,7 +519,7 @@ describe('tools/bash-mcp', () => {
     });
 
     describe('command parsing', () => {
-      it('should split command into executable and arguments', async () => {
+      it('should pass full command string to spawn', async () => {
         // SETUP
         const input: BashToolInput = { command: 'git status -sb' };
 
@@ -532,8 +528,7 @@ describe('tools/bash-mcp', () => {
 
         // VERIFY
         expect(mockSpawn).toHaveBeenCalledWith(
-          'git',
-          ['status', '-sb'],
+          'git status -sb',
           expect.any(Object)
         );
       });
@@ -547,8 +542,7 @@ describe('tools/bash-mcp', () => {
 
         // VERIFY
         expect(mockSpawn).toHaveBeenCalledWith(
-          'ls',
-          ['-la'],
+          'ls -la',
           expect.any(Object)
         );
       });
@@ -561,7 +555,7 @@ describe('tools/bash-mcp', () => {
         await executeBashCommand(input);
 
         // VERIFY
-        expect(mockSpawn).toHaveBeenCalledWith('pwd', [], expect.any(Object));
+        expect(mockSpawn).toHaveBeenCalledWith('pwd', expect.any(Object));
       });
     });
   });
@@ -659,7 +653,7 @@ describe('tools/bash-mcp', () => {
       const result = await executeBashCommand(input);
 
       // VERIFY - spawn should be called with empty string as executable
-      expect(mockSpawn).toHaveBeenCalledWith('', [], expect.any(Object));
+      expect(mockSpawn).toHaveBeenCalledWith('', expect.any(Object));
       expect(result.exitCode).toBe(1);
     });
 

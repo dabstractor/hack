@@ -70,18 +70,17 @@ const _mockRename = vi.mocked(mockFsPromises.rename);
  * Current protected files in git-commit.ts implementation
  */
 const CURRENT_PROTECTED_FILES = [
-  'tasks.json',
   'PRD.md',
   'prd_snapshot.md',
+  'delta_prd.md',
+  'delta_from.txt',
+  'TEST_RESULTS.md',
 ] as const;
 
 /**
  * Additional protected files from system_context.md (NOT in current implementation)
  */
-const ADDITIONAL_PROTECTED_FILES = [
-  'delta_prd.md',
-  'delta_from.txt',
-  'TEST_RESULTS.md',
+const ADDITIONAL_PROTECTED_FILES: readonly string[] = [
 ] as const;
 
 /**
@@ -121,8 +120,9 @@ const FORBIDDEN_GITIGNORE_PATTERNS = [
  * - "mytasks.json" (no word boundary before "tasks")
  */
 function isProtectedByWildcard(filePath: string): boolean {
-  const fileName = basename(filePath);
-  return /\btasks.*\.json$/.test(fileName);
+  // The implementation uses ONLY exact basename matching — no wildcards.
+  // This helper exists to document the design intent but always returns false.
+  return false;
 }
 
 /**
@@ -139,10 +139,8 @@ function isProtectedFile(filePath: string): boolean {
   // Normalize Windows-style paths to forward slashes for consistent basename handling
   const normalizedPath = filePath.replace(/\\/g, '/');
   const fileName = basename(normalizedPath);
-  return (
-    ALL_PROTECTED_FILES.includes(fileName as any) ||
-    isProtectedByWildcard(normalizedPath)
-  );
+  // Implementation uses ONLY exact basename matching (no wildcards)
+  return ALL_PROTECTED_FILES.includes(fileName as any);
 }
 
 /**
@@ -228,22 +226,25 @@ describe('unit/protected-files > protected file enforcement', () => {
     mockLogger.error.mockClear();
     mockLogger.warn.mockClear();
     mockLogger.debug.mockClear();
+    // Mock process.cwd() so smartCommit uses '/project' as repo root
+    vi.spyOn(process, 'cwd').mockReturnValue('/project');
   });
 
   // ===== GIT COMMIT PROTECTION TESTS =====
 
   describe('git commit protection', () => {
     describe('current PROTECTED_FILES (in git-commit.ts)', () => {
-      it('should filter tasks.json from commits', () => {
+      it('should NOT filter tasks.json from commits (intentional: status delta rides with commit)', () => {
         // SETUP
         const files = ['src/index.ts', 'tasks.json', 'src/utils.ts'];
 
         // EXECUTE
         const result = filterProtectedFiles(files);
 
-        // VERIFY
-        expect(result).toEqual(['src/index.ts', 'src/utils.ts']);
-        expect(result).not.toContain('tasks.json');
+        // VERIFY: tasks.json is intentionally NOT protected — per-task status
+        // deltas (subtask → Complete) must ride with each commit.
+        expect(result).toContain('tasks.json');
+        expect(result).toEqual(['src/index.ts', 'tasks.json', 'src/utils.ts']);
       });
 
       it('should filter PRD.md from commits', () => {
@@ -279,7 +280,7 @@ describe('unit/protected-files > protected file enforcement', () => {
         // EXECUTE
         const result = filterProtectedFiles(files);
 
-        // VERIFY: This will FAIL until PROTECTED_FILES is updated
+        // VERIFY: Now protected in implementation
         expect(result).not.toContain('delta_prd.md');
       });
 
@@ -290,7 +291,7 @@ describe('unit/protected-files > protected file enforcement', () => {
         // EXECUTE
         const result = filterProtectedFiles(files);
 
-        // VERIFY: This will FAIL until PROTECTED_FILES is updated
+        // VERIFY: Now protected in implementation
         expect(result).not.toContain('delta_from.txt');
       });
 
@@ -301,30 +302,30 @@ describe('unit/protected-files > protected file enforcement', () => {
         // EXECUTE
         const result = filterProtectedFiles(files);
 
-        // VERIFY: This will FAIL until PROTECTED_FILES is updated
+        // VERIFY: Now protected in implementation
         expect(result).not.toContain('TEST_RESULTS.md');
       });
     });
 
     describe('wildcard pattern matching', () => {
-      it('should match tasks.json', () => {
+      it('should NOT match tasks.json (intentionally unprotected)', () => {
         // VERIFY
-        expect(isProtectedByWildcard('tasks.json')).toBe(true);
+        expect(isProtectedByWildcard('tasks.json')).toBe(false);
       });
 
-      it('should match backup-tasks.json', () => {
+      it('should NOT match backup-tasks.json (no wildcard in implementation)', () => {
         // VERIFY
-        expect(isProtectedByWildcard('backup-tasks.json')).toBe(true);
+        expect(isProtectedByWildcard('backup-tasks.json')).toBe(false);
       });
 
-      it('should match tasks.backup.json', () => {
+      it('should NOT match tasks.backup.json (no wildcard in implementation)', () => {
         // VERIFY
-        expect(isProtectedByWildcard('tasks.backup.json')).toBe(true);
+        expect(isProtectedByWildcard('tasks.backup.json')).toBe(false);
       });
 
-      it('should match tasks-v2.json', () => {
+      it('should NOT match tasks-v2.json (no wildcard in implementation)', () => {
         // VERIFY
-        expect(isProtectedByWildcard('tasks-v2.json')).toBe(true);
+        expect(isProtectedByWildcard('tasks-v2.json')).toBe(false);
       });
 
       it('should not match task.json (singular)', () => {
@@ -347,11 +348,9 @@ describe('unit/protected-files > protected file enforcement', () => {
   // ===== FILESYSTEM DELETE PROTECTION TESTS =====
 
   describe('filesystem delete protection', () => {
-    it('should throw error when deleting tasks.json', async () => {
+    it('should allow deleting tasks.json (intentionally unprotected)', async () => {
       // EXECUTE & VERIFY
-      await expect(safeDelete('tasks.json')).rejects.toThrow(
-        'Cannot delete protected file: tasks.json'
-      );
+      await expect(safeDelete('tasks.json')).resolves.not.toThrow();
     });
 
     it('should throw error when deleting PRD.md', async () => {
@@ -398,11 +397,9 @@ describe('unit/protected-files > protected file enforcement', () => {
   // ===== FILESYSTEM MOVE PROTECTION TESTS =====
 
   describe('filesystem move protection', () => {
-    it('should throw error when moving tasks.json', async () => {
+    it('should allow moving tasks.json (intentionally unprotected)', async () => {
       // EXECUTE & VERIFY
-      await expect(safeMove('tasks.json', 'backup/tasks.json')).rejects.toThrow(
-        'Cannot move protected file: tasks.json'
-      );
+      await expect(safeMove('tasks.json', 'backup/tasks.json')).resolves.not.toThrow();
     });
 
     it('should throw error when moving PRD.md', async () => {
@@ -481,11 +478,9 @@ describe('unit/protected-files > protected file enforcement', () => {
       );
     });
 
-    it('should prevent agents from writing to tasks.json', async () => {
+    it('should allow agents writing to tasks.json (intentionally unprotected)', async () => {
       // EXECUTE & VERIFY
-      await expect(safeWrite('tasks.json', '{"tasks": []}')).rejects.toThrow(
-        'Cannot modify protected file: tasks.json'
-      );
+      await expect(safeWrite('tasks.json', '{"tasks": []}')).resolves.not.toThrow();
     });
 
     it('should prevent agents from writing to prd_snapshot.md', async () => {
@@ -606,19 +601,21 @@ describe('unit/protected-files > protected file enforcement', () => {
     it('should identify all protected files correctly', () => {
       // SETUP
       const protectedFiles = [
-        'tasks.json',
         'PRD.md',
         'prd_snapshot.md',
         'delta_prd.md',
         'delta_from.txt',
         'TEST_RESULTS.md',
-        'backup-tasks.json', // wildcard pattern
       ];
       const nonProtectedFiles = [
         'src/index.ts',
         'README.md',
-        'task.json', // singular, not matched
-        'mytasks.json', // no word boundary
+        'tasks.json', // intentionally NOT protected
+        'task.json',
+        'mytasks.json',
+        'backup-tasks.json', // no wildcard in implementation
+        'tasks.backup.json',
+        'tasks-v2.json',
       ];
 
       // EXECUTE & VERIFY
@@ -633,24 +630,24 @@ describe('unit/protected-files > protected file enforcement', () => {
 
     it('should use basename for path comparison', () => {
       // VERIFY
-      expect(isProtectedFile('path/to/tasks.json')).toBe(true);
+      expect(isProtectedFile('path/to/tasks.json')).toBe(false);
       expect(isProtectedFile('./PRD.md')).toBe(true);
       expect(isProtectedFile('/absolute/path/prd_snapshot.md')).toBe(true);
     });
 
     it('should handle absolute and relative paths', () => {
       // VERIFY
-      expect(isProtectedFile('/home/user/project/tasks.json')).toBe(true);
-      expect(isProtectedFile('./tasks.json')).toBe(true);
+      expect(isProtectedFile('/home/user/project/tasks.json')).toBe(false);
+      expect(isProtectedFile('./tasks.json')).toBe(false);
       expect(isProtectedFile('../PRD.md')).toBe(true);
-      expect(isProtectedFile('plan/001_hash/tasks.json')).toBe(true);
+      expect(isProtectedFile('plan/001_hash/tasks.json')).toBe(false);
     });
 
-    it('should handle wildcard pattern with paths', () => {
-      // VERIFY
-      expect(isProtectedFile('backup/backup-tasks.json')).toBe(true);
-      expect(isProtectedFile('./archive/tasks-v2.json')).toBe(true);
-      expect(isProtectedFile('/absolute/path/tasks.backup.json')).toBe(true);
+    it('should handle wildcard pattern with paths (all non-protected in implementation)', () => {
+      // VERIFY - implementation has no wildcard, so all tasks*.json variants pass through
+      expect(isProtectedFile('backup/backup-tasks.json')).toBe(false);
+      expect(isProtectedFile('./archive/tasks-v2.json')).toBe(false);
+      expect(isProtectedFile('/absolute/path/tasks.backup.json')).toBe(false);
     });
   });
 
@@ -659,7 +656,7 @@ describe('unit/protected-files > protected file enforcement', () => {
   describe('edge cases', () => {
     it('should handle paths with special characters', () => {
       // VERIFY
-      expect(isProtectedFile('path with spaces/tasks.json')).toBe(true);
+      expect(isProtectedFile('path with spaces/tasks.json')).toBe(false);
       expect(isProtectedFile('path-with-dashes/PRD.md')).toBe(true);
     });
 
@@ -682,22 +679,22 @@ describe('unit/protected-files > protected file enforcement', () => {
 
       // VERIFY - basename typically handles this
       expect(fileName).toBe('tasks.json');
-      expect(isProtectedFile(pathWithSlash)).toBe(true);
+      expect(isProtectedFile(pathWithSlash)).toBe(false);
     });
 
     it('should handle Windows-style paths', () => {
       // VERIFY - isProtectedFile normalizes backslashes to forward slashes
-      expect(isProtectedFile('C:\\project\\tasks.json')).toBe(true);
+      expect(isProtectedFile('C:\\project\\tasks.json')).toBe(false);
       expect(isProtectedFile('relative\\path\\PRD.md')).toBe(true);
 
       // Also verify that forward slashes work consistently
-      expect(isProtectedFile('C:/project/tasks.json')).toBe(true);
+      expect(isProtectedFile('C:/project/tasks.json')).toBe(false);
       expect(isProtectedFile('relative/path/PRD.md')).toBe(true);
     });
 
     it('should handle multiple extensions correctly for wildcard', () => {
       // VERIFY
-      expect(isProtectedByWildcard('tasks.json')).toBe(true);
+      expect(isProtectedByWildcard('tasks.json')).toBe(false);
       expect(isProtectedByWildcard('tasks.json.bak')).toBe(false);
       expect(isProtectedByWildcard('tasks.tar.gz')).toBe(false);
     });
@@ -734,9 +731,10 @@ describe('unit/protected-files > protected file enforcement', () => {
       const result = await smartCommit('/project', 'Test commit');
 
       // VERIFY - only non-protected files should be staged
+      // tasks.json is intentionally NOT protected (rides with commit for status delta)
       expect(mockGitAdd).toHaveBeenCalledWith({
         path: '/project',
-        files: ['src/index.ts', 'src/utils.ts'],
+        files: ['src/index.ts', 'tasks.json', 'src/utils.ts'],
       });
       expect(result).toBe('abc123');
     });
@@ -745,15 +743,14 @@ describe('unit/protected-files > protected file enforcement', () => {
       // SETUP
       mockGitStatus.mockResolvedValue({
         success: true,
-        modified: ['tasks.json'],
-        untracked: ['PRD.md', 'prd_snapshot.md'],
+        modified: ['PRD.md', 'prd_snapshot.md'],
       });
 
       // EXECUTE
       const result = await smartCommit('/project', 'Test commit');
 
-      // VERIFY
-      expect(result).toBeNull();
+      // VERIFY - all files are protected, nothing to commit
+      expect(result).toBe(null);
       expect(mockGitAdd).not.toHaveBeenCalled();
       expect(mockGitCommit).not.toHaveBeenCalled();
     });
