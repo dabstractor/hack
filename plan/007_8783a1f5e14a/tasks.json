@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P7.M1.T1",
               "title": "Logging Architecture — Lazy Loggers & Synchronous Destinations (PRD §9.6)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Implement REQ-L1/L2/L3 so hack --help, -h, --version, and an invalid flag each return in under 2 seconds with zero pino worker threads spawned. Independent of the auth workstream (T2).",
               "subtasks": [
                 {
@@ -58,7 +58,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T1.S3",
                   "title": "Single root logger per process (REQ-L3) + teardown validation tests",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P7.M1.T1.S1",
@@ -85,7 +85,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T2.S1",
                   "title": "Provider-aware auth resolution in hacky-hack (src/config/harness.ts + environment.ts)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/config/harness.ts ensureHarnessInitialized() reads `process.env.ANTHROPIC_API_KEY` and forwards `apiKey ? { apiKey } : undefined` into registry.initializeProvider('pi', ...) — wrong contract for pi users; a `pi /login` user (valid ~/.pi/agent/auth.json) is invisible. configureHarness() sets harnessDefaults 'claude-code': { apiKey: process.env.ANTHROPIC_API_KEY }. configureEnvironment() maps ANTHROPIC_AUTH_TOKEN→ANTHROPIC_API_KEY. Provider env-var mapping (pi-ai getEnvApiKey): zai→ZAI_API_KEY; anthropic→ANTHROPIC_OAUTH_TOKEN then ANTHROPIC_API_KEY. Resolved provider is `getModel('sonnet').split('/')[0]` (default 'zai'). See architecture/groundswell_auth_api.md §2/§5 and architecture/implementation_notes.md §T2.S1.\n2. INPUT: configureHarness(), ensureHarnessInitialized(), configureEnvironment(), getModel()/qualifyModel() from src/config/{harness,environment,constants}.ts; constants DEFAULT_MODEL_PROVIDER='zai', DEFAULT_BASE_URL, PRP_AGENT_HARNESS.\n3. LOGIC: Add a provider-aware resolver that, for the resolved provider, checks in priority order (first non-empty wins): (1) explicit override (options.apiKey / future PRP_API_KEY env); (2) provider-native env var via pi's getEnvApiKey(provider) (ZAI_API_KEY for zai); (3) ~/.pi/agent/auth.json (forwarded implicitly once P7.M1.T2.S2 lands the file-backed store — hacky-hack forwards NOTHING and lets pi resolve natively when only the file is present). FORWARD AN OVERRIDE ONLY WHEN NON-EMPTY — eliminate the `?? ''` empty-string shadowing; whitespace-only == 'not configured'. Demote ANTHROPIC_AUTH_TOKEN to a backward-compat alias used ONLY when provider is anthropic. Resolve ANTHROPIC_BASE_URL against the selected provider (default z.ai endpoint ONLY when provider is zai); keep the §9.2.4 endpoint safeguard (src/config/endpoint-guard.ts) intact. Update ensureHarnessInitialized() to use the resolver.\n4. OUTPUT: The default pi+zai path succeeds with ONLY ZAI_API_KEY OR ~/.pi/agent/auth.json (no Anthropic env var required); ANTHROPIC_AUTH_TOKEN/API_KEY valid only for the anthropic provider. Existing tests (tests/unit/config/harness*.test.ts, environment.test.ts, endpoint-guard.test.ts) updated to pass under ZAI_API_KEY-only.\n5. DOCS: [Mode A] Rewrite `.env.example` lines 9–17 / 24–25 (the 'API AUTHENTICATION' block) so the primary path is `pi /login` or `ZAI_API_KEY`, demoting ANTHROPIC_AUTH_TOKEN to an optional alias; add JSDoc on the new resolver functions in src/config/harness.ts; refresh docs/CONFIGURATION.md auth prose (lines ~40, 56–71, 281–285, 412–425). Rides WITH the work.",
@@ -103,7 +103,7 @@
                   "type": "Subtask",
                   "id": "P7.M1.T2.S2",
                   "title": "Cross-repo Groundswell: honor ~/.pi/agent/auth.json in PiHarness.initialize()",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: ~/projects/groundswell/src/harnesses/pi-harness.ts initialize() (lines 144–145) hard-codes `this.authStorage = AuthStorage.inMemory()` + `ModelRegistry.inMemory(this.authStorage)`. An in-memory store NEVER reads ~/.pi/agent/auth.json. VERIFIED API (architecture/groundswell_auth_api.md): `AuthStorage.create(authPath?)` → file-backed FileAuthStorageBackend, default `join(getAgentDir(),'auth.json')` = ~/.pi/agent/auth.json (overridable via PI_CODING_AGENT_DIR); `ModelRegistry.create(authStorage, modelsJsonPath?)` is file-backed; both static factories REQUIRE a caller-supplied AuthStorage. HarnessOptions (~/projects/groundswell/src/types/harnesses.ts) is explicitly designed to be extended per-harness (PRD §7.5) — adding authStorage?/modelRegistry? there is the type-safe seam. AuthStorage.inMemory(data?) accepts a seed AuthStorageData for tests.\n2. INPUT: PiHarness.initialize(options?), terminate(), the declared private fields (sdk/authStorage/modelRegistry/options), HarnessOptions type.\n3. LOGIC: In pi-harness.ts initialize() change to `this.authStorage = options?.authStorage ?? AuthStorage.create();` and `this.modelRegistry = options?.modelRegistry ?? ModelRegistry.create(this.authStorage);`. Add `authStorage?: AuthStorage` and `modelRegistry?: ModelRegistry` to HarnessOptions (~/projects/groundswell/src/types/harnesses.ts). Keep initialize() idempotent (`if (this.sdk) return;`) and terminate() nulling the fields. Update/extend Groundswell's own pi-harness tests (~​/projects/groundswell/tests/...) to seed `AuthStorage.inMemory({ zai: { type:'api_key', key:'...' } })` rather than relying on the old in-memory default.\n4. OUTPUT: ~/.pi/agent/auth.json is honored end-to-end; callers may inject a custom authStorage/modelRegistry; Groundswell's own tests pass and hacky-hack still links cleanly (verify via `npm run validate:groundswell` / tests/unit/groundswell/imports.test.ts). NOTE in the commit that this is a tracked cross-cutting change against the Groundswell repo per PRD §9.2.6/§9.5.\n5. DOCS: none in hacky-hack — this edits the Groundswell repo; update Groundswell's own inline JSDoc on initialize() and HarnessOptions (no hacky-hack doc surface here).",

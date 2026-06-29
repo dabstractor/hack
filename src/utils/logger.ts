@@ -238,6 +238,52 @@ function getPino(): PinoBundle {
   return _pinoBundle;
 }
 
+// ===== REQ-L3: SINGLE SHARED ROOT PER OUTPUT MODE (one sync stream, zero workers) =====
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _rootPretty: any; // human/pretty root — owns ONE pino-pretty Transform destination
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _rootJson: any; // machine-readable root — owns stdout (no separate stream)
+
+/**
+ * Builds a fresh root pino for the given output mode (configured ONCE; inherited by children).
+ *
+ * @param machineReadable - If true, build a JSON root (stdout). Otherwise, build a pretty root.
+ * @returns A pino root logger instance.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildRoot(machineReadable: boolean): any {
+  const { pino, stdTimeFunctions } = getPino();
+  const config = createLoggerConfig({}, stdTimeFunctions);
+  if (machineReadable) {
+    // JSON → default stdout (sync); no 2nd arg, no pretty Transform.
+    // base:{} suppresses pid/hostname (preserve today's output).
+    return pino({ ...config, base: {} });
+  }
+  const dest = pretty({
+    colorize: true,
+    translateTime: 'HH:MM:ss',
+    ignore: 'pid,hostname',
+    messageFormat: '[{correlationId}] [{context}] {msg}',
+    singleLine: false,
+  });
+  // base:{} suppresses pid/hostname; child bindings provide context & correlationId.
+  return pino({ ...config, base: {} }, dest);
+}
+
+/**
+ * Returns the cached root for the mode, building it lazily on first use (memoized).
+ *
+ * @param machineReadable - If true, return the JSON root. Otherwise, the pretty root.
+ * @returns A pino root logger instance (cached after first build).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getRoot(machineReadable: boolean): any {
+  return machineReadable
+    ? (_rootJson ??= buildRoot(true))
+    : (_rootPretty ??= buildRoot(false));
+}
+
 // ===== HELPER FUNCTIONS =====
 
 /**
@@ -392,8 +438,11 @@ function wrapPinoLogger(pinoLogger: any): Logger {
  * transport config key is ever produced — zero worker threads, zero blocking
  * `process.on('exit')` handlers. The process can exit as soon as work is done.
  *
- * **Single root direction (REQ-L3):** future work will derive all loggers from a
- * single process-wide root to bound total destinations to one sync stream.
+ * **Single root per mode (REQ-L3):** every logger is derived as a `child()` of a single
+ * process-wide root pino — one root per output mode (pretty vs JSON). Each root owns exactly
+ * ONE synchronous destination stream and ZERO worker threads, bounding total destinations
+ * to at most one per mode (collapsing to one per process in normal single-mode CLI usage).
+ * Child loggers inherit the root's destination and config, with independent level control.
  *
  * @example
  * ```typescript
@@ -424,31 +473,17 @@ export function getLogger(context: string, options?: LoggerConfig): Logger {
   // Auto-generate correlation ID if not provided
   const correlationId = options?.correlationId || generateCorrelationId();
 
-  // Lazy-load pino (deferred from module-eval; memoized after first call).
-  // Supports REQ-L2 (lazy call-site migration in S2).
-  const { pino, stdTimeFunctions } = getPino();
-
-  // Build configuration — never produces a pino transport config key (REQ-L1).
-  const config = createLoggerConfig(options, stdTimeFunctions);
-
-  // Build synchronous in-process destination stream.
-  // Pretty path: pino-pretty as a destination Transform (zero worker threads).
-  // JSON path: default stdout (sync), no destination stream needed.
-  // Both paths avoid pino transport workers and their blocking exit handlers.
   const machineReadable = options?.machineReadable ?? false;
-  const dest = machineReadable
-    ? undefined
-    : pretty({
-        colorize: true,
-        translateTime: 'HH:MM:ss',
-        ignore: 'pid,hostname',
-        messageFormat: '[{correlationId}] [{context}] {msg}',
-        singleLine: false,
-      });
+  const { level = LogLevel.INFO, verbose = false } = options ?? {};
+  const resolvedLevel = verbose ? LogLevel.DEBUG : level;
 
-  const pinoLogger = pino(
-    { ...config, base: { context, correlationId } },
-    dest
+  // REQ-L3: derive a child from the single shared root for this output mode.
+  // One destination stream per mode; zero worker threads. Children set their own level
+  // (proven: root level does not gate children).
+  const root = getRoot(machineReadable);
+  const pinoLogger = root.child(
+    { context, correlationId },
+    { level: resolvedLevel }
   );
 
   // Wrap with our Logger interface
@@ -474,6 +509,9 @@ export function getLogger(context: string, options?: LoggerConfig): Logger {
 export function clearLoggerCache(): void {
   loggerCache.clear();
   globalConfig = {};
+  _rootPretty = undefined; // REQ-L3: force root rebuild on next getLogger (fresh config)
+  _rootJson = undefined;
+  // NOTE: getPino()'s _pinoBundle is intentionally NOT reset (the pino module never changes).
 }
 
 /**
