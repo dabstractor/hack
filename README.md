@@ -78,7 +78,7 @@ Get running in under 2 minutes:
 - Node.js >= 20.0.0
 - npm >= 10.0.0
 - Git
-- Anthropic API key (via `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`)
+- A z.ai credential — run `pi /login` (writes `~/.pi/agent/auth.json`) **or** `export ZAI_API_KEY=…`. (Anthropic credentials are optional; see [Configuration](#configuration).)
 
 ### Installation
 
@@ -227,29 +227,38 @@ npm run dev -- --prd ./PRD.md --no-cache
 
 ### Environment Variables
 
-| Variable                         | Required | Default                          | Description                                              |
-| -------------------------------- | -------- | -------------------------------- | -------------------------------------------------------- |
-| `ANTHROPIC_AUTH_TOKEN`           | Yes\*    | -                                | API authentication token (mapped to `ANTHROPIC_API_KEY`) |
-| `ANTHROPIC_API_KEY`              | Yes\*    | -                                | API key (mapped from `ANTHROPIC_AUTH_TOKEN` if not set)  |
-| `ANTHROPIC_BASE_URL`             | No       | `https://api.z.ai/api/anthropic` | API endpoint (z.ai required, not Anthropic)              |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `glm-5.2`                        | Model for Architect agent (highest quality)              |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `glm-5.2`                        | Model for Researcher/Coder agents (balanced)             |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `glm-5-turbo`                    | Model for simple operations (fastest)                    |
+| Variable                         | Required | Default                          | Description                                                                    |
+| -------------------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| `ZAI_API_KEY`                    | Yes\*    | None                             | z.ai API key (default-path credential for the `zai` provider).                 |
+| `ANTHROPIC_BASE_URL`             | No       | `https://api.z.ai/api/anthropic` | API endpoint (auto-set to z.ai for the `zai` provider only).                   |
+| `PRP_API_KEY`                    | No       | None                             | Explicit API-key override (highest precedence, any provider).                  |
+| `PRP_AGENT_HARNESS`              | No       | `pi`                             | Agent runtime: `pi` (default) or `claude-code` (Anthropic-only).               |
+| `ANTHROPIC_AUTH_TOKEN`           | No\*\*   | None                             | **Optional.** Anthropic provider only; mapped to `ANTHROPIC_API_KEY` if unset. |
+| `ANTHROPIC_API_KEY`              | No\*\*   | None                             | **Optional.** Anthropic provider only.                                         |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `glm-5.2`                        | Architect agent model (provider-qualified at runtime).                         |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `glm-5.2`                        | Researcher/Coder model (default).                                              |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `glm-5-turbo`                    | Simple-operations model (fastest).                                             |
 
-_Note: Either `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` is required._
+_\*Required for the default path: **`ZAI_API_KEY`**, `pi /login` (`~/.pi/agent/auth.json`, auto-detected), **or** `PRP_API_KEY`. **\*\*Optional:** Anthropic credentials are consulted only when the resolved provider is `anthropic` (via an `anthropic/*` model override); they are **ignored** for the default `zai` provider. A startup preflight aborts with an actionable error if none is present (see [Troubleshooting](#troubleshooting))._
+
+For the full auth + preflight walkthrough, see [Installation](docs/INSTALLATION.md) and [Configuration](docs/CONFIGURATION.md).
 
 ### Setup
 
 ```bash
-# Option 1: Use .env file (recommended)
-cp .env.example .env
-# Edit .env with your API credentials
+# Option 1: pi /login — recommended (writes ~/.pi/agent/auth.json, auto-detected by the harness)
+pi /login
 
-# Option 2: Set environment variables directly
-export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
+# Option 2: Set the z.ai provider env var directly
+export ZAI_API_KEY="your-zai-key-here"
 
-# Option 3: Or set API_KEY directly (AUTH_TOKEN takes precedence if both set)
-export ANTHROPIC_API_KEY="your-api-key-here"
+# --- Optional: Anthropic provider only (claude-code harness or anthropic/* models) ---
+# export ANTHROPIC_API_KEY="your-anthropic-key-here"
+# (ANTHROPIC_AUTH_TOKEN is accepted as a backward-compat alias for ANTHROPIC_API_KEY
+#  when the resolved provider is 'anthropic'.)
+
+# Or copy the template and edit:
+# cp .env.example .env
 ```
 
 ### Model Tiers
@@ -260,36 +269,18 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 
 ### How It Works
 
-The PRP Pipeline uses **z.ai** as a compatible proxy for the Anthropic API. This requires special environment variable configuration:
+**Authentication is provider-aware** (PRD §9.2.6). For the resolved provider (default `zai`),
+the credential is resolved in order; the first non-empty source wins:
 
-**Variable Mapping:**
+1. **`PRP_API_KEY`** — explicit override (highest precedence, any provider).
+2. **Provider-native env var** — `ZAI_API_KEY` for `zai`; `ANTHROPIC_OAUTH_TOKEN` → `ANTHROPIC_API_KEY` for `anthropic`.
+3. **`~/.pi/agent/auth.json`** — written by `pi /login`, auto-detected by the harness.
 
-- Shell environment convention: `ANTHROPIC_AUTH_TOKEN`
-- SDK expectation: `ANTHROPIC_API_KEY`
-- The pipeline automatically maps `AUTH_TOKEN` to `API_KEY` on startup
+Empty/whitespace values are treated as 'not configured'.
 
-**Configuration Flow:**
+_The `ANTHROPIC_BASE_URL` defaults to `https://api.z.ai/api/anthropic` only when the provider is `zai`._
 
-```typescript
-// 1. configureEnvironment() is called on startup
-configureEnvironment();
-
-// 2. If AUTH_TOKEN is set and API_KEY is not, map it
-if (process.env.ANTHROPIC_AUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
-  process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
-}
-
-// 3. Set default BASE_URL if not provided
-if (!process.env.ANTHROPIC_BASE_URL) {
-  process.env.ANTHROPIC_BASE_URL = 'https://api.z.ai/api/anthropic';
-}
-```
-
-**Idempotency:**
-
-- Multiple calls to `configureEnvironment()` are safe
-- If `API_KEY` is already set, `AUTH_TOKEN` will not override it
-- Explicit `API_KEY` values take precedence
+_Backward-compat alias: when the provider is `anthropic`, `ANTHROPIC_AUTH_TOKEN` is mapped to `ANTHROPIC_API_KEY` if the latter is unset. This alias does **not** apply to the default `zai` path._
 
 ### API Safeguards
 
@@ -347,21 +338,21 @@ The PRP Pipeline uses **z.ai** as the API endpoint, not Anthropic's official API
 **Example .env File:**
 
 ```bash
-# .env - API Configuration for PRP Pipeline
+# .env — API Configuration for the default zai provider
+# Option A: pi /login (writes ~/.pi/agent/auth.json, auto-detected by the harness)
+# Option B: set ZAI_API_KEY directly
+ZAI_API_KEY=your-zai-key-here
 
-# Required: API authentication
-ANTHROPIC_AUTH_TOKEN=your-zai-api-token-here
-
-# Optional: API endpoint (defaults to z.ai)
+# Optional: API endpoint (defaults to z.ai for the zai provider)
 # ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+# Optional: Anthropic provider only (ignored for zai)
+# ANTHROPIC_AUTH_TOKEN=…
+# ANTHROPIC_API_KEY=…
 
 # Optional: Model overrides
 # ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.2
 # ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.2
 # ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5-turbo
-
-# Optional: Request timeout (milliseconds)
-# API_TIMEOUT_MS=300000
 ```
 
 ### Troubleshooting
@@ -378,16 +369,31 @@ export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
 echo "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" >> .env
 ```
 
-**"ANTHROPIC_API_KEY not found" error**
+**"Authentication preflight failed" startup abort**
 
-The environment configuration hasn't been run or variables aren't set.
+The fail-fast preflight (PRD §9.2.7) found no credential for the selected provider before any
+agent ran. The message names the harness, provider/model, every checked source, and the fix:
+
+```
+Authentication preflight failed: no credential configured for provider 'zai' (harness 'pi', model 'zai/glm-5.2').
+
+Checked sources (all empty):
+  • Override:     PRP_API_KEY
+  • Environment:  ZAI_API_KEY
+  • pi auth.json: ~/.pi/agent/auth.json
+
+Remediation (pick one):
+  • pi /login                       # writes ~/.pi/agent/auth.json
+  • export ZAI_API_KEY=<your-key>   # provider-native env var
+```
 
 ```bash
-# Fix: Set AUTH_TOKEN (will be mapped to API_KEY)
-export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
-
-# Or set API_KEY directly
-export ANTHROPIC_API_KEY="your-api-key-here"
+# Fix: run pi /login (recommended) or set the env var directly
+pi /login
+# or
+export ZAI_API_KEY="your-zai-key-here"
+# For the anthropic provider:
+# export ANTHROPIC_API_KEY="your-anthropic-key-here"
 ```
 
 **"Model not found: glm-5.2" error**
