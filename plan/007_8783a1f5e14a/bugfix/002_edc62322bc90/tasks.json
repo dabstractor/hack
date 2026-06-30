@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Issue 1 (MAJOR): Exempt pure-local CLI modes (--validate-prd, --dry-run) from the auth preflight",
-              "status": "Planned",
+              "status": "Complete",
               "description": "`--validate-prd` (local PRD markdown lint via `PRDValidator`, which imports only `prd-differ`/`node:fs`/`node:path`) and `--dry-run` (prints the plan and returns 0) make ZERO API calls, yet `main()` runs `runAuthPreflight()` + `ensureHarnessInitialized()` unconditionally before their early-return branches — so a no-credential run aborts with exit 1 and a misleading 'pi /login / export ZAI_API_KEY' message. Fix by moving the two local-only early-returns (and the root logger creation) to BEFORE `runAuthPreflight()`/`ensureHarnessInitialized()`, preserving every §9.2.7 acceptance criterion for the agent-invoking paths (which are the only paths the preflight's motivation — 'not detected until the first agent calls the model' — applies to).",
               "subtasks": [
                 {
@@ -43,7 +43,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Subprocess acceptance tests: --validate-prd & --dry-run succeed with NO credential",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"

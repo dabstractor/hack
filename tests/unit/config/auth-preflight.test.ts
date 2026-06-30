@@ -277,5 +277,92 @@ describeOrSkip(
 
       rmSync(tmpAgentDir, { recursive: true, force: true });
     });
+
+    // Credential-free SUCCESS counterpart (b): --validate-prd runs with NO credential.
+    // (bugfix P1.M1.T1.S1 — dryRun/validatePrd early-return BEFORE runAuthPreflight)
+    it('exits 0, prints the validation report on stdout, bypasses preflight, creates no session dir', () => {
+      const tmpAgentDir = mkdtempSync(join(tmpdir(), 'preflight-spawn-'));
+      const prdAbs = resolve(process.cwd(), 'PRD.md'); // EXISTS + valid — required for validatePrd
+      // SCRUBBED env: only the 5 safe keys. NO credential vars. Empty PI_CODING_AGENT_DIR (no auth.json).
+      const env = {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        USER: process.env.USER,
+        SHELL: process.env.SHELL,
+        PI_CODING_AGENT_DIR: tmpAgentDir,
+      };
+      const planDir = resolve(process.cwd(), 'plan');
+      const sessRe = /^\d{3}_[0-9a-f]{12}$/;
+      const before = existsSync(planDir)
+        ? new Set(readdirSync(planDir).filter(s => sessRe.test(s)))
+        : new Set<string>();
+
+      const res = spawnSync(
+        process.execPath,
+        [CLI, '--prd', prdAbs, '--validate-prd'],
+        {
+          encoding: 'utf8',
+          timeout: 20_000,
+          env,
+        }
+      );
+
+      // EXIT 0 — local mode succeeded credential-free
+      expect(res.status).toBe(0);
+      // Validation report on STDOUT (pino-pretty → stdout). '✅ VALID' = PRD.md in repo root is valid.
+      expect(res.stdout).toContain('✅ VALID');
+      // CRITICAL: proves the preflight was BYPASSED (would be on stderr w/ exit 1 if it ran)
+      expect(res.stderr).not.toContain('Authentication preflight failed');
+      // No new session dir created (validatePrd returns before any pipeline/session work)
+      const after = existsSync(planDir)
+        ? new Set(readdirSync(planDir).filter(s => sessRe.test(s)))
+        : new Set<string>();
+      expect([...after].sort()).toEqual([...before].sort());
+
+      rmSync(tmpAgentDir, { recursive: true, force: true });
+    });
+
+    // Credential-free SUCCESS counterpart (c): --dry-run runs with NO credential.
+    // (bugfix P1.M1.T1.S1 — dryRun/validatePrd early-return BEFORE runAuthPreflight)
+    it('exits 0, prints DRY RUN on stdout, bypasses preflight, creates no session dir', () => {
+      const tmpAgentDir = mkdtempSync(join(tmpdir(), 'preflight-spawn-'));
+      const prdAbs = resolve(process.cwd(), 'PRD.md');
+      const env = {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        USER: process.env.USER,
+        SHELL: process.env.SHELL,
+        PI_CODING_AGENT_DIR: tmpAgentDir,
+      };
+      const planDir = resolve(process.cwd(), 'plan');
+      const sessRe = /^\d{3}_[0-9a-f]{12}$/;
+      const before = existsSync(planDir)
+        ? new Set(readdirSync(planDir).filter(s => sessRe.test(s)))
+        : new Set<string>();
+
+      const res = spawnSync(
+        process.execPath,
+        [CLI, '--prd', prdAbs, '--dry-run'],
+        {
+          encoding: 'utf8',
+          timeout: 20_000,
+          env,
+        }
+      );
+
+      // EXIT 0 — local mode succeeded credential-free
+      expect(res.status).toBe(0);
+      // Dry-run banner on STDOUT (pino-pretty → stdout)
+      expect(res.stdout).toContain('DRY RUN');
+      // CRITICAL: proves the preflight was BYPASSED
+      expect(res.stderr).not.toContain('Authentication preflight failed');
+      // No new session dir created (dryRun returns before any pipeline/session work)
+      const after = existsSync(planDir)
+        ? new Set(readdirSync(planDir).filter(s => sessRe.test(s)))
+        : new Set<string>();
+      expect([...after].sort()).toEqual([...before].sort());
+
+      rmSync(tmpAgentDir, { recursive: true, force: true });
+    });
   }
 );
