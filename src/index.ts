@@ -37,10 +37,14 @@
 
 import { configureEnvironment } from './config/environment.js';
 import {
+  configureHarness,
   ensureHarnessInitialized,
   runAuthPreflight,
 } from './config/harness.js';
-import { AuthPreflightError } from './config/types.js';
+import {
+  AuthPreflightError,
+  HarnessProviderMismatchError,
+} from './config/types.js';
 import { parseCLIArgs, type ValidatedCLIArgs } from './cli/index.js';
 import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
@@ -91,8 +95,12 @@ function setupGlobalHandlers(verbose: boolean): void {
  * 1. Configures environment
  * 2. Creates root logger (independent of credentials/harness)
  * 3. Handles pure-local modes (--dry-run, --validate-prd) credential-free
- * 4. Runs auth preflight + harness initialization (agent paths only, §9.2.7)
- * 5. Creates pipeline instance, runs pipeline, displays results
+ * 4. Configures agent harness eagerly (agent paths only; throws on claude-code+zai mismatch — PRD §9.4.3 / bugfix §h3.3)
+ * 5. Runs auth preflight + harness initialization (agent paths only, §9.2.7)
+ * 6. Creates pipeline instance, runs pipeline, displays results
+ *
+ * The harness/provider mismatch error from step 4 renders via the same clean main().catch()
+ * handler as AuthPreflightError (❌ <message> + exit 1).
  *
  * Pure-local modes (--dry-run, --validate-prd) make zero API calls and run
  * BEFORE the §9.2.7 credential preflight and harness init (bugfix PRD §h3.2).
@@ -188,6 +196,15 @@ async function main(): Promise<number> {
     // Exit with appropriate code
     return result.valid ? 0 : 1;
   }
+
+  // CRITICAL: Configure the agent harness eagerly on the agent-invoking path (bugfix §h3.3 / Issue 2).
+  // configureHarness() resolves PRP_AGENT_HARNESS, validates it, enforces harness↔provider
+  // compatibility (throws on claude-code+zai mismatch — PRD §9.4.3), and registers PiHarness.
+  // Run AFTER configureEnvironment() and the local-only early-returns, BEFORE
+  // runAuthPreflight()/ensureHarnessInitialized(). Idempotent: the lazy resolvedHarness() accessor in
+  // agent-factory.ts becomes a no-op cache hit when createBaseConfig later runs. Errors are rendered
+  // cleanly by the main().catch() harness-mismatch arm below.
+  configureHarness();
 
   // CRITICAL: Fail-fast auth preflight (PRD §9.2.7). Aborts here if no credential
   // is configured for the selected harness + provider/model — BEFORE any session
@@ -317,6 +334,10 @@ async function main(): Promise<number> {
 void main().catch((error: unknown) => {
   if (error instanceof AuthPreflightError) {
     console.error(`\n❌ ${error.message}`); // ONE actionable message (PRD §9.2.7)
+    process.exit(1);
+  }
+  if (error instanceof HarnessProviderMismatchError) {
+    console.error(`\n❌ ${error.message}`); // actionable: harness+provider+§9.2.4+both remediations
     process.exit(1);
   }
   console.error('\n❌ Fatal error in main():', error);
