@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "D1 Bugfix Remediation — Restore Auth.json Runtime Path & Test Suite",
-      "status": "Ready",
+      "status": "Planned",
       "description": "Remediate the four issues found in the D1 (Auth & Logging Hardening) QA: (1) CRITICAL — deploy the undeployed Groundswell file-backed AuthStorage fix so the auth.json-only runtime path works; (2) MAJOR — update the stale createBaseConfig integration test for provider-aware auth; (3) MINOR — restore pre-existing vitest failures (stale model-name + enableReflection assertions); (4) MINOR — harden validate-groundswell.ts to detect a stale/unlinked dist. The logging workstream (T1) and preflight logic (T3) are verified correct and require no changes. Research findings are in plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/.",
       "milestones": [
         {
@@ -230,7 +230,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Sync changeset-level documentation",
-          "status": "Ready",
+          "status": "Planned",
           "description": "Per Documentation Sync Mode B: the changeset has cross-cutting doc implications. The README, docs/CONFIGURATION.md, docs/INSTALLATION.md, and .env.example all promise auth.json is 'auto-detected by the harness' and recommend pi /login as the primary path. With the stale dist this promise was broken (Issue 1); after the fix is deployed it becomes TRUE. This final task verifies those promises are now accurate and updates any docs that reference the verification/validation surface (the hardened validate-groundswell.ts).",
           "tasks": [
             {
@@ -244,7 +244,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Verify README.md auth.json claims are accurate post-fix",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S2",
