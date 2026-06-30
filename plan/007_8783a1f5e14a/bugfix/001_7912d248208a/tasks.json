@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "D1 Bugfix Remediation — Restore Auth.json Runtime Path & Test Suite",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Remediate the four issues found in the D1 (Auth & Logging Hardening) QA: (1) CRITICAL — deploy the undeployed Groundswell file-backed AuthStorage fix so the auth.json-only runtime path works; (2) MAJOR — update the stale createBaseConfig integration test for provider-aware auth; (3) MINOR — restore pre-existing vitest failures (stale model-name + enableReflection assertions); (4) MINOR — harden validate-groundswell.ts to detect a stale/unlinked dist. The logging workstream (T1) and preflight logic (T3) are verified correct and require no changes. Research findings are in plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/.",
       "milestones": [
         {
@@ -161,7 +161,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Minor — Restore Pre-existing vitest Failures (Issue 3)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "The full vitest suite is red (33 files / 223 tests failing). The PRD confirms the bulk is pre-existing and outside D1's workstreams. This milestone fixes the pre-existing assertions in the sampled test files (tests/integration/agents.test.ts and tests/integration/agents/architect-agent-integration.test.ts): stale model-name assertions (GLM-4.7 → zai/glm-5.2) and stale enableReflection/responseFormat expectations (which are intentional 'FILE-as-contract' design). The broader 33-file triage is out of scope for this bugfix but tracked here for visibility.",
           "tasks": [
             {
@@ -205,14 +205,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Fix stale enableReflection/responseFormat assertions",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Several tests assert enableReflection: true and responseFormat: BacklogSchema, but the prompts deliberately omit enableReflection and use responseFormat: z.unknown() by design (FILE-as-contract). The tests are stale, not the code.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Update enableReflection/responseFormat assertions to match current prompt contracts",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. Stale assertions exist in two files: tests/integration/agents.test.ts (lines 422, 427, 488, 493 — createArchitectPrompt expects responseFormat: BacklogSchema + enableReflection: true; createPRPBlueprintPrompt expects enableReflection: true) and tests/integration/agents/architect-agent-integration.test.ts (lines 360, 378, 401 — same). The CODE is correct by design: src/agents/prompts/architect-prompt.ts:70 has comment 'NOTE: No strict responseFormat / no enableReflection here — by design' and returns responseFormat: z.unknown(); src/agents/prompts/prp-blueprint-prompt.ts omits enableReflection in its createPrompt({}) call (only the docstring mentions it). The FILE-as-contract design means a strict schema would make Groundswell reject the agent's text summary.\n2. INPUT: The stale assertions in tests/integration/agents.test.ts (lines ~422-493) and tests/integration/agents/architect-agent-integration.test.ts (lines ~360-401).\n3. LOGIC: For each test asserting enableReflection: true — update to assert the CURRENT behavior: either remove the enableReflection expectation, or assert `expect(config.enableReflection).toBeUndefined()` / `not.toBe(true)` if the prompt omits it. For tests asserting responseFormat: BacklogSchema — update to assert responseFormat is z.unknown() OR remove the strict responseFormat assertion (the FILE is the contract). Read src/agents/prompts/architect-prompt.ts:70-92 and src/agents/prompts/prp-blueprint-prompt.ts to confirm the exact current return shape before rewriting assertions. Do NOT modify the prompt source code — the design is intentional; only update the TESTS to match reality. ALSO check the prompt-content drift test in architect-agent-integration.test.ts (~line 450: 'should contain Research-Driven Architecture section') — if the section was renamed/removed, update the assertion to match the current TASK_BREAKDOWN_PROMPT content (read src/agents/prompts/architect-prompt.ts / src/agents/prompts.ts for the current text).\n4. OUTPUT: The enableReflection/responseFormat assertions in both test files pass against the current (intentional) prompt contracts. No source code changes — test-only.\n5. DOCS: [Mode A] none — test-only change.",

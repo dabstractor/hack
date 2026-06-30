@@ -23,7 +23,16 @@
  * @see {@link ../../PROMPTS.md} - TASK_BREAKDOWN_SYSTEM_PROMPT definition
  */
 
-import { afterEach, describe, expect, it, vi, beforeAll } from 'vitest';
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+  beforeAll,
+  beforeEach,
+} from 'vitest';
+import { z } from 'zod';
 
 // =============================================================================
 // MOCK SETUP: Groundswell (NOT agent-factory)
@@ -282,7 +291,7 @@ describe('integration/agents/architect-agent-integration', () => {
 
       // VERIFY: Contains key phrases from Research-Driven Architecture section
       expect(TASK_BREAKDOWN_PROMPT).toContain('RESEARCH-DRIVEN ARCHITECTURE');
-      expect(TASK_BREAKDOWN_PROMPT).toContain('SPAWN SUBAGENTS');
+      expect(TASK_BREAKDOWN_PROMPT).toContain('SUBAGENTS ARE OPTIONAL');
       expect(TASK_BREAKDOWN_PROMPT).toContain('$SESSION_DIR/architecture/');
       expect(TASK_BREAKDOWN_PROMPT).toContain('VALIDATE BEFORE BREAKING DOWN');
     });
@@ -345,7 +354,7 @@ describe('integration/agents/architect-agent-integration', () => {
   // ==========================================================================
 
   describe('createArchitectPrompt', () => {
-    it('should create prompt with BacklogSchema responseFormat', async () => {
+    it('should use permissive responseFormat by design (file is the contract)', async () => {
       // SETUP: Import createArchitectPrompt and BacklogSchema
       const { createArchitectPrompt } =
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts/architect-prompt.js');
@@ -366,16 +375,16 @@ describe('integration/agents/architect-agent-integration', () => {
       const prdContent = '# Test PRD\n\nTest content.';
       createArchitectPrompt(prdContent);
 
-      // VERIFY: createPrompt called with BacklogSchema as responseFormat
-      expect(gs.createPrompt).toHaveBeenCalledWith(
-        expect.objectContaining({
-          user: prdContent,
-          responseFormat: BacklogSchema,
-        })
-      );
+      // VERIFY: capture the call arg to avoid Zod deep-equality pitfall
+      const cfg = (
+        gs.createPrompt as unknown as { mock: { calls: any[][] } }
+      ).mock.calls.at(-1)![0];
+      expect(cfg.user).toBe(prdContent);
+      expect(cfg.responseFormat).not.toBe(BacklogSchema);
+      expect(cfg.responseFormat).toBeInstanceOf(z.ZodType);
     });
 
-    it('should create prompt with enableReflection', async () => {
+    it('should omit enableReflection by design', async () => {
       // SETUP: Import createArchitectPrompt
       const { createArchitectPrompt } =
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts/architect-prompt.js');
@@ -396,13 +405,11 @@ describe('integration/agents/architect-agent-integration', () => {
       const prdContent = '# Test PRD\n\nTest content.';
       createArchitectPrompt(prdContent);
 
-      // VERIFY: createPrompt called with enableReflection: true
-      // CRITICAL: Reflection provides error recovery for complex JSON generation
-      expect(gs.createPrompt).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enableReflection: true,
-        })
-      );
+      // VERIFY: enableReflection is intentionally omitted — the file is the contract
+      const cfg = (
+        gs.createPrompt as unknown as { mock: { calls: any[][] } }
+      ).mock.calls.at(-1)![0];
+      expect(cfg.enableReflection).toBeUndefined();
     });
 
     it('should create prompt with TASK_BREAKDOWN_SYSTEM_PROMPT', async () => {
