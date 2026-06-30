@@ -858,7 +858,11 @@ describe('BugHuntWorkflow', () => {
       const result = await workflow.run();
 
       // VERIFY
-      expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith('PRD content', [], undefined);
+      expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith(
+        'PRD content',
+        [],
+        undefined
+      );
       expect(result).toEqual(expectedResult);
     });
 

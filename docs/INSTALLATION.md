@@ -549,7 +549,7 @@ The `ANTHROPIC_BASE_URL` is pointing to the wrong endpoint. Tests enforce z.ai u
 
 **What you see**:
 
-```
+```text
 ❌ Authentication preflight failed: no credential configured for provider 'zai' (harness 'pi', model 'zai/glm-5.2').
 
 Checked sources (all empty):
@@ -569,10 +569,13 @@ the provider-native env var, and `~/.pi/agent/auth.json` — all were empty or a
 **How to fix**:
 
 1. Use pi's built-in login (recommended):
+
    ```bash
    pi /login
    ```
+
 2. Or set the provider env var directly:
+
    ```bash
    export ZAI_API_KEY=<your-key>
    ```

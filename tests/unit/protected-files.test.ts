@@ -80,8 +80,7 @@ const CURRENT_PROTECTED_FILES = [
 /**
  * Additional protected files from system_context.md (NOT in current implementation)
  */
-const ADDITIONAL_PROTECTED_FILES: readonly string[] = [
-] as const;
+const ADDITIONAL_PROTECTED_FILES: readonly string[] = [] as const;
 
 /**
  * Complete protected files specification (union of current + additional)
@@ -399,7 +398,9 @@ describe('unit/protected-files > protected file enforcement', () => {
   describe('filesystem move protection', () => {
     it('should allow moving tasks.json (intentionally unprotected)', async () => {
       // EXECUTE & VERIFY
-      await expect(safeMove('tasks.json', 'backup/tasks.json')).resolves.not.toThrow();
+      await expect(
+        safeMove('tasks.json', 'backup/tasks.json')
+      ).resolves.not.toThrow();
     });
 
     it('should throw error when moving PRD.md', async () => {
@@ -480,7 +481,9 @@ describe('unit/protected-files > protected file enforcement', () => {
 
     it('should allow agents writing to tasks.json (intentionally unprotected)', async () => {
       // EXECUTE & VERIFY
-      await expect(safeWrite('tasks.json', '{"tasks": []}')).resolves.not.toThrow();
+      await expect(
+        safeWrite('tasks.json', '{"tasks": []}')
+      ).resolves.not.toThrow();
     });
 
     it('should prevent agents from writing to prd_snapshot.md', async () => {

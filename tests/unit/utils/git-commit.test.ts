@@ -75,7 +75,12 @@ describe('utils/git-commit', () => {
 
       // VERIFY
       // tasks.json is intentionally NOT protected (status delta rides with commit)
-      expect(result).toEqual(['src/index.ts', 'tasks.json', 'src/utils.ts', 'README.md']);
+      expect(result).toEqual([
+        'src/index.ts',
+        'tasks.json',
+        'src/utils.ts',
+        'README.md',
+      ]);
       expect(result).not.toContain('PRD.md');
       expect(result).not.toContain('prd_snapshot.md');
       expect(result).not.toContain('delta_prd.md');
@@ -96,7 +101,13 @@ describe('utils/git-commit', () => {
 
     it('should return empty array when all files are protected', () => {
       // SETUP
-      const files = ['PRD.md', 'prd_snapshot.md', 'delta_prd.md', 'delta_from.txt', 'TEST_RESULTS.md'];
+      const files = [
+        'PRD.md',
+        'prd_snapshot.md',
+        'delta_prd.md',
+        'delta_from.txt',
+        'TEST_RESULTS.md',
+      ];
 
       // EXECUTE
       const result = filterProtectedFiles(files);
@@ -119,7 +130,11 @@ describe('utils/git-commit', () => {
       const result = filterProtectedFiles(files);
 
       // VERIFY - tasks.json NOT protected, PRD.md and prd_snapshot.md ARE protected
-      expect(result).toEqual(['src/index.ts', 'plan/session/tasks.json', 'src/utils.ts']);
+      expect(result).toEqual([
+        'src/index.ts',
+        'plan/session/tasks.json',
+        'src/utils.ts',
+      ]);
     });
 
     it('should handle empty array', () => {

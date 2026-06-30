@@ -21,6 +21,10 @@
  *   plain directory (published tarball); for tarball installs, greps dist/harnesses/pi-harness.js
  *   for the §9.2.6 fix (AuthStorage.create(), not AuthStorage.inMemory()). Informational — the hard
  *   stale-dist gate is the auth-store behavior check above (PRD §9.5 / Issue 4).
+ * - Published artifact: fetches the groundswell tarball from the npm registry at the version
+ *   resolved by the lockfile and inspects its dist for the §9.2.6 fix. HARD gate — fails if the
+ *   published version is stale, ensuring CI and fresh clones are never broken by an unpublished
+ *   local-only fix.
  *
  * Usage:
  *   npx tsx src/scripts/validate-groundswell.ts
@@ -390,6 +394,72 @@ function validateNodeVersion(): boolean {
 }
 
 /**
+ * Validates that the npm-published groundswell artifact (resolved from the lockfile)
+ * contains the §9.2.6 fix (AuthStorage.create(), not AuthStorage.inMemory()).
+ *
+ * This catches the scenario where a local `npm link` masks a stale published version —
+ * CI and fresh clones always install from the registry, so the published tarball MUST
+ * carry the fix.
+ */
+async function validatePublishedArtifact(): Promise<boolean> {
+  logSection('Validating npm-published groundswell artifact');
+
+  try {
+    // Resolve the exact version from the lockfile
+    const result = execSync('npm ls groundswell --json', { encoding: 'utf-8', stdio: 'pipe' });
+    const tree = JSON.parse(result);
+    const dep = tree.dependencies?.groundswell;
+    if (!dep?.version) {
+      logWarning('Could not resolve installed groundswell version from lockfile — skipping published artifact check.');
+      return true;
+    }
+    const version = dep.version as string;
+    logSuccess(`Lockfile resolves groundswell@${version}`);
+
+    // Fetch the published tarball and inspect its dist
+    const tarballUrl = `https://registry.npmjs.org/groundswell/-/groundswell-${version}.tgz`;
+    const tmpDir = mkdtempSync(join(tmpdir(), 'gs-registry-check-'));
+    try {
+      execSync(`curl -sL '${tarballUrl}' | tar xz --strip-components=1 -C '${tmpDir}'`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+
+      const distPath = join(tmpDir, 'dist', 'harnesses', 'pi-harness.js');
+      if (!existsSync(distPath)) {
+        logWarning(`Published tarball dist/harnesses/pi-harness.js not found — skipping.`);
+        return true;
+      }
+
+      const src = readFileSync(distPath, 'utf-8');
+      const hasFix = src.includes('AuthStorage.create()');
+      const hasStale = src.includes('AuthStorage.inMemory()');
+
+      if (hasFix && !hasStale) {
+        logSuccess(
+          `Published groundswell@${version} contains the §9.2.6 fix (AuthStorage.create()).`
+        );
+        return true;
+      }
+
+      // Stale published artifact — this is a HARD failure because CI/fresh clones will hit it.
+      logError(
+        `Published groundswell@${version} is STALE — pi-harness.js uses ` +
+          `AuthStorage.inMemory() instead of AuthStorage.create(). ` +
+          `The auth.json path will be broken for CI and fresh installs. ` +
+          `Push and publish the fix in the groundswell repo first.`
+      );
+      return false;
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  } catch (error) {
+    logWarning(`Could not validate published artifact (offline or registry unreachable): ${error}`);
+    return true; // soft-fail if offline
+  }
+}
+
+/**
  * Main validation function
  */
 async function main(): Promise<void> {
@@ -398,6 +468,7 @@ async function main(): Promise<void> {
   const results = {
     installation: false,
     linkStatus: false,
+    publishedArtifact: false,
     version: false,
     imports: false,
     decorators: false,
@@ -409,6 +480,7 @@ async function main(): Promise<void> {
   results.nodeVersion = validateNodeVersion();
   results.installation = validateInstallation();
   results.linkStatus = validateLinkStatus();
+  results.publishedArtifact = await validatePublishedArtifact();
   results.version = await validateVersionCompatibility();
   results.imports = await validateImports();
   results.decorators = await validateDecorators();

@@ -541,10 +541,7 @@ describe('tools/bash-mcp', () => {
         await executeBashCommand(input);
 
         // VERIFY
-        expect(mockSpawn).toHaveBeenCalledWith(
-          'ls -la',
-          expect.any(Object)
-        );
+        expect(mockSpawn).toHaveBeenCalledWith('ls -la', expect.any(Object));
       });
 
       it('should handle command with no arguments', async () => {
