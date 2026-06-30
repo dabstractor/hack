@@ -8,8 +8,9 @@
  * tailored to specific personas (architect, researcher, coder, qa).
  * Each persona has optimized token limits and model selection.
  *
- * Environment configuration is performed at module load time to ensure
- * ANTHROPIC_AUTH_TOKEN is mapped to ANTHROPIC_API_KEY before any agents are created.
+ * Harness and environment configuration are resolved lazily via a memoized accessor
+ * on first agent creation (not at module load), per PRD §9.6.2 REQ-L2 and
+ * bugfix §h3.3 (mismatch surfaces at initialize/execute, not module load).
  *
  * @example
  * ```ts
@@ -42,15 +43,21 @@ import { BashMCP } from '../tools/bash-mcp.js';
 import { FilesystemMCP } from '../tools/filesystem-mcp.js';
 import { GitMCP } from '../tools/git-mcp.js';
 
-// PATTERN: Configure environment at module load time (intentional side effect)
-// CRITICAL: This must execute before any agent creation
-configureEnvironment();
-/**
- * Resolved agent harness — captured once at startup from configureHarness()
- * (PRD §9.4.2 cascade: global default unless overridden). configureHarness() also
- * populates Groundswell's global singleton via configureHarnesses().
- */
-const RESOLVED_HARNESS: AgentHarness = configureHarness();
+// PATTERN: Lazy-accessor singleton (PRD §9.6.2 REQ-L2) — mirrors the _logger pattern below.
+// configureHarness() is deferred out of module-eval scope so importing this module (and thus
+// index.ts's static import graph) no longer throws HarnessProviderMismatchError at load time
+// (bugfix §h3.3 / PRD §9.4.3: mismatch surfaces at first agent creation, not module load).
+// configureEnvironment() MUST run before configureHarness() (env.ts: "Must be called before
+// configureHarness()"); both are idempotent — HarnessRegistry.has('pi') guards double-registration
+// and configureHarnesses() is a config-singleton setter — so repeat accessor calls are a no-op.
+let _resolvedHarness: AgentHarness | undefined;
+const resolvedHarness = (): AgentHarness => {
+  if (_resolvedHarness === undefined) {
+    configureEnvironment();
+    _resolvedHarness = configureHarness();
+  }
+  return _resolvedHarness;
+};
 
 // Module-level logger for agent factory
 let _logger: Logger | undefined;
@@ -176,7 +183,7 @@ export function createBaseConfig(persona: AgentPersona): AgentConfig {
     name,
     system,
     model,
-    harness: RESOLVED_HARNESS,
+    harness: resolvedHarness(),
     enableCache: true,
     enableReflection: true,
     maxTokens: PERSONA_TOKEN_LIMITS[persona],
