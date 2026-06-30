@@ -17,6 +17,10 @@
  *   (via `PI_CODING_AGENT_DIR`), and asserts `harness.authStorage.getApiKey('zai')` resolves
  *   the on-disk key — fails if the deployed `node_modules/groundswell` dist still uses
  *   `AuthStorage.inMemory()` (PRD §9.2.6 / §9.5).
+ * - Link status: detects whether node_modules/groundswell is a symlink (npm link dev setup) or a
+ *   plain directory (published tarball); for tarball installs, greps dist/harnesses/pi-harness.js
+ *   for the §9.2.6 fix (AuthStorage.create(), not AuthStorage.inMemory()). Informational — the hard
+ *   stale-dist gate is the auth-store behavior check above (PRD §9.5 / Issue 4).
  *
  * Usage:
  *   npx tsx src/scripts/validate-groundswell.ts
@@ -26,7 +30,15 @@
  *   1: Validation failed
  */
 
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readlinkSync,
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -89,20 +101,12 @@ function validateInstallation(): boolean {
       stdio: 'pipe',
     });
 
-    // Check if it's linked (informational only)
-    if (result.includes(' -> ')) {
-      const match = result.match(/-> (.+?)\n/);
-      if (match && match[1]) {
-        logSuccess(`Groundswell linked from: ${match[1].trim()}`);
-      }
+    // Extract version from npm list output (link detection is handled by validateLinkStatus)
+    const versionMatch = result.match(/groundswell@([\d.]+)/);
+    if (versionMatch) {
+      logSuccess(`Groundswell installed: ${versionMatch[1]}`);
     } else {
-      // Extract version from npm list output
-      const versionMatch = result.match(/groundswell@([\d.]+)/);
-      if (versionMatch) {
-        logSuccess(`Groundswell installed: ${versionMatch[1]}`);
-      } else {
-        logSuccess('Groundswell installed');
-      }
+      logSuccess('Groundswell installed');
     }
 
     return true;
@@ -110,6 +114,69 @@ function validateInstallation(): boolean {
     logError('Groundswell is not installed');
     logError('Run: npm install');
     return false;
+  }
+}
+
+/**
+ * Reports whether node_modules/groundswell is a symlink (npm link dev setup) or a plain directory
+ * (published npm tarball). For tarball installs, greps dist/harnesses/pi-harness.js to confirm the
+ * deployed build carries the §9.2.6 fix (AuthStorage.create(), not AuthStorage.inMemory()).
+ *
+ * INFORMATIONAL: never hard-fails on a stale tarball — logs a warning and returns true. The hard
+ * stale-dist gate is validateAuthStoreBehavior() (PRD §9.5 / Issue 4).
+ */
+function validateLinkStatus(): boolean {
+  logSection('Validating groundswell link status (symlink vs tarball)');
+
+  const groundswellPath = join(process.cwd(), 'node_modules', 'groundswell');
+
+  try {
+    // CRITICAL: lstatSync (NOT statSync) so we see the link itself, not its target.
+    const stat = lstatSync(groundswellPath);
+
+    if (stat.isSymbolicLink()) {
+      // npm link dev setup — trust the source repo; behavior check is the hard gate.
+      const target = readlinkSync(groundswellPath); // raw target (may be relative, e.g. '../../groundswell')
+      logSuccess(`Groundswell linked from: ${target}`);
+      return true;
+    }
+
+    // Plain directory → published npm tarball. Verify the deployed dist carries the §9.2.6 fix.
+    const distPath = join(
+      groundswellPath,
+      'dist',
+      'harnesses',
+      'pi-harness.js'
+    );
+    if (!existsSync(distPath)) {
+      logWarning(
+        `Groundswell installed as a published tarball, but ${distPath} was not found — cannot verify dist freshness.`
+      );
+      return true; // informational
+    }
+
+    const src = readFileSync(distPath, 'utf-8');
+    const hasFix = src.includes('AuthStorage.create()');
+    const hasStale = src.includes('AuthStorage.inMemory()');
+
+    if (hasFix && !hasStale) {
+      logSuccess(
+        'Groundswell installed from registry; dist/harnesses/pi-harness.js contains the §9.2.6 fix (AuthStorage.create()).'
+      );
+      return true;
+    }
+
+    // Stale published tarball — WARNING only (the hard gate is validateAuthStoreBehavior).
+    logWarning(
+      'Groundswell installed from registry (tarball) but dist appears STALE — ' +
+        'pi-harness.js uses AuthStorage.inMemory() instead of AuthStorage.create(). ' +
+        'Run `npm install groundswell@latest` or `npm link groundswell`. ' +
+        '(Informational; the auth-store behavior check is the hard gate.)'
+    );
+    return true; // CRITICAL: NOT a hard failure.
+  } catch (error) {
+    logError(`Failed to determine groundswell link status: ${error}`);
+    return false; // real failure (e.g. node_modules/groundswell missing)
   }
 }
 
@@ -330,6 +397,7 @@ async function main(): Promise<void> {
 
   const results = {
     installation: false,
+    linkStatus: false,
     version: false,
     imports: false,
     decorators: false,
@@ -340,6 +408,7 @@ async function main(): Promise<void> {
   // Run all validations
   results.nodeVersion = validateNodeVersion();
   results.installation = validateInstallation();
+  results.linkStatus = validateLinkStatus();
   results.version = await validateVersionCompatibility();
   results.imports = await validateImports();
   results.decorators = await validateDecorators();

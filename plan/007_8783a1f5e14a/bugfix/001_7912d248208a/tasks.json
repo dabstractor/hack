@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "D1 Bugfix Remediation — Restore Auth.json Runtime Path & Test Suite",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Remediate the four issues found in the D1 (Auth & Logging Hardening) QA: (1) CRITICAL — deploy the undeployed Groundswell file-backed AuthStorage fix so the auth.json-only runtime path works; (2) MAJOR — update the stale createBaseConfig integration test for provider-aware auth; (3) MINOR — restore pre-existing vitest failures (stale model-name + enableReflection assertions); (4) MINOR — harden validate-groundswell.ts to detect a stale/unlinked dist. The logging workstream (T1) and preflight logic (T3) are verified correct and require no changes. Research findings are in plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Critical — Restore the auth.json-only Runtime Path (Issue 1 + Issue 4)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Deploy the file-backed AuthStorage.create() fix that exists uncommitted in ~/projects/groundswell, close the integration-test blind spot (all auth tests vi.mock('groundswell') so they never touch the real stale dist), and harden validate-groundswell.ts so a stale/unlinked dist fails CI. This is the core deliverable of the D1 bugfix: a user who runs `pi /login` (writing ~/.pi/agent/auth.json) and runs the pipeline with NO env vars must succeed end-to-end.",
           "tasks": [
             {
@@ -83,7 +83,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Harden validate-groundswell.ts to detect a stale/unlinked dist (Issue 4)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "The current validate-groundswell.ts only checks that exports are importable and the version is >= 0.0.3 — it prints '✓ All validations passed!' against the stale dist. Add an auth-store behavior assertion that instantiates the real PiHarness, seeds a temp auth.json, and asserts getApiKey('zai') resolves, so a Groundswell build lacking the §9.2.6 fix fails CI. Also add a symlink/freshness check for npm-link dev setups.",
               "subtasks": [
                 {
@@ -108,7 +108,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Add symlink/dist-freshness detection for npm-link dev setups",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S2"
