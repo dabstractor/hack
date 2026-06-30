@@ -217,7 +217,8 @@ npm run dev -- --prd ./PRD.md --no-cache
 | `--scope <scope>`    | `-s`  | string  | -          | Execute specific scope (e.g., `P3.M4`)                    |
 | `--mode <mode>`      | `-m`  | string  | `normal`   | Execution mode: `normal`, `delta`, `bug-hunt`, `validate` |
 | `--continue`         | `-c`  | boolean | false      | Resume from previous session                              |
-| `--dry-run`          | `-d`  | boolean | false      | Show plan without executing                               |
+| `--dry-run`          | `-d`  | boolean | false      | Show plan without executing (no credential required)      |
+| `--validate-prd`     | -     | boolean | false      | Validate the PRD and exit (no agent, no credential)       |
 | `--verbose`          | `-v`  | boolean | false      | Enable debug logging                                      |
 | `--machine-readable` | -     | boolean | false      | Enable machine-readable JSON output                       |
 | `--no-cache`         | -     | boolean | false      | Bypass PRP cache and regenerate all PRPs                  |
@@ -239,7 +240,7 @@ npm run dev -- --prd ./PRD.md --no-cache
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `glm-5.2`                        | Researcher/Coder model (default).                                              |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `glm-5-turbo`                    | Simple-operations model (fastest).                                             |
 
-_\*Required for the default path: **`ZAI_API_KEY`**, `pi /login` (`~/.pi/agent/auth.json`, auto-detected), **or** `PRP_API_KEY`. **\*\*Optional:** Anthropic credentials are consulted only when the resolved provider is `anthropic` (via an `anthropic/*` model override); they are **ignored** for the default `zai` provider. A startup preflight aborts with an actionable error if none is present (see [Troubleshooting](#troubleshooting))._
+_\*Required for the default path: **`ZAI_API_KEY`**, `pi /login` (`~/.pi/agent/auth.json`, auto-detected), **or** `PRP_API_KEY`. **\*\*Optional:** Anthropic credentials are consulted only when the resolved provider is `anthropic` (via an `anthropic/*` model override); they are **ignored** for the default `zai` provider. A startup preflight (PRD §9.2.7) aborts with an actionable error if none is present **for runs that invoke an agent** (see [Troubleshooting](#troubleshooting)). The pure-local modes `--validate-prd` and `--dry-run` make no API calls and run **without any credential**._
 
 For the full auth + preflight walkthrough, see [Installation](docs/INSTALLATION.md) and [Configuration](docs/CONFIGURATION.md).
 
@@ -394,6 +395,21 @@ pi /login
 export ZAI_API_KEY="your-zai-key-here"
 # For the anthropic provider:
 # export ANTHROPIC_API_KEY="your-anthropic-key-here"
+```
+
+**\`claude-code\` harness + default \`zai\` models" startup abort**
+
+`claude-code` is Anthropic-only, so pairing it with the default `zai` models is an invalid
+configuration. It fails at startup with a single actionable message and exit code 1 (not a raw
+stack trace). Fix it one of two ways:
+
+```bash
+# Option A: use the default, vendor-neutral harness (runs any provider)
+unset PRP_AGENT_HARNESS        # or: export PRP_AGENT_HARNESS=pi
+
+# Option B: keep claude-code and switch to Anthropic models
+export ANTHROPIC_DEFAULT_SONNET_MODEL="anthropic/claude-sonnet-4"
+export ANTHROPIC_API_KEY="your-anthropic-key-here"
 ```
 
 **"Model not found: glm-5.2" error**

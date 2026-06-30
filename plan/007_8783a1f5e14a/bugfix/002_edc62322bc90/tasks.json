@@ -138,7 +138,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Update README.md (Configuration + Troubleshooting) re: credential-free local modes & clean harness error",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2",
