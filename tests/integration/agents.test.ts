@@ -268,7 +268,7 @@ describe('createArchitectAgent', () => {
         name: 'ArchitectAgent',
         system: TASK_BREAKDOWN_PROMPT,
         maxTokens: 8192,
-        model: 'GLM-4.7',
+        model: 'zai/glm-5.2',
         enableCache: true,
         enableReflection: true,
       })
@@ -314,7 +314,7 @@ describe('createResearcherAgent', () => {
         name: 'ResearcherAgent',
         system: PRP_BLUEPRINT_PROMPT,
         maxTokens: 4096,
-        model: 'GLM-4.7',
+        model: 'zai/glm-5.2',
         enableCache: true,
         enableReflection: true,
       })
@@ -360,7 +360,7 @@ describe('createCoderAgent', () => {
         name: 'CoderAgent',
         system: PRP_BUILDER_PROMPT,
         maxTokens: 4096,
-        model: 'GLM-4.7',
+        model: 'zai/glm-5.2',
         enableCache: true,
         enableReflection: true,
       })
@@ -406,7 +406,7 @@ describe('createQAAgent', () => {
         name: 'QaAgent',
         system: BUG_HUNT_PROMPT,
         maxTokens: 4096,
-        model: 'GLM-4.7',
+        model: 'zai/glm-5.2',
         enableCache: true,
         enableReflection: true,
       })

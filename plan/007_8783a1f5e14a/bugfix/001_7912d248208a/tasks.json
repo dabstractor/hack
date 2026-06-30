@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "D1 Bugfix Remediation — Restore Auth.json Runtime Path & Test Suite",
-      "status": "Ready",
+      "status": "Planned",
       "description": "Remediate the four issues found in the D1 (Auth & Logging Hardening) QA: (1) CRITICAL — deploy the undeployed Groundswell file-backed AuthStorage fix so the auth.json-only runtime path works; (2) MAJOR — update the stale createBaseConfig integration test for provider-aware auth; (3) MINOR — restore pre-existing vitest failures (stale model-name + enableReflection assertions); (4) MINOR — harden validate-groundswell.ts to detect a stale/unlinked dist. The logging workstream (T1) and preflight logic (T3) are verified correct and require no changes. Research findings are in plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/.",
       "milestones": [
         {
@@ -161,7 +161,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Minor — Restore Pre-existing vitest Failures (Issue 3)",
-          "status": "Ready",
+          "status": "Planned",
           "description": "The full vitest suite is red (33 files / 223 tests failing). The PRD confirms the bulk is pre-existing and outside D1's workstreams. This milestone fixes the pre-existing assertions in the sampled test files (tests/integration/agents.test.ts and tests/integration/agents/architect-agent-integration.test.ts): stale model-name assertions (GLM-4.7 → zai/glm-5.2) and stale enableReflection/responseFormat expectations (which are intentional 'FILE-as-contract' design). The broader 33-file triage is out of scope for this bugfix but tracked here for visibility.",
           "tasks": [
             {
@@ -175,7 +175,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Update model-name assertions in tests/integration/agents.test.ts",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. Four tests in tests/integration/agents.test.ts assert model: 'GLM-4.7' at lines 240, 286, 332, 378 (createArchitectAgent, createResearcherAgent, createCoderAgent, createQAAgent describe blocks). The factory emits zai/glm-5.2 via getModel('sonnet') (src/config/constants.ts:31-40 MODEL_NAMES.sonnet = 'glm-5.2'; src/config/environment.ts:150-153 getModel = qualifyModel(env ?? MODEL_NAMES[tier])). The JSDoc on createBaseConfig (src/agents/agent-factory.ts:11) documents model: 'zai/glm-5.2'.\n2. INPUT: The four assertions at tests/integration/agents.test.ts:240, 286, 332, 378.\n3. LOGIC: Update each assertion from `model: 'GLM-4.7'` to `model: 'zai/glm-5.2'`. If the assertion uses toBe('GLM-4.7'), change to toBe('zai/glm-5.2'). If it uses toEqual with a config object containing model, update the model value. Verify with `npx vitest run tests/integration/agents.test.ts` that these four assertions now pass (the createBaseConfig test from P1.M2.T1.S1 and the enableReflection tests from P1.M3.T2.S1 may still need fixing — that is expected, those are separate subtasks).\n4. OUTPUT: The four model-name assertions in agents.test.ts pass with zai/glm-5.2.\n5. DOCS: [Mode A] none — test-only change.",
