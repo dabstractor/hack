@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix 002 — Startup Preflight Placement & Clean Harness Error Path",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Fix the two narrow startup-path defects identified in delta 007 (D1) adversarial validation. (1) MAJOR: the fail-fast auth preflight (PRD §9.2.7) blocks the pure-local CLI modes `--validate-prd` and `--dry-run` that make zero API calls. (2) MINOR: `PRP_AGENT_HARNESS=claude-code` + default `zai` models throws `HarnessProviderMismatchError` at MODULE-EVAL time (via `agent-factory.ts`'s top-level `configureHarness()`), surfacing as an uncaught raw stack trace instead of the clean one-liner the §9.2.7 preflight was added to provide. Both fixes target `src/index.ts` `main()` startup ordering and the module-eval side effect in `src/agents/agent-factory.ts`. The auth resolution, logging teardown, and cross-repo Groundswell contract are verified SOLID and are explicitly OUT of scope. See architecture/system_context.md for the root-cause analysis and final ordering.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Startup Path Corrections (preflight placement + clean harness error)",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Reorder `main()` so pure-local CLI modes run credential-free before the auth preflight/harness init, and convert the `agent-factory.ts` module-load `configureHarness()` into a lazy accessor surfaced cleanly on the `main()` startup path. Both changes touch the same region of `main()`, so they are sequenced (Issue 1 first, then Issue 2) to avoid conflicts.",
           "tasks": [
             {
@@ -131,7 +131,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Mode B (final) sweep of cross-cutting/overview docs that describe the §9.2.7 preflight startup ordering or the --validate-prd/--dry-run CLI modes and would read stale after Issues 1 & 2: these modes are now credential-free, and an invalid claude-code+zai config now fails with a clean one-liner (not a stack trace). Per-file JSDoc on the changed symbols was already updated WITH the implementing subtasks (Mode A in P1.M1.T1.S1 / P1.M1.T2.S1 / P1.M1.T2.S2); this task covers ONLY the whole-feature/overview docs that span the entire changeset.",
               "subtasks": [
                 {
@@ -159,7 +159,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Update docs/CLI_REFERENCE.md, docs/CONFIGURATION.md, docs/INSTALLATION.md re: credential-free local modes & clean harness error",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2",

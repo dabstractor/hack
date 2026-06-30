@@ -133,13 +133,15 @@ Shows what would be executed without actually running the pipeline. Useful for:
 - Checking scope selection
 - Previewing execution plan
 
+`--dry-run` makes no API calls and requires no credential — it parses the PRD and prints the plan.
+
 **PRD Validation Only:**
 
 ```bash
 npm run dev -- --prd ./PRD.md --validate-prd
 ```
 
-Validates the PRD syntax and structure without running the pipeline. Exits with code 0 if valid, 1 if invalid.
+Validates the PRD syntax and structure without running the pipeline. Exits with code 0 if valid, 1 if invalid. It makes no API calls and **requires no credential**, so you can lint your PRD before configuring API access.
 
 ---
 
@@ -181,18 +183,18 @@ Validates the PRD syntax and structure without running the pipeline. Exits with 
 | Option                | Type    | Default | Description                                                   |
 | --------------------- | ------- | ------- | ------------------------------------------------------------- |
 | `--continue`          | boolean | false   | Resume from previous session                                  |
-| `--dry-run`           | boolean | false   | Show plan without executing                                   |
+| `--dry-run`           | boolean | false   | Show plan without executing (no credential required)          |
 | `--verbose`           | boolean | false   | Enable debug logging                                          |
 | `--machine-readable`  | boolean | false   | Enable machine-readable JSON output                           |
 | `--no-cache`          | boolean | false   | Bypass cache and regenerate all PRPs                          |
 | `--continue-on-error` | boolean | false   | Treat all errors as non-fatal and continue pipeline execution |
-| `--validate-prd`      | boolean | false   | Validate PRD and exit without running pipeline                |
+| `--validate-prd`      | boolean | false   | Validate PRD and exit (no agent, no credential)               |
 
 **Flag Details:**
 
 - **`--continue`**: Loads the previous session state and continues execution. Useful after interruptions or when iterating on failed tasks.
 
-- **`--dry-run`**: Parses the PRD and validates the execution plan without running any agents. Displays what would be executed.
+- **`--dry-run`**: Parses the PRD and validates the execution plan without running any agents. Displays what would be executed. No credential required.
 
 - **`--verbose`**: Enables detailed debug logging. Use when troubleshooting issues or understanding pipeline behavior.
 
@@ -202,7 +204,7 @@ Validates the PRD syntax and structure without running the pipeline. Exits with 
 
 - **`--continue-on-error`**: Treats all errors as non-fatal. The pipeline continues execution even when individual tasks fail. Useful for gathering maximum feedback.
 
-- **`--validate-prd`**: Validates PRD structure and exits. Returns exit code 0 if valid, 1 if invalid. Equivalent to `--mode validate`.
+- **`--validate-prd`**: Validates PRD structure and exits. Returns exit code 0 if valid, 1 if invalid. No agent is invoked and no credential is required. Equivalent to `--mode validate`.
 
 ### Limit Options
 
@@ -240,7 +242,7 @@ The pipeline uses specific exit codes to indicate completion status:
   - Configuration errors
   - File system errors
 
-- **2 (VALIDATION_ERROR)**: PRD validation failed when using `--validate-prd` or `--mode validate`. The validation report will show specific issues.
+- **2 (VALIDATION_ERROR)**: Configuration validation failed (e.g. invalid environment variable values). Note: `--validate-prd` returns exit code **0 (valid) / 1 (invalid)**, not code 2.
 
 - **130 (INTERRUPTED)**: The pipeline was interrupted by the user (typically via Ctrl+C). Session state is saved for resumption.
 
@@ -256,7 +258,7 @@ if [ $EXIT_CODE -eq 0 ]; then
 elif [ $EXIT_CODE -eq 130 ]; then
   echo "Pipeline was interrupted"
 elif [ $EXIT_CODE -eq 2 ]; then
-  echo "PRD validation failed"
+  echo "Configuration validation failed"
 else
   echo "Pipeline failed with exit code $EXIT_CODE"
 fi

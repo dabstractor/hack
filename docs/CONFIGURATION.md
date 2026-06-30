@@ -41,7 +41,7 @@ Primary environment variable for the default `pi` + `zai` path:
 | `ANTHROPIC_BASE_URL` | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint (default for `zai` provider only).                      |
 | `PRP_AGENT_HARNESS`  | No       | `pi`                             | Agent runtime/SDK (`pi` or `claude-code`); orthogonal to the LLM provider |
 
-\*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`), or `PRP_API_KEY` must be set for the default path. Anthropic credentials (`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`) are **optional** and only used when the provider is `anthropic`.
+\*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`), or `PRP_API_KEY` must be set for the default path. Anthropic credentials (`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`) are **optional** and only used when the provider is `anthropic`. The pure-local modes `--validate-prd` and `--dry-run` make no API calls and run without any credential.
 
 For complete configuration, see [Environment Variables](#environment-variables) below.
 
@@ -124,7 +124,8 @@ The agent runtime (harness) drives prompting, tool execution, and streaming. It 
   used by default. Selecting it requires switching to `anthropic/*` models and
   disabling the z.ai endpoint safeguard (see
   [API Endpoint Security](#api-endpoint-security) and PRD §9.2.4). The pipeline
-  validates this at startup and fails fast with a configuration error.
+  validates this at startup (on agent-invoking runs) and fails fast with a configuration error.
+  The pure-local modes `--validate-prd` and `--dry-run` make no API calls and bypass this check.
 
 For the full harness system — supported harnesses, `configureHarnesses()`
 configuration, the capability reference, and feature-parity rules — see the
@@ -206,12 +207,12 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. All options can be p
 | Option                | Type    | Default | Description                                                   |
 | --------------------- | ------- | ------- | ------------------------------------------------------------- |
 | `--continue`          | boolean | `false` | Resume from previous session                                  |
-| `--dry-run`           | boolean | `false` | Show plan without executing                                   |
+| `--dry-run`           | boolean | `false` | Show plan without executing (no credential required)          |
 | `--verbose`           | boolean | `false` | Enable debug logging                                          |
 | `--machine-readable`  | boolean | `false` | Enable machine-readable JSON output                           |
 | `--no-cache`          | boolean | `false` | Bypass cache and regenerate all PRPs                          |
 | `--continue-on-error` | boolean | `false` | Treat all errors as non-fatal and continue pipeline execution |
-| `--validate-prd`      | boolean | `false` | Validate PRD and exit without running pipeline                |
+| `--validate-prd`      | boolean | `false` | Validate PRD and exit (no agent, no credential)               |
 
 ### Limit Options
 
@@ -531,7 +532,7 @@ export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
 ### "Using claude-code with a z.ai key"
 
 **What you see:**
-Startup fails fast with a harness/provider configuration error.
+Startup fails fast with a single actionable message and exit code 1 (no raw stack trace). The message names both fixes: switch the harness to `pi` (`PRP_AGENT_HARNESS=pi`) or switch the model provider to `anthropic/*` models (which also requires an Anthropic credential).
 
 **Why it happens:**
 `claude-code` runs Anthropic-only models and is incompatible with the z.ai

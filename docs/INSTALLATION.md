@@ -62,7 +62,16 @@ Get up and running in under 5 minutes:
    cd ~/projects/hacky-hack && npm link groundswell
    ```
 
-4. **Configure authentication**
+4. **(Optional) Validate your PRD — no credential needed**
+
+   You can lint your PRD before configuring any API access:
+
+   ```bash
+   npm run dev -- --prd ./PRD.md --validate-prd
+   # → Status: ✅ VALID (exit 0)   or   ❌ INVALID (exit 1)
+   ```
+
+5. **Configure authentication**
 
    The default provider (`zai`) can be authenticated via `pi /login` or an environment variable.
 
@@ -83,7 +92,7 @@ Get up and running in under 5 minutes:
    > **Note:** The `ANTHROPIC_BASE_URL` defaults to `https://api.z.ai/api/anthropic` for the `zai` provider.
    > You can override it: `export ANTHROPIC_BASE_URL=https://custom.endpoint.com`
 
-5. **Verify installation**
+6. **Verify installation**
 
    ```bash
    npm test
@@ -304,6 +313,10 @@ ANTHROPIC_DEFAULT_OPUS_MODEL=GLM-4.7
 The pipeline runs a fail-fast auth preflight after environment configuration. If no credential is
 found for the selected provider, the process aborts immediately with exit code 1 and an actionable
 error message — before any session directory is created or any agent is invoked (PRD §9.2.7).
+
+**Local-only modes are exempt.** `--validate-prd` and `--dry-run` make no API calls and bypass the
+auth preflight entirely, so they run with no credential configured (useful for validating a PRD
+before setting up API access).
 
 **Auth sources checked (first non-empty wins)**:
 
