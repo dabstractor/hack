@@ -27,7 +27,7 @@
 
 import { Command } from 'commander';
 import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { InspectCommand, type InspectorOptions } from './commands/inspect.js';
@@ -252,7 +252,11 @@ export function parseCLIArgs():
   program
     .name('prp-pipeline')
     .description('PRD to PRP Pipeline - Automated software development')
-    .version('1.0.0')
+    .version(
+      JSON.parse(
+        readFileSync(resolve(import.meta.dirname, '../../package.json'), 'utf8')
+      ).version
+    )
     // Required options
     .option('-p, --prd <path>', 'Path to PRD markdown file', './PRD.md')
     // Optional options

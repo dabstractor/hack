@@ -122,6 +122,37 @@ export type AgentHarness = 'pi' | 'claude-code';
 export type ModelProvider = 'zai' | 'anthropic' | (string & {}); // eslint-disable-line @typescript-eslint/ban-types
 
 /**
+ * Error thrown when `PRP_AGENT_HARNESS` is set to an unsupported value.
+ *
+ * @remarks
+ * Covers typos and unknown harness ids (e.g. `bogus-harness`). Rendered
+ * with a clean one-liner by the `main().catch()` handler, consistent with
+ * {@link HarnessProviderMismatchError}.
+ *
+ * @example
+ * ```ts
+ * import { UnsupportedHarnessError } from './config/types.js';
+ *
+ * throw new UnsupportedHarnessError('bogus-harness', ['pi', 'claude-code']);
+ * ```
+ */
+export class UnsupportedHarnessError extends Error {
+  /** The unsupported harness value supplied by the user. */
+  readonly harness: string;
+  /** The list of supported harness ids. */
+  readonly supported: readonly string[];
+
+  constructor(harness: string, supported: readonly string[]) {
+    super(
+      `Unsupported PRP_AGENT_HARNESS value: "${harness}". Supported harnesses: ${supported.join(', ')}.`
+    );
+    this.name = 'UnsupportedHarnessError';
+    this.harness = harness;
+    this.supported = supported;
+  }
+}
+
+/**
  * Error thrown when a harness/provider combination is incompatible
  * (PRD §9.2.4 / §9.4.3).
  *

@@ -28,7 +28,11 @@ import {
 } from './constants.js';
 import { getResolvedProvider, getModel } from './environment.js';
 import type { AgentHarness } from './types.js';
-import { HarnessProviderMismatchError, AuthPreflightError } from './types.js';
+import {
+  HarnessProviderMismatchError,
+  UnsupportedHarnessError,
+  AuthPreflightError,
+} from './types.js';
 
 /**
  * Get the provider-native env-var value for API key lookup (PRD §9.2.6).
@@ -106,7 +110,7 @@ export function resolveApiKeyForProvider(
  * `ANTHROPIC_API_KEY`) so the `harnessDefaults` apiKey binding is populated.
  *
  * @returns The resolved, validated harness id (for downstream consumption).
- * @throws {Error} If `PRP_AGENT_HARNESS` is not a supported harness id.
+ * @throws {UnsupportedHarnessError} If `PRP_AGENT_HARNESS` is not a supported harness id.
  * @throws {HarnessProviderMismatchError} If `claude-code` is selected with the
  *   default `zai` provider.
  *
@@ -123,10 +127,7 @@ export function configureHarness(): AgentHarness {
 
   // Step 2: Validate against supported harnesses
   if (!(SUPPORTED_HARNESSES as readonly string[]).includes(raw)) {
-    throw new Error(
-      `Unsupported PRP_AGENT_HARNESS value: "${raw}". ` +
-        `Supported harnesses: ${SUPPORTED_HARNESSES.join(', ')}.`
-    );
+    throw new UnsupportedHarnessError(raw, SUPPORTED_HARNESSES);
   }
 
   // Step 3: Type-safe cast (validated above)

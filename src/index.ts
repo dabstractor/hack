@@ -44,6 +44,7 @@ import {
 import {
   AuthPreflightError,
   HarnessProviderMismatchError,
+  UnsupportedHarnessError,
 } from './config/types.js';
 import { parseCLIArgs, type ValidatedCLIArgs } from './cli/index.js';
 import { PRPPipeline } from './workflows/prp-pipeline.js';
@@ -338,6 +339,10 @@ void main().catch((error: unknown) => {
   }
   if (error instanceof HarnessProviderMismatchError) {
     console.error(`\n❌ ${error.message}`); // actionable: harness+provider+§9.2.4+both remediations
+    process.exit(1);
+  }
+  if (error instanceof UnsupportedHarnessError) {
+    console.error(`\n❌ ${error.message}`); // actionable: unsupported harness id + supported list
     process.exit(1);
   }
   console.error('\n❌ Fatal error in main():', error);
