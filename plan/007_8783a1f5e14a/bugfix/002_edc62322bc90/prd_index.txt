@@ -1,0 +1,12 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+  h3.0 Quality assessment: HIGH
+  h3.1 Verification performed (all PASSED)
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+  h3.2 Issue 1: Auth preflight blocks pure-local CLI modes (--validate-prd, --dry-run) that make zero API calls
+ h2.3 Minor Issues (Nice to Fix)
+  h3.3 Issue 2: claude-code harness + default zai models throws an uncaught raw stack trace at module load (before the preflight / clean error path)
+ h2.4 Testing Summary
+---
+code:4 para:22 list:5 table:1 quote:1
