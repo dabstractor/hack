@@ -64,7 +64,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Issue 2 (MINOR): Clean error for harness/provider mismatch (no module-load crash)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "`configureHarness()` is invoked at MODULE-EVAL time via `const RESOLVED_HARNESS = configureHarness()` at the top of `src/agents/agent-factory.ts`, which is in the static import graph of `dist/index.js` (via DeltaAnalysisWorkflow/BugHuntWorkflow → PRPPipeline → index.ts). For `PRP_AGENT_HARNESS=claude-code` + default `zai` provider it throws `HarnessProviderMismatchError` BEFORE `main()` runs, so `main().catch()` never catches it and Node prints a raw stack trace + 'Node.js v...' banner. The combination IS genuinely invalid (claude-code is Anthropic-only — PRD §9.4.3/§9.2.4); only the error FORM is the defect. Fix (bugfix PRD §h3.3 Preferred option): (a) make `RESOLVED_HARNESS` lazy in `agent-factory.ts` (mirroring the REQ-L2 logger accessor already in that file) so module load no longer throws; (b) invoke `configureHarness()` explicitly on the `main()` startup path AFTER the local-only early-returns (in the gap created by Issue 1) and BEFORE `runAuthPreflight()`, so its error renders via the clean handler.",
               "subtasks": [
                 {
@@ -109,7 +109,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "Subprocess acceptance test: claude-code + zai → clean exit 1, NO raw stack trace",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1",

@@ -366,3 +366,111 @@ describeOrSkip(
     });
   }
 );
+
+// =============================================================================
+// P1.M1.T2.S3 — Acceptance: harness/provider mismatch (claude-code+zai)
+// (PRD §h3.3 / §9.4.3 / §9.2.4 — clean exit 1, single friendly message, NO raw stack)
+//
+// Proves that the claude-code+zai mismatch — which previously crashed at module
+// load with a raw Node stack trace + Node.js v banner — now fails cleanly:
+// exit 1, single actionable ❌ message on stderr, no raw stack/banner, no
+// session dir. Uses spawnSync(dist/index.js) because the vitest groundswell
+// alias + hoisted vi.mock mask module-load ordering (test-conventions §1/§4).
+// =============================================================================
+
+describeOrSkip(
+  'acceptance — harness/provider mismatch (claude-code+zai) renders cleanly: exit 1, single message, NO raw stack (PRD §h3.3 / §9.4.3 / §9.2.4)',
+  () => {
+    it('exits 1, prints the single friendly HarnessProviderMismatchError message on stderr, NO raw stack/banner, NO session dir', () => {
+      // SETUP
+      const tmpAgentDir = mkdtempSync(
+        join(tmpdir(), 'harness-mismatch-spawn-')
+      );
+      const prdAbs = resolve(process.cwd(), 'PRD.md'); // REAL repo PRD — avoids parseCLIArgs trap
+      const env = {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        USER: process.env.USER,
+        SHELL: process.env.SHELL,
+        PI_CODING_AGENT_DIR: tmpAgentDir, // empty temp dir — NO auth.json, NO creds
+        PRP_AGENT_HARNESS: 'claude-code', // mismatch trigger; NO model override → provider stays 'zai'
+      };
+      const planDir = resolve(process.cwd(), 'plan');
+      const sessRe = /^\d{3}_[0-9a-f]{12}$/;
+      const before = existsSync(planDir)
+        ? new Set(readdirSync(planDir).filter(s => sessRe.test(s)))
+        : new Set<string>();
+
+      // EXECUTE — NOTE: NO --dry-run (dry-run returns at main() L142, before configureHarness() at L211)
+      const res = spawnSync(process.execPath, [CLI, '--prd', prdAbs], {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env,
+      });
+
+      // VERIFY — exit + friendly message present
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('incompatible with provider');
+      expect(res.stderr).toContain("'claude-code'");
+      expect(res.stderr).toContain("'zai'");
+      expect(res.stderr).toContain('§9.2.4');
+      expect(res.stderr).toContain('PRP_AGENT_HARNESS=pi'); // switch-harness remediation
+      expect(res.stderr).toContain('anthropic'); // switch-provider remediation
+
+      // VERIFY — raw module-load crash signatures ABSENT (the bug)
+      expect(res.stderr).not.toContain('Node.js v'); // version banner
+      expect(res.stderr).not.toContain('at ModuleJob.run'); // stack frame
+      expect(res.stderr).not.toContain('at file://'); // stack frame (file:// URL frames)
+      expect(res.stderr).not.toContain('HarnessProviderMismatchError:'); // raw ErrorClass header
+
+      // VERIFY — no session dir created (mismatch throws BEFORE PRPPipeline/session work)
+      const after = existsSync(planDir)
+        ? new Set(readdirSync(planDir).filter(s => sessRe.test(s)))
+        : new Set<string>();
+      expect([...after].sort()).toEqual([...before].sort());
+
+      rmSync(tmpAgentDir, { recursive: true, force: true });
+    });
+
+    // Regression control: proves S1 module-load crash is gone.
+    // Before S1, claude-code+zai crashed at IMPORT time for EVERY flag (incl. --dry-run/--help).
+    // This control locks that the lazy accessor removed the import-time side effect.
+    it('claude-code config does NOT crash local-only --dry-run (module-load side effect removed): exit 0, NO raw stack', () => {
+      // SETUP
+      const tmpAgentDir = mkdtempSync(
+        join(tmpdir(), 'harness-mismatch-spawn-')
+      );
+      const prdAbs = resolve(process.cwd(), 'PRD.md');
+      const env = {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        USER: process.env.USER,
+        SHELL: process.env.SHELL,
+        PI_CODING_AGENT_DIR: tmpAgentDir,
+        PRP_AGENT_HARNESS: 'claude-code',
+      };
+
+      // EXECUTE
+      const res = spawnSync(
+        process.execPath,
+        [CLI, '--prd', prdAbs, '--dry-run'],
+        {
+          encoding: 'utf8',
+          timeout: 20_000,
+          env,
+        }
+      );
+
+      // VERIFY — dry-run succeeds (returns before configureHarness())
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain('DRY RUN');
+      // No module-load crash
+      expect(res.stderr).not.toContain('Node.js v');
+      expect(res.stderr).not.toContain('HarnessProviderMismatchError:');
+      // Mismatch NOT triggered on dry-run path (returns before configureHarness())
+      expect(res.stderr).not.toContain('incompatible with provider');
+
+      rmSync(tmpAgentDir, { recursive: true, force: true });
+    });
+  }
+);
