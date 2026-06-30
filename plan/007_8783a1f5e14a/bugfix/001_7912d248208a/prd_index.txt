@@ -1,0 +1,12 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+  h3.0 Issue 1: Stale node_modules/groundswell defeats the auth.json-only auth path (T2.S2 fix not deployed)
+ h2.2 Major Issues (Should Fix)
+  h3.1 Issue 2: createBaseConfig integration test not updated for provider-aware auth (T2.S1 regression, breaks npm run validate)
+ h2.3 Minor Issues (Nice to Fix)
+  h3.2 Issue 3: Full vitest suite is red (33 files / 223 tests failing) — mix of pre-existing and the D1 regression above
+  h3.3 Issue 4: validate:groundswell does not detect a stale/unlinked dist
+ h2.4 Testing Summary
+---
+code:3 para:26 list:6

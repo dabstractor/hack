@@ -1,0 +1,222 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "D1 Bugfix Remediation — Restore Auth.json Runtime Path & Test Suite",
+      "status": "Ready",
+      "description": "Remediate the four issues found in the D1 (Auth & Logging Hardening) QA: (1) CRITICAL — deploy the undeployed Groundswell file-backed AuthStorage fix so the auth.json-only runtime path works; (2) MAJOR — update the stale createBaseConfig integration test for provider-aware auth; (3) MINOR — restore pre-existing vitest failures (stale model-name + enableReflection assertions); (4) MINOR — harden validate-groundswell.ts to detect a stale/unlinked dist. The logging workstream (T1) and preflight logic (T3) are verified correct and require no changes. Research findings are in plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Critical — Restore the auth.json-only Runtime Path (Issue 1 + Issue 4)",
+          "status": "Ready",
+          "description": "Deploy the file-backed AuthStorage.create() fix that exists uncommitted in ~/projects/groundswell, close the integration-test blind spot (all auth tests vi.mock('groundswell') so they never touch the real stale dist), and harden validate-groundswell.ts so a stale/unlinked dist fails CI. This is the core deliverable of the D1 bugfix: a user who runs `pi /login` (writing ~/.pi/agent/auth.json) and runs the pipeline with NO env vars must succeed end-to-end.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Write the non-mocked integration test that exposes the stale-dist bug (RED)",
+              "status": "Planned",
+              "description": "Create a new integration test at tests/integration/config/pi-harness-auth.test.ts that exercises the REAL (non-mocked) node_modules/groundswell PiHarness. It seeds a temp PI_CODING_AGENT_DIR/auth.json, calls ensureHarnessInitialized(), and asserts harness.authStorage.getApiKey('zai') resolves the seeded key. Against the current stale dist this test FAILS (proving the bug); after the fix is deployed (P1.M1.T2) it goes GREEN.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Create tests/integration/config/pi-harness-auth.test.ts — non-mocked PiHarness auth.json resolution",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.1", "h3.0", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/auth_resolution_blindspot.md. Every existing auth test vi.mock('groundswell') (auth-preflight.test.ts:32, auth-resolution.test.ts:33, harness-config.test.ts:25, harness-provider-compat.test.ts:22), so none exercise the real node_modules/groundswell/dist/harnesses/pi-harness.js which still uses AuthStorage.inMemory() at line 95. The preflight (src/config/harness.ts:219-281) imports AuthStorage from '@earendil-works/pi-coding-agent' and calls AuthStorage.create() directly (reads auth.json), but the harness loads AuthStorage.inMemory() (never reads auth.json) — they disagree.\n2. INPUT: Real imports — `import { ensureHarnessInitialized } from '../../../src/config/harness.js'` and `import { HarnessRegistry } from 'groundswell'`. The harness instance is obtained via `HarnessRegistry.getInstance().get('pi')` after ensureHarnessInitialized() runs. The `authStorage` field on PiHarness is public (declared at pi-harness.js:52) but nullable (null until initialize()).\n3. LOGIC: Create tests/integration/config/pi-harness-auth.test.ts. CRITICAL: DO NOT vi.mock('groundswell') and DO NOT vi.mock('@earendil-works/pi-coding-agent') — the real PiHarness MUST run. Mock ONLY '@anthropic-ai/sdk' (parity with tests/integration/groundswell/agent-prompt.test.ts:38-44) to prevent accidental network calls. Test: (a) clear all auth env vars (ZAI_API_KEY, PRP_API_KEY, ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_OAUTH_TOKEN, PRP_AGENT_HARNESS); (b) create a temp dir via mkdtempSync and set process.env.PI_CODING_AGENT_DIR to it; (c) write auth.json with `{ zai: { type: 'api_key', key: 'SECRET-FROM-AUTH-JSON' } }`; (d) call `await ensureHarnessInitialized()`; (e) fetch `const harness = HarnessRegistry.getInstance().get('pi')`; (f) assert `await harness.authStorage!.getApiKey('zai')` equals 'SECRET-FROM-AUTH-JSON'. ISOLATION GOTCHAS: HarnessRegistry is a process-wide singleton that leaks across tests — call harness.terminate() in afterEach AND delete process.env.PI_CODING_AGENT_DIR; AuthStorage.getApiKey() is async (returns Promise<string|undefined>) so MUST await; consider running this test in a dedicated worker (the has('pi') guard in ensureHarnessInitialized means a prior unit test in the same worker that registered a mock pollutes this test — a separate file with --pool=forks or careful afterEach cleanup mitigates this). ALSO add a second test case: ZAI_API_KEY-only (no auth.json) → getApiKey('zai') resolves the env value (this path already works even with stale dist, proving the bug is specific to auth.json).\n4. OUTPUT: A vitest test file that FAILS against the current stale dist (getApiKey returns undefined) and PASSES after P1.M1.T2 deploys the fix. This is the TDD RED step.\n5. DOCS: [Mode A] none — no user-facing/config/API surface change (test-only). This rides WITH the work."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Commit & deploy the Groundswell file-backed AuthStorage fix (GREEN)",
+              "status": "Planned",
+              "description": "The file-backed AuthStorage.create() fix already exists in the Groundswell source repo (~/projects/groundswell) working tree but is uncommitted and never propagated to hacky-hack's node_modules/groundswell (npm registry tarball, not a symlink). Commit the fix, rebuild the dist, and link/publish it so hacky-hack's node_modules/groundswell uses AuthStorage.create(). The P1.M1.T1 integration test must go from RED to GREEN.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Commit the Groundswell working-tree fix with a conventional commit",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.1", "h3.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/deployment_strategy.md. The fix is already written in ~/projects/groundswell working tree (uncommitted). `cd ~/projects/groundswell && git status --short` shows 5 modified files: src/harnesses/pi-harness.ts (AuthStorage.inMemory() → options?.authStorage ?? AuthStorage.create() at lines 148-153), src/types/harnesses.ts (adds authStorage?/modelRegistry? to HarnessOptions), and 3 test files (src/__tests__/unit/harnesses-types.test.ts, pi-harness-initialize.test.ts, pi-harness-resolvemodel.test.ts). The core diff: `this.authStorage = options?.authStorage ?? AuthStorage.create()` and `this.modelRegistry = options?.modelRegistry ?? ModelRegistry.create(this.authStorage)`. The gitignored dist/ is already rebuilt with the fix (md5 d3de7234…). The repo uses semantic-release (a fix: conventional commit → patch → version 1.0.1).\n2. INPUT: The 5 uncommitted modified files in ~/projects/groundswell working tree.\n3. LOGIC: Run `cd ~/projects/groundswell && git add src/harnesses/pi-harness.ts src/types/harnesses.ts src/__tests__/unit/harnesses-types.test.ts src/__tests__/unit/providers/pi-harness-initialize.test.ts src/__tests__/unit/providers/pi-harness-resolvemodel.test.ts`. Then commit with conventional-commit message: `fix(harnesses): use file-backed AuthStorage.create() over inMemory() to honor ~/.pi/agent/auth.json (PRD §9.2.6)`. Then run `npm run build` in ~/projects/groundswell to rebuild the gitignored dist/ (idempotent — already done, but ensures freshness). Verify `grep -n 'AuthStorage.\\(create\\|inMemory\\)()' ~/projects/groundswell/dist/harnesses/pi-harness.js` shows `AuthStorage.create()`.\n4. OUTPUT: A committed Groundswell fix (conventional commit on main) with a rebuilt dist/ containing AuthStorage.create(). No changes to hacky-hack files yet — that is P1.M1.T2.S2.\n5. DOCS: [Mode A] none — this is a cross-repo git operation, no hacky-hack docs change."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "Link the fixed Groundswell dist to hacky-hack and verify auth.json resolution",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.0", "h2.1", "h3.0", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/deployment_strategy.md. hacky-hack depends on groundswell via the npm registry tarball (package.json: groundswell ^1.0.0; package-lock.json: resolved https://registry.npmjs.org/groundswell/-/groundswell-1.0.0.tgz). node_modules/groundswell is a PLAIN DIRECTORY (not a symlink). There is no .npmrc, no NODE_PATH in .envrc. Two deployment paths exist: (A) npm link — immediate local verification; (B) publish via semantic-release + npm install — the clean reproducible production path. For this bugfix, use npm link for immediate verification and DOCUMENT the publish path.\n2. INPUT: The committed Groundswell fix from P1.M1.T2.S1 (with rebuilt dist/ at ~/projects/groundswell/dist/) and the RED integration test from P1.M1.T1.S1.\n3. LOGIC: (A) LOCAL VERIFICATION via npm link: run `cd ~/projects/groundswell && npm link` then `cd ~/projects/hacky-hack && npm link groundswell`. This replaces node_modules/groundswell with a symlink to ~/projects/groundswell. Verify: `readlink -f node_modules/groundswell` → /home/dustin/projects/groundswell; `grep -n 'AuthStorage.\\(create\\|inMemory\\)()' node_modules/groundswell/dist/harnesses/pi-harness.js` → must show `AuthStorage.create()` (NOT inMemory()). Then run `npx vitest run tests/integration/config/pi-harness-auth.test.ts` → must PASS (the RED test from P1.M1.T1.S1 goes GREEN). Also run the PRD repro: seed a temp auth.json, call ensureHarnessInitialized(), assert getApiKey('zai') returns the seeded key. (B) PRODUCTION PATH (document, do NOT execute unless npm publish access is available): push ~/projects/groundswell to origin/main → semantic-release publishes 1.0.1 → in hacky-hack run `npm install groundswell@latest` → commit the refreshed package-lock.json. NOTE: if npm link is used, document that the symlink is machine-local and must be reversed (npm unlink groundswell && npm install) once the published version is consumed, to avoid a hybrid tree state.\n4. OUTPUT: hacky-hack's node_modules/groundswell uses AuthStorage.create() (verified by grep + the P1.M1.T1.S1 integration test passing). The auth.json-only runtime path works end-to-end.\n5. DOCS: [Mode A] none — deployment/link operation; the README promise (auth.json 'auto-detected by the harness') becomes TRUE as a result, verified in P1.M4.T1. Do not create a separate docs subtask here."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "Harden validate-groundswell.ts to detect a stale/unlinked dist (Issue 4)",
+              "status": "Planned",
+              "description": "The current validate-groundswell.ts only checks that exports are importable and the version is >= 0.0.3 — it prints '✓ All validations passed!' against the stale dist. Add an auth-store behavior assertion that instantiates the real PiHarness, seeds a temp auth.json, and asserts getApiKey('zai') resolves, so a Groundswell build lacking the §9.2.6 fix fails CI. Also add a symlink/freshness check for npm-link dev setups.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "Add an auth-store behavior assertion to validate-groundswell.ts",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S2"],
+                  "prd_selectors": ["h2.0", "h2.1", "h3.0", "h2.3", "h3.3"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/auth_resolution_blindspot.md and the current src/scripts/validate-groundswell.ts. The validator (run via `npx tsx src/scripts/validate-groundswell.ts`) has these checks: validateNodeVersion(), validateInstallation() (npm list), validateVersionCompatibility() (>= 0.0.3), validateImports() (Workflow/Agent/Prompt/createAgent/etc.), validateDecorators() (@Step/@Task/@ObservedState). It does NOT verify PiHarness uses a file-backed auth store. The script is a standalone async main() that calls process.exit(0|1). @earendil-works/pi-coding-agent is available as a devDep (^0.79.8). PiHarness is exported from groundswell. AuthStorage.create() reads getAgentDir()/auth.json (default ~/.pi/agent/auth.json, overridable via PI_CODING_AGENT_DIR).\n2. INPUT: The current src/scripts/validate-groundswell.ts main() function and its helper pattern (logSection/logSuccess/logError, the results object, the allPassed check).\n3. LOGIC: Add a new async function `validateAuthStoreBehavior(): Promise<boolean>` to src/scripts/validate-groundswell.ts. It must: (a) import { PiHarness } from 'groundswell' and { AuthStorage } from '@earendil-works/pi-coding-agent' (these are real imports, NOT mocked — the script runs via tsx, not vitest); (b) create a temp dir via mkdtempSync(join(tmpdir(), 'gs-auth-check-')); (c) save and set process.env.PI_CODING_AGENT_DIR = tmpDir; (d) write auth.json with `{ zai: { type: 'api_key', key: 'gs-validation-test-key' } }`; (e) instantiate `const harness = new PiHarness()`; (f) call `await harness.initialize()` (no options → uses AuthStorage.create() default → reads the temp auth.json); (g) assert `const key = await harness.authStorage!.getApiKey('zai')` equals 'gs-validation-test-key'; (h) restore process.env.PI_CODING_AGENT_DIR and rmSync the temp dir in a finally block; (i) call `harness.terminate()` to clean up the singleton. Return true on success, log error and return false on failure. Add `authStoreBehavior: false` to the results object and wire it into main(). The assertion FAILS if node_modules/groundswell still uses AuthStorage.inMemory() (stale dist). MIRROR the existing logSection/logSuccess/logError style.\n4. OUTPUT: `npm run validate:groundswell` now FAILS against a stale dist (AuthStorage.inMemory) and PASSES against the fixed dist (AuthStorage.create). This closes the verification gap that let Issue 1 ship.\n5. DOCS: [Mode A] Update the JSDoc/header comment of src/scripts/validate-groundswell.ts to document the new auth-store behavior check, so developers know what it validates. No separate docs subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S2",
+                  "title": "Add symlink/dist-freshness detection for npm-link dev setups",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S2"],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.3"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/deployment_strategy.md. The PRD Issue 1 suggested fix #1 says to 'update validate:groundswell to assert the link is a real symlink' when using npm link. The current validateInstallation() in src/scripts/validate-groundswell.ts only runs `npm list groundswell` and parses the version — it notes '-> ' links informationally but does not assert. node_modules/groundswell being a plain directory (npm tarball) vs a symlink (npm link) is a key signal for dev setups.\n2. INPUT: The current validateInstallation() function in src/scripts/validate-groundswell.ts (which calls execSync('npm list groundswell')).\n3. LOGIC: Enhance validateInstallation() (or add a new validateLinkStatus() helper) that uses fs.lstatSync(join(process.cwd(), 'node_modules', 'groundswell')).isSymbolicLink() to detect whether the install is a symlink. If it IS a symlink, resolve the target via fs.readlinkSync and log it as an informational success ('Groundswell linked from: <target>'). If it is NOT a symlink (published tarball), verify the deployed dist contains the fix by checking the pi-harness.js content: read node_modules/groundswell/dist/harnesses/pi-harness.js and assert it contains 'AuthStorage.create()' (NOT 'AuthStorage.inMemory()'). Log the result. This is informational (a warning, not a hard failure) — the hard failure is the behavior assertion in P1.M1.T3.S1. Wire into the results object as `linkStatus` or fold into `installation`.\n4. OUTPUT: The validator reports whether groundswell is linked (symlink) or installed (tarball), and for tarball installs verifies the dist contains the fix. Combined with P1.M1.T3.S1 this gives two layers of stale-dist detection.\n5. DOCS: [Mode A] none — internal validator enhancement, no user-facing/config surface change beyond the script output already covered by the JSDoc update in P1.M1.T3.S1."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Major — Fix the createBaseConfig Test Regression (Issue 2)",
+          "status": "Ready",
+          "description": "The T2.S1 commit rewired createBaseConfig() to source the key via resolveApiKeyForProvider(getResolvedProvider()) instead of raw process.env.ANTHROPIC_API_KEY. The unit tests (environment.test.ts, harness-config.test.ts) were updated, but the integration test tests/integration/agents.test.ts was missed and still asserts the old Anthropic-shell contract. This is the ONLY D1-attributable test failure. Test-only churn; runtime behavior is correct.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Rewrite the createBaseConfig integration test for provider-aware auth",
+              "status": "Planned",
+              "description": "Update tests/integration/agents.test.ts > createBaseConfig > 'should map ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY' to assert the NEW provider-aware resolver contract instead of the removed direct-ANTHROPIC_API_KEY contract.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Rewrite the createBaseConfig test assertion for the zai provider-aware resolver",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.1", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. The failing test is at tests/integration/agents.test.ts:155-168 (assertion at line 165: `expect(config.env.ANTHROPIC_API_KEY).toBe('test-token-123')`). It stubs only ANTHROPIC_API_KEY='test-token-123', but createBaseConfig() (src/agents/agent-factory.ts:174-176) now uses `resolveApiKeyForProvider(getResolvedProvider()) ?? ''`. For the default 'zai' provider, resolveApiKeyForProvider('zai') checks PRP_API_KEY → ZAI_API_KEY → auth.json (deferred) — NOT ANTHROPIC_API_KEY — so config.env.ANTHROPIC_API_KEY is '' (the terminal ?? ''). The resolver itself (src/config/harness.ts:67-99) is unit-tested and correct (tests/unit/config/auth-resolver.test.ts, 19 tests pass). The existing passing unit tests in tests/unit/config/environment.test.ts already mirror the correct cases — use them as the reference.\n2. INPUT: The current test at tests/integration/agents.test.ts:154-168 and the createBaseConfig implementation at src/agents/agent-factory.ts:163-190.\n3. LOGIC: Rewrite the test 'should map ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY' (and its describe block) to assert the NEW provider-aware contract: (a) DEFAULT zai path — stub ZAI_API_KEY='zai-test-key', call createBaseConfig('architect'), assert config.env.ANTHROPIC_API_KEY === 'zai-test-key' (the resolver returns it and it's forwarded as the SDK key); (b) anthropic provider override — set ANTHROPIC_DEFAULT_SONNET_MODEL='anthropic/claude-sonnet-4', stub ANTHROPIC_API_KEY='anthropic-test-key' (or ANTHROPIC_AUTH_TOKEN), call createBaseConfig('architect'), assert config.env.ANTHROPIC_API_KEY === 'anthropic-test-key' (now the resolver DOES honor ANTHROPIC_API_KEY for the anthropic provider); (c) no credential configured — assert config.env.ANTHROPIC_API_KEY === '' (the terminal ?? '' honest default). Mirror the cases in tests/unit/config/environment.test.ts and tests/unit/config/auth-resolver.test.ts. Keep the afterEach(() => vi.unstubAllEnvs()) cleanup. Ensure the model assertion (createBaseConfig returns zai/glm-5.2) is NOT broken by the env changes — note these model assertions are addressed separately in P1.M3.T1.S1.\n4. OUTPUT: `npx vitest run tests/integration/agents.test.ts -t createBaseConfig` passes (the D1 regression is fixed). Runtime behavior is unchanged — this is test-only churn.\n5. DOCS: [Mode A] none — test-only change, no user-facing/config/API surface change."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Minor — Restore Pre-existing vitest Failures (Issue 3)",
+          "status": "Ready",
+          "description": "The full vitest suite is red (33 files / 223 tests failing). The PRD confirms the bulk is pre-existing and outside D1's workstreams. This milestone fixes the pre-existing assertions in the sampled test files (tests/integration/agents.test.ts and tests/integration/agents/architect-agent-integration.test.ts): stale model-name assertions (GLM-4.7 → zai/glm-5.2) and stale enableReflection/responseFormat expectations (which are intentional 'FILE-as-contract' design). The broader 33-file triage is out of scope for this bugfix but tracked here for visibility.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "Fix stale model-name assertions (GLM-4.7 → zai/glm-5.2)",
+              "status": "Planned",
+              "description": "The shipped default model is zai/glm-5.2 (src/config/constants.ts: MODEL_NAMES.sonnet = 'glm-5.2', qualified by qualifyModel() to 'zai/glm-5.2'). Several integration tests still assert the old model name 'GLM-4.7'.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "Update model-name assertions in tests/integration/agents.test.ts",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.2"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. Four tests in tests/integration/agents.test.ts assert model: 'GLM-4.7' at lines 240, 286, 332, 378 (createArchitectAgent, createResearcherAgent, createCoderAgent, createQAAgent describe blocks). The factory emits zai/glm-5.2 via getModel('sonnet') (src/config/constants.ts:31-40 MODEL_NAMES.sonnet = 'glm-5.2'; src/config/environment.ts:150-153 getModel = qualifyModel(env ?? MODEL_NAMES[tier])). The JSDoc on createBaseConfig (src/agents/agent-factory.ts:11) documents model: 'zai/glm-5.2'.\n2. INPUT: The four assertions at tests/integration/agents.test.ts:240, 286, 332, 378.\n3. LOGIC: Update each assertion from `model: 'GLM-4.7'` to `model: 'zai/glm-5.2'`. If the assertion uses toBe('GLM-4.7'), change to toBe('zai/glm-5.2'). If it uses toEqual with a config object containing model, update the model value. Verify with `npx vitest run tests/integration/agents.test.ts` that these four assertions now pass (the createBaseConfig test from P1.M2.T1.S1 and the enableReflection tests from P1.M3.T2.S1 may still need fixing — that is expected, those are separate subtasks).\n4. OUTPUT: The four model-name assertions in agents.test.ts pass with zai/glm-5.2.\n5. DOCS: [Mode A] none — test-only change."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S2",
+                  "title": "Update model-name assertions in tests/integration/agents/architect-agent-integration.test.ts",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.2"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. tests/integration/agents/architect-agent-integration.test.ts asserts model: 'GLM-4.7' at lines ~168 and ~190 ('should create architect agent with GLM-4.7 model'). Same root cause as P1.M3.T1.S1 — the shipped default is zai/glm-5.2.\n2. INPUT: The model assertions at tests/integration/agents/architect-agent-integration.test.ts:168, 190.\n3. LOGIC: Update each assertion from 'GLM-4.7' to 'zai/glm-5.2'. The test name 'should create architect agent with GLM-4.7 model' should also be updated to reflect zai/glm-5.2. Verify with `npx vitest run tests/integration/agents/architect-agent-integration.test.ts -t 'should create architect agent'`.\n4. OUTPUT: The model-name assertions in architect-agent-integration.test.ts pass with zai/glm-5.2.\n5. DOCS: [Mode A] none — test-only change."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Fix stale enableReflection/responseFormat assertions",
+              "status": "Planned",
+              "description": "Several tests assert enableReflection: true and responseFormat: BacklogSchema, but the prompts deliberately omit enableReflection and use responseFormat: z.unknown() by design (FILE-as-contract). The tests are stale, not the code.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "Update enableReflection/responseFormat assertions to match current prompt contracts",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.2"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. Stale assertions exist in two files: tests/integration/agents.test.ts (lines 422, 427, 488, 493 — createArchitectPrompt expects responseFormat: BacklogSchema + enableReflection: true; createPRPBlueprintPrompt expects enableReflection: true) and tests/integration/agents/architect-agent-integration.test.ts (lines 360, 378, 401 — same). The CODE is correct by design: src/agents/prompts/architect-prompt.ts:70 has comment 'NOTE: No strict responseFormat / no enableReflection here — by design' and returns responseFormat: z.unknown(); src/agents/prompts/prp-blueprint-prompt.ts omits enableReflection in its createPrompt({}) call (only the docstring mentions it). The FILE-as-contract design means a strict schema would make Groundswell reject the agent's text summary.\n2. INPUT: The stale assertions in tests/integration/agents.test.ts (lines ~422-493) and tests/integration/agents/architect-agent-integration.test.ts (lines ~360-401).\n3. LOGIC: For each test asserting enableReflection: true — update to assert the CURRENT behavior: either remove the enableReflection expectation, or assert `expect(config.enableReflection).toBeUndefined()` / `not.toBe(true)` if the prompt omits it. For tests asserting responseFormat: BacklogSchema — update to assert responseFormat is z.unknown() OR remove the strict responseFormat assertion (the FILE is the contract). Read src/agents/prompts/architect-prompt.ts:70-92 and src/agents/prompts/prp-blueprint-prompt.ts to confirm the exact current return shape before rewriting assertions. Do NOT modify the prompt source code — the design is intentional; only update the TESTS to match reality. ALSO check the prompt-content drift test in architect-agent-integration.test.ts (~line 450: 'should contain Research-Driven Architecture section') — if the section was renamed/removed, update the assertion to match the current TASK_BREAKDOWN_PROMPT content (read src/agents/prompts/architect-prompt.ts / src/agents/prompts.ts for the current text).\n4. OUTPUT: The enableReflection/responseFormat assertions in both test files pass against the current (intentional) prompt contracts. No source code changes — test-only.\n5. DOCS: [Mode A] none — test-only change."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M4",
+          "title": "Sync changeset-level documentation",
+          "status": "Ready",
+          "description": "Per Documentation Sync Mode B: the changeset has cross-cutting doc implications. The README, docs/CONFIGURATION.md, docs/INSTALLATION.md, and .env.example all promise auth.json is 'auto-detected by the harness' and recommend pi /login as the primary path. With the stale dist this promise was broken (Issue 1); after the fix is deployed it becomes TRUE. This final task verifies those promises are now accurate and updates any docs that reference the verification/validation surface (the hardened validate-groundswell.ts).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M4.T1",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Verify and update README.md, docs/CONFIGURATION.md, docs/INSTALLATION.md, and .env.example to accurately reflect the now-working auth.json auto-detection and the hardened validator. This is the catch-all Mode B task that prevents a coherent delta from shipping with stale docs.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S1",
+                  "title": "Verify README.md auth.json claims are accurate post-fix",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S2", "P1.M1.T3.S1", "P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.1", "h3.0", "h2.3", "h3.3", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: README.md (lines 81, 242, 249, 277, 342, 383-392) promises auth.json is 'auto-detected by the harness' and recommends pi /login as the primary path (e.g. line 249: 'Option 1: pi /login — recommended (writes ~/.pi/agent/auth.json, auto-detected by the harness)'). With the stale dist this was FALSE; after P1.M1.T2 deploys the fix, it becomes TRUE. No wording change is likely needed IF the fix works — but VERIFY this by confirming the deployed harness reads auth.json (the P1.M1.T1.S1 integration test passing is the proof). If any README claim is now inaccurate (e.g. if the validator hardening in P1.M1.T3.S1 changed the troubleshooting/verification steps), update it.\n2. INPUT: The deployed fix (P1.M1.T2.S2 — node_modules/groundswell uses AuthStorage.create()) and the hardened validator (P1.M1.T3.S1).\n3. LOGIC: Read README.md sections: 'Prerequisites' (~line 81), 'Configuration' (~lines 242-280), 'Troubleshooting' (~lines 380-395). For each auth.json / pi /login mention, verify the claim is now accurate. Specifically: (a) the 'auto-detected by the harness' claim is TRUE (verified by P1.M1.T1.S1 passing); (b) the troubleshooting section's 'pi /login' fix recommendation is valid; (c) if validate-groundswell now reports the auth-store check (P1.M1.T3.S1), and the README mentions the validator, note the enhanced behavior. Make minimal, accurate edits only where needed — do NOT rewrite prose that is already correct.\n4. OUTPUT: README.md accurately reflects the working auth.json auto-detection and the hardened validator. No stale/false claims remain.\n5. DOCS: [Mode B] This IS the changeset-level documentation sync task for README.md."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S2",
+                  "title": "Verify docs/CONFIGURATION.md, docs/INSTALLATION.md, and .env.example accuracy",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S2", "P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.0", "h2.1", "h3.0", "h2.3", "h3.3"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: docs/CONFIGURATION.md (lines 44, 64, 71, 88) documents auth.json as source #3 ('auto-detected by pi's file-backed AuthStorage') and the ANTHROPIC_AUTH_TOKEN mapping. docs/INSTALLATION.md (lines 67-71, 255-258, 312, 558-573) documents the pi /login flow and the auth resolution priority. .env.example (lines 13-16) documents 'Option A: Use pi /login (writes ~/.pi/agent/auth.json, auto-detected by the harness)'. All of these were technically FALSE with the stale dist and become TRUE after P1.M1.T2.\n2. INPUT: The deployed fix (P1.M1.T2.S2) and the hardened validator (P1.M1.T3.S1).\n3. LOGIC: Read docs/CONFIGURATION.md, docs/INSTALLATION.md, and .env.example. Verify each auth.json / AuthStorage / pi /login claim is now accurate. Key checks: (a) the auth resolution priority (PRP_API_KEY → provider env → auth.json) matches the deployed behavior; (b) .env.example line 13 ('auto-detected by the harness') is TRUE; (c) docs/INSTALLATION.md line 312 ('pi auth file: ~/.pi/agent/auth.json (overridable via PI_CODING_AGENT_DIR)') is accurate; (d) if the validator hardening changed any documented verification command, update it. Make minimal edits only where claims are now inaccurate. Run `npm run docs:lint` (markdownlint) to ensure no formatting regressions.\n4. OUTPUT: docs/CONFIGURATION.md, docs/INSTALLATION.md, and .env.example accurately reflect the working auth.json auto-detection.\n5. DOCS: [Mode B] This IS the changeset-level documentation sync task for docs/ and .env.example."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
