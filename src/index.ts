@@ -89,11 +89,13 @@ function setupGlobalHandlers(verbose: boolean): void {
  * @remarks
  * Executes the complete PRP Pipeline workflow:
  * 1. Configures environment
- * 2. Parses CLI arguments
- * 3. Creates pipeline instance
- * 4. Runs pipeline
- * 5. Displays results
+ * 2. Creates root logger (independent of credentials/harness)
+ * 3. Handles pure-local modes (--dry-run, --validate-prd) credential-free
+ * 4. Runs auth preflight + harness initialization (agent paths only, §9.2.7)
+ * 5. Creates pipeline instance, runs pipeline, displays results
  *
+ * Pure-local modes (--dry-run, --validate-prd) make zero API calls and run
+ * BEFORE the §9.2.7 credential preflight and harness init (bugfix PRD §h3.2).
  * Environment configuration MUST happen first to ensure API keys are set.
  */
 async function main(): Promise<number> {
@@ -116,17 +118,7 @@ async function main(): Promise<number> {
   // CRITICAL: Configure environment before any API operations
   configureEnvironment();
 
-  // CRITICAL: Fail-fast auth preflight (PRD §9.2.7). Aborts here if no credential
-  // is configured for the selected harness + provider/model — BEFORE any session
-  // directory is created or any agent is invoked.
-  await runAuthPreflight();
-
-  // CRITICAL: Initialize the agent harness before any agent runs.
-  // The harness is registered at module-load but never initialized; without
-  // this, every agent.prompt() fails instantly (see ensureHarnessInitialized()).
-  await ensureHarnessInitialized();
-
-  // Initialize root logger
+  // Initialize root logger (independent of creds/harness; function-scope — REQ-L2 safe)
   const logger: Logger = getLogger('App', {
     verbose: args.verbose,
     machineReadable: args.machineReadable,
@@ -138,7 +130,7 @@ async function main(): Promise<number> {
     logger.debug('Parsed CLI arguments:', args);
   }
 
-  // Handle dry-run mode
+  // Handle dry-run mode (credential-free — makes zero API calls)
   if (args.dryRun) {
     logger.info('🔍 DRY RUN - would execute with:');
     logger.info(`  PRD: ${args.prd}`);
@@ -152,7 +144,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // Handle --validate-prd mode: early exit after validation
+  // Handle --validate-prd mode: early exit after validation (credential-free)
   if (args.validatePrd) {
     logger.info('🔍 Validating PRD...');
 
@@ -196,6 +188,16 @@ async function main(): Promise<number> {
     // Exit with appropriate code
     return result.valid ? 0 : 1;
   }
+
+  // CRITICAL: Fail-fast auth preflight (PRD §9.2.7). Aborts here if no credential
+  // is configured for the selected harness + provider/model — BEFORE any session
+  // directory is created or any agent is invoked.
+  await runAuthPreflight();
+
+  // CRITICAL: Initialize the agent harness before any agent runs.
+  // The harness is registered at module-load but never initialized; without
+  // this, every agent.prompt() fails instantly (see ensureHarnessInitialized()).
+  await ensureHarnessInitialized();
 
   // Parse scope if provided
   const scope: Scope | undefined = args.scope

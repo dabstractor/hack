@@ -406,11 +406,16 @@ async function validatePublishedArtifact(): Promise<boolean> {
 
   try {
     // Resolve the exact version from the lockfile
-    const result = execSync('npm ls groundswell --json', { encoding: 'utf-8', stdio: 'pipe' });
+    const result = execSync('npm ls groundswell --json', {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
     const tree = JSON.parse(result);
     const dep = tree.dependencies?.groundswell;
     if (!dep?.version) {
-      logWarning('Could not resolve installed groundswell version from lockfile — skipping published artifact check.');
+      logWarning(
+        'Could not resolve installed groundswell version from lockfile — skipping published artifact check.'
+      );
       return true;
     }
     const version = dep.version as string;
@@ -420,14 +425,19 @@ async function validatePublishedArtifact(): Promise<boolean> {
     const tarballUrl = `https://registry.npmjs.org/groundswell/-/groundswell-${version}.tgz`;
     const tmpDir = mkdtempSync(join(tmpdir(), 'gs-registry-check-'));
     try {
-      execSync(`curl -sL '${tarballUrl}' | tar xz --strip-components=1 -C '${tmpDir}'`, {
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      });
+      execSync(
+        `curl -sL '${tarballUrl}' | tar xz --strip-components=1 -C '${tmpDir}'`,
+        {
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        }
+      );
 
       const distPath = join(tmpDir, 'dist', 'harnesses', 'pi-harness.js');
       if (!existsSync(distPath)) {
-        logWarning(`Published tarball dist/harnesses/pi-harness.js not found — skipping.`);
+        logWarning(
+          `Published tarball dist/harnesses/pi-harness.js not found — skipping.`
+        );
         return true;
       }
 
@@ -454,7 +464,9 @@ async function validatePublishedArtifact(): Promise<boolean> {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   } catch (error) {
-    logWarning(`Could not validate published artifact (offline or registry unreachable): ${error}`);
+    logWarning(
+      `Could not validate published artifact (offline or registry unreachable): ${error}`
+    );
     return true; // soft-fail if offline
   }
 }
