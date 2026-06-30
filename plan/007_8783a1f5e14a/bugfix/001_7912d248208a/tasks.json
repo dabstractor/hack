@@ -168,7 +168,7 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Fix stale model-name assertions (GLM-4.7 → zai/glm-5.2)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "The shipped default model is zai/glm-5.2 (src/config/constants.ts: MODEL_NAMES.sonnet = 'glm-5.2', qualified by qualifyModel() to 'zai/glm-5.2'). Several integration tests still assert the old model name 'GLM-4.7'.",
               "subtasks": [
                 {
@@ -189,7 +189,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Update model-name assertions in tests/integration/agents/architect-agent-integration.test.ts",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. tests/integration/agents/architect-agent-integration.test.ts asserts model: 'GLM-4.7' at lines ~168 and ~190 ('should create architect agent with GLM-4.7 model'). Same root cause as P1.M3.T1.S1 — the shipped default is zai/glm-5.2.\n2. INPUT: The model assertions at tests/integration/agents/architect-agent-integration.test.ts:168, 190.\n3. LOGIC: Update each assertion from 'GLM-4.7' to 'zai/glm-5.2'. The test name 'should create architect agent with GLM-4.7 model' should also be updated to reflect zai/glm-5.2. Verify with `npx vitest run tests/integration/agents/architect-agent-integration.test.ts -t 'should create architect agent'`.\n4. OUTPUT: The model-name assertions in architect-agent-integration.test.ts pass with zai/glm-5.2.\n5. DOCS: [Mode A] none — test-only change.",

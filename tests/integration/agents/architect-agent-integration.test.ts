@@ -165,7 +165,7 @@ describe('integration/agents/architect-agent-integration', () => {
   // ==========================================================================
 
   describe('createArchitectAgent configuration', () => {
-    it('should create architect agent with GLM-4.7 model', async () => {
+    it('should create architect agent with zai/glm-5.2 model', async () => {
       // SETUP: Import real agent-factory after mocks are applied
       const { createArchitectAgent } =
         await import('/home/dustin/projects/hacky-hack/src/agents/agent-factory.js');
@@ -183,11 +183,11 @@ describe('integration/agents/architect-agent-integration', () => {
       // EXECUTE: Create architect agent
       createArchitectAgent();
 
-      // VERIFY: createAgent called with GLM-4.7 model
+      // VERIFY: createAgent called with zai/glm-5.2 model
       expect(gs.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'ArchitectAgent',
-          model: 'GLM-4.7',
+          model: 'zai/glm-5.2',
           system: TASK_BREAKDOWN_PROMPT,
           maxTokens: 8192,
           enableCache: true,
