@@ -128,21 +128,21 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Major — Fix the createBaseConfig Test Regression (Issue 2)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "The T2.S1 commit rewired createBaseConfig() to source the key via resolveApiKeyForProvider(getResolvedProvider()) instead of raw process.env.ANTHROPIC_API_KEY. The unit tests (environment.test.ts, harness-config.test.ts) were updated, but the integration test tests/integration/agents.test.ts was missed and still asserts the old Anthropic-shell contract. This is the ONLY D1-attributable test failure. Test-only churn; runtime behavior is correct.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Rewrite the createBaseConfig integration test for provider-aware auth",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Update tests/integration/agents.test.ts > createBaseConfig > 'should map ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY' to assert the NEW provider-aware resolver contract instead of the removed direct-ANTHROPIC_API_KEY contract.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Rewrite the createBaseConfig test assertion for the zai provider-aware resolver",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/007_8783a1f5e14a/bugfix/001_7912d248208a/architecture/test_triage.md. The failing test is at tests/integration/agents.test.ts:155-168 (assertion at line 165: `expect(config.env.ANTHROPIC_API_KEY).toBe('test-token-123')`). It stubs only ANTHROPIC_API_KEY='test-token-123', but createBaseConfig() (src/agents/agent-factory.ts:174-176) now uses `resolveApiKeyForProvider(getResolvedProvider()) ?? ''`. For the default 'zai' provider, resolveApiKeyForProvider('zai') checks PRP_API_KEY → ZAI_API_KEY → auth.json (deferred) — NOT ANTHROPIC_API_KEY — so config.env.ANTHROPIC_API_KEY is '' (the terminal ?? ''). The resolver itself (src/config/harness.ts:67-99) is unit-tested and correct (tests/unit/config/auth-resolver.test.ts, 19 tests pass). The existing passing unit tests in tests/unit/config/environment.test.ts already mirror the correct cases — use them as the reference.\n2. INPUT: The current test at tests/integration/agents.test.ts:154-168 and the createBaseConfig implementation at src/agents/agent-factory.ts:163-190.\n3. LOGIC: Rewrite the test 'should map ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY' (and its describe block) to assert the NEW provider-aware contract: (a) DEFAULT zai path — stub ZAI_API_KEY='zai-test-key', call createBaseConfig('architect'), assert config.env.ANTHROPIC_API_KEY === 'zai-test-key' (the resolver returns it and it's forwarded as the SDK key); (b) anthropic provider override — set ANTHROPIC_DEFAULT_SONNET_MODEL='anthropic/claude-sonnet-4', stub ANTHROPIC_API_KEY='anthropic-test-key' (or ANTHROPIC_AUTH_TOKEN), call createBaseConfig('architect'), assert config.env.ANTHROPIC_API_KEY === 'anthropic-test-key' (now the resolver DOES honor ANTHROPIC_API_KEY for the anthropic provider); (c) no credential configured — assert config.env.ANTHROPIC_API_KEY === '' (the terminal ?? '' honest default). Mirror the cases in tests/unit/config/environment.test.ts and tests/unit/config/auth-resolver.test.ts. Keep the afterEach(() => vi.unstubAllEnvs()) cleanup. Ensure the model assertion (createBaseConfig returns zai/glm-5.2) is NOT broken by the env changes — note these model assertions are addressed separately in P1.M3.T1.S1.\n4. OUTPUT: `npx vitest run tests/integration/agents.test.ts -t createBaseConfig` passes (the D1 regression is fixed). Runtime behavior is unchanged — this is test-only churn.\n5. DOCS: [Mode A] none — test-only change, no user-facing/config/API surface change.",

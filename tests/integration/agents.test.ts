@@ -151,21 +151,52 @@ describe('createBaseConfig', () => {
     vi.unstubAllEnvs();
   });
 
-  it('should map ANTHROPIC_AUTH_TOKEN to ANTHROPIC_API_KEY', () => {
-    // SETUP: Set environment variables
-    // Note: configureEnvironment() runs at module load time, mapping AUTH_TOKEN -> API_KEY.
-    // Since it already ran, we stub API_KEY directly to test createBaseConfig reads it correctly.
-    vi.stubEnv('ANTHROPIC_API_KEY', 'test-token-123');
-    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.z.ai/api/anthropic');
+  describe('provider-aware API key resolution (PRD §9.2.6)', () => {
+    // Each case mirrors the unit-level matrix in tests/unit/config/auth-resolver.test.ts.
+    // createBaseConfig() forwards resolveApiKeyForProvider(getResolvedProvider()) ?? ''
+    // as config.env.ANTHROPIC_API_KEY (the field the Groundswell SDK reads).
 
-    // EXECUTE
-    const config = createBaseConfig('architect');
+    it('(a) DEFAULT zai provider — resolves ZAI_API_KEY and forwards it as the SDK key', () => {
+      // SETUP: default zai provider (no sonnet override), no PRP_API_KEY override
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      delete process.env.PRP_API_KEY;
+      vi.stubEnv('ZAI_API_KEY', 'zai-test-key');
 
-    // VERIFY: Environment mapping is correct
-    expect(config.env.ANTHROPIC_API_KEY).toBe('test-token-123');
-    expect(config.env.ANTHROPIC_BASE_URL).toBe(
-      'https://api.z.ai/api/anthropic'
-    );
+      // EXECUTE
+      const config = createBaseConfig('architect');
+
+      // VERIFY: the zai-native env var is resolved and forwarded
+      expect(config.env.ANTHROPIC_API_KEY).toBe('zai-test-key');
+    });
+
+    it('(b) anthropic provider override — honors ANTHROPIC_API_KEY', () => {
+      // SETUP: switch provider to anthropic via a qualified sonnet override
+      vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'anthropic-test-key');
+      delete process.env.ANTHROPIC_OAUTH_TOKEN; // OAUTH has precedence; clear so API_KEY wins
+      delete process.env.PRP_API_KEY;
+
+      // EXECUTE
+      const config = createBaseConfig('architect');
+
+      // VERIFY: ANTHROPIC_API_KEY IS honored for the anthropic provider
+      expect(config.env.ANTHROPIC_API_KEY).toBe('anthropic-test-key');
+    });
+
+    it('(c) no credential configured — honest empty-string default', () => {
+      // SETUP: default zai provider, nothing configured anywhere
+      delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      delete process.env.PRP_API_KEY;
+      delete process.env.ZAI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_OAUTH_TOKEN;
+
+      // EXECUTE
+      const config = createBaseConfig('architect');
+
+      // VERIFY: terminal ?? '' — genuinely unconfigured, not a fake key
+      expect(config.env.ANTHROPIC_API_KEY).toBe('');
+    });
   });
 
   it('should include all required AgentConfig properties', () => {
