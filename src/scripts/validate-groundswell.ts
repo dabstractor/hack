@@ -7,6 +7,17 @@
  * exports are accessible. This script should be run before building or as
  * part of CI/CD to ensure the Groundswell integration is working correctly.
  *
+ * Checks performed:
+ * - Installation: verifies groundswell is linked/installed via npm
+ * - Version: confirms groundswell version >= 0.0.3
+ * - Imports: validates all required exports are accessible
+ * - Decorators: validates all required decorators are accessible
+ * - Node version: confirms Node.js >= 18
+ * - Auth-store behavior: instantiates the real `PiHarness`, seeds a temp `auth.json`
+ *   (via `PI_CODING_AGENT_DIR`), and asserts `harness.authStorage.getApiKey('zai')` resolves
+ *   the on-disk key — fails if the deployed `node_modules/groundswell` dist still uses
+ *   `AuthStorage.inMemory()` (PRD §9.2.6 / §9.5).
+ *
  * Usage:
  *   npx tsx src/scripts/validate-groundswell.ts
  *
@@ -15,9 +26,11 @@
  *   1: Validation failed
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import type { AuthStorage } from '@earendil-works/pi-coding-agent';
 
 // ANSI color codes for terminal output
 const colors = {
@@ -213,6 +226,82 @@ async function validateDecorators(): Promise<boolean> {
 }
 
 /**
+ * Validates that the deployed `node_modules/groundswell` PiHarness uses a FILE-BACKED auth store
+ * (PRD §9.2.6 / §9.5). Seeds a temp `auth.json` and asserts the harness resolves it — fails if
+ * the dist is stale (still `AuthStorage.inMemory()`), which silently ignores `~/.pi/agent/auth.json`.
+ */
+async function validateAuthStoreBehavior(): Promise<boolean> {
+  logSection('Validating PiHarness auth-store behavior (file-backed)');
+
+  const EXPECTED_KEY = 'gs-validation-test-key';
+  const previousDir = process.env.PI_CODING_AGENT_DIR;
+  const tmpDir = mkdtempSync(join(tmpdir(), 'gs-auth-check-'));
+  let harness:
+    | {
+        initialize(options?: unknown): Promise<void>;
+        terminate(): Promise<void>;
+      }
+    | undefined;
+
+  try {
+    // Point the SDK's default AuthStorage.create() at our temp dir (read lazily at initialize()-time).
+    process.env.PI_CODING_AGENT_DIR = tmpDir;
+    writeFileSync(
+      join(tmpDir, 'auth.json'),
+      JSON.stringify({ zai: { type: 'api_key', key: EXPECTED_KEY } })
+    );
+
+    // Real (non-mocked) import — the validate script runs under tsx (no vitest alias), so this
+    // resolves to the actual node_modules/groundswell dist.
+    const { PiHarness } = await import('groundswell');
+    harness = new PiHarness();
+    await harness.initialize(); // no options → AuthStorage.create() default → reads tmpDir/auth.json
+
+    // authStorage is `private` in PiHarness; cast to access at runtime (JS does not enforce private).
+    const authStorage = (
+      harness as unknown as {
+        authStorage: AuthStorage | null;
+      }
+    ).authStorage;
+    if (!authStorage) {
+      logError(
+        'PiHarness.authStorage is null after initialize() — default file-backed store was not built'
+      );
+      return false;
+    }
+
+    const key = await authStorage.getApiKey('zai'); // Promise<string | undefined>
+    if (key !== EXPECTED_KEY) {
+      logError(
+        `PiHarness did NOT resolve auth.json (got ${JSON.stringify(key)}). ` +
+          'The deployed node_modules/groundswell dist is likely stale (AuthStorage.inMemory) — re-link/rebuild Groundswell.'
+      );
+      return false;
+    }
+
+    logSuccess(
+      `PiHarness resolved auth.json-only credential for 'zai' (file-backed AuthStorage.create() working)`
+    );
+    return true;
+  } catch (error) {
+    logError(`Auth-store behavior check failed: ${error}`);
+    return false;
+  } finally {
+    try {
+      await harness?.terminate();
+    } catch {
+      /* ignore */
+    }
+    if (previousDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousDir;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Validates Node.js version compatibility
  */
 function validateNodeVersion(): boolean {
@@ -245,6 +334,7 @@ async function main(): Promise<void> {
     imports: false,
     decorators: false,
     nodeVersion: false,
+    authStoreBehavior: false,
   };
 
   // Run all validations
@@ -253,6 +343,7 @@ async function main(): Promise<void> {
   results.version = await validateVersionCompatibility();
   results.imports = await validateImports();
   results.decorators = await validateDecorators();
+  results.authStoreBehavior = await validateAuthStoreBehavior();
 
   // Summary
   logSection('Summary');
