@@ -10,3 +10,5 @@ This project keeps the codebase perfectly in sync with the PRD (`PRD.md`) throug
 2. **No implementation during planning.** Planning/architecture agents never modify source code, tests, configs, or tooling. Every proposed or discussed change — including the root cause and rationale behind it — is recorded **in the PRD only**.
 
 3. **Only PRP research and execution agents do real work.** These are the sole agents permitted to write or modify code, and they implement strictly from the PRD. All other agents touch documentation (`PRD.md`, this file) — never implementation files under `src/` or elsewhere.
+
+4. **You are allowed to bring the project into alignment with the PRD, but you are never allowed to add new features to code before they're defined in the PRD.**
