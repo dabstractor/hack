@@ -47,11 +47,13 @@ The new system must implement four distinct processing engines:
 
 For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
 
-1.  **Parallel Research (Optional):** While Task $N$ is implementing, the system spins up a background thread to research Task $N+1$.
-    - **Deadline & Fallback:** Background research is guarded by a configurable deadline (`RESEARCH_TIMEOUT`, default 5 minutes; see §9.2.2). The orchestrator polls for completion — checking process liveness and the presence of the PRP artifact — rather than blocking indefinitely. If the deadline is exceeded (typically because the agent crashed or stopped responding), the background work is abandoned and the item is re-researched synchronously, inline. This prevents a single hung agent from stalling the whole pipeline.
+1.  **Parallel Research (Optional):** While Task $N$ is implementing, a background supervisor researches a **chain** of up to `RESEARCH_DEPTH` (default 2) items ahead, rather than a single item. This collapses both failure modes of a single-slot prefetch: "fast implementer → stall waiting for $N+1$" and "slow implementer → wasted idle capacity." The supervisor keeps prefetching the next item in the chain while the orchestrator consumes completed PRPs one at a time.
+    - **Deadline & Fallback:** Each background research is guarded by a configurable deadline (`RESEARCH_TIMEOUT`, default 5 minutes; see §9.2.2). The orchestrator polls for completion — checking process liveness and the presence of the PRP artifact — rather than blocking indefinitely. If the deadline is exceeded (typically because the agent crashed or stopped responding), the background work is abandoned and the item is re-researched synchronously, inline. This prevents a single hung agent from stalling the whole pipeline.
+    - **Propagation to Bugfix Sub-Pipeline:** When bug hunting finds bugs and spawns a bugfix sub-pipeline (§4.4), the parallel-research settings (`PARALLEL_RESEARCH` and `RESEARCH_DEPTH`) MUST be forwarded to the child. The main session's items are already Complete by then, so all real item execution — and therefore all prefetching — happens inside the bugfix child; without forwarding, prefetch is silently disabled for the entire phase that needs it.
 2.  **PRP Generation:**
     - The **Researcher Agent** analyzes the task, the codebase, and external docs.
     - Produces a `PRP.md` file containing the "contract" for the implementation.
+    - **Selective PRD Section Extraction:** Each subtask carries a `prd_selectors` field (e.g. `["h2.1", "h3.0"]`) computed from a generated PRD section index. The Researcher receives only the referenced PRD sections instead of the full PRD document, keeping its context window focused on the relevant requirements. When selectors are absent or extraction fails, the full PRD is used as a fallback.
 3.  **Implementation:**
     - The **Coder Agent** reads the `PRP.md`.
     - Executes the plan.
@@ -67,6 +69,7 @@ For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
 If the user modifies `PRD.md` mid-project:
 
 1.  **Detection:** System detects hash mismatch (computed from `prd_snapshot.md` content).
+    - **Change Classification:** Detected changes are classified by an LLM-driven binary classifier as **COSMETIC** (trivial: whitespace/formatting) or **SUBSTANTIVE** (semantically significant). A parallel **CLEAN/DIRTY** classifier guards generated artifacts (e.g., the delta PRD). These classifiers MUST distinguish **transient API failures** (empty output, connection errors, rate limits, overloaded) from invalid model responses, retrying up to a bounded count (default 4) before giving up. On exhaustion they MUST fail to the **protective/conservative default** (treat as SUBSTANTIVE / DIRTY) — never silently fall through to "could not classify" and proceed unprotected through a SUBSTANTIVE change.
 2.  **Delta Session:** Creates a new session directory linked to the previous one via `delta_from.txt`.
 3.  **Delta Analysis:** An agent compares Old PRD vs. New PRD.
 4.  **Delta PRD Generation (with retry logic):**
@@ -145,7 +148,7 @@ Agents routinely corrupt `tasks.json` despite the forbidden-operations rules (§
 
 - **Re-apply after every agent run:** After each agent invocation, the orchestrator re-reads `tasks.json` and re-applies only the _legitimate_ status change from that run (the item just implemented or interrupted), discarding any other unauthorized mutations.
 - **Recover from corruption:** If `tasks.json` fails to parse or validate, the system walks git commit history (prior versions of the file) to locate the last valid JSON, restores it, then re-applies any in-flight status changes on top.
-- **Preserve background-research status:** Items marked `Researching` or `Ready` by the background research queue must survive a restore, not be dropped back to `Planned`.
+- **Preserve background-research status (snapshot before revert):** Items marked `Researching` or `Ready` by the background research queue must survive a restore. To do this reliably, the restore logic snapshots the live `Researching`/`Ready` item IDs from the **working-tree `tasks.json` before** the git revert (the authoritative copy of what the research supervisor actually wrote), then re-applies them afterward gated on **filesystem evidence**: an item is set back to `Ready` only if its `PRP.md` exists, and to `Researching` only if its `research/` directory exists. This must not depend on an in-memory index that can drift out of sync with the supervisor.
 - **Non-fatal:** A single corrupting agent must never terminate the session. Restore is automatic and logged.
 
 ### 5.2 Agent Capabilities
@@ -209,6 +212,7 @@ The system relies on specific, highly-engineered prompts. These must be preserve
 - **Goal:** Decompose PRD into strict JSON.
 - **Constraint:** "Validate before breaking down." Spawn sub-agents to research before defining tasks.
 - **Logic:** Implicit TDD (tests are part of the subtask, not separate).
+- **Reasoning Budget:** Decomposition runs at the **maximum reasoning budget** (extended-thinking `xhigh` equivalent), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy is the most reasoning-intensive step. The "demand write" retry (when breakdown output is missing/invalid) uses the same budget.
 - **Documentation Sync (two-mode rule):** Documentation is never a standalone subtask; it rides with the work, mirroring the TDD rule:
   - **Mode A (doc-with-work):** Docs a subtask directly touches — config, public API, CLI, env vars, exported types — are updated _inside_ that subtask's `context_scope`, declared via a `DOCS:` line.
   - **Mode B (changeset-level):** Cross-cutting docs that only make sense once the whole change lands (README, feature overviews, architecture summaries) become a **final "Sync changeset-level documentation" task** that depends on all implementing subtasks.
@@ -323,9 +327,11 @@ Configuration is loaded in the following order (later sources override earlier o
   - `PRP_PIPELINE_RUNNING`: Guard to prevent nested execution (set to PID when pipeline starts)
   - `SKIP_BUG_FINDING`: Skip bug hunt stage; also identifies bug fix mode when `true`
   - `SKIP_EXECUTION_LOOP`: Internal flag to skip task execution while allowing validation/bug hunt
+  - `PARALLEL_RESEARCH`: Enable background (parallel) PRP research (`true`/`false`, default `false`; CLI `-r`/`--parallel-research`). MUST be forwarded — along with `RESEARCH_DEPTH` — into the bugfix sub-pipeline (§4.2, §4.4), where all real item execution occurs.
 
 - **Resilience Tuning**:
   - `RESEARCH_TIMEOUT`: Deadline in seconds for background (parallel) research before falling back to synchronous re-research (default 300; see §4.2).
+  - `RESEARCH_DEPTH`: How many items ahead the background research supervisor prefetches as a chain (default 2; see §4.2).
   - `ISSUE_RETRY_MAX`: Maximum number of issue-driven re-planning attempts per item before it hard-fails (default 3; see §4.5).
 
 - **Bug Hunt Configuration**:
@@ -337,8 +343,10 @@ Configuration is loaded in the following order (later sources override earlier o
 
 Models are specified as provider-qualified strings (`provider/model`), independent of the harness (see §9.4). The pipeline reads model names from the environment at runtime and qualifies them with the `zai` provider.
 
-- **`ANTHROPIC_DEFAULT_SONNET_MODEL`**: Model for complex reasoning tasks (default: `glm-5.2` → resolved as `zai/glm-5.2`)
-- **`ANTHROPIC_DEFAULT_HAIKU_MODEL`**: Model for faster/lighter tasks (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`)
+The pipeline uses **separate model roles** so cost and speed can be tuned per phase. Previously a single model did everything; now heavy reasoning and fast codegen are independently configurable:
+
+- **Planning/Research role (`AGENT`)** — task breakdown, architecture research, PRP creation, and bug discovery. Heavy reasoning. Backed by `ANTHROPIC_DEFAULT_SONNET_MODEL` (default: `glm-5.2` → resolved as `zai/glm-5.2`).
+- **Implementation role (`IMPL_AGENT`)** — code-writing steps: PRP execution and post-validation fix. Faster codegen. Backed by `ANTHROPIC_DEFAULT_HAIKU_MODEL` (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`).
 
 These values should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/glm-5.2` is invalid). Model ids are **lowercase** as registered in the Pi model registry (run `pi --list-models zai` to verify available ids).
 
@@ -451,9 +459,9 @@ Leverage Groundswell's hierarchical `@Task` feature.
 
 - **Recursive Workflow**: Instead of a flat loop, the `TaskExecutor` can be a recursive workflow where each Phase/Milestone/Task is a sub-workflow.
 - **Concurrency**: Use `@Task({ concurrent: true })` for "Parallel Research" where applicable (e.g., researching next tasks while current one executes).
-- **Research Deadline**: The research queue wraps each background PRP generation in a deadline (`RESEARCH_TIMEOUT`); on expiry the queue abandons the in-flight research and the orchestrator re-researches the item synchronously (§4.2).
+- **Depth-Chained Research Queue**: The background supervisor researches a chain of up to `RESEARCH_DEPTH` items ahead while the current item executes, prefetching the next as each completes (§4.2). Each generation is wrapped in a deadline (`RESEARCH_TIMEOUT`); on expiry the queue abandons the in-flight research and the orchestrator re-researches the item synchronously.
 - **Issue-Driven Re-planning**: The orchestrator treats a Coder Agent `issue` result as a signal to delete the stale PRP, reset the item to `Planned`, and re-research with the captured feedback injected, bounded by `ISSUE_RETRY_MAX` (§4.5).
-- **`tasks.json` Restore**: After every agent run the orchestrator re-applies only the legitimate status delta and, on parse/validation failure, restores the last valid version from git history before re-applying (§5.1).
+- **`tasks.json` Restore**: After every agent run the orchestrator re-applies only the legitimate status delta and, on parse/validation failure, restores the last valid version from git history before re-applying (§5.1). Research statuses (`Researching`/`Ready`) are snapshotted from the working tree _before_ the revert and re-applied afterward using filesystem evidence (PRP.md/research/ existence), so they survive without depending on an in-memory supervisor index.
 
 #### 9.3.3 Agent Runtime & Personas
 
@@ -463,6 +471,7 @@ Agents are instantiated using Groundswell's `createAgent` factory or by extendin
   - `BashTool`: For executing validation scripts and git commands.
   - `FileTool`: For reading/writing PRPs and code.
   - `WebSearchTool`: For external documentation.
+- **Prompt Delivery (no argv-size limit):** Prompts frequently embed the full PRD and can exceed 128 KB. They MUST be delivered to the agent as a programmatic message body (stdin/stream), never as an argv string — argv strings are capped by the kernel's `MAX_ARG_STRLEN` (131,072 bytes) and fail with a hard `E2BIG` that no wrapper can recover from. Any temp files backing these prompts MUST be cleaned up on both graceful and hard-killed (SIGTERM/SIGKILL/power-loss) exits.
 
 #### 9.3.4 Prompt Engineering (From PROMPTS.md)
 
