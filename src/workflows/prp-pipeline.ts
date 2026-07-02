@@ -1821,6 +1821,20 @@ Report Location: ${sessionPath}/RESOURCE_LIMIT_REPORT.md
 
       await this.decomposePRD();
 
+      // The TaskOrchestrator was constructed in initializeSession() against an
+      // empty (new-session) registry — before the Architect generated anything
+      // (and, for delta sessions, before handleDelta() patched the backlog).
+      // Now that the backlog exists and is synced into the session registry
+      // (SessionManager.saveBacklog keeps memory == disk), rebuild the
+      // execution queue from it. Without this the queue stays empty and
+      // executeBacklog() processes nothing (the pipeline "completes" 0/0).
+      // Guarded: if session init failed non-fatally before the orchestrator was
+      // constructed, there is nothing to rebuild (executeBacklog surfaces the
+      // failure) — never crash the pipeline here.
+      if (this.taskOrchestrator) {
+        await this.taskOrchestrator.rebuildQueue();
+      }
+
       // Debug logging after PRD decomposition
       this.logger.debug('[PRPPipeline] PRD decomposition complete', {
         totalPhases:

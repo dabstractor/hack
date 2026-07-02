@@ -33,6 +33,7 @@ vi.mock('../../../src/core/session-manager.js', () => ({
 vi.mock('../../../src/core/task-orchestrator.js', () => ({
   TaskOrchestrator: vi.fn().mockImplementation(() => ({
     processNextItem: vi.fn(),
+    rebuildQueue: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 
@@ -223,6 +224,7 @@ function createMockSessionManager(
 function createMockTaskOrchestrator() {
   return {
     processNextItem: vi.fn(),
+    rebuildQueue: vi.fn().mockResolvedValue(undefined),
     currentItemId: null as string | null,
     sessionManager: {},
   };

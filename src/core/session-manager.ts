@@ -709,6 +709,20 @@ export class SessionManager {
     }
 
     await writeTasksJSON(this.#currentSession.metadata.path, backlog);
+
+    // Keep the in-memory registry in sync with what we just persisted. Disk is
+    // the source of truth (PRD §9.3.2); the in-memory taskRegistry is a mirror
+    // of it. Without this, disk and memory diverge — e.g. after the Architect
+    // generates the backlog the on-disk tasks.json is populated but
+    // currentSession.taskRegistry stays empty, so every downstream read (task
+    // counts, the orchestrator's execution queue, and the shutdown save) all
+    // operate on stale/empty state, and the final cleanup() then writes the
+    // empty registry back over the populated file.
+    this.#currentSession = {
+      ...this.#currentSession,
+      taskRegistry: backlog,
+    };
+
     this.#logger.debug(
       { backlogPath: this.#currentSession.metadata.path },
       'Backlog persisted'

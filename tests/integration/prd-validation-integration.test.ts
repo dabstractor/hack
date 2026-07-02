@@ -103,7 +103,7 @@ This document describes the requirements for a test product.
       expect(result.summary.warning).toBe(0);
     });
 
-    it('should warn about missing required sections', async () => {
+    it('should not warn about non-standard sections — PRDs are free-form', async () => {
       const incompletePRD = resolve(testDir, 'incomplete-prd.md');
       const content = `# Test PRD
 
@@ -111,21 +111,21 @@ ${'x'.repeat(200)}
 
 ## Introduction
 
-This PRD is missing required sections.
+This PRD uses non-standard section headings.
 `;
       await writeFile(incompletePRD, content, 'utf-8');
 
       const validator = new PRDValidator();
       const result = await validator.validate(incompletePRD);
 
-      // Should be valid (warnings only)
+      // Valid with no structural warnings: section titles are not enforced.
       expect(result.valid).toBe(true);
-      expect(result.summary.warning).toBe(3);
+      expect(result.summary.warning).toBe(0);
 
       const structureIssues = result.issues.filter(
         i => i.category === 'structure'
       );
-      expect(structureIssues.length).toBe(3);
+      expect(structureIssues.length).toBe(0);
     });
   });
 

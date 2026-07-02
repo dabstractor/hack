@@ -24,7 +24,6 @@
  * ```
  */
 
-import { parsePRDSections, type PRDSection } from '../core/prd-differ.js';
 import { readUTF8FileStrict } from '../core/session-utils.js';
 import { resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
@@ -85,14 +84,18 @@ export interface ValidationIssue {
  *
  * @remarks
  * Configurable options for PRD validation behavior.
- * Allows customization of content length thresholds and required sections.
+ * Allows customization of content length thresholds.
+ *
+ * @remarks
+ * PRD structure is intentionally NOT enforced. PRDs vary wildly in shape and
+ * the pipeline's machine intelligence does not depend on any fixed set of
+ * section headings, so validation is limited to existence and minimum
+ * substance (a non-empty, sufficiently long file) — never specific section
+ * titles.
  */
 export interface PRDValidationOptions {
   /** Minimum content length in characters (default: 100) */
   minContentLength?: number;
-
-  /** Required section titles (default: built-in list) */
-  requiredSections?: readonly string[];
 
   /** Whether to include quality checks (default: false for now) */
   includeQualityChecks?: boolean;
@@ -128,23 +131,6 @@ export interface ValidationResult {
   /** Timestamp of validation */
   validatedAt: Date;
 }
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/**
- * Default required PRD sections
- *
- * @remarks
- * These sections must be present in a valid PRD.
- * Section titles are case-sensitive and must match exactly.
- */
-const DEFAULT_REQUIRED_SECTIONS = [
-  '## Executive Summary',
-  '## Functional Requirements',
-  '## User Workflows',
-] as const;
 
 // ============================================================================
 // PRD VALIDATOR CLASS
@@ -191,7 +177,6 @@ export class PRDValidator {
     options: PRDValidationOptions = {}
   ): Promise<ValidationResult> {
     const resolvedPath = resolve(prdPath);
-    const issues: ValidationIssue[] = [];
     const startTime = Date.now();
 
     // 1. File existence validation (critical - early return)
@@ -209,14 +194,11 @@ export class PRDValidator {
       return this.#buildResult(resolvedPath, [lengthIssue], startTime);
     }
 
-    // 4. Parse PRD sections
-    const sections = parsePRDSections(content);
+    // 4. (No structural/section enforcement — PRDs are free-form by design; see
+    // PRDValidationOptions. File existence (#1) and minimum content length (#3)
+    // above are the only gates.)
 
-    // 5. Required sections validation (warning - continue for full report)
-    const sectionIssues = this.#validateRequiredSections(sections, options);
-    issues.push(...sectionIssues);
-
-    return this.#buildResult(resolvedPath, issues, startTime);
+    return this.#buildResult(resolvedPath, [], startTime);
   }
 
   /**
@@ -288,69 +270,12 @@ export class PRDValidator {
         field: 'content',
         expected: `At least ${minLength} characters`,
         actual: `${actualLength} characters`,
-        suggestion:
-          'Add more content to your PRD. Include sections like Executive Summary, Functional Requirements, etc.',
+        suggestion: 'Add more content to your PRD.',
         reference: 'See PRD.md in the project root for a template',
       };
     }
 
     return null;
-  }
-
-  /**
-   * Validates required sections are present in PRD
-   *
-   * @param sections - Parsed PRD sections
-   * @param options - Validation options
-   * @returns Array of validation issues for missing sections
-   * @private
-   */
-  #validateRequiredSections(
-    sections: PRDSection[],
-    options: PRDValidationOptions
-  ): ValidationIssue[] {
-    const requiredSections =
-      options.requiredSections ?? DEFAULT_REQUIRED_SECTIONS;
-    const issues: ValidationIssue[] = [];
-
-    // Extract section titles with ## prefix for exact matching
-    const presentTitles = new Set(sections.map(s => `## ${s.title}`));
-
-    // Helper: strip leading numbering like "1. " or "5. " from a heading
-    const stripNumbering = (heading: string): string =>
-      heading.replace(/^(##\s+)?\d+\.\s+/, '$1');
-
-    // Check each required section — match against both exact and numbered forms
-    for (const required of requiredSections) {
-      // required is e.g. "## Executive Summary"
-      // Present titles may be e.g. "## 1. Executive Summary"
-      // Strip numbering from both sides for comparison
-      const strippedRequired = stripNumbering(required);
-
-      const hasMatch =
-        presentTitles.has(required) ||
-        sections.some(
-          s => stripNumbering(`## ${s.title}`) === strippedRequired
-        );
-
-      if (!hasMatch) {
-        // Extract section name without ## prefix for message
-        const sectionName = required.replace(/^##\s+/, '');
-
-        issues.push({
-          severity: 'warning',
-          category: 'structure',
-          message: `Missing required section: ${required}`,
-          field: `sections.${sectionName}`,
-          expected: `Section with title "${required}"`,
-          actual: 'Section not found',
-          suggestion: `Add a "${required}" section to your PRD`,
-          reference: 'See PRD.md in the project root for an example',
-        });
-      }
-    }
-
-    return issues;
   }
 
   /**

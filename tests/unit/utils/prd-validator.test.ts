@@ -164,78 +164,22 @@ describe('PRDValidator', () => {
   });
 
   // ========================================================================
-  // Required sections validation tests
+  // Structure validation tests (free-form by design)
   // ========================================================================
+  //
+  // PRDs vary wildly in shape and the pipeline does not depend on any fixed set
+  // of section headings, so the validator must NOT enforce specific sections.
+  // It validates existence + minimum substance only (see PRDValidationOptions).
 
-  describe('Required sections validation', () => {
-    it('should validate PRD with all required sections', async () => {
-      const testFile = resolve(testDir, 'all-sections.md');
-      const content = `# Test PRD
-
-## Executive Summary
-
-This is a test PRD with all required sections.
-
-## Functional Requirements
-
-The system shall do things.
-
-## User Workflows
-
-Users can do stuff.
-`;
-      await writeFile(testFile, content, 'utf-8');
-
-      const validator = new PRDValidator();
-      const result = await validator.validate(testFile);
-
-      // Should have no structural issues (warnings are allowed for non-critical)
-      const structureIssues = result.issues.filter(
-        i => i.category === 'structure'
-      );
-      expect(structureIssues).toHaveLength(0);
-      expect(result.valid).toBe(true);
-    });
-
-    it('should return warning for missing Executive Summary section', async () => {
-      const testFile = resolve(testDir, 'no-exec-summary.md');
-      const content = `# Test PRD
-
-## Functional Requirements
-
-The system shall do things.
-
-## User Workflows
-
-Users can do stuff.
-`;
-      await writeFile(testFile, content, 'utf-8');
-
-      const validator = new PRDValidator();
-      const result = await validator.validate(testFile);
-
-      // Valid because missing sections are warnings, not critical
-      expect(result.valid).toBe(true);
-      expect(result.summary.warning).toBe(1);
-
-      const issue = result.issues[0] as ValidationIssue;
-      expect(issue.severity).toBe('warning');
-      expect(issue.category).toBe('structure');
-      expect(issue.message).toContain('Missing required section');
-      expect(issue.message).toContain('Executive Summary');
-      expect(issue.suggestion).toContain(
-        'Add a "## Executive Summary" section'
-      );
-      expect(issue.reference).toContain('PRD.md');
-    });
-
-    it('should return warnings for all missing required sections', async () => {
-      const testFile = resolve(testDir, 'no-required-sections.md');
+  describe('Structure validation (free-form)', () => {
+    it('should not warn about missing sections — PRDs are free-form', async () => {
+      const testFile = resolve(testDir, 'no-standard-sections.md');
+      // A PRD that uses none of the historical "required" headings.
       const content = `# Test PRD
 
 ## Introduction
 
-This PRD has no required sections.
+This PRD deliberately uses non-standard section headings.
 
 ${'x'.repeat(100)}
 
@@ -248,76 +192,34 @@ Some details here.
       const validator = new PRDValidator();
       const result = await validator.validate(testFile);
 
-      // Valid because missing sections are warnings
-      expect(result.valid).toBe(true);
-      expect(result.summary.warning).toBe(3);
-
-      const structureIssues = result.issues.filter(
-        i => i.category === 'structure'
-      );
-      expect(structureIssues).toHaveLength(3);
-
-      const sectionTitles = structureIssues.map(i => i.message);
-      expect(sectionTitles).toContain(
-        'Missing required section: ## Executive Summary'
-      );
-      expect(sectionTitles).toContain(
-        'Missing required section: ## Functional Requirements'
-      );
-      expect(sectionTitles).toContain(
-        'Missing required section: ## User Workflows'
-      );
-    });
-
-    it('should use custom requiredSections option', async () => {
-      const testFile = resolve(testDir, 'custom-sections.md');
-      const content = `# Test PRD
-
-## Custom Section
-
-${'x'.repeat(100)}
-
-Content here.
-`;
-      await writeFile(testFile, content, 'utf-8');
-
-      const validator = new PRDValidator();
-      const options: PRDValidationOptions = {
-        requiredSections: ['## Custom Section'] as const,
-      };
-      const result = await validator.validate(testFile, options);
-
-      // Should have no structural issues
+      // No structural issues of any kind — section titles are not enforced.
       const structureIssues = result.issues.filter(
         i => i.category === 'structure'
       );
       expect(structureIssues).toHaveLength(0);
+      expect(result.summary.warning).toBe(0);
+      expect(result.valid).toBe(true);
     });
 
-    it('should be case-sensitive for section matching', async () => {
+    it('should not warn about case/numbering differences in headings', async () => {
       const testFile = resolve(testDir, 'lowercase-sections.md');
       const content = `# Test PRD
 
 ## executive summary
 
-Wrong case - should fail validation.
-
 ${'x'.repeat(100)}
 
 ## functional requirements
-
-Also wrong case.
 `;
       await writeFile(testFile, content, 'utf-8');
 
       const validator = new PRDValidator();
       const result = await validator.validate(testFile);
 
-      // Should warn about missing sections due to case mismatch
       const structureIssues = result.issues.filter(
         i => i.category === 'structure'
       );
-      expect(structureIssues.length).toBeGreaterThan(0);
+      expect(structureIssues).toHaveLength(0);
     });
   });
 
@@ -377,9 +279,9 @@ Content here.
       const validator = new PRDValidator();
       const result = await validator.validate(testFile);
 
-      // Should have 2 warnings (missing Functional Requirements and User Workflows)
+      // No structural enforcement: a valid PRD yields no issues of any severity.
       expect(result.summary.critical).toBe(0);
-      expect(result.summary.warning).toBe(2);
+      expect(result.summary.warning).toBe(0);
       expect(result.summary.info).toBe(0);
     });
 
