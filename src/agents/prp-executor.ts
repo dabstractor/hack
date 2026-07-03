@@ -27,7 +27,7 @@ import { createPrompt } from 'groundswell';
 import type { Agent, AgentResponse } from 'groundswell';
 import type { PRPDocument, ValidationGate } from '../core/models.js';
 import { BashMCP } from '../tools/bash-mcp.js';
-import { retryAgentPrompt } from '../utils/retry.js';
+import { retryAgentPrompt, withAgentDeadline } from '../utils/retry.js';
 import { CheckpointManager } from '../core/checkpoint-manager.js';
 import type { CheckpointExecutionState } from '../core/checkpoint-manager.js';
 
@@ -322,7 +322,7 @@ export class PRPExecutor {
       // STEP 2: Execute Coder Agent with retry logic
       this.#logger.info({ prpTaskId: prp.taskId }, 'Starting PRP execution');
       const coderAgentResponse = await retryAgentPrompt(
-        () => this.#coderAgent.prompt(injectedPrompt),
+        () => withAgentDeadline(this.#coderAgent.prompt(injectedPrompt)),
         { agentType: 'Coder', operation: 'executePRP' }
       );
 

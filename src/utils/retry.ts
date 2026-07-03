@@ -48,8 +48,10 @@ import {
   isValidationError,
   isPipelineError,
   ErrorCodes,
+  AgentError,
   type PipelineError,
 } from './errors.js';
+import { getResearchTimeoutSeconds } from '../config/constants.js';
 
 // ============================================================================
 // TRANSIENT ERROR CONSTANTS
@@ -654,6 +656,44 @@ export async function retryAgentPrompt<T>(
     ...AGENT_RETRY_CONFIG,
     onRetry: createDefaultOnRetry(`${context.agentType}.${context.operation}`),
   });
+}
+
+/**
+ * Races a promise against the RESEARCH_TIMEOUT deadline (PRD §4.2).
+ *
+ * @remarks
+ * Bounds any single agent LLM call so a wedged/hung call cannot block the
+ * pipeline indefinitely (observed: a single Researcher call hung for hours).
+ * The background research path already enforces this deadline; the synchronous
+ * inline paths (Researcher PRP generation, Coder execution) must too. On
+ * expiry this rejects with a transient AgentError
+ * (PIPELINE_AGENT_LLM_FAILED) so the surrounding retryAgentPrompt loop
+ * re-attempts the operation.
+ *
+ * @example
+ * ```typescript
+ * const result = await withAgentDeadline(agent.prompt(prompt));
+ * ```
+ */
+export async function withAgentDeadline<T>(promise: Promise<T>): Promise<T> {
+  const deadlineSeconds = getResearchTimeoutSeconds();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new AgentError(
+            `Agent exceeded the ${deadlineSeconds}s RESEARCH_TIMEOUT deadline`
+          )
+        ),
+      deadlineSeconds * 1000
+    );
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // ============================================================================

@@ -147,8 +147,9 @@ const PERSONA_TOKEN_LIMITS = {
  *
  * @remarks
  * Generates a Groundswell-compatible agent configuration optimized for
- * the specified persona. All personas use the sonnet model tier (glm-5.2)
- * with caching and reflection enabled for optimal performance.
+ * the specified persona. Personas default to the `sonnet` (balanced) model
+ * tier (glm-5.2); the Coder overrides to the `haiku` (fast) tier per its
+ * IMPL_AGENT role (PRD §9.2.3).
  *
  * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)
  * to SDK expectations (ANTHROPIC_API_KEY) via configureEnvironment().
@@ -168,8 +169,10 @@ const PERSONA_TOKEN_LIMITS = {
  * ```
  */
 export function createBaseConfig(persona: AgentPersona): AgentConfig {
-  // PATTERN: Use getModel() to resolve model tier to actual model name
-  const model = getModel('sonnet'); // All personas use sonnet → glm-5.2
+  // PATTERN: Use getModel() to resolve model tier to actual model name.
+  // Default (balanced) tier for planning/research roles; the Coder overrides
+  // to the fast tier for codegen (PRD §9.2.3).
+  const model = getModel('sonnet');
 
   // PATTERN: Persona-specific naming (PascalCase with "Agent" suffix)
   const name = `${persona.charAt(0).toUpperCase() + persona.slice(1)}Agent`;
@@ -281,6 +284,10 @@ export function createCoderAgent(): Agent {
   const baseConfig = createBaseConfig('coder');
   const config = {
     ...baseConfig,
+    // IMPL_AGENT role → fast tier (PRD §9.2.3). The base config defaults to
+    // the balanced 'sonnet' tier (glm-5.2); the Coder overrides to 'haiku'
+    // (glm-5-turbo) for faster PRP execution + post-validation fixes.
+    model: getModel('haiku'),
     system: PRP_BUILDER_PROMPT,
     mcps: MCP_TOOLS,
   };

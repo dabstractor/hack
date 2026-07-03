@@ -746,6 +746,16 @@ export class TaskOrchestrator {
         'Subtask blocked on dependencies, skipping'
       );
 
+      // Reset to Planned (it was set to Researching above) so this incomplete
+      // task is retried on the next resume instead of being left dangling
+      // mid-flight. With a dependency-ordered queue (topo sort in resolveScope)
+      // this path only fires when a dependency itself failed/was skipped.
+      await this.setStatus(
+        subtask.id,
+        'Planned',
+        'Blocked on dependencies, deferring to next pass'
+      );
+
       // PATTERN: Return early without executing
       return;
     }

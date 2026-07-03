@@ -14,6 +14,7 @@ import { createResearcherAgent } from './agent-factory.js';
 import { createPRPBlueprintPrompt } from './prompts/prp-blueprint-prompt.js';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
+import { AgentError } from '../utils/errors.js';
 import type { Agent } from 'groundswell';
 import type {
   PRPDocument,
@@ -27,7 +28,7 @@ import type { SessionManager } from '../core/session-manager.js';
 import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { retryAgentPrompt } from '../utils/retry.js';
+import { retryAgentPrompt, withAgentDeadline } from '../utils/retry.js';
 import { TokenCounter, PERSONA_TOKEN_LIMITS } from '../utils/token-counter.js';
 import { CodeProcessor } from '../utils/code-processor.js';
 
@@ -260,6 +261,23 @@ export class PRPGenerator {
    * Excludes fields that don't affect PRP content: status, dependencies, story_points.
    * Uses deterministic JSON serialization (no whitespace) for consistent hashing.
    */
+  #parsePRPText(text: string): unknown | null {
+    try {
+      return JSON.parse(text);
+    } catch {
+      // fall through to fenced-content attempt
+    }
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenced) {
+      try {
+        return JSON.parse(fenced[1].trim());
+      } catch {
+        // fall through
+      }
+    }
+    return null;
+  }
+
   #computeTaskHash(task: Task | Subtask, _backlog: Backlog): string {
     // Build input object based on type
     let input: Record<string, unknown>;
@@ -645,48 +663,82 @@ export class PRPGenerator {
       issueFeedback
     );
 
-    // Step 2: Execute Researcher Agent with centralized retry logic
+    // Step 2: Execute Researcher Agent with centralized retry logic.
+    //
+    // The retry wraps the FULL generation contract — prompt → file-write →
+    // parse — not just the prompt call. Groundswell wraps harness/LLM upstream
+    // failures into { status: 'error' } responses (no throw), and on transient
+    // upstream errors may even return success WITHOUT writing the file (or while
+    // writing malformed JSON). Verifying the output INSIDE the retry loop is what
+    // makes those transient failures self-heal instead of failing the task (and,
+    // with continueOnError off, the whole pipeline). Every failure mode throws
+    // AgentError (code PIPELINE_AGENT_LLM_FAILED), which isTransientError
+    // classifies as retryable.
     this.#logger.info({ taskId: task.id }, 'Generating PRP');
-    const result = await retryAgentPrompt(
-      () => this.#researcherAgent.prompt(prompt),
+    const parsed: unknown = await retryAgentPrompt(
+      async () => {
+        // Fast path: if a prior attempt (or a previous run) already wrote a
+        // schema-valid PRP file — e.g. the agent finished writing but
+        // agent.prompt() hit the RESEARCH_TIMEOUT deadline before returning —
+        // reuse it instead of regenerating. This avoids discarding completed
+        // work on a timeout and avoids redundant re-generation on resume.
+        try {
+          const existingText = await readFile(prpOutputPath, 'utf-8');
+          const existingParsed = this.#parsePRPText(existingText);
+          if (
+            existingParsed !== null &&
+            PRPDocumentSchema.safeParse(existingParsed).success
+          ) {
+            this.#logger.info(
+              { taskId: task.id },
+              'Reusing existing valid PRP file'
+            );
+            return existingParsed;
+          }
+        } catch {
+          // no/invalid existing file — generate below
+        }
+
+        // Bound the agent call by the RESEARCH_TIMEOUT deadline (PRD §4.2). The
+        // background research path races against this deadline; the synchronous
+        // inline path (used when a subtask isn't pre-enqueued) must too —
+        // otherwise a wedged agent.prompt() blocks the pipeline indefinitely
+        // (observed: a single task hung for hours). On expiry withAgentDeadline
+        // rejects with a transient AgentError so retryAgentPrompt re-attempts.
+        const r = await withAgentDeadline(this.#researcherAgent.prompt(prompt));
+
+        // Surface agent-level failures (harness wraps LLM failures as
+        // { status: 'error' } — no throw).
+        if (r.status === 'error') {
+          throw new AgentError(
+            `Researcher agent failed: ${r.error?.message ?? 'unknown agent error'}`
+          );
+        }
+
+        // The file is the contract — mirrors the architect pattern. Reasoning
+        // models reliably write files but do NOT reliably honor responseFormat,
+        // so we read the file rather than trust result.data. A missing file
+        // means the agent silently failed (upstream error that never surfaced
+        // as status:'error').
+        let prpJsonText: string;
+        try {
+          prpJsonText = await readFile(prpOutputPath, 'utf-8');
+        } catch {
+          throw new AgentError(
+            `Researcher did not write PRP file at ${prpOutputPath}`
+          );
+        }
+
+        const generated = this.#parsePRPText(prpJsonText);
+        if (generated === null) {
+          throw new AgentError(
+            `Researcher wrote non-JSON PRP file at ${prpOutputPath}`
+          );
+        }
+        return generated;
+      },
       { agentType: 'Researcher', operation: 'generatePRP' }
     );
-
-    // Step 3: Surface agent-level failures. Groundswell wraps harness/LLM
-    // failures into { status: 'error' } responses (no throw).
-    if (result.status === 'error') {
-      throw new Error(
-        `Researcher agent failed: ${result.error?.message ?? 'unknown agent error'}`
-      );
-    }
-
-    // Step 4: Read the PRP JSON the researcher wrote to the file (the file is
-    // the contract — mirrors the architect pattern). Reasoning models like
-    // glm-5.2 reliably write files but do NOT reliably honor responseFormat
-    // for structured JSON, so we cannot trust result.data here.
-    let prpJsonText: string;
-    try {
-      prpJsonText = await readFile(prpOutputPath, 'utf-8');
-    } catch {
-      throw new Error(`Researcher did not write PRP file at ${prpOutputPath}`);
-    }
-    // Tolerate a markdown-fenced JSON block ONLY if the raw file isn't itself
-    // valid JSON (some agents wrap output in ```json fences). Parse the raw
-    // text first; a non-greedy regex sweep would corrupt valid JSON whose
-    // string VALUES contain code fences (e.g. a ```yaml block inside `context`).
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(prpJsonText);
-    } catch {
-      const fenced = prpJsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenced) {
-        parsed = JSON.parse(fenced[1].trim());
-      } else {
-        throw new Error(
-          `Researcher wrote non-JSON PRP file at ${prpOutputPath}`
-        );
-      }
-    }
 
     // Step 5: Validate the file contents against the schema.
     const validated = PRPDocumentSchema.parse(parsed);

@@ -280,10 +280,55 @@ function getLeafSubtasks(backlog: Backlog): Subtask[] {
  * Uses findItem() from task-utils.ts for ID lookups
  * Preserves DFS pre-order traversal (parent before children)
  */
+/**
+ * Topologically sorts subtasks so dependencies precede dependents.
+ *
+ * @remarks
+ * The execution loop processes the queue in a single FIFO pass and SKIPS any
+ * subtask whose dependencies aren't yet Complete — without re-enqueueing it.
+ * If a dependent appears before its dependencies in the queue, it is skipped
+ * and never revisited, leaving it dangling mid-flight (observed: 11 subtasks
+ * stuck in 'Researching' while the pipeline reported success). Sorting the
+ * queue topologically guarantees every subtask's dependencies are already
+ * Complete by the time it is reached, so the skip only fires for items blocked
+ * by a dependency that genuinely failed.
+ *
+ * Stable (independent items keep their backlog order) and cycle-safe (a cycle,
+ * which the dependency validator rejects anyway, is broken rather than looping).
+ */
+function topoSortByDependencies(items: Subtask[]): Subtask[] {
+  const ids = new Set(items.map(i => i.id));
+  const byId = new Map(items.map(i => [i.id, i] as const));
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const ordered: Subtask[] = [];
+
+  const visit = (id: string): void => {
+    if (visited.has(id) || visiting.has(id)) return;
+    visiting.add(id);
+    const item = byId.get(id);
+    if (item) {
+      for (const dep of item.dependencies) {
+        // Only dependencies that are themselves in this queue constrain
+        // ordering; deps already Complete (or out of scope) don't.
+        if (ids.has(dep)) visit(dep);
+      }
+    }
+    visited.add(id);
+    if (item) ordered.push(item);
+  };
+
+  // Iterate in original (backlog) order so independent items stay in place.
+  for (const item of items) visit(item.id);
+  return ordered;
+}
+
 export function resolveScope(backlog: Backlog, scope: Scope): HierarchyItem[] {
   // Handle 'all' scope - return all leaf subtasks
   if (scope.type === 'all') {
-    return getLeafSubtasks(backlog);
+    // Topologically sort (deps before dependents) so the single-pass execution
+    // loop never skips a runnable subtask whose deps complete later in the pass.
+    return topoSortByDependencies(getLeafSubtasks(backlog));
   }
 
   // For all other scope types, id is required
