@@ -428,6 +428,29 @@ This prevents the massive usage spikes that occurred when tests were accidentall
 - A run authenticated via `ZAI_API_KEY` alone succeeds under the `pi` + `zai` default.
 - A run authenticated via `ANTHROPIC_AUTH_TOKEN` succeeds **only** when the provider is `anthropic` (or via the backward-compat alias); it is **not** required by the default path.
 
+#### 9.2.8 Provider-Neutral Configuration Naming
+
+**Problem.** Several pipeline-global configuration env vars still carry the `ANTHROPIC_` prefix — a legacy of the original Anthropic-first design (`ANTHROPIC_BASE_URL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` / `..._SONNET_MODEL` / `..._HAIKU_MODEL`). Under the `pi` + `zai` default (§9.1, §9.2.6) this is actively misleading: the names imply a hard Anthropic dependency when in fact they configure the vendor-neutral pipeline (the LLM endpoint and the model-quality tiers). The tier names themselves (`opus`/`sonnet`/`haiku`) are Anthropic model-family names, compounding the same smell.
+
+**Requirement.** Pipeline-global configuration env vars MUST be provider-neutral (the `PRP_*` namespace already used by `PRP_API_KEY`, `PRP_AGENT_HARNESS`, `PRP_PIPELINE_RUNNING`). A vendor name may appear ONLY in a variable that is genuinely that vendor-provider's own native credential (e.g. `ZAI_API_KEY`, `ANTHROPIC_API_KEY`), never in a pipeline-global setting.
+
+**Canonical names.**
+
+| Canonical (provider-neutral) | Legacy alias (deprecated) | Purpose | Default |
+|---|---|---|---|
+| `PRP_API_BASE_URL` | `ANTHROPIC_BASE_URL` | LLM provider endpoint, resolved per provider (§9.2.4) | `https://api.z.ai/api/anthropic` when provider is `zai` |
+| `PRP_MODEL_HIGH` | `ANTHROPIC_DEFAULT_OPUS_MODEL` | Highest-quality model tier | `glm-5.2` |
+| `PRP_MODEL_BALANCED` | `ANTHROPIC_DEFAULT_SONNET_MODEL` | Balanced/default tier — planning & research roles (`AGENT`) | `glm-5.2` |
+| `PRP_MODEL_FAST` | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Fast/codegen tier — implementation role (`IMPL_AGENT`) | `glm-5-turbo` |
+
+**Model-tier rename.** The internal tiers are renamed from Anthropic model-family names to vendor-neutral quality tiers: `opus` → `high`, `sonnet` → `balanced`, `haiku` → `fast`. This touches `MODEL_NAMES`, `MODEL_ENV_VARS`, `getModel(tier)`, the `ModelTier` type, and the agent factory's per-persona tier selection (§9.2.3). The role→tier mapping is unchanged: planning/research → `balanced`; implementation → `fast`.
+
+**Backward compatibility.** The legacy `ANTHROPIC_*` names MUST remain readable as deprecated aliases: when a canonical var is unset, the loader falls back to the legacy alias and emits a one-time deprecation warning naming the canonical replacement. The legacy aliases are slated for removal in a future major version. `.env.example` documents only the canonical names (legacy names appear solely in a deprecation note).
+
+**Scope / transition.** This is a forward requirement. When implemented, it updates §9.2.2, §9.2.3, and §9.2.4 to reference the canonical names as primary, the env loader (`config/environment.ts`, `config/constants.ts`) to read canonical-first with legacy fallback, and `.env.example`. **Until then, the `ANTHROPIC_*` names shown in §9.2.2–§9.2.4 remain in effect** (so the current code, which reads those names, stays in spec).
+
+**Exception — Anthropic-provider credentials.** `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` are NOT renamed: they are the `anthropic` provider's own native credentials, consulted only when the resolved provider is `anthropic` (§9.2.6). Provider-native credential names are correct; only pipeline-global vars are neutralized.
+
 ### 9.3 System Components (Groundswell Mapping)
 
 #### 9.3.1 Pipeline Controller (`MainWorkflow`)
