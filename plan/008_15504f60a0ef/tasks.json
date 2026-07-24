@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Distributed PRD Resolution & Selective Section Extraction",
-      "status": "Planned",
+      "status": "Researching",
       "description": "Add an include-expansion resolver that turns multi-file PRDs into one canonical document at load time, wire it through all downstream consumers (hash, snapshot, diff, agent prompts), and implement selective PRD section extraction via prd_selectors so the Researcher receives only referenced sections.",
       "milestones": [
         {
@@ -130,21 +130,21 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Selective PRD Section Extraction",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Add the prd_selectors field to the Subtask model, build a section index generator over the resolved document, and implement selector extraction at PRP-generation time so the Researcher receives only referenced PRD sections with full-PRD fallback.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Section Index Generation and prd_selectors Extraction",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Add the prd_selectors field to the Subtask model and Zod schema, build a section index generator that maps selector strings to PRD section content over the resolved document, and wire selector extraction into the Researcher prompt generation with full-PRD fallback.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Add prd_selectors field to Subtask model and Zod schema",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md Finding #1 confirms Subtask interface (models.ts:273-337) has NO prd_selectors field. SubtaskSchema (models.ts:360-381) mirrors Subtask exactly. The PRD §4.2 step 2 specifies prd_selectors as an array of selector strings (e.g. ['h2.1', 'h3.0']).\n2. INPUT: No prior subtask output consumed (model change is standalone).\n3. LOGIC: Add `readonly prd_selectors: string[]` to the Subtask interface in src/core/models.ts (after context_scope). Update SubtaskSchema to include `prd_selectors: z.array(z.string()).optional().default([])`. The field should be optional with a default empty array so existing serialized tasks.json files remain valid. Ensure BacklogSchema recursive validation still passes.\n4. OUTPUT: Updated Subtask interface and SubtaskSchema in models.ts. Consumed by P1.M2.T1.S3.\n5. DOCS: [Mode A] JSDoc on the prd_selectors field in the Subtask interface documenting its purpose (referencing PRD section selectors for selective extraction). This rides WITH the work.",
@@ -157,7 +157,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "Section index generator over resolved document",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S2"
@@ -172,7 +172,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "Selector extraction at PRP-generation time with full-PRD fallback",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",

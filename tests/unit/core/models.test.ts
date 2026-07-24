@@ -343,6 +343,7 @@ describe('core/models Zod Schemas', () => {
 2. INPUT: None
 3. LOGIC: Define TypeScript interfaces and Zod schemas for Phase, Milestone, Task, and Subtask.
 4. OUTPUT: Type definitions and Zod schemas for validation.`,
+      prd_selectors: [],
     };
 
     it('should parse valid subtask', () => {
@@ -495,6 +496,37 @@ describe('core/models Zod Schemas', () => {
 
       // VERIFY
       expect(result.success).toBe(false);
+    });
+
+    it('should default prd_selectors to [] when absent (PRD §4.2)', () => {
+      // SETUP: Subtask with prd_selectors key stripped (simulates old tasks.json)
+      const { prd_selectors: _stripped, ...withoutSelectors } = validSubtask;
+
+      // EXECUTE
+      const result = SubtaskSchema.safeParse(withoutSelectors);
+
+      // VERIFY
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.prd_selectors).toEqual([]);
+      }
+    });
+
+    it('should retain provided prd_selectors through parse (PRD §4.2)', () => {
+      // SETUP: Subtask carrying explicit PRD section selectors
+      const withSelectors = {
+        ...validSubtask,
+        prd_selectors: ['h3.0', 'h2.1'],
+      };
+
+      // EXECUTE
+      const result = SubtaskSchema.safeParse(withSelectors);
+
+      // VERIFY
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.prd_selectors).toEqual(['h3.0', 'h2.1']);
+      }
     });
   });
 

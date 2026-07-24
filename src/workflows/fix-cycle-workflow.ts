@@ -613,6 +613,7 @@ MOCKING: None (real execution context)
       story_points: severityToPoints[bug.severity],
       dependencies: [], // Fix tasks are independent
       context_scope: contextScope,
+      prd_selectors: [], // Bug-fix subtasks have no PRD selectors (PRD §4.2)
     };
   }
 }

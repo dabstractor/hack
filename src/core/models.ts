@@ -332,6 +332,21 @@ export interface Subtask {
    * ```
    */
   readonly context_scope: string;
+
+  /**
+   * PRD section selectors for selective extraction (PRD §4.2).
+   *
+   * @remarks
+   * Each entry is a PRD section-index selector (e.g. 'h2.1', 'h3.0') computed
+   * from a generated PRD section index by the section-index generator. At
+   * PRP-generation time the Researcher receives ONLY the referenced PRD
+   * sections instead of the full document, keeping its context focused. When
+   * the array is empty OR extraction fails, the full PRD is used as a fallback.
+   * Serialized to/loaded from tasks.json; absent on disk parses to [].
+   *
+   * @example ['h2.1', 'h3.0']
+   */
+  readonly prd_selectors: string[];
 }
 
 /**
@@ -357,7 +372,15 @@ export interface Subtask {
  * // result.success === true
  * ```
  */
-export const SubtaskSchema: z.ZodType<Subtask> = z.object({
+export const SubtaskSchema: z.ZodType<
+  Subtask,
+  z.ZodTypeDef,
+  // Input may omit prd_selectors (old tasks.json); the .default([]) below
+  // guarantees the parsed output is always string[] (PRD §4.2). The widening
+  // of the input type parameter is required so zod 3.x's ZodType annotation
+  // accepts an optional-but-defaulted key without a input/output mismatch.
+  Omit<Subtask, 'prd_selectors'> & { prd_selectors?: string[] }
+> = z.object({
   id: z
     .string()
     .regex(
@@ -377,6 +400,7 @@ export const SubtaskSchema: z.ZodType<Subtask> = z.object({
     .max(21, 'Story points cannot exceed 21'),
   dependencies: z.array(z.string()).min(0),
   context_scope: ContextScopeSchema,
+  prd_selectors: z.array(z.string()).optional().default([]),
 });
 
 /**
@@ -470,7 +494,16 @@ export interface Task {
  * // result.success === true
  * ```
  */
-export const TaskSchema: z.ZodType<Task> = z.object({
+export const TaskSchema: z.ZodType<
+  Task,
+  z.ZodTypeDef,
+  // subtasks may omit prd_selectors on input (PRD §4.2); SubtaskSchema defaults it to [].
+  Omit<Task, 'subtasks'> & {
+    subtasks: (Omit<Subtask, 'prd_selectors'> & {
+      prd_selectors?: string[];
+    })[];
+  }
+> = z.object({
   id: z
     .string()
     .regex(
@@ -564,7 +597,12 @@ export interface Milestone {
  * // result.success === true
  * ```
  */
-export const MilestoneSchema: z.ZodType<Milestone> = z.lazy(() =>
+export const MilestoneSchema: z.ZodType<
+  Milestone,
+  z.ZodTypeDef,
+  // tasks/subtasks may omit prd_selectors on input (PRD §4.2).
+  Omit<Milestone, 'tasks'> & { tasks: z.input<typeof TaskSchema>[] }
+> = z.lazy(() =>
   z.object({
     id: z
       .string()
@@ -661,7 +699,12 @@ export interface Phase {
  * // result.success === true
  * ```
  */
-export const PhaseSchema: z.ZodType<Phase> = z.lazy(() =>
+export const PhaseSchema: z.ZodType<
+  Phase,
+  z.ZodTypeDef,
+  // milestones/tasks/subtasks may omit prd_selectors on input (PRD §4.2).
+  Omit<Phase, 'milestones'> & { milestones: z.input<typeof MilestoneSchema>[] }
+> = z.lazy(() =>
   z.object({
     id: z.string().regex(/^P\d+$/, 'Invalid phase ID format (expected P{N})'),
     type: z.literal('Phase'),
@@ -751,7 +794,12 @@ export interface Backlog {
  * // result.success === true
  * ```
  */
-export const BacklogSchema: z.ZodType<Backlog> = z.object({
+export const BacklogSchema: z.ZodType<
+  Backlog,
+  z.ZodTypeDef,
+  // phases/milestones/tasks/subtasks may omit prd_selectors on input (PRD §4.2).
+  Omit<Backlog, 'backlog'> & { backlog: z.input<typeof PhaseSchema>[] }
+> = z.object({
   backlog: z.array(PhaseSchema),
 });
 
