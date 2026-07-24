@@ -57,6 +57,30 @@ vi.mock('../../../src/utils/git-commit.js', () => ({
   formatCommitMessage: vi.fn((msg: string) => msg),
 }));
 
+// Mock the cleanup agent factory so the DEFAULT createCleanupRunner() (P3.M1.T3.S3)
+// does not attempt real agent/LLM construction in orchestrator tests. The mock
+// agent's prompt resolves success, so tests that exercise the default-runner
+// success path (two-phase commit → 2 smartCommit calls) still observe 2 commits.
+// Tests that need a specific cleanup outcome inject their own cleanupRunner
+// spy via the TaskOrchestrator options (see buildOrchestrator).
+vi.mock('../../../src/agents/agent-factory.js', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('../../../src/agents/agent-factory.js')
+    >();
+  return {
+    ...actual,
+    createCleanupAgent: vi.fn(() => ({
+      prompt: vi.fn(() =>
+        Promise.resolve({
+          status: 'success',
+          data: 'no cleanup needed',
+        })
+      ),
+    })),
+  };
+});
+
 // Mock the ResearchQueue class — use importOriginal so the REAL
 // ResearchTimeoutError (S2 export) survives mocking (else instanceof TypeError).
 vi.mock('../../../src/core/research-queue.js', async importOriginal => {
@@ -1260,8 +1284,11 @@ describe('TaskOrchestrator', () => {
         expect(spyRunner).not.toHaveBeenCalled();
       });
 
-      it('should use the default no-op cleanup runner when no options are passed (backward compat)', async () => {
-        // SETUP: default constructor (no options) — uses createCleanupRunner().
+      it('should use the default cleanup runner (invokes the cleanup persona) when no options are passed (backward compat)', async () => {
+        // SETUP: default constructor (no options) — uses createCleanupRunner(),
+        // which since P3.M1.T3.S3 invokes createCleanupAgent(). The cleanup
+        // agent factory is mocked (top of file) to resolve success, so the
+        // default runner reports success → TWO commits happen.
         mockSmartCommit.mockResolvedValue('abc123def456');
         const testBacklog = createTestBacklog([]);
         const currentSession = {
@@ -4426,8 +4453,8 @@ describe('TaskOrchestrator', () => {
       ).resolves.toBeUndefined();
 
       // VERIFY: execution continued past recovery to smartCommit + flushUpdates
-      // (two-phase commit: survival commit + post-cleanup commit, both via the
-      //  default no-op cleanup runner which reports success)
+      // (two-phase commit: survival commit + post-cleanup commit; the default
+      //  cleanup runner invokes the mocked cleanup persona which reports success)
       expect(mockSmartCommit).toHaveBeenCalledTimes(2);
       // VERIFY: the non-fatal failure was logged
       expect(mockLogger.error).toHaveBeenCalledWith(

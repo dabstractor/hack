@@ -38,6 +38,7 @@ import {
   PRP_BLUEPRINT_PROMPT,
   PRP_BUILDER_PROMPT,
   BUG_HUNT_PROMPT,
+  CLEANUP_PROMPT,
 } from './prompts.js';
 import { BashMCP } from '../tools/bash-mcp.js';
 import { FilesystemMCP } from '../tools/filesystem-mcp.js';
@@ -94,8 +95,15 @@ const MCP_TOOLS: MCPServer[] = [BASH_MCP, FILESYSTEM_MCP, GIT_MCP];
  * - 'researcher': Performs codebase and external research
  * - 'coder': Implements code based on PRP specifications
  * - 'qa': Validates implementations and hunts for bugs
+ * - 'cleanup': Reorganizes the working tree after a subtask passes validation
+ *   (PRD §4.2 step 4 — remove temp artifacts, move docs to `docs/`)
  */
-export type AgentPersona = 'architect' | 'researcher' | 'coder' | 'qa';
+export type AgentPersona =
+  | 'architect'
+  | 'researcher'
+  | 'coder'
+  | 'qa'
+  | 'cleanup';
 
 /**
  * Extended-thinking (reasoning) budget for an agent (PRD §6.1, §9.2.3).
@@ -175,6 +183,7 @@ const PERSONA_TOKEN_LIMITS = {
   researcher: 4096,
   coder: 4096,
   qa: 4096,
+  cleanup: 4096,
 } as const;
 
 /**
@@ -395,6 +404,52 @@ export function createQAAgent(): Agent {
     mcps: MCP_TOOLS,
   };
   logger().debug({ persona: 'qa', model: config.model }, 'Creating agent');
+  return createAgent(config);
+}
+
+/**
+ * Create a Cleanup agent for post-validation artifact reorganization
+ *
+ * @remarks
+ * Uses the **Implementation** model role (fast tier, normal reasoning budget per
+ * PRD §9.2.3) — cleanup is a mechanical reorganization, not a reasoning task.
+ * Uses the `CLEANUP_PROMPT` system prompt, which encodes the cleanup job
+ * (PRD §4.2 step 4: remove temp artifacts, move docs to `docs/`, leave
+ * `tasks.json` intact) and the **prompt-layer** critical-file deletion
+ * protection mandated by PRD §5.1 (no `rm` / `git rm` / `git clean` / `mv`
+ * against `PRD.md`, any `PRP.md`, or anything under `plan/`; no self-`git
+ * commit` — the orchestrator's stagecoach does the post-cleanup commit).
+ *
+ * **Stateless single-shot** (PRD §9.3.3): `enableReflection: false` +
+ * `enableCache: false` — cleanup is a one-shot reorg with no reflection loop
+ * and no cacheable prompt. (`AgentConfig` has no `session` field yet;
+ * P3.M2.T3.S1 audits/disables mechanical session persistence later.)
+ *
+ * **Diverges from {@link createCommitMessageAgent}** by carrying `MCP_TOOLS`
+ * (bash + filesystem + git): cleanup actually mutates the filesystem (move docs,
+ * remove temp), whereas the commit-message agent reads a diff from the prompt
+ * text and needs no tools.
+ *
+ * @returns Configured Groundswell Agent instance
+ *
+ * @example
+ * ```ts
+ * import { createCleanupAgent } from './agents/agent-factory.js';
+ *
+ * const cleanup = createCleanupAgent();
+ * const result = await cleanup.prompt(cleanupPrompt);
+ * ```
+ */
+export function createCleanupAgent(): Agent {
+  const baseConfig = createBaseConfig('cleanup', 'implementation');
+  const config = {
+    ...baseConfig,
+    system: CLEANUP_PROMPT,
+    mcps: MCP_TOOLS,
+    enableReflection: false,
+    enableCache: false,
+  };
+  logger().debug({ persona: 'cleanup', model: config.model }, 'Creating agent');
   return createAgent(config);
 }
 

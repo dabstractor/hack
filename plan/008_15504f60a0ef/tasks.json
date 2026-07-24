@@ -488,7 +488,7 @@
               "type": "Task",
               "id": "P3.M1.T3",
               "title": "Two-Phase Commit via Stagecoach",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Replace the single end-of-item commit with a two-phase commit around the cleanup agent: pre-cleanup survival commit, cleanup agent execution, and post-cleanup commit. Add stagecoach LLM commit-message generation to smartCommit and create the cleanup agent persona.",
               "subtasks": [
                 {
@@ -523,7 +523,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T3.S3",
                   "title": "Create cleanup agent persona",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T3.S2",

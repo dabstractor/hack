@@ -16,6 +16,7 @@ import {
   DELTA_PRD_PROMPT,
   DELTA_ANALYSIS_PROMPT,
   BUG_HUNT_PROMPT,
+  CLEANUP_PROMPT,
   PRD_PREMERGED_DECLARATION,
   PROMPTS,
   type PromptKey,
@@ -52,6 +53,11 @@ describe('agents/prompts', () => {
       expect(typeof BUG_HUNT_PROMPT).toBe('string');
       expect(BUG_HUNT_PROMPT.length).toBeGreaterThan(100);
     });
+
+    it('should export CLEANUP_PROMPT as a string', () => {
+      expect(typeof CLEANUP_PROMPT).toBe('string');
+      expect(CLEANUP_PROMPT.length).toBeGreaterThan(100);
+    });
   });
 
   describe('prompt content validation', () => {
@@ -84,18 +90,24 @@ describe('agents/prompts', () => {
       expect(BUG_HUNT_PROMPT).toContain('Creative Bug Finding');
       expect(BUG_HUNT_PROMPT).toContain('End-to-End PRD Validation');
     });
+
+    it('CLEANUP_PROMPT should contain expected header', () => {
+      expect(CLEANUP_PROMPT).toContain('Cleanup Agent');
+      expect(CLEANUP_PROMPT).toContain('Artifact Reorganization');
+    });
   });
 
   describe('PROMPTS lookup object', () => {
-    it('should contain all six prompts', () => {
+    it('should contain all seven prompts', () => {
       const keys = Object.keys(PROMPTS) as PromptKey[];
-      expect(keys).toHaveLength(6);
+      expect(keys).toHaveLength(7);
       expect(keys).toContain('TASK_BREAKDOWN');
       expect(keys).toContain('PRP_BLUEPRINT');
       expect(keys).toContain('PRP_BUILDER');
       expect(keys).toContain('DELTA_PRD');
       expect(keys).toContain('DELTA_ANALYSIS');
       expect(keys).toContain('BUG_HUNT');
+      expect(keys).toContain('CLEANUP');
     });
 
     it('should provide type-safe access to prompts', () => {
@@ -105,6 +117,7 @@ describe('agents/prompts', () => {
       expect(PROMPTS.DELTA_PRD).toBe(DELTA_PRD_PROMPT);
       expect(PROMPTS.DELTA_ANALYSIS).toBe(DELTA_ANALYSIS_PROMPT);
       expect(PROMPTS.BUG_HUNT).toBe(BUG_HUNT_PROMPT);
+      expect(PROMPTS.CLEANUP).toBe(CLEANUP_PROMPT);
     });
 
     it('should use const assertion for literal types', () => {

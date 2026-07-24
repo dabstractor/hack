@@ -1,28 +1,48 @@
 /**
- * Unit tests for the cleanup-runner seam (P3.M1.T3.S2).
+ * Unit tests for the cleanup-runner seam (P3.M1.T3.S2) + its default runner's
+ * cleanup-persona invocation (P3.M1.T3.S3).
  *
  * @remarks
- * Validates the SEAM contract only — pure types + the no-op default factory.
- * No real filesystem, no real git, no real agent. The behavior of the
- * two-phase commit wiring (how executeSubtask invokes the seam) is covered in
- * task-orchestrator.test.ts; here we only assert the seam's own defaults.
+ * Validates BOTH:
+ *  - The SEAM contract (P3.M1.T3.S2) — pure types + the injection contract.
+ *    No real filesystem, no real git, no real agent.
+ *  - The DEFAULT runner's persona invocation (P3.M1.T3.S3) — the runner built
+ *    by `createCleanupRunner()` now invokes `createCleanupAgent()` (the S2
+ *    no-op placeholder is GONE). `createCleanupAgent` is mocked so no real
+ *    agent/LLM fires; the mock agent's `prompt` return is parameterized to
+ *    verify the `r.status` → `CleanupResult` mapping.
  *
  * @see {@link ../../src/core/cleanup-runner.ts}
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { Subtask, Status } from '../../../src/core/models.js';
+
+// Mock the cleanup agent factory so no real agent/LLM fires. The mock returns a
+// fresh { prompt } callable per call; tests override the prompt mock's return to
+// exercise the status → CleanupResult mapping.
+vi.mock('../../../src/agents/agent-factory.js', () => ({
+  createCleanupAgent: vi.fn(() => ({
+    prompt: vi.fn(() =>
+      Promise.resolve({ status: 'success', data: 'moved 2 docs to docs/' })
+    ),
+  })),
+}));
+
 import {
   createCleanupRunner,
   type CleanupContext,
   type CleanupResult,
 } from '../../../src/core/cleanup-runner.js';
-import type { Subtask, Status } from '../../../src/core/models.js';
+import { createCleanupAgent } from '../../../src/agents/agent-factory.js';
 
-/** Minimal subtask factory for seam tests (shape only — seam never reads fields). */
+const mockCreateCleanupAgent = vi.mocked(createCleanupAgent);
+
+/** Minimal subtask factory for seam/runner tests. */
 const makeSubtask = (): Subtask => ({
-  id: 'P1.M1.T1.S1',
+  id: 'P3.M1.T3.S3',
   type: 'Subtask',
-  title: 'Test Subtask',
+  title: 'Create cleanup agent persona',
   status: 'Planned' as Status,
   story_points: 2,
   dependencies: [],
@@ -30,11 +50,11 @@ const makeSubtask = (): Subtask => ({
   prd_selectors: [],
 });
 
-/** Minimal CleanupContext for invoking the seam. */
+/** Minimal CleanupContext for invoking the seam/runner. */
 const makeContext = (): CleanupContext => ({
-  sessionPath: '/plan/001_14b9dc2a33c7',
+  sessionPath: '/repo/plan/008_15504f60a0ef',
   subtask: makeSubtask(),
-  repoRoot: process.cwd(),
+  repoRoot: '/repo',
 });
 
 describe('cleanup-runner seam', () => {
@@ -44,30 +64,19 @@ describe('cleanup-runner seam', () => {
       expect(typeof runner).toBe('function');
     });
 
-    it('should resolve { success: true } with a summary string (no-op default)', async () => {
+    it('should resolve a CleanupResult with a summary string', async () => {
       const runner = createCleanupRunner();
       const result: CleanupResult = await runner(makeContext());
 
       expect(result.success).toBe(true);
       expect(typeof result.summary).toBe('string');
-      expect(result.summary).toBe('cleanup disabled (no persona wired yet)');
     });
 
-    it('should not throw and should not perform any filesystem access', async () => {
+    it('should not throw on the happy path', async () => {
       const runner = createCleanupRunner();
-      // The default no-op must not touch the fs — awaiting it simply resolves.
       await expect(runner(makeContext())).resolves.toMatchObject({
         success: true,
       });
-    });
-
-    it('should accept any CleanupContext without reading its fields', async () => {
-      const runner = createCleanupRunner();
-      const ctx = makeContext();
-      const result = await runner(ctx);
-
-      // The default runner ignores ctx entirely — success regardless of fields.
-      expect(result).toMatchObject({ success: true });
     });
   });
 
@@ -87,11 +96,10 @@ describe('cleanup-runner seam', () => {
 
       expect(result.success).toBe(true);
       expect(result.summary).toBe('custom cleanup ran');
-      // The runner receives the context verbatim — sessionPath/subtask/repoRoot.
       expect(received).not.toBeNull();
-      expect(received!.sessionPath).toBe('/plan/001_14b9dc2a33c7');
-      expect(received!.subtask.id).toBe('P1.M1.T1.S1');
-      expect(received!.repoRoot).toBe(process.cwd());
+      expect(received!.sessionPath).toBe('/repo/plan/008_15504f60a0ef');
+      expect(received!.subtask.id).toBe('P3.M1.T3.S3');
+      expect(received!.repoRoot).toBe('/repo');
     });
 
     it('should allow a custom runner to report failure non-fatally', async () => {
@@ -102,10 +110,144 @@ describe('cleanup-runner seam', () => {
 
       const result = await failingRunner(makeContext());
 
-      // success:false is a normal result value — the seam contract does not
-      // require throwing. executeSubtask treats this as non-fatal (logged + swallowed).
       expect(result.success).toBe(false);
       expect(result.error).toBe('simulated cleanup failure');
     });
+  });
+});
+
+describe('createCleanupRunner — persona invocation (P3.M1.T3.S3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should invoke createCleanupAgent().prompt exactly once', async () => {
+    // EXECUTE
+    const runner = createCleanupRunner();
+    await runner(makeContext());
+
+    // VERIFY — the default runner builds + invokes the cleanup persona (the S2
+    // no-op summary 'cleanup disabled (no persona wired yet)' is GONE).
+    expect(mockCreateCleanupAgent).toHaveBeenCalledTimes(1);
+    const mockAgent = mockCreateCleanupAgent.mock.results[0].value as {
+      prompt: ReturnType<typeof vi.fn>;
+    };
+    expect(mockAgent.prompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('should build a user prompt containing sessionPath + subtask.id + subtask.title', async () => {
+    // EXECUTE
+    const runner = createCleanupRunner();
+    await runner(makeContext());
+
+    // VERIFY — capture the createPrompt-built prompt object's `user` field.
+    const mockAgent = mockCreateCleanupAgent.mock.results[0].value as {
+      prompt: ReturnType<typeof vi.fn>;
+    };
+    const promptArg = mockAgent.prompt.mock.calls[0][0] as { user: string };
+    expect(promptArg.user).toContain('/repo/plan/008_15504f60a0ef');
+    expect(promptArg.user).toContain('P3.M1.T3.S3');
+    expect(promptArg.user).toContain('Create cleanup agent persona');
+  });
+
+  it('should restate the forbidden paths in the user prompt (PRD §5.1)', async () => {
+    // EXECUTE
+    const runner = createCleanupRunner();
+    await runner(makeContext());
+
+    // VERIFY — the runner's user prompt restates the hard rules so the agent
+    // cannot misread the system prompt in isolation.
+    const mockAgent = mockCreateCleanupAgent.mock.results[0].value as {
+      prompt: ReturnType<typeof vi.fn>;
+    };
+    const promptArg = mockAgent.prompt.mock.calls[0][0] as { user: string };
+    expect(promptArg.user).toContain('PRD.md');
+    expect(promptArg.user).toContain('PRP.md');
+    expect(promptArg.user).toContain('plan/');
+  });
+
+  it('should map r.status==="success" → { success: true, summary }', async () => {
+    // SETUP — default mock returns { status:'success', data:'moved 2 docs...' }
+    const runner = createCleanupRunner();
+    const result = await runner(makeContext());
+
+    // VERIFY
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('moved 2 docs to docs/');
+    expect(result.error).toBeUndefined();
+  });
+
+  it('should map r.status==="error" → { success: false, error }', async () => {
+    // SETUP — override the mock agent to return an error status.
+    mockCreateCleanupAgent.mockReturnValueOnce({
+      prompt: vi.fn(() =>
+        Promise.resolve({
+          status: 'error',
+          data: null,
+          error: { message: 'boom' },
+        })
+      ),
+    } as unknown as ReturnType<typeof createCleanupAgent>);
+
+    // EXECUTE
+    const runner = createCleanupRunner();
+    const result = await runner(makeContext());
+
+    // VERIFY — non-fatal: returns success:false (does NOT throw).
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('boom');
+    expect(result.summary).toBeUndefined();
+  });
+
+  it('should map r.status==="partial" → { success: true, summary } (partial carries data)', async () => {
+    // SETUP — partial still has data; treat as success per Groundswell semantics.
+    mockCreateCleanupAgent.mockReturnValueOnce({
+      prompt: vi.fn(() =>
+        Promise.resolve({
+          status: 'partial',
+          data: 'partial cleanup done',
+          error: null,
+        })
+      ),
+    } as unknown as ReturnType<typeof createCleanupAgent>);
+
+    // EXECUTE
+    const runner = createCleanupRunner();
+    const result = await runner(makeContext());
+
+    // VERIFY
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('partial cleanup done');
+  });
+
+  it('should return { success: false, error } when agent.prompt rejects (non-fatal)', async () => {
+    // SETUP — an unexpected throw from the agent (e.g. construction/network).
+    mockCreateCleanupAgent.mockReturnValueOnce({
+      prompt: vi.fn(() => Promise.reject(new Error('network down'))),
+    } as unknown as ReturnType<typeof createCleanupAgent>);
+
+    // EXECUTE
+    const runner = createCleanupRunner();
+    const result = await runner(makeContext());
+
+    // VERIFY — the runner catches + returns non-fatal failure (S2's nested
+    // try/catch is the outer belt-and-suspenders guard). Does NOT rethrow.
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('network');
+  });
+
+  it('should default an empty agent summary to "cleanup complete"', async () => {
+    // SETUP — agent succeeds but returns empty/whitespace data.
+    mockCreateCleanupAgent.mockReturnValueOnce({
+      prompt: vi.fn(() => Promise.resolve({ status: 'success', data: '   ' })),
+    } as unknown as ReturnType<typeof createCleanupAgent>);
+
+    // EXECUTE
+    const runner = createCleanupRunner();
+    const result = await runner(makeContext());
+
+    // VERIFY
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('cleanup complete');
   });
 });
