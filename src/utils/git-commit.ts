@@ -62,6 +62,7 @@ const PROTECTED_FILES = [
   'prd_snapshot.md', // PRP snapshot for delta detection
   'delta_prd.md', // Delta PRP document
   'delta_from.txt', // Parent session reference for delta sessions
+  'prd_changed.marker', // PRD-change pending-delta marker (PRD §4.3)
   'TEST_RESULTS.md', // QA bug report output
 ] as const;
 

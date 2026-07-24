@@ -13,6 +13,7 @@
   - [Pipeline Execution](#pipeline-execution)
   - [Scoped Execution](#scoped-execution)
   - [Special Modes](#special-modes)
+  - [Delta Response Selection](#delta-response-selection)
   - [Task Management](#task-management)
 - [Options](#options)
   - [Required Options](#required-options)
@@ -144,6 +145,30 @@ npm run dev -- --prd ./PRD.md --validate-prd
 
 Validates the PRD syntax and structure without running the pipeline. Exits with code 0 if valid, 1 if invalid. It makes no API calls and **requires no credential**, so you can lint your PRD before configuring API access.
 
+### Delta Response Selection
+
+When you resume an active session (`--continue`) whose `prd_snapshot.md` no longer matches the current `PRD.md` — i.e. you edited the PRD mid-project — the pipeline detects the change (PRD §4.3 "The Delta Workflow") and offers three response paths. The pending change is recorded in a `prd_changed.marker` file (the `.pending_delta_hash`) inside the session directory.
+
+**1. Delta session (default):**
+
+```bash
+npm run dev -- --prd ./PRD.md --continue
+```
+
+Spawns a **linked delta session** scoped to the diffs. Completed work is preserved; affected tasks are re-executed. This is the default when no response flag is set.
+
+**2. Integrate into current session:**
+
+Folds the new/changed requirements into the **running** session's task hierarchy instead of spawning a separate delta session. The original `prd_snapshot.md` is **preserved until after integration succeeds** — the integration agent diffs the original snapshot against the current PRD, and the snapshot is refreshed only once integration has applied. (This path is implemented and reachable programmatically; its CLI trigger is deferred.)
+
+**3. Accept PRD edits as the new baseline (`--accept-prd-changes`):**
+
+```bash
+npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
+```
+
+Accepts the PRD edits as the new baseline **without** generating a delta session. Across all `PRD_CHANGED_*` session states it **cancels the queued `.pending_delta_hash`**, **refreshes `prd_snapshot.md` to the current PRD**, and **exits/resumes idempotently**. Use this for documentation-only edits or for changes that merely describe already-finished, validated work. The next run detects no change and proceeds normally.
+
 ### Task Management
 
 The CLI provides task-querying subcommands for inspecting the current session's
@@ -185,10 +210,10 @@ prd status next -o json
 
 ### Execution Control
 
-| Option            | Type   | Choices                          | Default  | Description                                  |
-| ----------------- | ------ | -------------------------------- | -------- | -------------------------------------------- |
-| `--mode <mode>`   | string | `normal`, `bug-hunt`, `validate` | `normal` | Execution mode                               |
-| `--scope <scope>` | string | -                                | -        | Scope identifier (e.g., `P3.M4`, `P3.M4.T2`) |
+| Option            | Type   | Choices                                   | Default  | Description                                  |
+| ----------------- | ------ | ----------------------------------------- | -------- | -------------------------------------------- |
+| `--mode <mode>`   | string | `normal`, `delta`, `bug-hunt`, `validate` | `normal` | Execution mode                               |
+| `--scope <scope>` | string | -                                         | -        | Scope identifier (e.g., `P3.M4`, `P3.M4.T2`) |
 
 **Execution Modes:**
 
@@ -208,17 +233,22 @@ prd status next -o json
   - Validates required sections
   - Exits after validation (same as `--validate-prd` flag)
 
+- **`delta`**: Detect PRD changes and run the delta workflow.
+  - On an active session whose `prd_snapshot.md` no longer matches the current PRD, the pipeline enters the Delta Workflow (PRD §4.3).
+  - The response to a detected change is controlled by `--accept-prd-changes` and the integrate-into-current path — see [Delta Response Selection](#delta-response-selection).
+
 ### Boolean Flags
 
-| Option                | Type    | Default | Description                                                   |
-| --------------------- | ------- | ------- | ------------------------------------------------------------- |
-| `--continue`          | boolean | false   | Resume from previous session                                  |
-| `--dry-run`           | boolean | false   | Show plan without executing (no credential required)          |
-| `--verbose`           | boolean | false   | Enable debug logging                                          |
-| `--machine-readable`  | boolean | false   | Enable machine-readable JSON output                           |
-| `--no-cache`          | boolean | false   | Bypass cache and regenerate all PRPs                          |
-| `--continue-on-error` | boolean | false   | Treat all errors as non-fatal and continue pipeline execution |
-| `--validate-prd`      | boolean | false   | Validate PRD and exit (no agent, no credential)               |
+| Option                 | Type    | Default | Description                                                             |
+| ---------------------- | ------- | ------- | ----------------------------------------------------------------------- |
+| `--continue`           | boolean | false   | Resume from previous session                                            |
+| `--dry-run`            | boolean | false   | Show plan without executing (no credential required)                    |
+| `--verbose`            | boolean | false   | Enable debug logging                                                    |
+| `--machine-readable`   | boolean | false   | Enable machine-readable JSON output                                     |
+| `--no-cache`           | boolean | false   | Bypass cache and regenerate all PRPs                                    |
+| `--continue-on-error`  | boolean | false   | Treat all errors as non-fatal and continue pipeline execution           |
+| `--validate-prd`       | boolean | false   | Validate PRD and exit (no agent, no credential)                         |
+| `--accept-prd-changes` | boolean | false   | Accept PRD edits as the new baseline without a delta session (PRD §4.3) |
 
 **Flag Details:**
 
@@ -235,6 +265,8 @@ prd status next -o json
 - **`--continue-on-error`**: Treats all errors as non-fatal. The pipeline continues execution even when individual tasks fail. Useful for gathering maximum feedback.
 
 - **`--validate-prd`**: Validates PRD structure and exits. Returns exit code 0 if valid, 1 if invalid. No agent is invoked and no credential is required. Equivalent to `--mode validate`.
+
+- **`--accept-prd-changes`**: Accept PRD edits as the new baseline **without** generating a delta session. When the pipeline detects a PRD change on an active session, this flag cancels the queued `.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD, and exits/resumes idempotently (PRD §4.3 step 2). Use this for doc-only edits or for changes that merely describe already-finished work. See [Delta Response Selection](#delta-response-selection).
 
 ### Limit Options
 
@@ -398,6 +430,10 @@ npm run dev -- --prd ./PRD.md --continue
 # After modifying PRD, run only changed tasks
 # The pipeline automatically detects changes via PRD hash
 npm run dev -- --prd ./PRD.md --continue
+
+# Doc-only or already-finished edits? Accept them as the new baseline
+# without spawning a delta session (PRD §4.3):
+npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
 ```
 
 **CI/CD Integration:**

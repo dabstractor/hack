@@ -835,7 +835,7 @@
                   "type": "Subtask",
                   "id": "P4.M1.T2.S1",
                   "title": "Implement --accept-prd-changes and integrate-into-current handlers",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P4.M1.T1.S2"

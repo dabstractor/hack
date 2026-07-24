@@ -40,7 +40,13 @@ import {
   isNestedExecutionError,
 } from '../utils/validation/execution-guard.js';
 import { SessionManager as SessionManagerClass } from '../core/session-manager.js';
-import { resolvePRD } from '../core/session-utils.js';
+import {
+  resolvePRD,
+  hashPRDContent,
+  writePendingDeltaHash,
+  clearPendingDeltaHash,
+  refreshSnapshotToCurrentPRD,
+} from '../core/session-utils.js';
 import { TaskOrchestrator as TaskOrchestratorClass } from '../core/task-orchestrator.js';
 import { DeltaAnalysisWorkflow } from './delta-analysis-workflow.js';
 import { BugHuntWorkflow } from './bug-hunt-workflow.js';
@@ -162,6 +168,24 @@ export class PRPPipeline extends Workflow {
 
   /** Pipeline execution mode */
   mode: 'normal' | 'delta' | 'bug-hunt' | 'validate' = 'normal';
+
+  /**
+   * `--accept-prd-changes` (PRD §4.3 step 2): accept PRD edits as the new
+   * baseline without generating a delta session. Threaded from the CLI flag.
+   */
+  private readonly acceptPrdChanges: boolean = false;
+
+  /**
+   * Integrate-into-current seam (PRD §4.3 step 2): fold new requirements into
+   * the running session's task hierarchy instead of spawning a delta session.
+   *
+   * @remarks
+   * Implemented + unit-tested but its user-facing trigger (a
+   * `--integrate-prd-changes` flag or interactive prompt) is deferred to keep
+   * this item scoped to the CONTRACT's explicit deliverables. Reachable
+   * programmatically via this field for a future CLI trigger.
+   */
+  private integratePrdChanges: boolean = false;
 
   /** Total number of subtasks in backlog */
   totalTasks: number = 0;
@@ -329,7 +353,8 @@ export class PRPPipeline extends Workflow {
     flushRetries?: number,
     cacheTtl: number = 24 * 60 * 60 * 1000,
     prpCompression: 'off' | 'standard' | 'aggressive' = 'standard',
-    metricsOutputPath?: string
+    metricsOutputPath?: string,
+    acceptPrdChanges: boolean = false
   ) {
     super('PRPPipeline');
 
@@ -361,6 +386,12 @@ export class PRPPipeline extends Workflow {
     this.#cacheTtl = cacheTtl;
     this.#prpCompression = prpCompression;
     this.#metricsOutputPath = metricsOutputPath;
+
+    // PRD §4.3 "Response Selection" (mid-session changes): when set, the delta
+    // workflow accepts PRD edits as the new baseline WITHOUT spawning a delta
+    // session (cancels .pending_delta_hash, refreshes prd_snapshot.md, exits
+    // idempotently). Threaded from the --accept-prd-changes CLI flag.
+    this.acceptPrdChanges = acceptPrdChanges;
 
     // SessionManager and TaskOrchestrator will be created in run() to catch initialization errors
     // Using definite assignment assertion (!) in property declarations
@@ -609,25 +640,187 @@ export class PRPPipeline extends Workflow {
   }
 
   /**
-   * Handle PRD changes via delta workflow
+   * Select and execute the PRD-change response per PRD §4.3 step 2
+   * "Response Selection (mid-session changes)".
    *
    * @remarks
-   * Executes delta analysis and task patching to create a delta session
-   * that preserves completed work while re-executing affected tasks.
+   * Mode A. When a PRD change is detected on an active session, this dispatcher
+   * writes the pending-delta marker (`.pending_delta_hash` = the new PRD hash)
+   * and then routes to one of three private response handlers:
    *
-   * Steps:
-   * 1. Load old PRD from session snapshot
-   * 2. Load new PRD from disk
-   * 3. Extract completed task IDs
-   * 4. Run DeltaAnalysisWorkflow
-   * 5. Apply patches via TaskPatcher
-   * 6. Create delta session
-   * 7. Log delta summary
+   * 1. **`acceptPrdChangesResponse()`** — `--accept-prd-changes`: accept PRD edits
+   *    as the new baseline WITHOUT a delta session. Cancels
+   *    `.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD,
+   *    and exits/resumes idempotently.
+   * 2. **`integrateIntoCurrentSessionResponse()`** — integrate into current
+   *    session: fold new requirements into the running session's task
+   *    hierarchy. The original `prd_snapshot.md` is PRESERVED until AFTER
+   *    integration succeeds (the integration agent diffs the original snapshot
+   *    against the current PRD; refreshing early erases the diff and silently
+   *    swallows unapplied changes).
+   * 3. **`spawnDeltaSession()`** (default) — the existing delta-session flow:
+   *    DeltaAnalysisWorkflow → patchBacklog → createDeltaSession → saveBacklog.
+   *
+   * CONTRACT INPUT (P4.M1.T1.S2): a SUBSTANTIVE verdict from
+   * `classifyChangeWithRetry()` routes here. COSMETIC changes are skipped
+   * upstream (no marker, no dispatch). Classification is NOT wired by this
+   * item — it is upstream and a separate work item; the dispatcher treats the
+   * verdict as an input seam.
    */
   @Step({ trackTiming: true, name: 'handleDelta' })
   async handleDelta(): Promise<void> {
     this.currentPhase = 'delta_handling';
 
+    // Get current session state — guard BEFORE any dispatch so a missing
+    // session throws a clear error rather than a null-deref inside a handler.
+    const currentSession = this.sessionManager.currentSession;
+    if (!currentSession) {
+      throw new Error('Cannot handle delta: no session loaded');
+    }
+    const sessionPath = currentSession.metadata.path;
+
+    // Load new PRD from disk (resolved once — PRD §2.3 "Single canonical
+    // document downstream"). Any resolution failure aborts dispatch so the
+    // marker is NOT written for a PRD we cannot read.
+    let newPRD: string;
+    try {
+      newPRD = await resolvePRD(this.sessionManager.prdPath);
+    } catch (error) {
+      throw new Error(
+        `Failed to load new PRD from ${this.sessionManager.prdPath}: ${error}`
+      );
+    }
+
+    // Write the pending-delta marker (.pending_delta_hash) BEFORE dispatching
+    // (PRD §4.3 — the marker is what --accept-prd-changes cancels and what
+    // P4.M1.T2.S2 reads to detect a pending change).
+    await writePendingDeltaHash(
+      sessionPath,
+      hashPRDContent(newPRD).slice(0, 12)
+    );
+
+    // Response selection (PRD §4.3 step 2).
+    if (this.acceptPrdChanges) {
+      await this.acceptPrdChangesResponse(sessionPath);
+      return;
+    }
+    if (this.integratePrdChanges) {
+      await this.integrateIntoCurrentSessionResponse(sessionPath);
+      return;
+    }
+    // DEFAULT: existing delta-session flow (PRD §4.3 steps 3-7).
+    await this.spawnDeltaSession();
+  }
+
+  /**
+   * `--accept-prd-changes` response (PRD §4.3 step 2): accept PRD edits as the
+   * new baseline WITHOUT generating a delta session.
+   *
+   * @remarks
+   * Mode A. "Across all `PRD_CHANGED_*` session states it cancels any queued
+   * `.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD, and
+   * exits/resumes idempotently." Does NOT call `createDeltaSession` and does
+   * NOT run `DeltaAnalysisWorkflow`. The next run finds no marker + a snapshot
+   * matching the current PRD → no change detected → idempotent.
+   */
+  private async acceptPrdChangesResponse(sessionPath: string): Promise<void> {
+    this.logger.info(
+      '[PRPPipeline] --accept-prd-changes: accepting PRD edits as new baseline'
+    );
+    await refreshSnapshotToCurrentPRD(sessionPath, this.sessionManager.prdPath);
+    await clearPendingDeltaHash(sessionPath);
+    this.currentPhase = 'delta_accepted';
+  }
+
+  /**
+   * Integrate-into-current response (PRD §4.3 step 2): fold new requirements
+   * into the running session's task hierarchy.
+   *
+   * @remarks
+   * Mode A. The original `prd_snapshot.md` is PRESERVED until AFTER integration
+   * succeeds — the integration agent diffs the original snapshot against the
+   * current PRD; the snapshot is refreshed only once integration has applied.
+   * "Refreshing the snapshot at integration time erases the very diff the agent
+   * needs (and silently swallows unapplied changes)" (PRD §4.3). Therefore the
+   * order is strictly: DeltaAnalysisWorkflow → patchBacklog → saveBacklog
+   * (APPLY) → refreshSnapshotToCurrentPRD (only on success) → clearPendingDeltaHash.
+   *
+   * Operates on the CURRENT session directory — does NOT call
+   * `createDeltaSession`.
+   *
+   * GOTCHA: `patchBacklog`'s `'added'` case is unimplemented
+   * (task-patcher.ts) — added requirements are silently dropped. `modified`/
+   * `removed` are handled. This is out of scope for this item; do not rely on
+   * `'added'`.
+   */
+  private async integrateIntoCurrentSessionResponse(
+    sessionPath: string
+  ): Promise<void> {
+    this.logger.info(
+      '[PRPPipeline] Integrating PRD changes into current session (snapshot preserved until applied)'
+    );
+
+    // PRESERVED — do not refresh the snapshot yet.
+    const currentSession = this.sessionManager.currentSession!;
+    const oldPRD = currentSession.prdSnapshot;
+
+    // Resolve the current PRD ONCE for both the delta diff and (later) the
+    // snapshot refresh.
+    const newPRDResolved = await resolvePRD(this.sessionManager.prdPath);
+
+    const completedTaskIds = filterByStatus(
+      currentSession.taskRegistry,
+      'Complete'
+    )
+      .filter(item => item.type === 'Task' || item.type === 'Subtask')
+      .map(item => item.id);
+
+    this.logger.info(
+      `[PRPPipeline] Found ${completedTaskIds.length} completed tasks`
+    );
+    this.logger.info('[PRPPipeline] Running delta analysis...');
+    const delta: DeltaAnalysis = await new DeltaAnalysisWorkflow(
+      oldPRD,
+      newPRDResolved,
+      completedTaskIds
+    ).run();
+    this.logger.info(
+      `[PRPPipeline] Delta analysis found ${delta.changes.length} changes`
+    );
+
+    this.logger.info('[PRPPipeline] Patching backlog...');
+    const patchedBacklog = patchBacklog(currentSession.taskRegistry, delta);
+
+    // APPLY the patched backlog to the CURRENT session (NOT a delta dir).
+    this.logger.info('[PRPPipeline] Saving patched backlog to current session');
+    await this.sessionManager.saveBacklog(patchedBacklog);
+
+    // ONLY NOW (integration applied) refresh the snapshot + clear the marker.
+    await refreshSnapshotToCurrentPRD(sessionPath, this.sessionManager.prdPath);
+    await clearPendingDeltaHash(sessionPath);
+    this.currentPhase = 'delta_integrated';
+  }
+
+  /**
+   * DEFAULT delta-session flow (the original `handleDelta` body, extracted).
+   *
+   * @remarks
+   * Mode A. Executes delta analysis and task patching to create a delta
+   * session that preserves completed work while re-executing affected tasks
+   * (PRD §4.3 steps 3-7). Steps:
+   *
+   * 1. Load old PRD from session snapshot.
+   * 2. Load new PRD from disk.
+   * 3. Extract completed task IDs.
+   * 4. Run DeltaAnalysisWorkflow.
+   * 5. Apply patches via TaskPatcher.
+   * 6. Create delta session.
+   * 7. Log delta summary.
+   *
+   * The pending-delta marker is written BEFORE this method is entered (by
+   * {@link handleDelta}).
+   */
+  private async spawnDeltaSession(): Promise<void> {
     try {
       // Get current session state
       const currentSession = this.sessionManager.currentSession;

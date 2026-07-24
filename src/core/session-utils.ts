@@ -1189,3 +1189,153 @@ export async function loadSnapshot(sessionPath: string): Promise<string> {
     throw error;
   }
 }
+
+// ============================================================================
+// PRD-change pending-delta marker (PRD §4.3 "The Delta Workflow")
+// ============================================================================
+
+/**
+ * The PRD-change pending-delta marker filename.
+ *
+ * @remarks
+ * A plain file written into the session directory when a PRD change is detected
+ * on an active session (PRD §4.3 "Detection"). The file's CONTENT is the pending
+ * (new) PRD hash — i.e. the `.pending_delta_hash` named in PRD §4.3 step 2.
+ *
+ * Why a file (and not a `SessionState` field)? Adding a field to the readonly
+ * {@link SessionState} interface means editing the interface, its Zod schema,
+ * `loadSession()` reconstruction, `createSessionDirectory()`, and every place
+ * that constructs a `SessionState` — a large blast radius. A marker file is
+ * lighter, survives across runs, is grep-able, and mirrors how
+ * `parent_session.txt` already persists session-level linkage.
+ *
+ * Consumed by:
+ *  - {@link acceptPrdChangesResponse}-style handling: `--accept-prd-changes`
+ *    cancels the marker, refreshes `prd_snapshot.md`, and exits idempotently
+ *    (PRD §4.3 step 2).
+ *  - the integrate-into-current path: the marker is cleared only AFTER
+ *    integration has applied (the snapshot is preserved until then).
+ *  - P4.M1.T2.S2 (validate/bug-hunt reuse) reads it via
+ *    {@link readPendingDeltaHash} to detect a pending change on a completed
+ *    session.
+ */
+export const PENDING_DELTA_HASH_FILE = 'prd_changed.marker';
+
+/**
+ * Write the pending-delta marker (`.pending_delta_hash`) to a session directory.
+ *
+ * @remarks
+ * Mode B (additive helper). Written when a PRD change is detected on an active
+ * session (PRD §4.3 "Detection"). The marker contains the new (pending) PRD
+ * hash so downstream handlers (accept / integrate / reuse) know which baseline
+ * the change points at.
+ *
+ * @param sessionPath - Absolute session directory path.
+ * @param hash - The new (pending) PRD hash (e.g. the first 12 chars of
+ *        {@link hashPRDContent}).
+ * @throws {SessionFileError} If the marker file cannot be written.
+ */
+export async function writePendingDeltaHash(
+  sessionPath: string,
+  hash: string
+): Promise<void> {
+  const markerPath = resolve(sessionPath, PENDING_DELTA_HASH_FILE);
+  try {
+    await writeFile(markerPath, hash, { mode: 0o644 });
+  } catch (error) {
+    if (error instanceof SessionFileError) {
+      throw error;
+    }
+    throw new SessionFileError(
+      markerPath,
+      'write pending-delta marker',
+      error as Error
+    );
+  }
+}
+
+/**
+ * Read the pending-delta marker (`.pending_delta_hash`) from a session directory.
+ *
+ * @remarks
+ * Mode B (additive helper). Returns the pending PRD hash string, or `null` when
+ * there is no pending change (ENOENT). Callers must treat `null` as "no PRD
+ * change pending" (PRD §4.3).
+ *
+ * @param sessionPath - Absolute session directory path.
+ * @returns The pending PRD hash, trimmed; or `null` if no marker exists.
+ */
+export async function readPendingDeltaHash(
+  sessionPath: string
+): Promise<string | null> {
+  try {
+    return (
+      await readFile(resolve(sessionPath, PENDING_DELTA_HASH_FILE), 'utf-8')
+    ).trim();
+  } catch {
+    // ENOENT (or any read failure) → no pending change.
+    return null;
+  }
+}
+
+/**
+ * Clear the pending-delta marker (`.pending_delta_hash`) from a session directory.
+ *
+ * @remarks
+ * Mode B (additive helper). Called by `--accept-prd-changes` (PRD §4.3 step 2:
+ * "across all `PRD_CHANGED_*` session states it cancels any queued
+ * `.pending_delta_hash`") and by the integrate-into-current path AFTER
+ * integration has applied. Missing-file (ENOENT) is silently ignored so the
+ * operation is idempotent.
+ *
+ * @param sessionPath - Absolute session directory path.
+ */
+export async function clearPendingDeltaHash(
+  sessionPath: string
+): Promise<void> {
+  try {
+    await unlink(resolve(sessionPath, PENDING_DELTA_HASH_FILE));
+  } catch {
+    // ENOENT is fine — nothing to clear (idempotent).
+  }
+}
+
+/**
+ * Refresh `prd_snapshot.md` to the CURRENT (resolved) PRD.
+ *
+ * @remarks
+ * Mode B (additive helper). The counterpart of {@link snapshotPRD} for the
+ * "accept PRD edits as new baseline" case. Used by:
+ *  - `--accept-prd-changes` — accept PRD edits as the new baseline without
+ *    generating a delta session (PRD §4.3 step 2).
+ *  - integrate-into-current — called ONLY AFTER integration has applied the
+ *    patch (PRD §4.3: "the snapshot is refreshed only once integration has
+ *    applied"). Refreshing early erases the diff the integration agent needs.
+ *
+ * The snapshot is written with the same `mode: 0o644` style as
+ * {@link snapshotPRD}.
+ *
+ * @param sessionPath - Absolute session directory path.
+ * @param prdPath - Path to the current PRD (resolved via {@link resolvePRD}).
+ * @throws {SessionFileError} If the PRD cannot be resolved or the snapshot
+ *         cannot be written.
+ */
+export async function refreshSnapshotToCurrentPRD(
+  sessionPath: string,
+  prdPath: string
+): Promise<void> {
+  const snapshotPath = resolve(sessionPath, 'prd_snapshot.md');
+  try {
+    const resolved = await resolvePRD(prdPath);
+    await writeFile(snapshotPath, resolved, { mode: 0o644 });
+  } catch (error) {
+    if (error instanceof SessionFileError) {
+      throw error;
+    }
+    throw new SessionFileError(
+      snapshotPath,
+      'refresh PRD snapshot to current PRD',
+      error as Error
+    );
+  }
+}

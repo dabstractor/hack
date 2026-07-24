@@ -93,6 +93,14 @@ export interface CLIArgs {
   /** Validate PRD syntax and structure without executing */
   validatePrd: boolean;
 
+  /**
+   * Accept PRD edits as the new baseline without generating a delta session
+   * (PRD §4.3 "Response Selection"). Cancels any queued `.pending_delta_hash`,
+   * refreshes `prd_snapshot.md` to the current PRD, and exits/resumes
+   * idempotently across all `PRD_CHANGED_*` session states.
+   */
+  acceptPrdChanges: boolean;
+
   /** Maximum number of tasks to execute (optional) */
   maxTasks?: number;
 
@@ -298,6 +306,11 @@ export function parseCLIArgs():
     .option(
       '--validate-prd',
       'Validate PRD and exit without running pipeline',
+      false
+    )
+    .option(
+      '--accept-prd-changes',
+      'Accept PRD edits as the new baseline without generating a delta session (PRD §4.3)',
       false
     )
     .option('--max-tasks <number>', 'Maximum number of tasks to execute')

@@ -22,6 +22,7 @@
   - [Execution Mode](#execution-mode)
   - [Boolean Flags](#boolean-flags)
   - [Limit Options](#limit-options)
+  - [Delta Response](#delta-response)
 - [Model Selection](#model-selection)
 - [Configuration Priority](#configuration-priority)
 - [Security](#security)
@@ -199,14 +200,15 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. All options can be p
 
 ### Execution Mode
 
-| Option            | Type   | Choices                          | Default  | Description                                              |
-| ----------------- | ------ | -------------------------------- | -------- | -------------------------------------------------------- |
-| `--mode <mode>`   | string | `normal`, `bug-hunt`, `validate` | `normal` | Execution mode                                           |
-| `--scope <scope>` | string | -                                | -        | Scope identifier. See [Execution Mode](#execution-mode). |
+| Option            | Type   | Choices                                   | Default  | Description                                              |
+| ----------------- | ------ | ----------------------------------------- | -------- | -------------------------------------------------------- |
+| `--mode <mode>`   | string | `normal`, `delta`, `bug-hunt`, `validate` | `normal` | Execution mode                                           |
+| `--scope <scope>` | string | -                                         | -        | Scope identifier. See [Execution Mode](#execution-mode). |
 
 **Execution Modes:**
 
 - `normal`: Standard pipeline execution (default)
+- `delta`: Detect PRD changes and run the delta workflow (PRD §4.3). The response to a detected change is controlled by `--accept-prd-changes` and the integrate-into-current path — see the [CLI Reference: Delta Response Selection](./CLI_REFERENCE.md#delta-response-selection).
 - `bug-hunt`: Run QA and bug finding even with incomplete tasks
 - `validate`: Validate PRD syntax and structure without running pipeline
 
@@ -220,15 +222,16 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. All options can be p
 
 ### Boolean Flags
 
-| Option                | Type    | Default | Description                                                   |
-| --------------------- | ------- | ------- | ------------------------------------------------------------- |
-| `--continue`          | boolean | `false` | Resume from previous session                                  |
-| `--dry-run`           | boolean | `false` | Show plan without executing (no credential required)          |
-| `--verbose`           | boolean | `false` | Enable debug logging                                          |
-| `--machine-readable`  | boolean | `false` | Enable machine-readable JSON output                           |
-| `--no-cache`          | boolean | `false` | Bypass cache and regenerate all PRPs                          |
-| `--continue-on-error` | boolean | `false` | Treat all errors as non-fatal and continue pipeline execution |
-| `--validate-prd`      | boolean | `false` | Validate PRD and exit (no agent, no credential)               |
+| Option                 | Type    | Default | Description                                                             |
+| ---------------------- | ------- | ------- | ----------------------------------------------------------------------- |
+| `--continue`           | boolean | `false` | Resume from previous session                                            |
+| `--dry-run`            | boolean | `false` | Show plan without executing (no credential required)                    |
+| `--verbose`            | boolean | `false` | Enable debug logging                                                    |
+| `--machine-readable`   | boolean | `false` | Enable machine-readable JSON output                                     |
+| `--no-cache`           | boolean | `false` | Bypass cache and regenerate all PRPs                                    |
+| `--continue-on-error`  | boolean | `false` | Treat all errors as non-fatal and continue pipeline execution           |
+| `--validate-prd`       | boolean | `false` | Validate PRD and exit (no agent, no credential)                         |
+| `--accept-prd-changes` | boolean | `false` | Accept PRD edits as the new baseline without a delta session (PRD §4.3) |
 
 ### Limit Options
 
@@ -236,6 +239,16 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. All options can be p
 | ---------------------- | ------- | ------- | ------------------------------------------ |
 | `--max-tasks <number>` | integer | None    | Maximum number of tasks to execute         |
 | `--max-duration <ms>`  | integer | None    | Maximum execution duration in milliseconds |
+
+### Delta Response
+
+When the pipeline resumes an active session (`--continue`) whose `prd_snapshot.md` no longer matches the current `PRD.md`, it has detected a PRD change (PRD §4.3). The pending change is recorded in a `prd_changed.marker` file (the `.pending_delta_hash`) in the session directory, and one of three response paths is taken:
+
+- **Delta session (default):** spawn a linked session scoped to the diffs (completed work preserved).
+- **Integrate into current session:** fold new requirements into the running session's task hierarchy. The original `prd_snapshot.md` is preserved until after integration succeeds.
+- **`--accept-prd-changes`:** accept PRD edits as the new baseline **without** a delta session — cancels the queued `.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD, and exits/resumes idempotently. Use this for doc-only or already-finished edits.
+
+See the [CLI Reference: Delta Response Selection](./CLI_REFERENCE.md#delta-response-selection) for examples.
 
 ---
 
