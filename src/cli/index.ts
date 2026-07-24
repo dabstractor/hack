@@ -140,6 +140,12 @@ export interface CLIArgs {
 
   /** Path to output metrics JSON file */
   metricsOutput?: string;
+
+  /** Enable background (parallel) PRP research (default: false, env: PARALLEL_RESEARCH) */
+  parallelResearch?: boolean;
+
+  /** How many items ahead to prefetch (default: 2, env: RESEARCH_DEPTH) - may be string from commander */
+  researchDepth?: number | string;
 }
 
 /**
@@ -319,6 +325,16 @@ export function parseCLIArgs():
       '--research-concurrency <n>',
       'Max concurrent research tasks (1-10, default: 3, env: RESEARCH_QUEUE_CONCURRENCY)',
       process.env.RESEARCH_QUEUE_CONCURRENCY ?? '3'
+    )
+    .option(
+      '-r, --parallel-research',
+      'Enable background (parallel) PRP research (default: false, env: PARALLEL_RESEARCH)',
+      false
+    )
+    .option(
+      '--research-depth <n>',
+      'How many items ahead the background research supervisor prefetches (default: 2, env: RESEARCH_DEPTH)',
+      process.env.RESEARCH_DEPTH ?? '2'
     )
     .option(
       '--task-retry <n>',
@@ -824,6 +840,21 @@ export function parseCLIArgs():
 
   // Store validated number value
   options.researchConcurrency = researchConcurrency;
+
+  // Validate research-depth (must be a positive integer)
+  const researchDepthStr =
+    typeof options.researchDepth === 'string'
+      ? options.researchDepth
+      : String(options.researchDepth);
+  const researchDepth = parseInt(researchDepthStr, 10);
+
+  if (isNaN(researchDepth) || researchDepth < 1) {
+    logger().error('--research-depth must be a positive integer');
+    process.exit(1);
+  }
+
+  // Store validated number value
+  options.researchDepth = researchDepth;
 
   // Validate task-retry
   if (options.taskRetry !== undefined) {

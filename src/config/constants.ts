@@ -228,13 +228,13 @@ export const PRP_API_BASE_URL = 'PRP_API_BASE_URL';
  * import { RESEARCH_TIMEOUT } from './config/constants.js';
  *
  * console.log(RESEARCH_TIMEOUT); // 'RESEARCH_TIMEOUT'
- * console.log(process.env[RESEARCH_TIMEOUT]); // e.g. '300'
+ * console.log(process.env[RESEARCH_TIMEOUT]); // e.g. '1800'
  * ```
  */
 export const RESEARCH_TIMEOUT = 'RESEARCH_TIMEOUT';
 
 /**
- * Default deadline (300s = 5min) for background research before synchronous fallback (PRD §4.2).
+ * Default deadline (1800s = 30min) for background research before synchronous fallback (PRD §4.2).
  *
  * @remarks
  * When the RESEARCH_TIMEOUT env var is unset or invalid, this value is used.
@@ -243,10 +243,10 @@ export const RESEARCH_TIMEOUT = 'RESEARCH_TIMEOUT';
  * ```ts
  * import { DEFAULT_RESEARCH_TIMEOUT_SECONDS } from './config/constants.js';
  *
- * console.log(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 300
+ * console.log(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 1800
  * ```
  */
-export const DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300;
+export const DEFAULT_RESEARCH_TIMEOUT_SECONDS = 1800;
 
 /**
  * Read & validate the RESEARCH_TIMEOUT env var (PRD §4.2, §9.2.2).
@@ -258,7 +258,7 @@ export const DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300;
  * ```ts
  * import { getResearchTimeoutSeconds } from './config/constants.js';
  *
- * const deadline = getResearchTimeoutSeconds(); // 300 (default)
+ * const deadline = getResearchTimeoutSeconds(); // 1800 (default)
  * ```
  */
 export function getResearchTimeoutSeconds(): number {
@@ -269,6 +269,95 @@ export function getResearchTimeoutSeconds(): number {
     return DEFAULT_RESEARCH_TIMEOUT_SECONDS;
   }
   return raw;
+}
+
+/**
+ * Environment variable name: how many items ahead the background research
+ * supervisor prefetches as a chain (PRD §4.2, §9.2.2).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via getResearchDepth()) is a
+ * positive integer. This constant is the env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { RESEARCH_DEPTH } from './config/constants.js';
+ *
+ * console.log(RESEARCH_DEPTH); // 'RESEARCH_DEPTH'
+ * console.log(process.env[RESEARCH_DEPTH]); // e.g. '3'
+ * ```
+ */
+export const RESEARCH_DEPTH = 'RESEARCH_DEPTH';
+
+/**
+ * Default prefetch chain depth (PRD §4.2).
+ *
+ * @remarks
+ * When the RESEARCH_DEPTH env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_RESEARCH_DEPTH } from './config/constants.js';
+ *
+ * console.log(DEFAULT_RESEARCH_DEPTH); // 2
+ * ```
+ */
+export const DEFAULT_RESEARCH_DEPTH = 2;
+
+/**
+ * Read & validate the RESEARCH_DEPTH env var (PRD §4.2, §9.2.2).
+ *
+ * @returns The configured prefetch depth, or DEFAULT_RESEARCH_DEPTH
+ *          when unset, non-numeric, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getResearchDepth } from './config/constants.js';
+ *
+ * const depth = getResearchDepth(); // 2 (default)
+ * ```
+ */
+export function getResearchDepth(): number {
+  const raw = Number(process.env[RESEARCH_DEPTH] ?? DEFAULT_RESEARCH_DEPTH);
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_RESEARCH_DEPTH;
+  }
+  return raw;
+}
+
+/**
+ * Environment variable name: enable background (parallel) PRP research (PRD §4.2, §9.2.2).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via isParallelResearch()) is the
+ * case-sensitive literal 'true' to enable; any other value (including unset)
+ * means disabled. This matches the SKIP_BUG_FINDING convention. This constant is
+ * the env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { PARALLEL_RESEARCH } from './config/constants.js';
+ *
+ * console.log(PARALLEL_RESEARCH); // 'PARALLEL_RESEARCH'
+ * console.log(process.env[PARALLEL_RESEARCH]); // e.g. 'true'
+ * ```
+ */
+export const PARALLEL_RESEARCH = 'PARALLEL_RESEARCH';
+
+/**
+ * Whether background (parallel) PRP research is enabled (PRD §4.2, §9.2.2).
+ *
+ * @returns true only when PARALLEL_RESEARCH is the literal 'true'; false otherwise.
+ *
+ * @example
+ * ```ts
+ * import { isParallelResearch } from './config/constants.js';
+ *
+ * const enabled = isParallelResearch(); // false (default)
+ * ```
+ */
+export function isParallelResearch(): boolean {
+  return process.env[PARALLEL_RESEARCH] === 'true';
 }
 
 /**

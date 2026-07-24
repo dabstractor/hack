@@ -575,6 +575,113 @@ describe('cli/index', () => {
         expect(typeof args.verbose).toBe('boolean');
       });
     });
+
+    describe('research flags (-r / --research-depth)', () => {
+      it('should default -r/--parallel-research to false when not provided', () => {
+        // SETUP
+        setArgv([]);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: boolean default is false
+        expect(args.parallelResearch).toBe(false);
+      });
+
+      it('should set parallelResearch to true when -r is passed', () => {
+        // SETUP
+        setArgv(['-r']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: -r enables parallel research
+        expect(args.parallelResearch).toBe(true);
+      });
+
+      it('should set parallelResearch to true when --parallel-research is passed', () => {
+        // SETUP
+        setArgv(['--parallel-research']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: long form alias enables parallel research
+        expect(args.parallelResearch).toBe(true);
+      });
+
+      it('should default --research-depth to 2 when not provided', () => {
+        // SETUP
+        setArgv([]);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: default depth is 2 (validated as number)
+        expect(args.researchDepth).toBe(2);
+      });
+
+      it('should coerce --research-depth to a number when provided', () => {
+        // SETUP
+        setArgv(['--research-depth', '3']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: string value is coerced & stored as number
+        expect(args.researchDepth).toBe(3);
+      });
+
+      it('should coerce --research-depth=<n> form to a number', () => {
+        // SETUP
+        setArgv(['--research-depth=4']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: equals form also coerces
+        expect(args.researchDepth).toBe(4);
+      });
+
+      it('should exit with code 1 when --research-depth is 0 (invalid)', () => {
+        // SETUP: 0 is not a positive integer
+        setArgv(['--research-depth', '0']);
+
+        // EXECUTE & VERIFY: Should throw process.exit error
+        expect(() => parseCLIArgs()).toThrow('process.exit(1)');
+        expect(mockExit).toHaveBeenCalledWith(1);
+      });
+
+      it('should exit with code 1 when --research-depth is negative (invalid)', () => {
+        // SETUP: negative is not a positive integer
+        setArgv(['--research-depth', '-1']);
+
+        // EXECUTE & VERIFY: Should throw process.exit error
+        expect(() => parseCLIArgs()).toThrow('process.exit(1)');
+        expect(mockExit).toHaveBeenCalledWith(1);
+      });
+
+      it('should exit with code 1 when --research-depth is non-numeric (invalid)', () => {
+        // SETUP: non-numeric input
+        setArgv(['--research-depth', 'abc']);
+
+        // EXECUTE & VERIFY: Should throw process.exit error
+        expect(() => parseCLIArgs()).toThrow('process.exit(1)');
+        expect(mockExit).toHaveBeenCalledWith(1);
+      });
+
+      it('should parse -r and --research-depth together', () => {
+        // SETUP
+        setArgv(['-r', '--research-depth', '5']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: both flags parsed together
+        expect(args.parallelResearch).toBe(true);
+        expect(args.researchDepth).toBe(5);
+      });
+    });
   });
 
   describe('prd status alias (PRD §5.3)', () => {

@@ -393,7 +393,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Add RESEARCH_DEPTH and PARALLEL_RESEARCH config constants",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300 at constants.ts:198. No RESEARCH_DEPTH constant exists anywhere. PRD §4.2 specifies RESEARCH_DEPTH (default 2) and PARALLEL_RESEARCH (CLI -r/--parallel-research, default false).\n2. INPUT: No prior subtask output consumed (config constants are foundational).\n3. LOGIC: (a) Add DEFAULT_RESEARCH_DEPTH = 2 and getResearchDepth() to constants.ts (mirror getResearchTimeoutSeconds pattern). (b) Add PARALLEL_RESEARCH env var name and isParallelResearch() helper (default false). (c) Change DEFAULT_RESEARCH_TIMEOUT_SECONDS from 300 to 1800 in constants.ts:198. (d) Add CLI flags -r/--parallel-research (boolean, default false) and --research-depth <n> to cli/index.ts.\n4. OUTPUT: New constants and config helpers in constants.ts, updated CLI flags. Consumed by P3.M1.T1.S2, P3.M1.T1.S3, P3.M1.T1.S4.\n5. DOCS: [Mode A] Add PARALLEL_RESEARCH, RESEARCH_DEPTH to .env.example; update RESEARCH_TIMEOUT default note. Add to docs/CONFIGURATION.md research section. This rides WITH the work.",

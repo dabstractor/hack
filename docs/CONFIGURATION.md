@@ -146,10 +146,12 @@ Control pipeline execution behavior.
 
 Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.5 (issue-driven re-planning), and §9.2.2.
 
-| Variable           | Required | Default | Description                                                                                                                 |
-| ------------------ | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `RESEARCH_TIMEOUT` | No       | `300`   | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2. |
-| `ISSUE_RETRY_MAX`  | No       | `3`     | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                            |
+| Variable            | Required | Default | Description                                                                                                                                                    |
+| ------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEARCH_TIMEOUT`  | No       | `1800`  | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2.                                    |
+| `PARALLEL_RESEARCH` | No       | `false` | Enable background (parallel) PRP research. Set to `true` (literal). Forwarded to the bugfix sub-pipeline. CLI: `-r`/`--parallel-research`. See PRD §4.2, §4.4. |
+| `RESEARCH_DEPTH`    | No       | `2`     | How many items ahead the background research supervisor prefetches as a chain. Forwarded to the bugfix sub-pipeline. See PRD §4.2, §4.4.                       |
+| `ISSUE_RETRY_MAX`   | No       | `3`     | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                                                               |
 
 ### Distributed PRDs
 
