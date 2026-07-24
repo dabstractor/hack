@@ -372,7 +372,7 @@
       "type": "Phase",
       "id": "P3",
       "title": "Execution-Loop Resilience & State Integrity",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Add depth-chained parallel research, tasks.json write concurrency protection, two-phase commit via stagecoach, smart commit resilience, snapshot-before-revert recovery with FS evidence, watchdog-kill terminal handling, stateless single-shot invocations, critical-file deletion protection, orphaned-plan/ recovery, and prompt delivery safety.",
       "milestones": [
         {
@@ -580,7 +580,7 @@
           "type": "Milestone",
           "id": "P3.M2",
           "title": "Crash, Deletion & Prompt Safety",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Add snapshot-before-revert recovery with FS evidence, watchdog-kill terminal handling, stateless single-shot invocations, critical-file deletion protection, orphaned-plan/ recovery, and prompt delivery safety (no argv).",
           "tasks": [
             {
@@ -739,14 +739,14 @@
               "type": "Task",
               "id": "P3.M2.T6",
               "title": "Prompt Delivery (No argv-Size Limit)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Audit that no agent invocation delivers prompts via argv, and ensure temp files backing prompts are cleaned up on both graceful and hard-killed exits, re-written on every retry attempt.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T6.S1",
                   "title": "Audit agent invocations for argv prompt delivery",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that the pi harness uses session.prompt(request.prompt) programmatically. PRD §9.3.3 specifies prompts embedding the full PRD can exceed 128 KB and MUST be delivered as a programmatic message body (stdin/stream), never as an argv string (capped by MAX_ARG_STRLEN = 131,072 bytes, fails with E2BIG). This is a defensive guard + audit.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Audit all agent invocation code paths in src/agents/ (prp-executor.ts, prp-generator.ts, prp-runtime.ts) and src/tools/ (bash-mcp.ts) for any pattern that passes a prompt as a command-line argument. (b) Verify the main path uses session.prompt(request.prompt) programmatically (not argv). (c) If any code path shells out with a prompt as an argument, refactor it to use stdin/stream. (d) Add a test asserting no agent prompt exceeds argv limits via argv delivery.\n4. OUTPUT: Verified no argv prompt delivery. Consumed by P3.M2.T6.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
@@ -758,7 +758,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T6.S2",
                   "title": "Temp-file cleanup on graceful and hard-killed exits",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M2.T6.S1"
@@ -799,7 +799,7 @@
                   "type": "Subtask",
                   "id": "P4.M1.T1.S1",
                   "title": "COSMETIC/SUBSTANTIVE and CLEAN/DIRTY LLM classifiers",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: prd-differ.ts does structural diffing (diffPRDs, hasSignificantChanges — the latter is DEAD CODE, never called). The PRD §4.3 specifies an LLM-driven binary classifier on top of the structural diff: COSMETIC (trivial: whitespace/formatting) vs SUBSTANTIVE (semantically significant). A parallel CLEAN/DIRTY classifier guards generated artifacts (e.g. delta PRD).\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Create a new module src/core/change-classifier.ts with two classifier functions: classifyChange(diffSummary: DiffSummary): Promise<'COSMETIC'|'SUBSTANTIVE'> and classifyArtifact(content: string): Promise<'CLEAN'|'DIRTY'>. (b) Both use an LLM call (via createQAAgent or a dedicated lightweight agent) with a classification prompt. (c) The classifier receives the structural diff summary from diffPRDs() (prd-differ.ts) as input. (d) Add classification prompt templates to src/agents/prompts/ or src/agents/prompts.ts.\n4. OUTPUT: Change classifier module with COSMETIC/SUBSTANTIVE and CLEAN/DIRTY functions. Consumed by P4.M1.T1.S2.\n5. DOCS: [Mode A] JSDoc on classifyChange and classifyArtifact. This rides WITH the work.",
