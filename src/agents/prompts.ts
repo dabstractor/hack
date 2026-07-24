@@ -191,6 +191,22 @@ ${PRD_PREMERGED_DECLARATION}
 
 You are creating a PRP (Product Requirement Prompt) for this specific work item.
 
+## MULTI-PRP BATCHING POLICY — READ THIS BEFORE WRITING MORE THAN ONE PRP
+
+**Default: write exactly ONE PRP per call — the one you were asked for, at the exact path given.** Do not write PRPs for other work items "to be helpful" or to save tokens. Each item normally gets its own dedicated research session, and that is the expected, high-quality path.
+
+Writing several PRPs in a single session is **allowed only as an optimization for tightly-coupled items that genuinely share one body of research** — and only when you hold yourself to a HIGHER bar, not a lower one. Saving tokens by producing thin PRPs is a failure: an under-researched PRP costs more in failed implementations than the research it skipped. The goal is fewer redundant planning *stages*, not shallower planning per item.
+
+### HARD GATE — clear ALL of this before writing a second PRP
+Before writing any PRP beyond the one you were asked for, verify EVERY item you intend to batch against ALL of these:
+
+1. **Full situational awareness.** You have read the COMPLETE task tree and the FULL PRD — not just the selectors for the first item. You know every sibling task, its status, and how the items depend on each other.
+2. **Per-item research, as thorough as an independent agent.** Each batched item gets its OWN 3–5 deep research calls (codebase analysis + external research), its own codebase + external analysis, and its own notes in its own research/ directory. The 3–5 call budget is PER PRP — a 3-PRP batch needs ~3× the research of a single PRP, not a third of it.
+3. **Per-item "No Prior Knowledge" pass.** Each PRP independently clears the Context Completeness Check and the "No Prior Knowledge" test from the template. If ANY item would be thin, guess-y, or copy-pasted from a sibling, you have NOT met the bar.
+4. **Explicit batch declaration.** Before writing, list every item you are batching, state why each shares this research session, and confirm each one clears the gates above.
+
+**When in doubt, write one.** This prevents the thin, under-researched PRPs that batching produced in the past.
+
 ## PRP Creation Mission
 
 Create a comprehensive PRP that enables **one-pass implementation success** through systematic research and context curation.

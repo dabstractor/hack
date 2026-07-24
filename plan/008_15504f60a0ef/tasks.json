@@ -342,7 +342,7 @@
                   "type": "Subtask",
                   "id": "P2.M3.T1.S1",
                   "title": "Update PRP blueprint prompt with strict single-PRP batching gates",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents PRP_BLUEPRINT_PROMPT text in prompts.ts and createPRPBlueprintPrompt in prp-blueprint-prompt.ts:288. The current text says 'You are creating a PRP for this specific work item' (single item → single PRP). No multi-PRP batch mode exists. PRD §6.2 mandates: a PRP call writes exactly ONE PRP; batching permitted only as optimization for tightly-coupled items at a higher bar (full task-tree + PRD context, 3-5 subagent research calls per item, No Prior Knowledge check, explicit batch declaration). When in doubt, write one.\n2. INPUT: No prior subtask output consumed (prompt content change).\n3. LOGIC: Update the PRP_BLUEPRINT_PROMPT system prompt text in src/agents/prompts.ts to explicitly state: (a) Default: write exactly ONE PRP per call. (b) Batching is permitted ONLY when ALL gates pass: hold full task-tree + full-PRD context; run 3-5 subagent research calls per item; pass per-item 'No Prior Knowledge' check; declare the batch explicitly. (c) When in doubt, write one PRP. This is a prompt-content change.\n4. OUTPUT: Updated PRP_BLUEPRINT_PROMPT with strict batching gates. Completes this part of P2.M3.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal).",

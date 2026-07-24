@@ -180,6 +180,38 @@ describe('agents/prompts', () => {
     });
   });
 
+  describe('PRP_BLUEPRINT_PROMPT single-PRP / batching gates (PRD §6.2)', () => {
+    it('should declare the single-PRP default', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('exactly ONE PRP');
+    });
+
+    it('should carry the explicit "when in doubt, write one" rule', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('When in doubt, write one');
+    });
+
+    it('should require a per-item No Prior Knowledge pass before batching', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('No Prior Knowledge');
+    });
+
+    it('should state the per-item research budget (3–5 / 3-5 calls, ~N× for a batch)', () => {
+      // Accept en-dash or hyphen — match whichever form you wrote in prompts.ts.
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/3[–-]5/);
+      expect(PRP_BLUEPRINT_PROMPT).toContain('PER PRP');
+    });
+
+    it('should headline the batching policy as its own section', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('MULTI-PRP BATCHING POLICY');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('HARD GATE');
+    });
+
+    it('should preserve the existing single-item framing line above the new section', () => {
+      // The line immediately above the new section must remain intact.
+      expect(PRP_BLUEPRINT_PROMPT).toContain(
+        'You are creating a PRP (Product Requirement Prompt) for this specific work item.'
+      );
+    });
+  });
+
   describe('two-mode documentation sync rule (PRD §6.1)', () => {
     it('should declare documentation is never a standalone subtask, mirroring implicit TDD', () => {
       expect(TASK_BREAKDOWN_PROMPT).toContain('never a standalone subtask');
