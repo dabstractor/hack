@@ -151,6 +151,17 @@ Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.5
 | `RESEARCH_TIMEOUT` | No       | `300`   | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2. |
 | `ISSUE_RETRY_MAX`  | No       | `3`     | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                            |
 
+### Distributed PRDs
+
+Control distributed / multi-file PRD assembly. See PRD §2.3.
+
+A PRD may be authored across multiple files (architecture, API, data model, companion docs) and assembled into one canonical document at load time. An `@path/to/file.md` token is an **include directive** — it is replaced inline by the referenced file's UTF-8 contents. A token expands only when **both** (1) **boundary** — the `@` is at the start of the line or preceded by a non-path character (so `foo@bar.com` and mid-word `@` are left literal) — and (2) **existence** — the path resolves to an existing **file** (directories and missing paths stay verbatim and silent). Includes resolve **project-root-relative** (relative to the entry PRD's directory) and expand recursively with cycle detection up to `PRD_INCLUDE_MAX_DEPTH`.
+
+| Variable                | Required | Default | Description                                                                                                                                                                                       |
+| ----------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PRD_INCLUDE_MAX_DEPTH` | No       | `10`    | Max recursion depth for include expansion (PRD §2.3). Non-numeric or non-positive values fall back to the default.                                                                                |
+| `PRD_INCLUDE_MARKERS`   | No       | unset   | When set, resolved output emits `<!-- @include: path -->` / `<!-- @end-include -->` markers around expanded includes; a `.md` token that fails to resolve (stale include) emits a stderr warning. |
+
 ### Bug Hunt Configuration
 
 Configure the bug hunt and bug fix behavior.

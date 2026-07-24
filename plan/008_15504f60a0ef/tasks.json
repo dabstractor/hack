@@ -25,21 +25,29 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S1",
                   "title": "Include directive tokenizer with boundary and existence rules",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h3.2", "h2.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents that no include-resolution code exists in src/. The include directive is specified in PRD §2.3: 'A line of the form @path/to/file.md (optional leading whitespace, nothing else) is always expanded; the @path token is also honored inline anywhere on a line.' The canonical resolver should live in src/core/session-utils.ts alongside hashPRD.\n2. INPUT: A raw PRD string (file contents) and the base directory (entry PRD's directory, project-root-relative). No prior subtask output consumed.\n3. LOGIC: Implement a tokenizer that identifies @path/to/file.md include directives per PRD §2.3. Two conditions for expansion: (1) BOUNDARY — the @ is at line start (after optional whitespace) OR preceded by a non-path character (inline tokens); foo@bar.com and mid-word @ stay literal; (2) EXISTENCE — the path resolves to an existing file. Ordinary prose @mentions that don't resolve stay verbatim and silent. Create function signature: resolveIncludes(content: string, baseDir: string, opts?: ResolveOpts): Promise<string>. Add config constants PRD_INCLUDE_MAX_DEPTH (default 10) and PRD_INCLUDE_MARKERS (optional) to src/config/constants.ts.\n4. OUTPUT: Exported resolveIncludes function in src/core/session-utils.ts, and new config constants in src/config/constants.ts. Consumed by P1.M1.T1.S2.\n5. DOCS: [Mode A] Add JSDoc on resolveIncludes; add PRD_INCLUDE_MAX_DEPTH and PRD_INCLUDE_MARKERS to .env.example; add a 'Distributed PRDs' subsection to docs/CONFIGURATION.md. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents that no include-resolution code exists in src/. The include directive is specified in PRD §2.3: 'A line of the form @path/to/file.md (optional leading whitespace, nothing else) is always expanded; the @path token is also honored inline anywhere on a line.' The canonical resolver should live in src/core/session-utils.ts alongside hashPRD.\n2. INPUT: A raw PRD string (file contents) and the base directory (entry PRD's directory, project-root-relative). No prior subtask output consumed.\n3. LOGIC: Implement a tokenizer that identifies @path/to/file.md include directives per PRD §2.3. Two conditions for expansion: (1) BOUNDARY — the @ is at line start (after optional whitespace) OR preceded by a non-path character (inline tokens); foo@bar.com and mid-word @ stay literal; (2) EXISTENCE — the path resolves to an existing file. Ordinary prose @mentions that don't resolve stay verbatim and silent. Create function signature: resolveIncludes(content: string, baseDir: string, opts?: ResolveOpts): Promise<string>. Add config constants PRD_INCLUDE_MAX_DEPTH (default 10) and PRD_INCLUDE_MARKERS (optional) to src/config/constants.ts.\n4. OUTPUT: Exported resolveIncludes function in src/core/session-utils.ts, and new config constants in src/config/constants.ts. Consumed by P1.M1.T1.S2.\n5. DOCS: [Mode A] Add JSDoc on resolveIncludes; add PRD_INCLUDE_MAX_DEPTH and PRD_INCLUDE_MARKERS to .env.example; add a 'Distributed PRDs' subsection to docs/CONFIGURATION.md. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h2.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Recursive expansion engine with cycle detection and max depth",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h3.2", "h2.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 confirms resolution base is project-root-relative (relative to the ENTRY PRD's directory, regardless of which file contains the directive). Expanded recursively with cycle detection up to PRD_INCLUDE_MAX_DEPTH (default 10).\n2. INPUT: resolveIncludes function and config constants from P1.M1.T1.S1. The base directory is the entry PRD's directory; all paths in included files resolve relative to this base.\n3. LOGIC: Implement recursive expansion: when an include directive's file is read, its contents are themselves scanned for include directives and expanded. Maintain a visited Set<string> for cycle detection (absolute paths). Track depth and abort if exceeding PRD_INCLUDE_MAX_DEPTH. The resolution base is ALWAYS the entry PRD's directory (not the including file's directory) per PRD §2.3. Create the main entry point: resolvePRD(prdPath: string, opts?: ResolveOpts): Promise<string> which reads the entry file, then calls the recursive resolver. ResolveOpts should include markers flag and maxDepth override.\n4. OUTPUT: Exported resolvePRD function in src/core/session-utils.ts. Consumed by P1.M1.T1.S3 and P1.M1.T2.S1.\n5. DOCS: [Mode A] JSDoc on resolvePRD documenting recursive expansion, cycle detection, and the project-root-relative base invariant. This rides WITH the work."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 confirms resolution base is project-root-relative (relative to the ENTRY PRD's directory, regardless of which file contains the directive). Expanded recursively with cycle detection up to PRD_INCLUDE_MAX_DEPTH (default 10).\n2. INPUT: resolveIncludes function and config constants from P1.M1.T1.S1. The base directory is the entry PRD's directory; all paths in included files resolve relative to this base.\n3. LOGIC: Implement recursive expansion: when an include directive's file is read, its contents are themselves scanned for include directives and expanded. Maintain a visited Set<string> for cycle detection (absolute paths). Track depth and abort if exceeding PRD_INCLUDE_MAX_DEPTH. The resolution base is ALWAYS the entry PRD's directory (not the including file's directory) per PRD §2.3. Create the main entry point: resolvePRD(prdPath: string, opts?: ResolveOpts): Promise<string> which reads the entry file, then calls the recursive resolver. ResolveOpts should include markers flag and maxDepth override.\n4. OUTPUT: Exported resolvePRD function in src/core/session-utils.ts. Consumed by P1.M1.T1.S3 and P1.M1.T2.S1.\n5. DOCS: [Mode A] JSDoc on resolvePRD documenting recursive expansion, cycle detection, and the project-root-relative base invariant. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h2.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -47,9 +55,13 @@
                   "title": "Idempotency guarantee, optional markers, and stale-include warnings",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S2"],
-                  "prd_selectors": ["h3.2"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §2.3 mandates idempotency: 'Re-resolving already-resolved content MUST yield identical bytes.' This is the property that guarantees hash/snapshot consistency. When PRD_INCLUDE_MARKERS is set, resolved output emits <!-- @include: path --> / <!-- @end-include -->. A .md token that fails to resolve MUST emit a stderr warning.\n2. INPUT: resolvePRD function from P1.M1.T1.S2.\n3. LOGIC: Ensure resolvePRD is idempotent — re-resolving its own output yields identical bytes. This means resolved content must NOT contain unexpanded @path tokens that would re-trigger expansion. Add optional markers: when PRD_INCLUDE_MARKERS env is set, wrap expanded content with <!-- @include: path --> and <!-- @end-include --> comment markers. Add stale-include warning: when a .md token matches boundary rules but the path doesn't resolve to an existing file, emit a stderr warning (the token stays verbatim in output). Write comprehensive tests: idempotency (resolve(resolve(x)) === resolve(x)), markers toggle, stale include warning, inline vs line-start expansion.\n4. OUTPUT: Completed resolvePRD with idempotency, markers, and warnings. Consumed by P1.M1.T2.S1.\n5. DOCS: [Mode A] JSDoc on resolvePRD documenting idempotency property and marker format. This rides WITH the work."
+                  "dependencies": [
+                    "P1.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §2.3 mandates idempotency: 'Re-resolving already-resolved content MUST yield identical bytes.' This is the property that guarantees hash/snapshot consistency. When PRD_INCLUDE_MARKERS is set, resolved output emits <!-- @include: path --> / <!-- @end-include -->. A .md token that fails to resolve MUST emit a stderr warning.\n2. INPUT: resolvePRD function from P1.M1.T1.S2.\n3. LOGIC: Ensure resolvePRD is idempotent — re-resolving its own output yields identical bytes. This means resolved content must NOT contain unexpanded @path tokens that would re-trigger expansion. Add optional markers: when PRD_INCLUDE_MARKERS env is set, wrap expanded content with <!-- @include: path --> and <!-- @end-include --> comment markers. Add stale-include warning: when a .md token matches boundary rules but the path doesn't resolve to an existing file, emit a stderr warning (the token stays verbatim in output). Write comprehensive tests: idempotency (resolve(resolve(x)) === resolve(x)), markers toggle, stale include warning, inline vs line-start expansion.\n4. OUTPUT: Completed resolvePRD with idempotency, markers, and warnings. Consumed by P1.M1.T2.S1.\n5. DOCS: [Mode A] JSDoc on resolvePRD documenting idempotency property and marker format. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.2"
+                  ]
                 }
               ]
             },
@@ -66,9 +78,15 @@
                   "title": "Thread resolvePRD through hashPRD, initialize, and snapshot write",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S3"],
-                  "prd_selectors": ["h3.2", "h3.3", "h2.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md and phase_findings.md §PHASE 1 document the current RAW-read data flow. hashPRD (session-utils.ts:235-261) reads the RAW file and hashes it. initialize() (session-manager.ts:294) calls hashPRD, then at line 460 does a SEPARATE readFile(prdPath) for the snapshot — these can diverge. hashPRD is called 3-4× per init (session-manager.ts:294, 624, 1383, createSessionDirectory internal). snapshotPRD() (session-utils.ts:691-778) is DEAD CODE (zero callers); the live snapshot path is inline writeFile at session-manager.ts:473.\n2. INPUT: resolvePRD function from P1.M1.T1.S3.\n3. LOGIC: (a) Add hashPRDContent(resolved: string): string that hashes a pre-resolved string (pure function). (b) In initialize() (session-manager.ts ~line 294): resolve ONCE early via resolvePRD(this.prdPath), then pass the resolved string to BOTH hash computation AND the snapshot write. Replace the raw readFile at line 460 with the resolved content. Update prdSnapshot at line 493. (c) In hashPRD(prdPath) (session-utils.ts:235): change to resolvePRD then hash the resolved string (or accept resolved content directly). Ensure all three hash call sites use resolved content for consistency. (d) Consider making snapshotPRD() the live path (resolve-then-write) and have initialize() call it, eliminating the inline writeFile.\n4. OUTPUT: Updated hashPRD/hashPRDContent in session-utils.ts, updated initialize() in session-manager.ts. All hash + snapshot operations use resolved content. Consumed by P1.M1.T2.S2.\n5. DOCS: [Mode A] Note the resolved-document invariant in docs/ARCHITECTURE.md (a brief note; the full capability framing comes in P6). JSDoc on hashPRDContent. This rides WITH the work."
+                  "dependencies": [
+                    "P1.M1.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md and phase_findings.md §PHASE 1 document the current RAW-read data flow. hashPRD (session-utils.ts:235-261) reads the RAW file and hashes it. initialize() (session-manager.ts:294) calls hashPRD, then at line 460 does a SEPARATE readFile(prdPath) for the snapshot — these can diverge. hashPRD is called 3-4× per init (session-manager.ts:294, 624, 1383, createSessionDirectory internal). snapshotPRD() (session-utils.ts:691-778) is DEAD CODE (zero callers); the live snapshot path is inline writeFile at session-manager.ts:473.\n2. INPUT: resolvePRD function from P1.M1.T1.S3.\n3. LOGIC: (a) Add hashPRDContent(resolved: string): string that hashes a pre-resolved string (pure function). (b) In initialize() (session-manager.ts ~line 294): resolve ONCE early via resolvePRD(this.prdPath), then pass the resolved string to BOTH hash computation AND the snapshot write. Replace the raw readFile at line 460 with the resolved content. Update prdSnapshot at line 493. (c) In hashPRD(prdPath) (session-utils.ts:235): change to resolvePRD then hash the resolved string (or accept resolved content directly). Ensure all three hash call sites use resolved content for consistency. (d) Consider making snapshotPRD() the live path (resolve-then-write) and have initialize() call it, eliminating the inline writeFile.\n4. OUTPUT: Updated hashPRD/hashPRDContent in session-utils.ts, updated initialize() in session-manager.ts. All hash + snapshot operations use resolved content. Consumed by P1.M1.T2.S2.\n5. DOCS: [Mode A] Note the resolved-document invariant in docs/ARCHITECTURE.md (a brief note; the full capability framing comes in P6). JSDoc on hashPRDContent. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h3.3",
+                    "h2.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -76,9 +94,17 @@
                   "title": "Wire resolver through createDeltaSession, findSessionByHash, and delta workflow",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S1"],
-                  "prd_selectors": ["h3.2", "h3.3", "h3.4", "h3.5", "h2.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents remaining call sites: createDeltaSession() (session-manager.ts:620-670) hashes + reads RAW at lines 624,630,634; static findSessionByHash (session-manager.ts:1383) hashes RAW; handleDelta() (prp-pipeline.ts:638,645) reads oldPRD from snapshot and newPRD from raw file for diffing.\n2. INPUT: Updated hashPRD/initialize from P1.M1.T2.S1.\n3. LOGIC: (a) createDeltaSession: resolve newPRD via resolvePRD before hash (line 624) and before diff (line 634). The oldPRD already comes from prd_snapshot.md which is now resolved. (b) findSessionByHash (session-manager.ts:1383): route through resolvePRD before hashing for consistency — resolved hashes must match between init and lookup. (c) handleDelta() (prp-pipeline.ts:638,645): ensure both oldPRD (from snapshot, already resolved) and newPRD (read from disk) are resolved-vs-resolved before diff. (d) DeltaAnalysisWorkflow constructor (delta-analysis-workflow.ts) should receive resolved strings.\n4. OUTPUT: All hash/diff/snapshot call sites use resolved content. Consumed by P1.M1.T2.S3.\n5. DOCS: [Mode A] JSDoc on createDeltaSession and findSessionByHash noting resolved-content invariant. This rides WITH the work."
+                  "dependencies": [
+                    "P1.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents remaining call sites: createDeltaSession() (session-manager.ts:620-670) hashes + reads RAW at lines 624,630,634; static findSessionByHash (session-manager.ts:1383) hashes RAW; handleDelta() (prp-pipeline.ts:638,645) reads oldPRD from snapshot and newPRD from raw file for diffing.\n2. INPUT: Updated hashPRD/initialize from P1.M1.T2.S1.\n3. LOGIC: (a) createDeltaSession: resolve newPRD via resolvePRD before hash (line 624) and before diff (line 634). The oldPRD already comes from prd_snapshot.md which is now resolved. (b) findSessionByHash (session-manager.ts:1383): route through resolvePRD before hashing for consistency — resolved hashes must match between init and lookup. (c) handleDelta() (prp-pipeline.ts:638,645): ensure both oldPRD (from snapshot, already resolved) and newPRD (read from disk) are resolved-vs-resolved before diff. (d) DeltaAnalysisWorkflow constructor (delta-analysis-workflow.ts) should receive resolved strings.\n4. OUTPUT: All hash/diff/snapshot call sites use resolved content. Consumed by P1.M1.T2.S3.\n5. DOCS: [Mode A] JSDoc on createDeltaSession and findSessionByHash noting resolved-content invariant. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h3.3",
+                    "h3.4",
+                    "h3.5",
+                    "h2.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -86,9 +112,15 @@
                   "title": "Add agent guidance text stating PRD is pre-merged",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T2.S2"],
-                  "prd_selectors": ["h3.2", "h3.3", "h2.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §2.3 'Agent guidance' requires that any agent prompt embedding PRD content MUST state the text is already the complete merged document (agents must not chase includes themselves). architecture/phase_findings.md §PHASE 1 confirms agent system prompts (TASK_BREAKDOWN_PROMPT, PRP_BLUEPRINT_PROMPT in src/agents/prompts.ts) do NOT currently declare this.\n2. INPUT: Resolved-document pipeline from P1.M1.T2.S2.\n3. LOGIC: Add a guidance statement to all agent system prompts that embed PRD content: TASK_BREAKDOWN_PROMPT (prompts.ts), PRP_BLUEPRINT_PROMPT (prompts.ts), BUG_HUNT_PROMPT (prompts.ts), DELTA_ANALYSIS_PROMPT (prompts.ts). The statement should say: 'The PRD text provided is already the complete, merged document — do not chase @include directives yourself.' Also add it to createArchitectPrompt (architect-prompt.ts), createBugHuntPrompt (bug-hunt-prompt.ts), createDeltaAnalysisPrompt (delta-analysis-prompt.ts).\n4. OUTPUT: All agent prompts that embed PRD content declare it is pre-merged. No further subtask consumes this; it completes P1.M1.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal guidance)."
+                  "dependencies": [
+                    "P1.M1.T2.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §2.3 'Agent guidance' requires that any agent prompt embedding PRD content MUST state the text is already the complete merged document (agents must not chase includes themselves). architecture/phase_findings.md §PHASE 1 confirms agent system prompts (TASK_BREAKDOWN_PROMPT, PRP_BLUEPRINT_PROMPT in src/agents/prompts.ts) do NOT currently declare this.\n2. INPUT: Resolved-document pipeline from P1.M1.T2.S2.\n3. LOGIC: Add a guidance statement to all agent system prompts that embed PRD content: TASK_BREAKDOWN_PROMPT (prompts.ts), PRP_BLUEPRINT_PROMPT (prompts.ts), BUG_HUNT_PROMPT (prompts.ts), DELTA_ANALYSIS_PROMPT (prompts.ts). The statement should say: 'The PRD text provided is already the complete, merged document — do not chase @include directives yourself.' Also add it to createArchitectPrompt (architect-prompt.ts), createBugHuntPrompt (bug-hunt-prompt.ts), createDeltaAnalysisPrompt (delta-analysis-prompt.ts).\n4. OUTPUT: All agent prompts that embed PRD content declare it is pre-merged. No further subtask consumes this; it completes P1.M1.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal guidance).",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h3.3",
+                    "h2.1"
+                  ]
                 }
               ]
             }
@@ -115,8 +147,11 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h3.4", "h3.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md Finding #1 confirms Subtask interface (models.ts:273-337) has NO prd_selectors field. SubtaskSchema (models.ts:360-381) mirrors Subtask exactly. The PRD §4.2 step 2 specifies prd_selectors as an array of selector strings (e.g. ['h2.1', 'h3.0']).\n2. INPUT: No prior subtask output consumed (model change is standalone).\n3. LOGIC: Add `readonly prd_selectors: string[]` to the Subtask interface in src/core/models.ts (after context_scope). Update SubtaskSchema to include `prd_selectors: z.array(z.string()).optional().default([])`. The field should be optional with a default empty array so existing serialized tasks.json files remain valid. Ensure BacklogSchema recursive validation still passes.\n4. OUTPUT: Updated Subtask interface and SubtaskSchema in models.ts. Consumed by P1.M2.T1.S3.\n5. DOCS: [Mode A] JSDoc on the prd_selectors field in the Subtask interface documenting its purpose (referencing PRD section selectors for selective extraction). This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md Finding #1 confirms Subtask interface (models.ts:273-337) has NO prd_selectors field. SubtaskSchema (models.ts:360-381) mirrors Subtask exactly. The PRD §4.2 step 2 specifies prd_selectors as an array of selector strings (e.g. ['h2.1', 'h3.0']).\n2. INPUT: No prior subtask output consumed (model change is standalone).\n3. LOGIC: Add `readonly prd_selectors: string[]` to the Subtask interface in src/core/models.ts (after context_scope). Update SubtaskSchema to include `prd_selectors: z.array(z.string()).optional().default([])`. The field should be optional with a default empty array so existing serialized tasks.json files remain valid. Ensure BacklogSchema recursive validation still passes.\n4. OUTPUT: Updated Subtask interface and SubtaskSchema in models.ts. Consumed by P1.M2.T1.S3.\n5. DOCS: [Mode A] JSDoc on the prd_selectors field in the Subtask interface documenting its purpose (referencing PRD section selectors for selective extraction). This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h3.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -124,9 +159,14 @@
                   "title": "Section index generator over resolved document",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S2"],
-                  "prd_selectors": ["h3.4", "h3.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents that parsePRDSections() at prd-differ.ts:179 is a reusable section parser but is diff-oriented. prd_index.txt files exist in plan/*/*/ but are written by the Architect AGENT, not by TS code. The section index must run over the RESOLVED document (materialized resolved copy).\n2. INPUT: Resolved PRD content string from P1.M1.T2.S2 (the pipeline now produces resolved content in prdSnapshot).\n3. LOGIC: Create a section index generator function: generateSectionIndex(resolvedPRD: string): SectionIndex. A SectionIndex maps selector strings (h2.0, h3.1, code.0, para.0, list.0, etc.) to their corresponding section text. Reuse/extend parsePRDSections() from prd-differ.ts as the parsing primitive. Support: h1-h6 headings (indexed by level + position), code blocks (code.N), paragraphs (para.N), lists (list.N), tables. The index must be deterministic and computed over the resolved document at breakdown time. Store in a new module src/core/prd-selector.ts or extend prd-differ.ts.\n4. OUTPUT: Exported generateSectionIndex function and SectionIndex type. Consumed by P1.M2.T1.S3.\n5. DOCS: [Mode A] JSDoc on generateSectionIndex and SectionIndex type documenting selector syntax and the resolved-document requirement. This rides WITH the work."
+                  "dependencies": [
+                    "P1.M1.T2.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents that parsePRDSections() at prd-differ.ts:179 is a reusable section parser but is diff-oriented. prd_index.txt files exist in plan/*/*/ but are written by the Architect AGENT, not by TS code. The section index must run over the RESOLVED document (materialized resolved copy).\n2. INPUT: Resolved PRD content string from P1.M1.T2.S2 (the pipeline now produces resolved content in prdSnapshot).\n3. LOGIC: Create a section index generator function: generateSectionIndex(resolvedPRD: string): SectionIndex. A SectionIndex maps selector strings (h2.0, h3.1, code.0, para.0, list.0, etc.) to their corresponding section text. Reuse/extend parsePRDSections() from prd-differ.ts as the parsing primitive. Support: h1-h6 headings (indexed by level + position), code blocks (code.N), paragraphs (para.N), lists (list.N), tables. The index must be deterministic and computed over the resolved document at breakdown time. Store in a new module src/core/prd-selector.ts or extend prd-differ.ts.\n4. OUTPUT: Exported generateSectionIndex function and SectionIndex type. Consumed by P1.M2.T1.S3.\n5. DOCS: [Mode A] JSDoc on generateSectionIndex and SectionIndex type documenting selector syntax and the resolved-document requirement. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h3.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -134,9 +174,14 @@
                   "title": "Selector extraction at PRP-generation time with full-PRD fallback",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T1.S1", "P1.M2.T1.S2"],
-                  "prd_selectors": ["h3.4"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents that createPRPBlueprintPrompt (prp-blueprint-prompt.ts:288-318) currently receives NO PRD content — it builds the user prompt from task title/description + parent context only. PRD §4.2 step 2 specifies the Researcher receives only the referenced sections instead of the full PRD, keeping its context focused. Fallback: when selectors are absent or extraction fails, the full PRD is used.\n2. INPUT: prd_selectors field from P1.M2.T1.S1; generateSectionIndex/SectionIndex from P1.M2.T1.S2; resolved PRD content from P1.M1.T2.S2.\n3. LOGIC: Create extractPRDSections(resolvedPRD: string, selectors: string[]): string — generates the section index, extracts only the sections referenced by selectors, and returns concatenated section text. If selectors is empty/absent or extraction fails for any selector, fall back to the full PRD. Integrate into the PRP generation flow: PRPGenerator.generate() should call extractPRDSections with the subtask's prd_selectors and pass the result to createPRPBlueprintPrompt as a new parameter (prdSections). Update createPRPBlueprintPrompt signature to accept the extracted PRD sections and inject them into the user prompt.\n4. OUTPUT: extractPRDSections function, updated createPRPBlueprintPrompt accepting PRD sections, updated PRPGenerator.generate() flow. Completes P1.M2.\n5. DOCS: [Mode A] JSDoc on extractPRDSections documenting fallback behavior. This rides WITH the work."
+                  "dependencies": [
+                    "P1.M2.T1.S1",
+                    "P1.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 1 documents that createPRPBlueprintPrompt (prp-blueprint-prompt.ts:288-318) currently receives NO PRD content — it builds the user prompt from task title/description + parent context only. PRD §4.2 step 2 specifies the Researcher receives only the referenced sections instead of the full PRD, keeping its context focused. Fallback: when selectors are absent or extraction fails, the full PRD is used.\n2. INPUT: prd_selectors field from P1.M2.T1.S1; generateSectionIndex/SectionIndex from P1.M2.T1.S2; resolved PRD content from P1.M1.T2.S2.\n3. LOGIC: Create extractPRDSections(resolvedPRD: string, selectors: string[]): string — generates the section index, extracts only the sections referenced by selectors, and returns concatenated section text. If selectors is empty/absent or extraction fails for any selector, fall back to the full PRD. Integrate into the PRP generation flow: PRPGenerator.generate() should call extractPRDSections with the subtask's prd_selectors and pass the result to createPRPBlueprintPrompt as a new parameter (prdSections). Update createPRPBlueprintPrompt signature to accept the extracted PRD sections and inject them into the user prompt.\n4. OUTPUT: extractPRDSections function, updated createPRPBlueprintPrompt accepting PRD sections, updated PRPGenerator.generate() flow. Completes P1.M2.\n5. DOCS: [Mode A] JSDoc on extractPRDSections documenting fallback behavior. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.4"
+                  ]
                 }
               ]
             }
@@ -172,8 +217,11 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h4.7", "h4.2"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents: constants.ts:43-55 has MODEL_NAMES = { opus: 'glm-5.2', sonnet: 'glm-5.2', haiku: 'glm-5-turbo' }; types.ts:24 has type ModelTier = 'opus' | 'sonnet' | 'haiku'. PRD §9.2.8 mandates tier rename: opus→high, sonnet→balanced, haiku→fast. Role→tier mapping unchanged.\n2. INPUT: No prior subtask output consumed (type/constant change is foundational).\n3. LOGIC: (a) Update type ModelTier in src/config/types.ts:24 from 'opus'|'sonnet'|'haiku' to 'high'|'balanced'|'fast'. (b) Update MODEL_NAMES in src/config/constants.ts:43 keys from opus/sonnet/haiku to high/balanced/fast (values unchanged). (c) Update MODEL_ENV_VARS in constants.ts:65 keys similarly. This is a pure rename — values remain the same models.\n4. OUTPUT: Updated ModelTier type, MODEL_NAMES, MODEL_ENV_VARS with new key names. Consumed by P2.M1.T1.S2.\n5. DOCS: [Mode A] JSDoc on ModelTier and MODEL_NAMES documenting the new tier names. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents: constants.ts:43-55 has MODEL_NAMES = { opus: 'glm-5.2', sonnet: 'glm-5.2', haiku: 'glm-5-turbo' }; types.ts:24 has type ModelTier = 'opus' | 'sonnet' | 'haiku'. PRD §9.2.8 mandates tier rename: opus→high, sonnet→balanced, haiku→fast. Role→tier mapping unchanged.\n2. INPUT: No prior subtask output consumed (type/constant change is foundational).\n3. LOGIC: (a) Update type ModelTier in src/config/types.ts:24 from 'opus'|'sonnet'|'haiku' to 'high'|'balanced'|'fast'. (b) Update MODEL_NAMES in src/config/constants.ts:43 keys from opus/sonnet/haiku to high/balanced/fast (values unchanged). (c) Update MODEL_ENV_VARS in constants.ts:65 keys similarly. This is a pure rename — values remain the same models.\n4. OUTPUT: Updated ModelTier type, MODEL_NAMES, MODEL_ENV_VARS with new key names. Consumed by P2.M1.T1.S2.\n5. DOCS: [Mode A] JSDoc on ModelTier and MODEL_NAMES documenting the new tier names. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h4.7",
+                    "h4.2"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -181,9 +229,15 @@
                   "title": "Canonical-first-with-fallback env loader and deprecation warning",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P2.M1.T1.S1"],
-                  "prd_selectors": ["h4.7", "h4.2", "h4.0"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents: MODEL_ENV_VARS (constants.ts:65) = { opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL', ...}. environment.ts getModel() = qualifyModel(process.env[MODEL_ENV_VARS[tier]] ?? MODEL_NAMES[tier]). REQUIRED_ENV_VARS = { apiKey: 'ANTHROPIC_API_KEY', baseURL: 'ANTHROPIC_BASE_URL' }. PRD §9.2.8 specifies canonical names: PRP_MODEL_HIGH, PRP_MODEL_BALANCED, PRP_MODEL_FAST, PRP_API_BASE_URL with legacy aliases retained (forward/deprecated). Provider-native credentials ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN are NOT renamed.\n2. INPUT: Renamed ModelTier and MODEL_NAMES from P2.M1.T1.S1.\n3. LOGIC: (a) Set MODEL_ENV_VARS canonical values: { high: 'PRP_MODEL_HIGH', balanced: 'PRP_MODEL_BALANCED', fast: 'PRP_MODEL_FAST' }. (b) Add a LEGACY_MODEL_ENV_VARS mapping: { high: 'ANTHROPIC_DEFAULT_OPUS_MODEL', balanced: 'ANTHROPIC_DEFAULT_SONNET_MODEL', fast: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' }. (c) Update getModel() in environment.ts to read canonical-first: process.env[MODEL_ENV_VARS[tier]] ?? process.env[LEGACY_MODEL_ENV_VARS[tier]] ?? MODEL_NAMES[tier]. When falling through to legacy, emit a one-time deprecation warning naming the canonical replacement. (d) Add PRP_API_BASE_URL to constants.ts; update configureEnvironment() to read PRP_API_BASE_URL canonical-first, ANTHROPIC_BASE_URL legacy fallback. (e) Update REQUIRED_ENV_VARS.baseURL to canonical 'PRP_API_BASE_URL'.\n4. OUTPUT: Updated MODEL_ENV_VARS, LEGACY_MODEL_ENV_VARS, getModel(), configureEnvironment(). Consumed by P2.M1.T1.S3.\n5. DOCS: [Mode A] Update .env.example: document only canonical PRP_* names; legacy ANTHROPIC_* names in a deprecation note. Update docs/CONFIGURATION.md model/auth/endpoint prose to canonical. This rides WITH the work."
+                  "dependencies": [
+                    "P2.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents: MODEL_ENV_VARS (constants.ts:65) = { opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL', ...}. environment.ts getModel() = qualifyModel(process.env[MODEL_ENV_VARS[tier]] ?? MODEL_NAMES[tier]). REQUIRED_ENV_VARS = { apiKey: 'ANTHROPIC_API_KEY', baseURL: 'ANTHROPIC_BASE_URL' }. PRD §9.2.8 specifies canonical names: PRP_MODEL_HIGH, PRP_MODEL_BALANCED, PRP_MODEL_FAST, PRP_API_BASE_URL with legacy aliases retained (forward/deprecated). Provider-native credentials ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN are NOT renamed.\n2. INPUT: Renamed ModelTier and MODEL_NAMES from P2.M1.T1.S1.\n3. LOGIC: (a) Set MODEL_ENV_VARS canonical values: { high: 'PRP_MODEL_HIGH', balanced: 'PRP_MODEL_BALANCED', fast: 'PRP_MODEL_FAST' }. (b) Add a LEGACY_MODEL_ENV_VARS mapping: { high: 'ANTHROPIC_DEFAULT_OPUS_MODEL', balanced: 'ANTHROPIC_DEFAULT_SONNET_MODEL', fast: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' }. (c) Update getModel() in environment.ts to read canonical-first: process.env[MODEL_ENV_VARS[tier]] ?? process.env[LEGACY_MODEL_ENV_VARS[tier]] ?? MODEL_NAMES[tier]. When falling through to legacy, emit a one-time deprecation warning naming the canonical replacement. (d) Add PRP_API_BASE_URL to constants.ts; update configureEnvironment() to read PRP_API_BASE_URL canonical-first, ANTHROPIC_BASE_URL legacy fallback. (e) Update REQUIRED_ENV_VARS.baseURL to canonical 'PRP_API_BASE_URL'.\n4. OUTPUT: Updated MODEL_ENV_VARS, LEGACY_MODEL_ENV_VARS, getModel(), configureEnvironment(). Consumed by P2.M1.T1.S3.\n5. DOCS: [Mode A] Update .env.example: document only canonical PRP_* names; legacy ANTHROPIC_* names in a deprecation note. Update docs/CONFIGURATION.md model/auth/endpoint prose to canonical. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h4.7",
+                    "h4.2",
+                    "h4.0"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -191,9 +245,15 @@
                   "title": "Update getModel and all call sites for new tier names",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P2.M1.T1.S2"],
-                  "prd_selectors": ["h4.7", "h4.2", "h4.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents agent-factory.ts call sites: createBaseConfig (line 175) uses getModel('sonnet') for all personas; createCoderAgent (line 290) overrides to getModel('haiku'). With the tier rename, 'sonnet'→'balanced' and 'haiku'→'fast'. No persona uses getModel('opus')/'high' currently.\n2. INPUT: Updated getModel() with canonical-first loader from P2.M1.T1.S2.\n3. LOGIC: (a) Update createBaseConfig in agent-factory.ts:175 from getModel('sonnet') to getModel('balanced'). (b) Update createCoderAgent in agent-factory.ts:290 from getModel('haiku') to getModel('fast'). (c) Grep for any other getModel() call sites across the codebase and update tier names. (d) Update any constants or tests that reference tier names by string. (e) Update getResolvedProvider() in environment.ts which derives provider from getModel('balanced') (was 'sonnet').\n4. OUTPUT: All getModel calls use new tier names. Consumed by P2.M2.T1.S1.\n5. DOCS: [Mode A] JSDoc on getModel documenting canonical-first resolution and tier names. This rides WITH the work."
+                  "dependencies": [
+                    "P2.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents agent-factory.ts call sites: createBaseConfig (line 175) uses getModel('sonnet') for all personas; createCoderAgent (line 290) overrides to getModel('haiku'). With the tier rename, 'sonnet'→'balanced' and 'haiku'→'fast'. No persona uses getModel('opus')/'high' currently.\n2. INPUT: Updated getModel() with canonical-first loader from P2.M1.T1.S2.\n3. LOGIC: (a) Update createBaseConfig in agent-factory.ts:175 from getModel('sonnet') to getModel('balanced'). (b) Update createCoderAgent in agent-factory.ts:290 from getModel('haiku') to getModel('fast'). (c) Grep for any other getModel() call sites across the codebase and update tier names. (d) Update any constants or tests that reference tier names by string. (e) Update getResolvedProvider() in environment.ts which derives provider from getModel('balanced') (was 'sonnet').\n4. OUTPUT: All getModel calls use new tier names. Consumed by P2.M2.T1.S1.\n5. DOCS: [Mode A] JSDoc on getModel documenting canonical-first resolution and tier names. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h4.7",
+                    "h4.2",
+                    "h4.1"
+                  ]
                 }
               ]
             }
@@ -219,9 +279,15 @@
                   "title": "Add reasoning budget config and role parameter to agent-factory",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P2.M1.T1.S3"],
-                  "prd_selectors": ["h4.2", "h3.12", "h4.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents that AgentConfig in agent-factory.ts has NO thinking/reasoning field. createBaseConfig (line 171) accepts only persona. PRD §9.2.3 specifies three roles: Research (balanced, normal budget), Reasoning (balanced @ xhigh), Implementation (fast). PRD §6.1 mandates decomposition at maximum reasoning budget (xhigh equivalent).\n2. INPUT: Updated getModel() and tier names from P2.M1.T1.S3.\n3. LOGIC: (a) Add optional `thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'` to AgentConfig interface (or the config object passed to createAgent). (b) Add a ModelRole type: 'research' | 'reasoning' | 'implementation'. (c) Update createBaseConfig to accept a role parameter that determines the model tier and thinking budget: research→getModel('balanced'), no xhigh; reasoning→getModel('balanced'), thinking='xhigh'; implementation→getModel('fast'), no xhigh. (d) Add a ROLE_CONFIG constant mapping roles to { tier, thinking }.\n4. OUTPUT: Updated AgentConfig with thinking field, ModelRole type, updated createBaseConfig with role parameter. Consumed by P2.M2.T1.S2.\n5. DOCS: [Mode A] JSDoc on ModelRole, ROLE_CONFIG, and the thinking field. Update docs/CONFIGURATION.md model section to describe three roles. This rides WITH the work."
+                  "dependencies": [
+                    "P2.M1.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents that AgentConfig in agent-factory.ts has NO thinking/reasoning field. createBaseConfig (line 171) accepts only persona. PRD §9.2.3 specifies three roles: Research (balanced, normal budget), Reasoning (balanced @ xhigh), Implementation (fast). PRD §6.1 mandates decomposition at maximum reasoning budget (xhigh equivalent).\n2. INPUT: Updated getModel() and tier names from P2.M1.T1.S3.\n3. LOGIC: (a) Add optional `thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'` to AgentConfig interface (or the config object passed to createAgent). (b) Add a ModelRole type: 'research' | 'reasoning' | 'implementation'. (c) Update createBaseConfig to accept a role parameter that determines the model tier and thinking budget: research→getModel('balanced'), no xhigh; reasoning→getModel('balanced'), thinking='xhigh'; implementation→getModel('fast'), no xhigh. (d) Add a ROLE_CONFIG constant mapping roles to { tier, thinking }.\n4. OUTPUT: Updated AgentConfig with thinking field, ModelRole type, updated createBaseConfig with role parameter. Consumed by P2.M2.T1.S2.\n5. DOCS: [Mode A] JSDoc on ModelRole, ROLE_CONFIG, and the thinking field. Update docs/CONFIGURATION.md model section to describe three roles. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h4.2",
+                    "h3.12",
+                    "h4.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -229,9 +295,15 @@
                   "title": "Map personas to three roles with correct budgets",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P2.M2.T1.S1"],
-                  "prd_selectors": ["h4.2", "h3.12", "h3.16"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents the persona→role mapping table. architect→reasoning (balanced @ xhigh); researcher→research (balanced, normal); coder→implementation (fast); qa→reasoning (balanced @ xhigh). PRD §6.1 mandates decomposition at max reasoning budget. PRD §4.4/§9.2.2 specifies bug-finder and validation as reasoning-tier.\n2. INPUT: Updated createBaseConfig with role parameter from P2.M2.T1.S1.\n3. LOGIC: Update each persona factory in agent-factory.ts: (a) createArchitectAgent → role='reasoning' (thinking='xhigh'); (b) createResearcherAgent → role='research'; (c) createCoderAgent → role='implementation'; (d) createQAAgent → role='reasoning' (thinking='xhigh'). Each factory calls createBaseConfig with the appropriate role. The xhigh thinking budget is wired through to the pi harness --thinking lever.\n4. OUTPUT: All four personas mapped to correct roles with appropriate budgets. Consumed by P2.M2.T1.S3, P3.M2.T3.S1, P4.M2.T1.S1, P4.M2.T2.S1.\n5. DOCS: none — no user-facing/config/API surface change beyond what P2.M2.T1.S1 documented."
+                  "dependencies": [
+                    "P2.M2.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents the persona→role mapping table. architect→reasoning (balanced @ xhigh); researcher→research (balanced, normal); coder→implementation (fast); qa→reasoning (balanced @ xhigh). PRD §6.1 mandates decomposition at max reasoning budget. PRD §4.4/§9.2.2 specifies bug-finder and validation as reasoning-tier.\n2. INPUT: Updated createBaseConfig with role parameter from P2.M2.T1.S1.\n3. LOGIC: Update each persona factory in agent-factory.ts: (a) createArchitectAgent → role='reasoning' (thinking='xhigh'); (b) createResearcherAgent → role='research'; (c) createCoderAgent → role='implementation'; (d) createQAAgent → role='reasoning' (thinking='xhigh'). Each factory calls createBaseConfig with the appropriate role. The xhigh thinking budget is wired through to the pi harness --thinking lever.\n4. OUTPUT: All four personas mapped to correct roles with appropriate budgets. Consumed by P2.M2.T1.S3, P3.M2.T3.S1, P4.M2.T1.S1, P4.M2.T2.S1.\n5. DOCS: none — no user-facing/config/API surface change beyond what P2.M2.T1.S1 documented.",
+                  "prd_selectors": [
+                    "h4.2",
+                    "h3.12",
+                    "h3.16"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -239,9 +311,14 @@
                   "title": "Wire xhigh reasoning budget into decomposition demand-write retry",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P2.M2.T1.S2"],
-                  "prd_selectors": ["h3.12", "h4.2"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6.1 specifies the demand-write retry (breakdown output missing/invalid) uses the same maximum reasoning budget (xhigh equivalent). architecture/signatures.md documents decomposePRD() in prp-pipeline.ts uses the architect agent with TASK_BREAKDOWN_PROMPT.\n2. INPUT: Updated architect persona with xhigh from P2.M2.T1.S2.\n3. LOGIC: Ensure the decomposition demand-write retry path (when breakdown output is missing/invalid and the architect is re-invoked) uses the same xhigh reasoning budget as the initial decomposition call. This is primarily verifying that the architect agent's config already includes thinking='xhigh' from P2.M2.T1.S2, and that the retry path in decomposePRD() does not downgrade the agent config. If decomposePRD re-creates the agent on retry, ensure it uses the same createArchitectAgent() which already has xhigh.\n4. OUTPUT: Decomposition and its demand-write retry both run at xhigh. Completes P2.M2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P2.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6.1 specifies the demand-write retry (breakdown output missing/invalid) uses the same maximum reasoning budget (xhigh equivalent). architecture/signatures.md documents decomposePRD() in prp-pipeline.ts uses the architect agent with TASK_BREAKDOWN_PROMPT.\n2. INPUT: Updated architect persona with xhigh from P2.M2.T1.S2.\n3. LOGIC: Ensure the decomposition demand-write retry path (when breakdown output is missing/invalid and the architect is re-invoked) uses the same xhigh reasoning budget as the initial decomposition call. This is primarily verifying that the architect agent's config already includes thinking='xhigh' from P2.M2.T1.S2, and that the retry path in decomposePRD() does not downgrade the agent config. If decomposePRD re-creates the agent on retry, ensure it uses the same createArchitectAgent() which already has xhigh.\n4. OUTPUT: Decomposition and its demand-write retry both run at xhigh. Completes P2.M2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.12",
+                    "h4.2"
+                  ]
                 }
               ]
             }
@@ -268,8 +345,10 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h3.13"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents PRP_BLUEPRINT_PROMPT text in prompts.ts and createPRPBlueprintPrompt in prp-blueprint-prompt.ts:288. The current text says 'You are creating a PRP for this specific work item' (single item → single PRP). No multi-PRP batch mode exists. PRD §6.2 mandates: a PRP call writes exactly ONE PRP; batching permitted only as optimization for tightly-coupled items at a higher bar (full task-tree + PRD context, 3-5 subagent research calls per item, No Prior Knowledge check, explicit batch declaration). When in doubt, write one.\n2. INPUT: No prior subtask output consumed (prompt content change).\n3. LOGIC: Update the PRP_BLUEPRINT_PROMPT system prompt text in src/agents/prompts.ts to explicitly state: (a) Default: write exactly ONE PRP per call. (b) Batching is permitted ONLY when ALL gates pass: hold full task-tree + full-PRD context; run 3-5 subagent research calls per item; pass per-item 'No Prior Knowledge' check; declare the batch explicitly. (c) When in doubt, write one PRP. This is a prompt-content change.\n4. OUTPUT: Updated PRP_BLUEPRINT_PROMPT with strict batching gates. Completes this part of P2.M3.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents PRP_BLUEPRINT_PROMPT text in prompts.ts and createPRPBlueprintPrompt in prp-blueprint-prompt.ts:288. The current text says 'You are creating a PRP for this specific work item' (single item → single PRP). No multi-PRP batch mode exists. PRD §6.2 mandates: a PRP call writes exactly ONE PRP; batching permitted only as optimization for tightly-coupled items at a higher bar (full task-tree + PRD context, 3-5 subagent research calls per item, No Prior Knowledge check, explicit batch declaration). When in doubt, write one.\n2. INPUT: No prior subtask output consumed (prompt content change).\n3. LOGIC: Update the PRP_BLUEPRINT_PROMPT system prompt text in src/agents/prompts.ts to explicitly state: (a) Default: write exactly ONE PRP per call. (b) Batching is permitted ONLY when ALL gates pass: hold full task-tree + full-PRD context; run 3-5 subagent research calls per item; pass per-item 'No Prior Knowledge' check; declare the batch explicitly. (c) When in doubt, write one PRP. This is a prompt-content change.\n4. OUTPUT: Updated PRP_BLUEPRINT_PROMPT with strict batching gates. Completes this part of P2.M3.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal).",
+                  "prd_selectors": [
+                    "h3.13"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -278,8 +357,10 @@
                   "status": "Planned",
                   "story_points": 0.5,
                   "dependencies": [],
-                  "prd_selectors": ["h3.11"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/signatures.md documents the CLI structure. The 'task' subcommand is registered at cli/index.ts:484 with .command('task'), .argument('[action]'), and an .action() handler. It supports actions: (none)=list all, 'next', 'status'. PRD §5.3 mandates aliasing 'prd status' to 'prd task' for git muscle memory.\n2. INPUT: No prior subtask output consumed (CLI wiring change).\n3. LOGIC: In src/cli/index.ts, register a 'status' subcommand that delegates to the same handler as the 'task' subcommand. Use commander.js .command('status') with the same description, argument, and options as 'task', sharing the same action handler. Add 'status' to the subcommand union type at line 248. Add a case in the subcommand detection block (around line 589+) that returns { subcommand: 'task', options } for 'status' invocations (or maps it to the same logic).\n4. OUTPUT: `prd status` works identically to `prd task`. Completes P2.M3.\n5. DOCS: [Mode A] Update docs/CLI_REFERENCE.md to document the `status` alias. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/signatures.md documents the CLI structure. The 'task' subcommand is registered at cli/index.ts:484 with .command('task'), .argument('[action]'), and an .action() handler. It supports actions: (none)=list all, 'next', 'status'. PRD §5.3 mandates aliasing 'prd status' to 'prd task' for git muscle memory.\n2. INPUT: No prior subtask output consumed (CLI wiring change).\n3. LOGIC: In src/cli/index.ts, register a 'status' subcommand that delegates to the same handler as the 'task' subcommand. Use commander.js .command('status') with the same description, argument, and options as 'task', sharing the same action handler. Add 'status' to the subcommand union type at line 248. Add a case in the subcommand detection block (around line 589+) that returns { subcommand: 'task', options } for 'status' invocations (or maps it to the same logic).\n4. OUTPUT: `prd status` works identically to `prd task`. Completes P2.M3.\n5. DOCS: [Mode A] Update docs/CLI_REFERENCE.md to document the `status` alias. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.11"
+                  ]
                 }
               ]
             }
@@ -315,8 +396,11 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h3.4", "h4.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300 at constants.ts:198. No RESEARCH_DEPTH constant exists anywhere. PRD §4.2 specifies RESEARCH_DEPTH (default 2) and PARALLEL_RESEARCH (CLI -r/--parallel-research, default false).\n2. INPUT: No prior subtask output consumed (config constants are foundational).\n3. LOGIC: (a) Add DEFAULT_RESEARCH_DEPTH = 2 and getResearchDepth() to constants.ts (mirror getResearchTimeoutSeconds pattern). (b) Add PARALLEL_RESEARCH env var name and isParallelResearch() helper (default false). (c) Change DEFAULT_RESEARCH_TIMEOUT_SECONDS from 300 to 1800 in constants.ts:198. (d) Add CLI flags -r/--parallel-research (boolean, default false) and --research-depth <n> to cli/index.ts.\n4. OUTPUT: New constants and config helpers in constants.ts, updated CLI flags. Consumed by P3.M1.T1.S2, P3.M1.T1.S3, P3.M1.T1.S4.\n5. DOCS: [Mode A] Add PARALLEL_RESEARCH, RESEARCH_DEPTH to .env.example; update RESEARCH_TIMEOUT default note. Add to docs/CONFIGURATION.md research section. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300 at constants.ts:198. No RESEARCH_DEPTH constant exists anywhere. PRD §4.2 specifies RESEARCH_DEPTH (default 2) and PARALLEL_RESEARCH (CLI -r/--parallel-research, default false).\n2. INPUT: No prior subtask output consumed (config constants are foundational).\n3. LOGIC: (a) Add DEFAULT_RESEARCH_DEPTH = 2 and getResearchDepth() to constants.ts (mirror getResearchTimeoutSeconds pattern). (b) Add PARALLEL_RESEARCH env var name and isParallelResearch() helper (default false). (c) Change DEFAULT_RESEARCH_TIMEOUT_SECONDS from 300 to 1800 in constants.ts:198. (d) Add CLI flags -r/--parallel-research (boolean, default false) and --research-depth <n> to cli/index.ts.\n4. OUTPUT: New constants and config helpers in constants.ts, updated CLI flags. Consumed by P3.M1.T1.S2, P3.M1.T1.S3, P3.M1.T1.S4.\n5. DOCS: [Mode A] Add PARALLEL_RESEARCH, RESEARCH_DEPTH to .env.example; update RESEARCH_TIMEOUT default note. Add to docs/CONFIGURATION.md research section. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h4.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -324,9 +408,14 @@
                   "title": "Convert ResearchQueue to depth-chained supervisor",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P3.M1.T1.S1"],
-                  "prd_selectors": ["h3.4", "h4.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 and signatures.md document: ResearchQueue (research-queue.ts) is a flat maxSize=3 concurrency POOL, not a depth-chain. enqueue() calls processNext() which shifts items if researching.size < maxSize. On completion, .finally removes from researching and recurses processNext. waitForPRP races RESEARCH_TIMEOUT. researchNow is synchronous inline fallback. PRD §4.2 specifies a background supervisor researching a CHAIN of up to RESEARCH_DEPTH (default 2) items ahead, prefetching the next as the orchestrator consumes each completed PRP.\n2. INPUT: RESEARCH_DEPTH and PARALLEL_RESEARCH config from P3.M1.T1.S1.\n3. LOGIC: Change the ResearchQueue prefetch model from flat maxSize pool to depth-chained supervisor: (a) When PARALLEL_RESEARCH is enabled, a background supervisor researches a chain of RESEARCH_DEPTH items ahead of the current item being implemented. (b) As the orchestrator consumes each completed PRP, the supervisor prefetches the next item in the chain. (c) This collapses both failure modes: 'fast implementer → stall waiting for N+1' and 'slow implementer → wasted idle capacity.' (d) The deadline via RESEARCH_TIMEOUT (now 1800s) guards each generation; a grace period precedes the heartbeat. (e) Maintain backward compatibility: when PARALLEL_RESEARCH is false, behave as today (or single-item prefetch).\n4. OUTPUT: Updated ResearchQueue with depth-chained supervisor. Consumed by P3.M1.T1.S4.\n5. DOCS: none — no user-facing/config/API surface change (internal prefetch model; config vars documented in P3.M1.T1.S1)."
+                  "dependencies": [
+                    "P3.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 and signatures.md document: ResearchQueue (research-queue.ts) is a flat maxSize=3 concurrency POOL, not a depth-chain. enqueue() calls processNext() which shifts items if researching.size < maxSize. On completion, .finally removes from researching and recurses processNext. waitForPRP races RESEARCH_TIMEOUT. researchNow is synchronous inline fallback. PRD §4.2 specifies a background supervisor researching a CHAIN of up to RESEARCH_DEPTH (default 2) items ahead, prefetching the next as the orchestrator consumes each completed PRP.\n2. INPUT: RESEARCH_DEPTH and PARALLEL_RESEARCH config from P3.M1.T1.S1.\n3. LOGIC: Change the ResearchQueue prefetch model from flat maxSize pool to depth-chained supervisor: (a) When PARALLEL_RESEARCH is enabled, a background supervisor researches a chain of RESEARCH_DEPTH items ahead of the current item being implemented. (b) As the orchestrator consumes each completed PRP, the supervisor prefetches the next item in the chain. (c) This collapses both failure modes: 'fast implementer → stall waiting for N+1' and 'slow implementer → wasted idle capacity.' (d) The deadline via RESEARCH_TIMEOUT (now 1800s) guards each generation; a grace period precedes the heartbeat. (e) Maintain backward compatibility: when PARALLEL_RESEARCH is false, behave as today (or single-item prefetch).\n4. OUTPUT: Updated ResearchQueue with depth-chained supervisor. Consumed by P3.M1.T1.S4.\n5. DOCS: none — no user-facing/config/API surface change (internal prefetch model; config vars documented in P3.M1.T1.S1).",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h4.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -334,9 +423,14 @@
                   "title": "Update RESEARCH_TIMEOUT default and documentation",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M1.T1.S1"],
-                  "prd_selectors": ["h3.4", "h4.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G7 documents DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300 (5 min) at constants.ts:198. PRD §4.2 specifies changing default to 1800s (30 min). getResearchTimeoutSeconds() (constants.ts:213) reads RESEARCH_TIMEOUT env with fallback to 300.\n2. INPUT: Config constants from P3.M1.T1.S1 (which already changes the default value).\n3. LOGIC: Verify DEFAULT_RESEARCH_TIMEOUT_SECONDS is 1800 (changed in P3.M1.T1.S1). Update getResearchTimeoutSeconds() fallback to 1800. Update any JSDoc or inline comments referencing 300s. Write tests verifying the new default. Update the grace-period logic: a grace period precedes the heartbeat so legitimately long research isn't flagged, but the deadline still fails fast on a genuinely stuck supervisor.\n4. OUTPUT: RESEARCH_TIMEOUT default is 1800s with updated documentation. No further subtask consumes this directly; it supports P3.M1.T1.S2.\n5. DOCS: [Mode A] Update RESEARCH_TIMEOUT documentation in .env.example and docs/CONFIGURATION.md to reflect 1800s default. This rides WITH the work."
+                  "dependencies": [
+                    "P3.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G7 documents DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300 (5 min) at constants.ts:198. PRD §4.2 specifies changing default to 1800s (30 min). getResearchTimeoutSeconds() (constants.ts:213) reads RESEARCH_TIMEOUT env with fallback to 300.\n2. INPUT: Config constants from P3.M1.T1.S1 (which already changes the default value).\n3. LOGIC: Verify DEFAULT_RESEARCH_TIMEOUT_SECONDS is 1800 (changed in P3.M1.T1.S1). Update getResearchTimeoutSeconds() fallback to 1800. Update any JSDoc or inline comments referencing 300s. Write tests verifying the new default. Update the grace-period logic: a grace period precedes the heartbeat so legitimately long research isn't flagged, but the deadline still fails fast on a genuinely stuck supervisor.\n4. OUTPUT: RESEARCH_TIMEOUT default is 1800s with updated documentation. No further subtask consumes this directly; it supports P3.M1.T1.S2.\n5. DOCS: [Mode A] Update RESEARCH_TIMEOUT documentation in .env.example and docs/CONFIGURATION.md to reflect 1800s default. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h4.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -344,9 +438,14 @@
                   "title": "Forward PARALLEL_RESEARCH and RESEARCH_DEPTH to bugfix child",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M1.T1.S2"],
-                  "prd_selectors": ["h3.4", "h3.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents the bugfix sub-pipeline creation at prp-pipeline.ts:1207-1245: mkdir bugfix dir, copy TEST_RESULTS.md, create FixCycleWorkflow. PRD §4.2 specifies PARALLEL_RESEARCH and RESEARCH_DEPTH MUST be forwarded to the bugfix child because all real item execution (and therefore all prefetching) happens inside the bugfix child.\n2. INPUT: Depth-chained ResearchQueue from P3.M1.T1.S2.\n3. LOGIC: When bug hunting spawns a bugfix sub-pipeline (FixCycleWorkflow or similar), forward PARALLEL_RESEARCH and RESEARCH_DEPTH settings to the child pipeline/orchestrator. This ensures the bugfix child's research queue uses the same depth-chained prefetch model. Update the FixCycleWorkflow or TaskOrchestrator instantiation in the bugfix path to pass these settings.\n4. OUTPUT: Bugfix child receives and uses PARALLEL_RESEARCH + RESEARCH_DEPTH. Completes P3.M1.T1.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P3.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents the bugfix sub-pipeline creation at prp-pipeline.ts:1207-1245: mkdir bugfix dir, copy TEST_RESULTS.md, create FixCycleWorkflow. PRD §4.2 specifies PARALLEL_RESEARCH and RESEARCH_DEPTH MUST be forwarded to the bugfix child because all real item execution (and therefore all prefetching) happens inside the bugfix child.\n2. INPUT: Depth-chained ResearchQueue from P3.M1.T1.S2.\n3. LOGIC: When bug hunting spawns a bugfix sub-pipeline (FixCycleWorkflow or similar), forward PARALLEL_RESEARCH and RESEARCH_DEPTH settings to the child pipeline/orchestrator. This ensures the bugfix child's research queue uses the same depth-chained prefetch model. Update the FixCycleWorkflow or TaskOrchestrator instantiation in the bugfix path to pass these settings.\n4. OUTPUT: Bugfix child receives and uses PARALLEL_RESEARCH + RESEARCH_DEPTH. Completes P3.M1.T1.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h3.6"
+                  ]
                 }
               ]
             },
@@ -364,8 +463,10 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G3 documents: no file lock/mutex exists. atomicWrite (session-utils.ts:99) uses temp+rename but no lock. SessionManager.flushUpdates() (session-manager.ts:754) batches then writes. ConcurrentTaskExecutor.executeParallel → concurrent executeSubtask → concurrent flushUpdates can lose status deltas. PRD §5.1 specifies every read-modify-write of tasks.json serialized under an exclusive lock (e.g. flock on a sibling lockfile), safe under recursion and the backgrounded supervisor.\n2. INPUT: No prior subtask output consumed (concurrency infrastructure is foundational).\n3. LOGIC: (a) Create a locked-accessor utility (e.g. withLockedTasksJSON or a FileLock class) in src/core/session-utils.ts or a new src/core/file-lock.ts. Use proper-lockfile or Node's fs.open + flock equivalent (note: Node doesn't have native flock; use proper-lockfile npm package or implement via O_EXCL lockfile with retry). (b) The lock must serialize read-modify-write: acquire exclusive lock → read → mutate → atomicWrite → release. (c) Safe under recursion (re-entrant or separate lock instances). (d) Safe when the backgrounded supervisor (from P3.M1.T1) writes concurrently.\n4. OUTPUT: Locked-accessor utility for tasks.json. Consumed by P3.M1.T2.S2.\n5. DOCS: [Mode A] JSDoc on the locked accessor / FileLock class documenting the mutual-exclusion guarantee and atomic-write property. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G3 documents: no file lock/mutex exists. atomicWrite (session-utils.ts:99) uses temp+rename but no lock. SessionManager.flushUpdates() (session-manager.ts:754) batches then writes. ConcurrentTaskExecutor.executeParallel → concurrent executeSubtask → concurrent flushUpdates can lose status deltas. PRD §5.1 specifies every read-modify-write of tasks.json serialized under an exclusive lock (e.g. flock on a sibling lockfile), safe under recursion and the backgrounded supervisor.\n2. INPUT: No prior subtask output consumed (concurrency infrastructure is foundational).\n3. LOGIC: (a) Create a locked-accessor utility (e.g. withLockedTasksJSON or a FileLock class) in src/core/session-utils.ts or a new src/core/file-lock.ts. Use proper-lockfile or Node's fs.open + flock equivalent (note: Node doesn't have native flock; use proper-lockfile npm package or implement via O_EXCL lockfile with retry). (b) The lock must serialize read-modify-write: acquire exclusive lock → read → mutate → atomicWrite → release. (c) Safe under recursion (re-entrant or separate lock instances). (d) Safe when the backgrounded supervisor (from P3.M1.T1) writes concurrently.\n4. OUTPUT: Locked-accessor utility for tasks.json. Consumed by P3.M1.T2.S2.\n5. DOCS: [Mode A] JSDoc on the locked accessor / FileLock class documenting the mutual-exclusion guarantee and atomic-write property. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -373,9 +474,13 @@
                   "title": "Wrap all RMW paths through the locked accessor",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M1.T2.S1"],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents RMW paths: writeTasksJSON (session-utils.ts:404), SessionManager.saveBacklog (session-manager.ts:706), SessionManager.flushUpdates (session-manager.ts:754), recoverTasksJson (tasks-json-recovery.ts). Orchestrator status writes and the restore/recovery path must share one locked accessor.\n2. INPUT: Locked-accessor utility from P3.M1.T2.S1.\n3. LOGIC: (a) Update writeTasksJSON to acquire the lock before reading/writing, or wrap its callers. (b) Update SessionManager.flushUpdates() to route through the locked accessor. (c) Update recoverTasksJson to route through the locked accessor (it does read-modify-write). (d) Ensure the orchestrator's #recoverAfterAgentRun path uses the locked accessor. (e) All callers share one locked accessor instance for the same tasks.json path.\n4. OUTPUT: All tasks.json RMW paths are flock-serialized + atomic. Completes P3.M1.T2.\n5. DOCS: none — no user-facing/config/API surface change (internal concurrency guarantee)."
+                  "dependencies": [
+                    "P3.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents RMW paths: writeTasksJSON (session-utils.ts:404), SessionManager.saveBacklog (session-manager.ts:706), SessionManager.flushUpdates (session-manager.ts:754), recoverTasksJson (tasks-json-recovery.ts). Orchestrator status writes and the restore/recovery path must share one locked accessor.\n2. INPUT: Locked-accessor utility from P3.M1.T2.S1.\n3. LOGIC: (a) Update writeTasksJSON to acquire the lock before reading/writing, or wrap its callers. (b) Update SessionManager.flushUpdates() to route through the locked accessor. (c) Update recoverTasksJson to route through the locked accessor (it does read-modify-write). (d) Ensure the orchestrator's #recoverAfterAgentRun path uses the locked accessor. (e) All callers share one locked accessor instance for the same tasks.json path.\n4. OUTPUT: All tasks.json RMW paths are flock-serialized + atomic. Completes P3.M1.T2.\n5. DOCS: none — no user-facing/config/API surface change (internal concurrency guarantee).",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 }
               ]
             },
@@ -393,8 +498,11 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h3.4", "h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: smartCommit (git-commit.ts:131) is single-phase and takes a pre-formatted message. It does gitAdd(modified+untracked) → gitCommit(message) with [PRP Auto] prefix. No stagecoach LLM commit-message generation exists. PROTECTED_FILES includes PRD.md, prd_snapshot.md, delta_prd.md, TEST_RESULTS.md — but NOT PRP.md.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Add a stagecoach commit-message generation path to smartCommit: when invoked with a flag/option to generate the message, it delegates commit-message generation to an LLM tool call. (b) The LLM generates a descriptive commit message from the staged diff. (c) smartCommit gains an optional parameter or config to enable stagecoach generation vs. using a pre-formatted message (backward compatible). (d) The generation call is transient-API-sensitive — a timeout is LLM-API slowness, not a stuck subprocess (relevant for P3.M1.T4 retry logic).\n4. OUTPUT: Updated smartCommit with optional stagecoach generation. Consumed by P3.M1.T3.S2, P3.M1.T4.S1.\n5. DOCS: [Mode A] JSDoc on smartCommit documenting the stagecoach generation path and two-phase commit support. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: smartCommit (git-commit.ts:131) is single-phase and takes a pre-formatted message. It does gitAdd(modified+untracked) → gitCommit(message) with [PRP Auto] prefix. No stagecoach LLM commit-message generation exists. PROTECTED_FILES includes PRD.md, prd_snapshot.md, delta_prd.md, TEST_RESULTS.md — but NOT PRP.md.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Add a stagecoach commit-message generation path to smartCommit: when invoked with a flag/option to generate the message, it delegates commit-message generation to an LLM tool call. (b) The LLM generates a descriptive commit message from the staged diff. (c) smartCommit gains an optional parameter or config to enable stagecoach generation vs. using a pre-formatted message (backward compatible). (d) The generation call is transient-API-sensitive — a timeout is LLM-API slowness, not a stuck subprocess (relevant for P3.M1.T4 retry logic).\n4. OUTPUT: Updated smartCommit with optional stagecoach generation. Consumed by P3.M1.T3.S2, P3.M1.T4.S1.\n5. DOCS: [Mode A] JSDoc on smartCommit documenting the stagecoach generation path and two-phase commit support. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -402,9 +510,14 @@
                   "title": "Pre-cleanup survival commit and post-cleanup commit in executeSubtask",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P3.M1.T3.S1"],
-                  "prd_selectors": ["h3.4", "h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G1 documents: executeSubtask (task-orchestrator.ts ~560-720) does ONE smartCommit after flushUpdates. No pre-cleanup survival commit, no cleanup-agent invocation, no post-cleanup commit. PRD §4.2 step 4 mandates the two-phase stagecoach pattern. Committing before cleanup guarantees a force-interrupt can no longer leave an item 'Complete on disk but uncommitted' (the orphaning state; cleanup is forbidden from touching plan/).\n2. INPUT: Updated smartCommit with stagecoach from P3.M1.T3.S1.\n3. LOGIC: In executeSubtask, after setStatus('Complete') and flushUpdates, insert two-phase commit: (a) PRE-CLEANUP COMMIT: commit the item's substance — source changes, its plan/ work directory, and its Complete status — via stagecoach smartCommit. This is the survival commit. (b) CLEANUP: invoke the cleanup agent (from P3.M1.T3.S3) to remove temporary artifacts, move docs to docs/, save tasks.json. (c) POST-CLEANUP COMMIT: commit the cleanup agent's doc reorganization in a second stagecoach smartCommit call.\n4. OUTPUT: Two-phase commit in executeSubtask. Consumed by P3.M1.T3.S3, P3.M2.T5.S1.\n5. DOCS: none — no user-facing/config/API surface change (internal commit lifecycle)."
+                  "dependencies": [
+                    "P3.M1.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G1 documents: executeSubtask (task-orchestrator.ts ~560-720) does ONE smartCommit after flushUpdates. No pre-cleanup survival commit, no cleanup-agent invocation, no post-cleanup commit. PRD §4.2 step 4 mandates the two-phase stagecoach pattern. Committing before cleanup guarantees a force-interrupt can no longer leave an item 'Complete on disk but uncommitted' (the orphaning state; cleanup is forbidden from touching plan/).\n2. INPUT: Updated smartCommit with stagecoach from P3.M1.T3.S1.\n3. LOGIC: In executeSubtask, after setStatus('Complete') and flushUpdates, insert two-phase commit: (a) PRE-CLEANUP COMMIT: commit the item's substance — source changes, its plan/ work directory, and its Complete status — via stagecoach smartCommit. This is the survival commit. (b) CLEANUP: invoke the cleanup agent (from P3.M1.T3.S3) to remove temporary artifacts, move docs to docs/, save tasks.json. (c) POST-CLEANUP COMMIT: commit the cleanup agent's doc reorganization in a second stagecoach smartCommit call.\n4. OUTPUT: Two-phase commit in executeSubtask. Consumed by P3.M1.T3.S3, P3.M2.T5.S1.\n5. DOCS: none — no user-facing/config/API surface change (internal commit lifecycle).",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -412,9 +525,15 @@
                   "title": "Create cleanup agent persona",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P3.M1.T3.S2", "P2.M2.T1.S2"],
-                  "prd_selectors": ["h3.4", "h4.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G5 documents: no cleanup persona exists in agent-factory.ts (only architect, researcher, coder, qa). PRD §9.3.3 specifies cleanup is a stateless single-shot invocation that removes temporary artifacts, moves docs to docs/, and is forbidden from touching plan/.\n2. INPUT: Two-phase commit from P3.M1.T3.S2; persona model from P2.M2.T1.S2.\n3. LOGIC: (a) Add a 'cleanup' persona to AgentPersona type in agent-factory.ts. (b) Create createCleanupAgent() factory — implementation role (fast tier), stateless (no session persistence per Req 3.7), with a CLEANUP_PROMPT system prompt. (c) The cleanup prompt instructs: remove temporary artifacts (PRP scratch files), move generated docs to docs/, save tasks.json. It MUST NOT touch plan/, PRD.md, or PRP.md (deletion protection per Req 3.8). (d) Add CLEANUP_PROMPT to src/agents/prompts.ts. (e) Wire the cleanup agent into the executeSubtask two-phase commit flow between pre-cleanup and post-cleanup commits.\n4. OUTPUT: Cleanup agent persona, CLEANUP_PROMPT, wired into two-phase commit. Completes P3.M1.T3.\n5. DOCS: none — no user-facing/config/API surface change (internal agent persona)."
+                  "dependencies": [
+                    "P3.M1.T3.S2",
+                    "P2.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G5 documents: no cleanup persona exists in agent-factory.ts (only architect, researcher, coder, qa). PRD §9.3.3 specifies cleanup is a stateless single-shot invocation that removes temporary artifacts, moves docs to docs/, and is forbidden from touching plan/.\n2. INPUT: Two-phase commit from P3.M1.T3.S2; persona model from P2.M2.T1.S2.\n3. LOGIC: (a) Add a 'cleanup' persona to AgentPersona type in agent-factory.ts. (b) Create createCleanupAgent() factory — implementation role (fast tier), stateless (no session persistence per Req 3.7), with a CLEANUP_PROMPT system prompt. (c) The cleanup prompt instructs: remove temporary artifacts (PRP scratch files), move generated docs to docs/, save tasks.json. It MUST NOT touch plan/, PRD.md, or PRP.md (deletion protection per Req 3.8). (d) Add CLEANUP_PROMPT to src/agents/prompts.ts. (e) Wire the cleanup agent into the executeSubtask two-phase commit flow between pre-cleanup and post-cleanup commits.\n4. OUTPUT: Cleanup agent persona, CLEANUP_PROMPT, wired into two-phase commit. Completes P3.M1.T3.\n5. DOCS: none — no user-facing/config/API surface change (internal agent persona).",
+                  "prd_selectors": [
+                    "h3.4",
+                    "h4.10"
+                  ]
                 }
               ]
             },
@@ -431,9 +550,13 @@
                   "title": "Bounded retry with exponential backoff for stagecoach generation",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P3.M1.T3.S1"],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: stagecoach commit-message generation is one-shot and transient-API-sensitive. A generation timeout is LLM-API slowness, not a stuck subprocess — the index is left untouched + lock released on rescue. PRD §5.1 specifies retry up to COMMIT_RETRY_MAX (default 5), exponential backoff COMMIT_RETRY_DELAY (default 10s, doubling, capped 120s). Distinct from agent-subprocess timeouts (Req 3.6): watchdog kill on research/implementation/validation MUST NOT be retried; generation timeout on commit MUST be retried.\n2. INPUT: Updated smartCommit with stagecoach from P3.M1.T3.S1.\n3. LOGIC: (a) Add COMMIT_RETRY_MAX (default 5) and COMMIT_RETRY_DELAY (default 10s, doubling, capped at 120s) to constants.ts. (b) Wrap the stagecoach LLM commit-message generation call in a bounded retry loop using the existing retry() utility from src/utils/retry.ts. (c) The retry should use isTransientError() to distinguish API failures (retryable) from permanent errors (not retryable). (d) On each retry, the index is left untouched and any lock is released (the rescue exit behavior from PRD §5.1).\n4. OUTPUT: Retry-wrapped stagecoach generation in smartCommit. Consumed by P3.M1.T4.S2.\n5. DOCS: [Mode A] Add COMMIT_RETRY_MAX, COMMIT_RETRY_DELAY to .env.example and docs/CONFIGURATION.md. This rides WITH the work."
+                  "dependencies": [
+                    "P3.M1.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: stagecoach commit-message generation is one-shot and transient-API-sensitive. A generation timeout is LLM-API slowness, not a stuck subprocess — the index is left untouched + lock released on rescue. PRD §5.1 specifies retry up to COMMIT_RETRY_MAX (default 5), exponential backoff COMMIT_RETRY_DELAY (default 10s, doubling, capped 120s). Distinct from agent-subprocess timeouts (Req 3.6): watchdog kill on research/implementation/validation MUST NOT be retried; generation timeout on commit MUST be retried.\n2. INPUT: Updated smartCommit with stagecoach from P3.M1.T3.S1.\n3. LOGIC: (a) Add COMMIT_RETRY_MAX (default 5) and COMMIT_RETRY_DELAY (default 10s, doubling, capped at 120s) to constants.ts. (b) Wrap the stagecoach LLM commit-message generation call in a bounded retry loop using the existing retry() utility from src/utils/retry.ts. (c) The retry should use isTransientError() to distinguish API failures (retryable) from permanent errors (not retryable). (d) On each retry, the index is left untouched and any lock is released (the rescue exit behavior from PRD §5.1).\n4. OUTPUT: Retry-wrapped stagecoach generation in smartCommit. Consumed by P3.M1.T4.S2.\n5. DOCS: [Mode A] Add COMMIT_RETRY_MAX, COMMIT_RETRY_DELAY to .env.example and docs/CONFIGURATION.md. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -441,9 +564,13 @@
                   "title": "Last-resort fallback placeholder commit",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M1.T4.S1"],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §5.1 specifies that if stagecoach generation still fails after COMMIT_RETRY_MAX retries, the staged work MUST NOT be stranded — fall back to a plain git commit with a labeled placeholder.\n2. INPUT: Retry-wrapped stagecoach from P3.M1.T4.S1.\n3. LOGIC: After exhausting retries, if commit-message generation is still failing, fall back to a plain git commit (bypassing stagecoach) with a labeled placeholder message: 'chore: commit-gen failed (exit N); fallback commit' where N is the last exit code. This ensures staged work is never stranded. The fallback uses the existing gitCommit MCP tool directly with the placeholder message.\n4. OUTPUT: Fallback placeholder commit path in smartCommit. Completes P3.M1.T4.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P3.M1.T4.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §5.1 specifies that if stagecoach generation still fails after COMMIT_RETRY_MAX retries, the staged work MUST NOT be stranded — fall back to a plain git commit with a labeled placeholder.\n2. INPUT: Retry-wrapped stagecoach from P3.M1.T4.S1.\n3. LOGIC: After exhausting retries, if commit-message generation is still failing, fall back to a plain git commit (bypassing stagecoach) with a labeled placeholder message: 'chore: commit-gen failed (exit N); fallback commit' where N is the last exit code. This ensures staged work is never stranded. The fallback uses the existing gitCommit MCP tool directly with the placeholder message.\n4. OUTPUT: Fallback placeholder commit path in smartCommit. Completes P3.M1.T4.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 }
               ]
             }
@@ -470,8 +597,10 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: recoverTasksJson (tasks-json-recovery.ts) preserves Researching/Retrying items by mutating only the target item (PATH A/B). The code comment notes 'There is NO Ready status' but architecture/system_context.md Finding #2 confirms the Status type (models.ts:175) DOES include 'Ready'. PRD §5.1 mandates snapshotting live Researching/Ready item IDs from the working-tree tasks.json BEFORE the git revert.\n2. INPUT: No prior subtask output consumed (recovery code is standalone).\n3. LOGIC: In recoverTasksJson, before the git revert/recovery operation (PATH B), read the working-tree tasks.json and snapshot the IDs of items in 'Researching' and 'Ready' status. Store these IDs in a local variable or temporary structure. The snapshot must come from the working-tree file, not an in-memory index that can drift.\n4. OUTPUT: Pre-revert snapshot of Researching/Ready IDs in recoverTasksJson. Consumed by P3.M2.T1.S2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: recoverTasksJson (tasks-json-recovery.ts) preserves Researching/Retrying items by mutating only the target item (PATH A/B). The code comment notes 'There is NO Ready status' but architecture/system_context.md Finding #2 confirms the Status type (models.ts:175) DOES include 'Ready'. PRD §5.1 mandates snapshotting live Researching/Ready item IDs from the working-tree tasks.json BEFORE the git revert.\n2. INPUT: No prior subtask output consumed (recovery code is standalone).\n3. LOGIC: In recoverTasksJson, before the git revert/recovery operation (PATH B), read the working-tree tasks.json and snapshot the IDs of items in 'Researching' and 'Ready' status. Store these IDs in a local variable or temporary structure. The snapshot must come from the working-tree file, not an in-memory index that can drift.\n4. OUTPUT: Pre-revert snapshot of Researching/Ready IDs in recoverTasksJson. Consumed by P3.M2.T1.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -479,9 +608,13 @@
                   "title": "Re-apply statuses gated on filesystem evidence",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M2.T1.S1"],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §5.1 specifies: after the git revert, re-apply statuses gated on filesystem evidence — an item is set back to 'Ready' only if its PRP.md exists, and to 'Researching' only if its research/ directory exists. Must not depend on an in-memory index that drifts.\n2. INPUT: Pre-revert snapshot from P3.M2.T1.S1.\n3. LOGIC: After the git revert restores a baseline tasks.json, iterate the snapshoted Researching/Ready IDs: (a) For each ID, check filesystem evidence: if join(sessionPath, itemId, 'PRP.md') exists (or the PRP path pattern used by the codebase) → set status to 'Ready'; if join(sessionPath, itemId, 'research/') exists → set status to 'Researching'. (b) If neither exists, leave the item at its reverted status (likely 'Planned'). (c) This replaces the current approach of preserving items purely by only-mutating-the-target-item; now we explicitly snapshot + re-apply with FS gating.\n4. OUTPUT: FS-evidence-gated status re-application in recoverTasksJson. Completes P3.M2.T1.\n5. DOCS: [Mode A] JSDoc on recoverTasksJson documenting the snapshot-before-revert + FS-evidence-gating logic. This rides WITH the work."
+                  "dependencies": [
+                    "P3.M2.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §5.1 specifies: after the git revert, re-apply statuses gated on filesystem evidence — an item is set back to 'Ready' only if its PRP.md exists, and to 'Researching' only if its research/ directory exists. Must not depend on an in-memory index that drifts.\n2. INPUT: Pre-revert snapshot from P3.M2.T1.S1.\n3. LOGIC: After the git revert restores a baseline tasks.json, iterate the snapshoted Researching/Ready IDs: (a) For each ID, check filesystem evidence: if join(sessionPath, itemId, 'PRP.md') exists (or the PRP path pattern used by the codebase) → set status to 'Ready'; if join(sessionPath, itemId, 'research/') exists → set status to 'Researching'. (b) If neither exists, leave the item at its reverted status (likely 'Planned'). (c) This replaces the current approach of preserving items purely by only-mutating-the-target-item; now we explicitly snapshot + re-apply with FS gating.\n4. OUTPUT: FS-evidence-gated status re-application in recoverTasksJson. Completes P3.M2.T1.\n5. DOCS: [Mode A] JSDoc on recoverTasksJson documenting the snapshot-before-revert + FS-evidence-gating logic. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 }
               ]
             },
@@ -499,8 +632,10 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h4.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G4 documents: BashToolResult exposes {success, stdout, stderr, exitCode, error} — internal timedOut/killed flags are NOT surfaced. PRPExecutor.#runValidationGates checks only result.success, so a SIGKILL'd validation is retried. bash-mcp.ts (tools/bash-mcp.ts) uses SIGTERM→SIGKILL.\n2. INPUT: No prior subtask output consumed (bash tool modification is foundational).\n3. LOGIC: (a) Add `timedOut: boolean` and `killed: boolean` to BashToolResult interface in src/tools/bash-mcp.ts. (b) Populate these fields in executeBashCommand when the process is killed by the watchdog/timeout (exit 124 or signal). (c) The executeBashCommand function already handles SIGTERM→SIGKILL; ensure the timedOut flag is set when the timeout fires.\n4. OUTPUT: BashToolResult surfaces timedOut/killed flags. Consumed by P3.M2.T2.S2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G4 documents: BashToolResult exposes {success, stdout, stderr, exitCode, error} — internal timedOut/killed flags are NOT surfaced. PRPExecutor.#runValidationGates checks only result.success, so a SIGKILL'd validation is retried. bash-mcp.ts (tools/bash-mcp.ts) uses SIGTERM→SIGKILL.\n2. INPUT: No prior subtask output consumed (bash tool modification is foundational).\n3. LOGIC: (a) Add `timedOut: boolean` and `killed: boolean` to BashToolResult interface in src/tools/bash-mcp.ts. (b) Populate these fields in executeBashCommand when the process is killed by the watchdog/timeout (exit 124 or signal). (c) The executeBashCommand function already handles SIGTERM→SIGKILL; ensure the timedOut flag is set when the timeout fires.\n4. OUTPUT: BashToolResult surfaces timedOut/killed flags. Consumed by P3.M2.T2.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h4.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -508,9 +643,13 @@
                   "title": "Wire terminal-fail into retry.ts — exit 124 never retried",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M2.T2.S1"],
-                  "prd_selectors": ["h4.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G8 documents: retry is keyed on isTransientError() (network/HTTP/message patterns), NOT on process exit codes. No exit-code → retry mapping exists. PRD §9.3.2 specifies exit 124 (watchdog kill) is a PERMANENT error — a hung subprocess will simply re-hang, so churning retries is wrong. Distinct from LLM-generation timeout on commit (should be retried per Req 3.4).\n2. INPUT: BashToolResult with timedOut/killed from P3.M2.T2.S1.\n3. LOGIC: (a) Add exit-code 124 detection to isPermanentError() in src/utils/retry.ts: if the error/result indicates exit code 124 (watchdog kill) or timedOut=true, treat it as permanent (never retried). (b) Ensure isTransientError() returns false for exit 124. (c) Update the retry loops that wrap agent calls (retryAgentPrompt, executeSubtask) to propagate the hard-fail when exit 124 is detected — no retry. (d) This distinction is critical for validation (Req 4.4): a watchdog-killed validation aborts and is not retried.\n4. OUTPUT: Exit 124 treated as permanent error in retry logic. Consumed by P4.M2.T1.S2. Completes P3.M2.T2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P3.M2.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G8 documents: retry is keyed on isTransientError() (network/HTTP/message patterns), NOT on process exit codes. No exit-code → retry mapping exists. PRD §9.3.2 specifies exit 124 (watchdog kill) is a PERMANENT error — a hung subprocess will simply re-hang, so churning retries is wrong. Distinct from LLM-generation timeout on commit (should be retried per Req 3.4).\n2. INPUT: BashToolResult with timedOut/killed from P3.M2.T2.S1.\n3. LOGIC: (a) Add exit-code 124 detection to isPermanentError() in src/utils/retry.ts: if the error/result indicates exit code 124 (watchdog kill) or timedOut=true, treat it as permanent (never retried). (b) Ensure isTransientError() returns false for exit 124. (c) Update the retry loops that wrap agent calls (retryAgentPrompt, executeSubtask) to propagate the hard-fail when exit 124 is detected — no retry. (d) This distinction is critical for validation (Req 4.4): a watchdog-killed validation aborts and is not retried.\n4. OUTPUT: Exit 124 treated as permanent error in retry logic. Consumed by P4.M2.T1.S2. Completes P3.M2.T2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h4.9"
+                  ]
                 }
               ]
             },
@@ -527,9 +666,14 @@
                   "title": "Audit and disable session persistence for stateless personas",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P2.M2.T1.S2"],
-                  "prd_selectors": ["h4.9", "h4.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G5 documents: agent-factory.ts passes no session/sessionId/persistence config to createAgent(). AgentConfig has no sessions/session/sessionId field. None of the four personas configure per-agent Groundswell session persistence. 'Sessions' elsewhere (prp-runtime.ts, prp-executor.ts, session-manager.ts) refer to the filesystem SessionManager directory, a separate concept. PRD §9.3.2 specifies agent calls that are stateless by nature MUST NOT create or resume sessions (bash --no-session equivalent).\n2. INPUT: Updated agent personas from P2.M2.T1.S2.\n3. LOGIC: (a) Audit all agent-creation call sites in src/agents/ (agent-factory.ts createBaseConfig + persona factories, prp-executor.ts, prp-generator.ts, prp-runtime.ts, bug-hunt-workflow.ts, delta-analysis-workflow.ts). (b) For stateless-by-nature personas (cleanup, mid-session task update, validation, post-validation fix, bug-finder, per-item PRP execution), ensure they do not create or resume sessions. This may involve adding an explicit stateless/no-session flag to AgentConfig and passing it to the pi harness. (c) If the pi harness supports a --no-session equivalent or a programmatic option, enable it for these personas. (d) If session persistence is already absent (as the scout reports), verify and document this; add defensive flags/comments to prevent future regressions.\n4. OUTPUT: Stateless personas confirmed/configured to not create sessions. Completes P3.M2.T3.\n5. DOCS: [Mode A] JSDoc on createBaseConfig and AgentConfig noting the stateless-single-shot invariant. This rides WITH the work."
+                  "dependencies": [
+                    "P2.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G5 documents: agent-factory.ts passes no session/sessionId/persistence config to createAgent(). AgentConfig has no sessions/session/sessionId field. None of the four personas configure per-agent Groundswell session persistence. 'Sessions' elsewhere (prp-runtime.ts, prp-executor.ts, session-manager.ts) refer to the filesystem SessionManager directory, a separate concept. PRD §9.3.2 specifies agent calls that are stateless by nature MUST NOT create or resume sessions (bash --no-session equivalent).\n2. INPUT: Updated agent personas from P2.M2.T1.S2.\n3. LOGIC: (a) Audit all agent-creation call sites in src/agents/ (agent-factory.ts createBaseConfig + persona factories, prp-executor.ts, prp-generator.ts, prp-runtime.ts, bug-hunt-workflow.ts, delta-analysis-workflow.ts). (b) For stateless-by-nature personas (cleanup, mid-session task update, validation, post-validation fix, bug-finder, per-item PRP execution), ensure they do not create or resume sessions. This may involve adding an explicit stateless/no-session flag to AgentConfig and passing it to the pi harness. (c) If the pi harness supports a --no-session equivalent or a programmatic option, enable it for these personas. (d) If session persistence is already absent (as the scout reports), verify and document this; add defensive flags/comments to prevent future regressions.\n4. OUTPUT: Stateless personas confirmed/configured to not create sessions. Completes P3.M2.T3.\n5. DOCS: [Mode A] JSDoc on createBaseConfig and AgentConfig noting the stateless-single-shot invariant. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h4.9",
+                    "h4.10"
+                  ]
                 }
               ]
             },
@@ -547,8 +691,10 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that PROTECTED_FILES in git-commit.ts includes PRD.md but NOT PRP.md. PRD §5.1 specifies every deletion-capable agent prompt (cleanup, bug hunter, bug-fix breakdown, post-validation fix) forbids rm/git rm/git clean/mv against PRD.md, any PRP.md, or anything under plan/, and forbids treating pipeline-state files as 'temporary.'\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: Add explicit deletion-prohibition text to the system prompts of deletion-capable agents: CLEANUP_PROMPT (from P3.M1.T3.S3 or create new), BUG_HUNT_PROMPT (prompts.ts), PRP_BLUEPRINT_PROMPT (prompts.ts — for bug-fix breakdown), and any post-validation fix prompt. The text must state: 'You MUST NOT use rm, git rm, git clean, or mv to delete or move PRD.md, any PRP.md file, or anything under plan/. Pipeline-state files (PRD.md, PRP.md, tasks.json, prd_snapshot.md) are NOT temporary — do not delete them.'\n4. OUTPUT: Deletion prohibitions in all deletion-capable agent prompts. Consumed by P3.M2.T4.S2.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that PROTECTED_FILES in git-commit.ts includes PRD.md but NOT PRP.md. PRD §5.1 specifies every deletion-capable agent prompt (cleanup, bug hunter, bug-fix breakdown, post-validation fix) forbids rm/git rm/git clean/mv against PRD.md, any PRP.md, or anything under plan/, and forbids treating pipeline-state files as 'temporary.'\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: Add explicit deletion-prohibition text to the system prompts of deletion-capable agents: CLEANUP_PROMPT (from P3.M1.T3.S3 or create new), BUG_HUNT_PROMPT (prompts.ts), PRP_BLUEPRINT_PROMPT (prompts.ts — for bug-fix breakdown), and any post-validation fix prompt. The text must state: 'You MUST NOT use rm, git rm, git clean, or mv to delete or move PRD.md, any PRP.md file, or anything under plan/. Pipeline-state files (PRD.md, PRP.md, tasks.json, prd_snapshot.md) are NOT temporary — do not delete them.'\n4. OUTPUT: Deletion prohibitions in all deletion-capable agent prompts. Consumed by P3.M2.T4.S2.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal).",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -556,9 +702,13 @@
                   "title": "Mechanical layer — restore_critical_files in smartCommit",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P3.M2.T4.S1"],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: smartCommit (git-commit.ts:131) stages with gitAdd (modified + untracked). git-mcp.ts provides gitStatus, gitAdd, gitCommit, gitFileHistory, gitReadFileAtCommit, gitRestoreFile. PRD §5.1 specifies a mechanical layer invoked from smartCommit right after staging: detect staged deletions of PRD.md/PRP.md (git diff --cached --diff-filter=D) and undo them.\n2. INPUT: Prompt-layer prohibitions from P3.M2.T4.S1.\n3. LOGIC: (a) Create restore_critical_files function in src/utils/git-commit.ts. (b) After gitAdd in smartCommit, run 'git diff --cached --diff-filter=D --name-only' to find staged deletions. (c) For any staged deletion of PRD.md or matching **/PRP.md: if the file existed in HEAD, restore it from HEAD via 'git checkout HEAD -- <path>' (or gitRestoreFile); if it was created-and-deleted in the same run (not in HEAD), unstage it via 'git reset HEAD <path>'. (d) Log warnings when restoring. (e) This guarantees PRD.md/PRP.md survive every commit.\n4. OUTPUT: restore_critical_files function, invoked from smartCommit after staging. Completes P3.M2.T4.\n5. DOCS: [Mode A] JSDoc on restore_critical_files documenting the staged-deletion-detection and restore logic. This rides WITH the work."
+                  "dependencies": [
+                    "P3.M2.T4.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: smartCommit (git-commit.ts:131) stages with gitAdd (modified + untracked). git-mcp.ts provides gitStatus, gitAdd, gitCommit, gitFileHistory, gitReadFileAtCommit, gitRestoreFile. PRD §5.1 specifies a mechanical layer invoked from smartCommit right after staging: detect staged deletions of PRD.md/PRP.md (git diff --cached --diff-filter=D) and undo them.\n2. INPUT: Prompt-layer prohibitions from P3.M2.T4.S1.\n3. LOGIC: (a) Create restore_critical_files function in src/utils/git-commit.ts. (b) After gitAdd in smartCommit, run 'git diff --cached --diff-filter=D --name-only' to find staged deletions. (c) For any staged deletion of PRD.md or matching **/PRP.md: if the file existed in HEAD, restore it from HEAD via 'git checkout HEAD -- <path>' (or gitRestoreFile); if it was created-and-deleted in the same run (not in HEAD), unstage it via 'git reset HEAD <path>'. (d) Log warnings when restoring. (e) This guarantees PRD.md/PRP.md survive every commit.\n4. OUTPUT: restore_critical_files function, invoked from smartCommit after staging. Completes P3.M2.T4.\n5. DOCS: [Mode A] JSDoc on restore_critical_files documenting the staged-deletion-detection and restore logic. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 }
               ]
             },
@@ -575,9 +725,13 @@
                   "title": "Skip-recovery checks HEAD's tasks.json for Completed status",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P3.M1.T3.S2"],
-                  "prd_selectors": ["h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents executeSubtask's resume-skip path: 'if (subtask.status === Complete) return;'. PRD §5.1 specifies on the Completed-skip path, check the item's status in HEAD's tasks.json (not the working tree); if HEAD doesn't also record it Complete, run smartCommit immediately to persist the stranded plan/ dir + status.\n2. INPUT: Two-phase commit from P3.M1.T3.S2.\n3. LOGIC: (a) On the Completed-skip path in executeSubtask (task-orchestrator.ts ~line 560 'if subtask.status === Complete return'), add: read HEAD's tasks.json (via gitReadFileAtCommit or git show HEAD:plan/.../tasks.json). (b) Check if the item is Complete in HEAD's version. (c) If HEAD does NOT record it Complete but the working tree does, this is a stranded state — run smartCommit immediately to persist the plan/ dir + Complete status. (d) The pre-cleanup commit from P3.M1.T3.S2 also prevents the orphaning state going forward.\n4. OUTPUT: Skip-recovery logic checking HEAD's tasks.json. Completes P3.M2.T5.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P3.M1.T3.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents executeSubtask's resume-skip path: 'if (subtask.status === Complete) return;'. PRD §5.1 specifies on the Completed-skip path, check the item's status in HEAD's tasks.json (not the working tree); if HEAD doesn't also record it Complete, run smartCommit immediately to persist the stranded plan/ dir + status.\n2. INPUT: Two-phase commit from P3.M1.T3.S2.\n3. LOGIC: (a) On the Completed-skip path in executeSubtask (task-orchestrator.ts ~line 560 'if subtask.status === Complete return'), add: read HEAD's tasks.json (via gitReadFileAtCommit or git show HEAD:plan/.../tasks.json). (b) Check if the item is Complete in HEAD's version. (c) If HEAD does NOT record it Complete but the working tree does, this is a stranded state — run smartCommit immediately to persist the plan/ dir + Complete status. (d) The pre-cleanup commit from P3.M1.T3.S2 also prevents the orphaning state going forward.\n4. OUTPUT: Skip-recovery logic checking HEAD's tasks.json. Completes P3.M2.T5.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.9"
+                  ]
                 }
               ]
             },
@@ -595,8 +749,10 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h4.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that the pi harness uses session.prompt(request.prompt) programmatically. PRD §9.3.3 specifies prompts embedding the full PRD can exceed 128 KB and MUST be delivered as a programmatic message body (stdin/stream), never as an argv string (capped by MAX_ARG_STRLEN = 131,072 bytes, fails with E2BIG). This is a defensive guard + audit.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Audit all agent invocation code paths in src/agents/ (prp-executor.ts, prp-generator.ts, prp-runtime.ts) and src/tools/ (bash-mcp.ts) for any pattern that passes a prompt as a command-line argument. (b) Verify the main path uses session.prompt(request.prompt) programmatically (not argv). (c) If any code path shells out with a prompt as an argument, refactor it to use stdin/stream. (d) Add a test asserting no agent prompt exceeds argv limits via argv delivery.\n4. OUTPUT: Verified no argv prompt delivery. Consumed by P3.M2.T6.S2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that the pi harness uses session.prompt(request.prompt) programmatically. PRD §9.3.3 specifies prompts embedding the full PRD can exceed 128 KB and MUST be delivered as a programmatic message body (stdin/stream), never as an argv string (capped by MAX_ARG_STRLEN = 131,072 bytes, fails with E2BIG). This is a defensive guard + audit.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Audit all agent invocation code paths in src/agents/ (prp-executor.ts, prp-generator.ts, prp-runtime.ts) and src/tools/ (bash-mcp.ts) for any pattern that passes a prompt as a command-line argument. (b) Verify the main path uses session.prompt(request.prompt) programmatically (not argv). (c) If any code path shells out with a prompt as an argument, refactor it to use stdin/stream. (d) Add a test asserting no agent prompt exceeds argv limits via argv delivery.\n4. OUTPUT: Verified no argv prompt delivery. Consumed by P3.M2.T6.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h4.10"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -604,9 +760,13 @@
                   "title": "Temp-file cleanup on graceful and hard-killed exits",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P3.M2.T6.S1"],
-                  "prd_selectors": ["h4.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §9.3.3 specifies temp files backing prompts MUST be cleaned up on both graceful and hard-killed (SIGTERM/SIGKILL/power-loss) exits; when a temp file backs a retry loop it MUST be (re-)written on every attempt.\n2. INPUT: Audit results from P3.M2.T6.S1.\n3. LOGIC: (a) Identify any temp files used to back agent prompts (search for tmpdir, mkdtemp, writeFile to temp paths in prompt-related code). (b) Register cleanup handlers: process.on('SIGTERM'), process.on('SIGINT'), process.on('exit') that clean up temp prompt files. For SIGKILL/power-loss, this is best-effort (no handler can run); document the limitation. (c) When a temp file backs a retry loop, ensure it is re-written on every attempt (not just the first). (d) Add a module-level cleanup registry that tracks temp file paths and removes them on exit.\n4. OUTPUT: Temp-file cleanup on exit. Completes P3.M2.T6 and P3.M2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P3.M2.T6.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §9.3.3 specifies temp files backing prompts MUST be cleaned up on both graceful and hard-killed (SIGTERM/SIGKILL/power-loss) exits; when a temp file backs a retry loop it MUST be (re-)written on every attempt.\n2. INPUT: Audit results from P3.M2.T6.S1.\n3. LOGIC: (a) Identify any temp files used to back agent prompts (search for tmpdir, mkdtemp, writeFile to temp paths in prompt-related code). (b) Register cleanup handlers: process.on('SIGTERM'), process.on('SIGINT'), process.on('exit') that clean up temp prompt files. For SIGKILL/power-loss, this is best-effort (no handler can run); document the limitation. (c) When a temp file backs a retry loop, ensure it is re-written on every attempt (not just the first). (d) Add a module-level cleanup registry that tracks temp file paths and removes them on exit.\n4. OUTPUT: Temp-file cleanup on exit. Completes P3.M2.T6 and P3.M2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h4.10"
+                  ]
                 }
               ]
             }
@@ -642,8 +802,11 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h3.5", "h4.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: prd-differ.ts does structural diffing (diffPRDs, hasSignificantChanges — the latter is DEAD CODE, never called). The PRD §4.3 specifies an LLM-driven binary classifier on top of the structural diff: COSMETIC (trivial: whitespace/formatting) vs SUBSTANTIVE (semantically significant). A parallel CLEAN/DIRTY classifier guards generated artifacts (e.g. delta PRD).\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Create a new module src/core/change-classifier.ts with two classifier functions: classifyChange(diffSummary: DiffSummary): Promise<'COSMETIC'|'SUBSTANTIVE'> and classifyArtifact(content: string): Promise<'CLEAN'|'DIRTY'>. (b) Both use an LLM call (via createQAAgent or a dedicated lightweight agent) with a classification prompt. (c) The classifier receives the structural diff summary from diffPRDs() (prd-differ.ts) as input. (d) Add classification prompt templates to src/agents/prompts/ or src/agents/prompts.ts.\n4. OUTPUT: Change classifier module with COSMETIC/SUBSTANTIVE and CLEAN/DIRTY functions. Consumed by P4.M1.T1.S2.\n5. DOCS: [Mode A] JSDoc on classifyChange and classifyArtifact. This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: prd-differ.ts does structural diffing (diffPRDs, hasSignificantChanges — the latter is DEAD CODE, never called). The PRD §4.3 specifies an LLM-driven binary classifier on top of the structural diff: COSMETIC (trivial: whitespace/formatting) vs SUBSTANTIVE (semantically significant). A parallel CLEAN/DIRTY classifier guards generated artifacts (e.g. delta PRD).\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Create a new module src/core/change-classifier.ts with two classifier functions: classifyChange(diffSummary: DiffSummary): Promise<'COSMETIC'|'SUBSTANTIVE'> and classifyArtifact(content: string): Promise<'CLEAN'|'DIRTY'>. (b) Both use an LLM call (via createQAAgent or a dedicated lightweight agent) with a classification prompt. (c) The classifier receives the structural diff summary from diffPRDs() (prd-differ.ts) as input. (d) Add classification prompt templates to src/agents/prompts/ or src/agents/prompts.ts.\n4. OUTPUT: Change classifier module with COSMETIC/SUBSTANTIVE and CLEAN/DIRTY functions. Consumed by P4.M1.T1.S2.\n5. DOCS: [Mode A] JSDoc on classifyChange and classifyArtifact. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.5",
+                    "h4.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -651,9 +814,13 @@
                   "title": "Transient-API retry and protective default on exhaustion",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P4.M1.T1.S1"],
-                  "prd_selectors": ["h3.5"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §4.3 specifies both classifiers MUST distinguish transient API failures (empty output, connection errors, rate limits, overloaded) from invalid model responses, retrying up to a bounded count (default 4) before giving up. On exhaustion they MUST fail to the protective/conservative default (treat as SUBSTANTIVE / DIRTY) — never silently fall through to 'could not classify' and proceed unprotected.\n2. INPUT: Classifier functions from P4.M1.T1.S1.\n3. LOGIC: (a) Wrap classifyChange and classifyArtifact in a bounded retry loop using retry() from src/utils/retry.ts with maxAttempts=4 (configurable). (b) Distinguish transient API failures (isTransientError → retry) from invalid model responses (parse failure → retry up to limit). (c) On exhaustion (all retries fail), return the protective/conservative default: 'SUBSTANTIVE' for change classification, 'DIRTY' for artifact classification. (d) Log a warning when falling to protective default. (e) Never return 'could not classify' — always return a protective value.\n4. OUTPUT: Retry-wrapped classifiers with protective defaults. Consumed by P4.M1.T2.S1, P4.M1.T3.S1. Completes P4.M1.T1.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P4.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §4.3 specifies both classifiers MUST distinguish transient API failures (empty output, connection errors, rate limits, overloaded) from invalid model responses, retrying up to a bounded count (default 4) before giving up. On exhaustion they MUST fail to the protective/conservative default (treat as SUBSTANTIVE / DIRTY) — never silently fall through to 'could not classify' and proceed unprotected.\n2. INPUT: Classifier functions from P4.M1.T1.S1.\n3. LOGIC: (a) Wrap classifyChange and classifyArtifact in a bounded retry loop using retry() from src/utils/retry.ts with maxAttempts=4 (configurable). (b) Distinguish transient API failures (isTransientError → retry) from invalid model responses (parse failure → retry up to limit). (c) On exhaustion (all retries fail), return the protective/conservative default: 'SUBSTANTIVE' for change classification, 'DIRTY' for artifact classification. (d) Log a warning when falling to protective default. (e) Never return 'could not classify' — always return a protective value.\n4. OUTPUT: Retry-wrapped classifiers with protective defaults. Consumed by P4.M1.T2.S1, P4.M1.T3.S1. Completes P4.M1.T1.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.5"
+                  ]
                 }
               ]
             },
@@ -670,9 +837,13 @@
                   "title": "Implement --accept-prd-changes and integrate-into-current handlers",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P4.M1.T1.S2"],
-                  "prd_selectors": ["h3.5"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: handleDelta() (prp-pipeline.ts:627) reads prdSnapshot (old) + reads new PRD, runs DeltaAnalysisWorkflow, patches backlog, creates delta session. DELTA_PRD_PROMPT (prompts.ts:710) is dead code. patchBacklog 'added' case is unimplemented. PRD §4.3 specifies: (a) Delta session is default. (b) Integrate into current session: fold new requirements into running session's task hierarchy; original prd_snapshot.md MUST be preserved until AFTER integration succeeds (integration agent diffs original snapshot against current PRD); refresh snapshot only once integration has applied. (c) --accept-prd-changes: accept PRD edits as new baseline without delta session; across all PRD_CHANGED_* states it cancels queued .pending_delta_hash, refreshes prd_snapshot.md to current PRD, exits/resumes idempotently.\n2. INPUT: Classifiers from P4.M1.T1.S2.\n3. LOGIC: (a) Add CLI flag --accept-prd-changes to cli/index.ts. (b) In handleDelta() or a new response-selection handler, implement three paths: delta session (default, existing flow), integrate into current session (fold requirements into task hierarchy, preserve snapshot until integration succeeds), and --accept-prd-changes (cancel .pending_delta_hash, refresh prd_snapshot.md to current PRD, exit/resume idempotently). (c) For integrate-into-current: do NOT refresh prd_snapshot.md until after integration has applied changes.\n4. OUTPUT: Three response-selection paths in the delta workflow. Consumed by P4.M1.T2.S2.\n5. DOCS: [Mode A] Update docs/CLI_REFERENCE.md with --accept-prd-changes flag. Update docs/CONFIGURATION.md delta section. This rides WITH the work."
+                  "dependencies": [
+                    "P4.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: handleDelta() (prp-pipeline.ts:627) reads prdSnapshot (old) + reads new PRD, runs DeltaAnalysisWorkflow, patches backlog, creates delta session. DELTA_PRD_PROMPT (prompts.ts:710) is dead code. patchBacklog 'added' case is unimplemented. PRD §4.3 specifies: (a) Delta session is default. (b) Integrate into current session: fold new requirements into running session's task hierarchy; original prd_snapshot.md MUST be preserved until AFTER integration succeeds (integration agent diffs original snapshot against current PRD); refresh snapshot only once integration has applied. (c) --accept-prd-changes: accept PRD edits as new baseline without delta session; across all PRD_CHANGED_* states it cancels queued .pending_delta_hash, refreshes prd_snapshot.md to current PRD, exits/resumes idempotently.\n2. INPUT: Classifiers from P4.M1.T1.S2.\n3. LOGIC: (a) Add CLI flag --accept-prd-changes to cli/index.ts. (b) In handleDelta() or a new response-selection handler, implement three paths: delta session (default, existing flow), integrate into current session (fold requirements into task hierarchy, preserve snapshot until integration succeeds), and --accept-prd-changes (cancel .pending_delta_hash, refresh prd_snapshot.md to current PRD, exit/resume idempotently). (c) For integrate-into-current: do NOT refresh prd_snapshot.md until after integration has applied changes.\n4. OUTPUT: Three response-selection paths in the delta workflow. Consumed by P4.M1.T2.S2.\n5. DOCS: [Mode A] Update docs/CLI_REFERENCE.md with --accept-prd-changes flag. Update docs/CONFIGURATION.md delta section. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.5"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -680,9 +851,14 @@
                   "title": "Validate/bug-hunt reuse completed session with pending change",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P4.M1.T2.S1"],
-                  "prd_selectors": ["h3.5", "h3.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents runQACycle() (prp-pipeline.ts:1112) mode dispatch: bug-hunt always runs; validate skips QA; normal runs QA only if all tasks complete. PRD §4.3 specifies in --validate/--bug-hunt mode against an already-completed session with a pending change, MUST reuse the latest completed session (an empty delta has no tasks.json and would make the gates bail). The change is left pending so the next normal run processes it.\n2. INPUT: Response-selection handlers from P4.M1.T2.S1.\n3. LOGIC: In the --validate and --bug-hunt code paths, when there is a pending PRD change on a completed session: (a) Do NOT create a new empty delta session. (b) Reuse the latest completed session for validation/bug-hunting. (c) Leave the pending change in place so the next normal run processes it. (d) Add a log/info message explaining the session is being reused.\n4. OUTPUT: Validate/bug-hunt reuses completed session. Completes P4.M1.T2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P4.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents runQACycle() (prp-pipeline.ts:1112) mode dispatch: bug-hunt always runs; validate skips QA; normal runs QA only if all tasks complete. PRD §4.3 specifies in --validate/--bug-hunt mode against an already-completed session with a pending change, MUST reuse the latest completed session (an empty delta has no tasks.json and would make the gates bail). The change is left pending so the next normal run processes it.\n2. INPUT: Response-selection handlers from P4.M1.T2.S1.\n3. LOGIC: In the --validate and --bug-hunt code paths, when there is a pending PRD change on a completed session: (a) Do NOT create a new empty delta session. (b) Reuse the latest completed session for validation/bug-hunting. (c) Leave the pending change in place so the next normal run processes it. (d) Add a log/info message explaining the session is being reused.\n4. OUTPUT: Validate/bug-hunt reuses completed session. Completes P4.M1.T2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.5",
+                    "h3.6"
+                  ]
                 }
               ]
             },
@@ -699,9 +875,14 @@
                   "title": "Bind breakdown prompt to delta_prd.md after generation",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P4.M1.T1.S2"],
-                  "prd_selectors": ["h3.5", "h3.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents DELTA_PRD_PROMPT (prompts.ts:710) is dead code — delta_prd.md is NOT generated by any workflow. The active delta path uses DeltaAnalysisWorkflow returning structured JSON. PRD §4.3 specifies delta-session task breakdown MUST run over delta_prd.md (the diffs), not the full PRD. Building the breakdown prompt once at load time risks embedding the full PRD and silently ignoring the delta.\n2. INPUT: Classifiers from P4.M1.T1.S2.\n3. LOGIC: (a) In the delta session flow, ensure delta_prd.md is generated (revive/activate the delta_prd.md generation path — possibly using DELTA_PRD_PROMPT or a new mechanism). (b) The breakdown input MUST be (re)bound to the delta content AFTER delta_prd.md is generated. (c) In decomposePRD() or the delta-specific breakdown path, read delta_prd.md and pass its content to createArchitectPrompt instead of the full PRD. (d) Ensure the breakdown prompt is NOT built at load time (which risks embedding the full PRD) but after delta_prd.md exists.\n4. OUTPUT: Breakdown consumes delta_prd.md. Completes P4.M1.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P4.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents DELTA_PRD_PROMPT (prompts.ts:710) is dead code — delta_prd.md is NOT generated by any workflow. The active delta path uses DeltaAnalysisWorkflow returning structured JSON. PRD §4.3 specifies delta-session task breakdown MUST run over delta_prd.md (the diffs), not the full PRD. Building the breakdown prompt once at load time risks embedding the full PRD and silently ignoring the delta.\n2. INPUT: Classifiers from P4.M1.T1.S2.\n3. LOGIC: (a) In the delta session flow, ensure delta_prd.md is generated (revive/activate the delta_prd.md generation path — possibly using DELTA_PRD_PROMPT or a new mechanism). (b) The breakdown input MUST be (re)bound to the delta content AFTER delta_prd.md is generated. (c) In decomposePRD() or the delta-specific breakdown path, read delta_prd.md and pass its content to createArchitectPrompt instead of the full PRD. (d) Ensure the breakdown prompt is NOT built at load time (which risks embedding the full PRD) but after delta_prd.md exists.\n4. OUTPUT: Breakdown consumes delta_prd.md. Completes P4.M1.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.5",
+                    "h3.3"
+                  ]
                 }
               ]
             }
@@ -727,9 +908,15 @@
                   "title": "VALIDATION_AGENT and VALIDATION_TIMEOUT config",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P2.M2.T1.S2"],
-                  "prd_selectors": ["h3.6", "h4.1", "h4.2"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: no VALIDATION_AGENT or VALIDATION_TIMEOUT exist in code. PRD §4.4/§9.2.2 specifies VALIDATION_AGENT (reasoning-tier, default pizr) and VALIDATION_TIMEOUT (default 7200s / 2h — validation legitimately runs full suites), overriding the generic agent timeout for this call only.\n2. INPUT: Three-role model from P2.M2.T1.S2.\n3. LOGIC: (a) Add VALIDATION_AGENT env var name to constants.ts (default 'pizr'). (b) Add VALIDATION_TIMEOUT env var name and DEFAULT_VALIDATION_TIMEOUT_SECONDS = 7200 to constants.ts. (c) Add getValidationAgent() and getValidationTimeoutSeconds() helpers (mirror getResearchTimeoutSeconds). (d) The validation agent is the reasoning persona (balanced @ xhigh).\n4. OUTPUT: Config constants and helpers for validation. Consumed by P4.M2.T1.S2.\n5. DOCS: [Mode A] Add VALIDATION_AGENT, VALIDATION_TIMEOUT to .env.example and docs/CONFIGURATION.md. This rides WITH the work."
+                  "dependencies": [
+                    "P2.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: no VALIDATION_AGENT or VALIDATION_TIMEOUT exist in code. PRD §4.4/§9.2.2 specifies VALIDATION_AGENT (reasoning-tier, default pizr) and VALIDATION_TIMEOUT (default 7200s / 2h — validation legitimately runs full suites), overriding the generic agent timeout for this call only.\n2. INPUT: Three-role model from P2.M2.T1.S2.\n3. LOGIC: (a) Add VALIDATION_AGENT env var name to constants.ts (default 'pizr'). (b) Add VALIDATION_TIMEOUT env var name and DEFAULT_VALIDATION_TIMEOUT_SECONDS = 7200 to constants.ts. (c) Add getValidationAgent() and getValidationTimeoutSeconds() helpers (mirror getResearchTimeoutSeconds). (d) The validation agent is the reasoning persona (balanced @ xhigh).\n4. OUTPUT: Config constants and helpers for validation. Consumed by P4.M2.T1.S2.\n5. DOCS: [Mode A] Add VALIDATION_AGENT, VALIDATION_TIMEOUT to .env.example and docs/CONFIGURATION.md. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.6",
+                    "h4.1",
+                    "h4.2"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -737,9 +924,15 @@
                   "title": "validate.sh generation and abort-on-failure",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P4.M2.T1.S1", "P3.M2.T2.S2"],
-                  "prd_selectors": ["h3.6", "h4.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: no validate.sh generation exists. The --mode validate path skips QA entirely. PRD §4.4 specifies validation generates a custom validate.sh from PRD + codebase tools, THEN runs it, on VALIDATION_AGENT under VALIDATION_TIMEOUT. Abort-on-failure: if validation does not finish (non-zero exit), the run MUST abort before cleanup, commit, and bug-hunt. A watchdog-killed validation is a hard failure, never retried (§9.3.2, Req 3.6).\n2. INPUT: VALIDATION config from P4.M2.T1.S1; watchdog-kill terminal handling from P3.M2.T2.S2.\n3. LOGIC: (a) Create a validation module/workflow that generates a validate.sh script from the PRD + codebase tools (the VALIDATION_AGENT generates the script as its first step). (b) Run the generated validate.sh on the VALIDATION_AGENT under VALIDATION_TIMEOUT (overriding the generic agent timeout for this call only). (c) If validation exits non-zero: abort the run BEFORE cleanup, commit, and bug-hunt. (d) If validation is watchdog-killed (exit 124 per P3.M2.T2.S2): hard failure, never retried. (e) Wire this into the runQACycle or a new validation step in the pipeline.\n4. OUTPUT: validate.sh generation + abort-on-failure. Completes P4.M2.T1.\n5. DOCS: none — no user-facing/config/API surface change beyond P4.M2.T1.S1."
+                  "dependencies": [
+                    "P4.M2.T1.S1",
+                    "P3.M2.T2.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: no validate.sh generation exists. The --mode validate path skips QA entirely. PRD §4.4 specifies validation generates a custom validate.sh from PRD + codebase tools, THEN runs it, on VALIDATION_AGENT under VALIDATION_TIMEOUT. Abort-on-failure: if validation does not finish (non-zero exit), the run MUST abort before cleanup, commit, and bug-hunt. A watchdog-killed validation is a hard failure, never retried (§9.3.2, Req 3.6).\n2. INPUT: VALIDATION config from P4.M2.T1.S1; watchdog-kill terminal handling from P3.M2.T2.S2.\n3. LOGIC: (a) Create a validation module/workflow that generates a validate.sh script from the PRD + codebase tools (the VALIDATION_AGENT generates the script as its first step). (b) Run the generated validate.sh on the VALIDATION_AGENT under VALIDATION_TIMEOUT (overriding the generic agent timeout for this call only). (c) If validation exits non-zero: abort the run BEFORE cleanup, commit, and bug-hunt. (d) If validation is watchdog-killed (exit 124 per P3.M2.T2.S2): hard failure, never retried. (e) Wire this into the runQACycle or a new validation step in the pipeline.\n4. OUTPUT: validate.sh generation + abort-on-failure. Completes P4.M2.T1.\n5. DOCS: none — no user-facing/config/API surface change beyond P4.M2.T1.S1.",
+                  "prd_selectors": [
+                    "h3.6",
+                    "h4.1"
+                  ]
                 }
               ]
             },
@@ -756,9 +949,15 @@
                   "title": "Update BUG_FINDER_AGENT default glp to pizr",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P2.M2.T1.S2"],
-                  "prd_selectors": ["h3.6", "h4.1", "h4.2"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: the QA Agent (bug-hunt) uses createQAAgent() which is getModel('balanced') (was 'sonnet'). PRD §4.4/§9.2.2 specifies BUG_FINDER_AGENT default changes glp → pizr (reasoning-tier). The QA Agent is the reasoning persona at max budget.\n2. INPUT: Three-role model from P2.M2.T1.S2 (qa → reasoning @ xhigh).\n3. LOGIC: (a) Add BUG_FINDER_AGENT env var to constants.ts with default 'pizr'. (b) Update createQAAgent() to resolve the model from BUG_FINDER_AGENT env (default pizr) instead of the hardcoded balanced tier. (c) Ensure the bug-finder/QA agent runs as the reasoning persona at max budget (xhigh), which P2.M2.T1.S2 already configured. (d) Update .env.example.\n4. OUTPUT: BUG_FINDER_AGENT defaults to pizr. Completes P4.M2.T2.\n5. DOCS: [Mode A] Add BUG_FINDER_AGENT to .env.example (update default); update docs/CONFIGURATION.md. This rides WITH the work."
+                  "dependencies": [
+                    "P2.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: the QA Agent (bug-hunt) uses createQAAgent() which is getModel('balanced') (was 'sonnet'). PRD §4.4/§9.2.2 specifies BUG_FINDER_AGENT default changes glp → pizr (reasoning-tier). The QA Agent is the reasoning persona at max budget.\n2. INPUT: Three-role model from P2.M2.T1.S2 (qa → reasoning @ xhigh).\n3. LOGIC: (a) Add BUG_FINDER_AGENT env var to constants.ts with default 'pizr'. (b) Update createQAAgent() to resolve the model from BUG_FINDER_AGENT env (default pizr) instead of the hardcoded balanced tier. (c) Ensure the bug-finder/QA agent runs as the reasoning persona at max budget (xhigh), which P2.M2.T1.S2 already configured. (d) Update .env.example.\n4. OUTPUT: BUG_FINDER_AGENT defaults to pizr. Completes P4.M2.T2.\n5. DOCS: [Mode A] Add BUG_FINDER_AGENT to .env.example (update default); update docs/CONFIGURATION.md. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.6",
+                    "h4.1",
+                    "h4.2"
+                  ]
                 }
               ]
             },
@@ -776,8 +975,10 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h3.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: BugHuntWorkflow.writeBugReport (bug-hunt-workflow.ts:404) writes TEST_RESULTS.md (line 438) only if there are critical/major bugs. It writes JSON content despite the .md filename. PRD §4.4 specifies: when the bug finder reports no bugs, the bugfix directory MUST record a NO_ISSUES_FOUND.md marker (timestamp, session tested, tasks.json hash, bug-finder agent). Removed if a later hunt finds bugs. A clean result is persisted/committed like a real bug report.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) In BugHuntWorkflow (bug-hunt-workflow.ts), after generateReport(): if testResults has NO bugs (no critical/major/minor), write NO_ISSUES_FOUND.md to the session/bugfix path. (b) Content: timestamp, session ID/path tested, tasks.json hash (SHA-256 of the current tasks.json content so a stale marker is obvious), bug-finder agent name. (c) If NO_ISSUES_FOUND.md exists from a previous clean hunt and the current hunt finds bugs, remove it (the directory always reflects the latest result). (d) The clean result should be committed like a real bug report (via smartCommit).\n4. OUTPUT: NO_ISSUES_FOUND.md marker logic in BugHuntWorkflow. Completes P4.M2.T3.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: BugHuntWorkflow.writeBugReport (bug-hunt-workflow.ts:404) writes TEST_RESULTS.md (line 438) only if there are critical/major bugs. It writes JSON content despite the .md filename. PRD §4.4 specifies: when the bug finder reports no bugs, the bugfix directory MUST record a NO_ISSUES_FOUND.md marker (timestamp, session tested, tasks.json hash, bug-finder agent). Removed if a later hunt finds bugs. A clean result is persisted/committed like a real bug report.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) In BugHuntWorkflow (bug-hunt-workflow.ts), after generateReport(): if testResults has NO bugs (no critical/major/minor), write NO_ISSUES_FOUND.md to the session/bugfix path. (b) Content: timestamp, session ID/path tested, tasks.json hash (SHA-256 of the current tasks.json content so a stale marker is obvious), bug-finder agent name. (c) If NO_ISSUES_FOUND.md exists from a previous clean hunt and the current hunt finds bugs, remove it (the directory always reflects the latest result). (d) The clean result should be committed like a real bug report (via smartCommit).\n4. OUTPUT: NO_ISSUES_FOUND.md marker logic in BugHuntWorkflow. Completes P4.M2.T3.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.6"
+                  ]
                 }
               ]
             },
@@ -795,8 +996,11 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h3.6", "h3.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: FixCycleWorkflow (fix-cycle-workflow.ts) creates PFIX subtasks via #createFixSubtask, which manually creates Subtask objects (not via the architect agent decomposition). PRD §4.4 specifies bug-fix treats TEST_RESULTS.md as a mini-PRD and runs the STANDARD FULL task breakdown (the same Phase→Milestone→Task→Subtask decomposition as a main session) — there is no separate simplified bug-fix breakdown mode. Cleanup runs for bug-fix sessions as for main sessions.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) In FixCycleWorkflow (or the bugfix pipeline path), replace the manual #createFixSubtask logic with a call to the standard decomposition path: feed TEST_RESULTS.md as a mini-PRD to the architect agent (createArchitectPrompt with TEST_RESULTS.md content). (b) The architect produces a standard Phase→Milestone→Task→Subtask hierarchy. (c) Ensure cleanup runs for bug-fix sessions (same as main sessions — the two-phase commit and cleanup agent from P3.M1.T3). (d) Remove or deprecate the simplified bug-fix breakdown mode.\n4. OUTPUT: Bugfix uses standard full breakdown. Consumed by P4.M2.T4.S2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: FixCycleWorkflow (fix-cycle-workflow.ts) creates PFIX subtasks via #createFixSubtask, which manually creates Subtask objects (not via the architect agent decomposition). PRD §4.4 specifies bug-fix treats TEST_RESULTS.md as a mini-PRD and runs the STANDARD FULL task breakdown (the same Phase→Milestone→Task→Subtask decomposition as a main session) — there is no separate simplified bug-fix breakdown mode. Cleanup runs for bug-fix sessions as for main sessions.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) In FixCycleWorkflow (or the bugfix pipeline path), replace the manual #createFixSubtask logic with a call to the standard decomposition path: feed TEST_RESULTS.md as a mini-PRD to the architect agent (createArchitectPrompt with TEST_RESULTS.md content). (b) The architect produces a standard Phase→Milestone→Task→Subtask hierarchy. (c) Ensure cleanup runs for bug-fix sessions (same as main sessions — the two-phase commit and cleanup agent from P3.M1.T3). (d) Remove or deprecate the simplified bug-fix breakdown mode.\n4. OUTPUT: Bugfix uses standard full breakdown. Consumed by P4.M2.T4.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.6",
+                    "h3.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -804,9 +1008,13 @@
                   "title": "Auto-detect and resume interrupted bugfix breakdowns",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P4.M2.T4.S1"],
-                  "prd_selectors": ["h3.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents the FixCycleWorkflow lifecycle: createFixTasks → executeFixes → retest → checkComplete. PRD §4.4 specifies: if a recursive bug-fix run is killed BETWEEN committing the bug report and finishing breakdown, the bugfix session has TEST_RESULTS.md but no tasks.json. The pipeline MUST auto-detect this (report present, tasks.json missing/empty/corrupt) and re-enter on the same path the bug-hunt stage uses when it first finds bugs, regenerating the missing tasks.json. Skipped in --validate/--skip-bug-finding and suppressed inside bug-fix children (no re-entry loop).\n2. INPUT: Standard full breakdown for bugfix from P4.M2.T4.S1.\n3. LOGIC: (a) At the start of the bugfix pipeline path, auto-detect the interrupted state: if TEST_RESULTS.md exists in the bugfix dir but tasks.json is missing, empty, or corrupt (fails JSON parse or BacklogSchema validation). (b) If detected, re-enter the bug-hunt→breakdown path: use the existing TEST_RESULTS.md as the mini-PRD input and regenerate the missing tasks.json via the standard full breakdown. (c) Skip this auto-detection in --validate/--skip-bug-finding modes. (d) Suppress re-entry inside bug-fix children (a bug-fix child should not recursively detect/resume — prevents infinite loops).\n4. OUTPUT: Auto-detection + resume of interrupted bugfix breakdowns. Completes P4.M2.T4 and P4.M2.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P4.M2.T4.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents the FixCycleWorkflow lifecycle: createFixTasks → executeFixes → retest → checkComplete. PRD §4.4 specifies: if a recursive bug-fix run is killed BETWEEN committing the bug report and finishing breakdown, the bugfix session has TEST_RESULTS.md but no tasks.json. The pipeline MUST auto-detect this (report present, tasks.json missing/empty/corrupt) and re-enter on the same path the bug-hunt stage uses when it first finds bugs, regenerating the missing tasks.json. Skipped in --validate/--skip-bug-finding and suppressed inside bug-fix children (no re-entry loop).\n2. INPUT: Standard full breakdown for bugfix from P4.M2.T4.S1.\n3. LOGIC: (a) At the start of the bugfix pipeline path, auto-detect the interrupted state: if TEST_RESULTS.md exists in the bugfix dir but tasks.json is missing, empty, or corrupt (fails JSON parse or BacklogSchema validation). (b) If detected, re-enter the bug-hunt→breakdown path: use the existing TEST_RESULTS.md as the mini-PRD input and regenerate the missing tasks.json via the standard full breakdown. (c) Skip this auto-detection in --validate/--skip-bug-finding modes. (d) Suppress re-entry inside bug-fix children (a bug-fix child should not recursively detect/resume — prevents infinite loops).\n4. OUTPUT: Auto-detection + resume of interrupted bugfix breakdowns. Completes P4.M2.T4 and P4.M2.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h3.6"
+                  ]
                 }
               ]
             }
@@ -842,8 +1050,11 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h3.8", "h3.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents: no adopt code exists in src/. CLI has 5 subcommands + default pipeline. PRPPipeline constructor takes 23 positional args. SessionManager.initialize() creates session dir, hashes PRD, writes snapshot. PRD §4.6 specifies guard rails: --adopt-prd REQUIRES the PRD to exist (missing PRD MUST exit loudly); applies ONLY to fresh projects (if sessions exist, flag is a no-op misuse — warn and proceed); hard guard MUST reject empty SESSION_DIR before breakdown/validation; session creation MUST mkdir -p PLAN_DIR first.\n2. INPUT: No prior subtask output consumed (greenfield feature).\n3. LOGIC: (a) Add --adopt-prd boolean flag to cli/index.ts parseCLIArgs. (b) In src/index.ts main() or a new handler: when --adopt-prd is set, validate: PRD file exists (exit loudly with error if missing). (c) Check if any sessions exist in plan/ — if sessions exist, warn 'Sessions already exist; --adopt-prd is a no-op' and proceed with normal session resolution. (d) Hard guard: reject empty/falsy SESSION_DIR before breakdown/validation to prevent collapsed root paths. (e) Ensure session creation mkdir -p the PLAN_DIR first so the session path is always nested under it.\n4. OUTPUT: --adopt-prd CLI flag with guard rails. Consumed by P5.M1.T1.S2.\n5. DOCS: [Mode A] Add --adopt-prd to docs/CLI_REFERENCE.md and README.md (flag documentation). This rides WITH the work."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents: no adopt code exists in src/. CLI has 5 subcommands + default pipeline. PRPPipeline constructor takes 23 positional args. SessionManager.initialize() creates session dir, hashes PRD, writes snapshot. PRD §4.6 specifies guard rails: --adopt-prd REQUIRES the PRD to exist (missing PRD MUST exit loudly); applies ONLY to fresh projects (if sessions exist, flag is a no-op misuse — warn and proceed); hard guard MUST reject empty SESSION_DIR before breakdown/validation; session creation MUST mkdir -p PLAN_DIR first.\n2. INPUT: No prior subtask output consumed (greenfield feature).\n3. LOGIC: (a) Add --adopt-prd boolean flag to cli/index.ts parseCLIArgs. (b) In src/index.ts main() or a new handler: when --adopt-prd is set, validate: PRD file exists (exit loudly with error if missing). (c) Check if any sessions exist in plan/ — if sessions exist, warn 'Sessions already exist; --adopt-prd is a no-op' and proceed with normal session resolution. (d) Hard guard: reject empty/falsy SESSION_DIR before breakdown/validation to prevent collapsed root paths. (e) Ensure session creation mkdir -p the PLAN_DIR first so the session path is always nested under it.\n4. OUTPUT: --adopt-prd CLI flag with guard rails. Consumed by P5.M1.T1.S2.\n5. DOCS: [Mode A] Add --adopt-prd to docs/CLI_REFERENCE.md and README.md (flag documentation). This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.8",
+                    "h3.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -851,9 +1062,14 @@
                   "title": "Seed completed baseline tasks.json, .adopted marker, and SKIP_EXECUTION_LOOP",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P5.M1.T1.S1"],
-                  "prd_selectors": ["h3.8", "h3.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents SessionManager.initialize() flow. PRD §4.6 specifies: (1) Creates a baseline session and stamps it with .adopted marker. (2) Seeds a single completed tasks.json (one Phase → Milestone → Task → 'Adopt existing codebase' Subtask, all Complete) with no breakdown and no agent tokens, so is_session_complete is true. (3) Sets SKIP_EXECUTION_LOOP=true.\n2. INPUT: CLI flag + guard rails from P5.M1.T1.S1.\n3. LOGIC: (a) Create a new method in SessionManager (e.g. createAdoptedSession or extend initialize) that: creates the session directory, writes .adopted marker file, writes prd_snapshot.md (resolved content from P1.M1.T2.S1), seeds a completed tasks.json. (b) The seeded tasks.json has one Phase → Milestone → Task → Subtask ('Adopt existing codebase'), ALL with status 'Complete'. No breakdown agent is invoked, no agent tokens consumed. (c) Set SKIP_EXECUTION_LOOP=true on the pipeline instance. (d) is_session_complete should return true for this baseline (all items Complete).\n4. OUTPUT: Baseline session seeding + .adopted marker + SKIP_EXECUTION_LOOP. Consumed by P5.M1.T1.S3.\n5. DOCS: [Mode A] Add 'Adopt lifecycle' subsection to docs/CONFIGURATION.md noting the SKIP_EXECUTION_LOOP behavior. This rides WITH the work."
+                  "dependencies": [
+                    "P5.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents SessionManager.initialize() flow. PRD §4.6 specifies: (1) Creates a baseline session and stamps it with .adopted marker. (2) Seeds a single completed tasks.json (one Phase → Milestone → Task → 'Adopt existing codebase' Subtask, all Complete) with no breakdown and no agent tokens, so is_session_complete is true. (3) Sets SKIP_EXECUTION_LOOP=true.\n2. INPUT: CLI flag + guard rails from P5.M1.T1.S1.\n3. LOGIC: (a) Create a new method in SessionManager (e.g. createAdoptedSession or extend initialize) that: creates the session directory, writes .adopted marker file, writes prd_snapshot.md (resolved content from P1.M1.T2.S1), seeds a completed tasks.json. (b) The seeded tasks.json has one Phase → Milestone → Task → Subtask ('Adopt existing codebase'), ALL with status 'Complete'. No breakdown agent is invoked, no agent tokens consumed. (c) Set SKIP_EXECUTION_LOOP=true on the pipeline instance. (d) is_session_complete should return true for this baseline (all items Complete).\n4. OUTPUT: Baseline session seeding + .adopted marker + SKIP_EXECUTION_LOOP. Consumed by P5.M1.T1.S3.\n5. DOCS: [Mode A] Add 'Adopt lifecycle' subsection to docs/CONFIGURATION.md noting the SKIP_EXECUTION_LOOP behavior. This rides WITH the work.",
+                  "prd_selectors": [
+                    "h3.8",
+                    "h3.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -861,9 +1077,14 @@
                   "title": "Validation and bug-hunt still run in adopt mode",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P5.M1.T1.S2"],
-                  "prd_selectors": ["h3.8", "h3.6"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents: PRPPipeline.run() calls decomposePRD() → executeBacklog() → runQACycle(). PRD §4.6 specifies SKIP_EXECUTION_LOOP=true skips implementation, but validation + bug hunt STILL run against the real codebase + PRD. The next PRD.md edit produces a normal delta session.\n2. INPUT: Baseline session from P5.M1.T1.S2.\n3. LOGIC: (a) In PRPPipeline.run() or the adopt handler, when SKIP_EXECUTION_LOOP is true: skip decomposePRD() and executeBacklog() (no implementation). (b) Still run validation (validate.sh from P4.M2.T1.S2) and bug hunt (BugHuntWorkflow) against the real codebase + PRD. (c) The completed baseline tasks.json means is_session_complete is true, so QA/bug-hunt proceeds as for a normal completed session. (d) Ensure the next PRD.md edit produces a normal delta session (the baseline session becomes the diff baseline).\n4. OUTPUT: Adopt mode skips execution but runs validation + bug hunt. Completes P5.M1.\n5. DOCS: none — no user-facing/config/API surface change beyond P5.M1.T1.S1 and P5.M1.T1.S2."
+                  "dependencies": [
+                    "P5.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents: PRPPipeline.run() calls decomposePRD() → executeBacklog() → runQACycle(). PRD §4.6 specifies SKIP_EXECUTION_LOOP=true skips implementation, but validation + bug hunt STILL run against the real codebase + PRD. The next PRD.md edit produces a normal delta session.\n2. INPUT: Baseline session from P5.M1.T1.S2.\n3. LOGIC: (a) In PRPPipeline.run() or the adopt handler, when SKIP_EXECUTION_LOOP is true: skip decomposePRD() and executeBacklog() (no implementation). (b) Still run validation (validate.sh from P4.M2.T1.S2) and bug hunt (BugHuntWorkflow) against the real codebase + PRD. (c) The completed baseline tasks.json means is_session_complete is true, so QA/bug-hunt proceeds as for a normal completed session. (d) Ensure the next PRD.md edit produces a normal delta session (the baseline session becomes the diff baseline).\n4. OUTPUT: Adopt mode skips execution but runs validation + bug hunt. Completes P5.M1.\n5. DOCS: none — no user-facing/config/API surface change beyond P5.M1.T1.S1 and P5.M1.T1.S2.",
+                  "prd_selectors": [
+                    "h3.8",
+                    "h3.6"
+                  ]
                 }
               ]
             }
@@ -898,9 +1119,29 @@
                   "title": "Update README.md with all new features and flags",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S3", "P1.M2.T1.S3", "P2.M1.T1.S2", "P2.M2.T1.S2", "P2.M3.T1.S2", "P3.M1.T1.S4", "P3.M1.T4.S2", "P3.M2.T4.S2", "P4.M1.T2.S1", "P4.M2.T1.S2", "P5.M1.T1.S3"],
-                  "prd_selectors": ["h3.2", "h4.7", "h3.8", "h3.5", "h3.6", "h3.4", "h3.11"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6 (Phase 6) specifies README.md should add: the distributed-PRD feature, the --adopt-prd / --accept-prd-changes / --validate / --bug-hunt flags, the canonical (PRP_*) config names (with ANTHROPIC_* deprecation note), the depth-chained research + two-phase commit + integrity-protection behavior, and the prd status alias. Reconcile with the §9.2.6 auth rewrite landed in 007.\n2. INPUT: All implementing subtasks from Phases 1-5 (listed in dependencies).\n3. LOGIC: Update README.md: (a) Add distributed-PRD feature description (@include directives, prd_selectors). (b) Add --adopt-prd, --accept-prd-changes, --validate, --bug-hunt flags to usage/CLI section. (c) Add canonical PRP_* config names with ANTHROPIC_* deprecation note in config section. (d) Add depth-chained research, two-phase commit, and integrity-protection behavior to features/architecture section. (e) Add prd status alias mention. (f) Reconcile with any §9.2.6 auth changes from session 007.\n4. OUTPUT: Updated README.md reflecting all delta features. No further subtask consumes this; it completes part of P6.M1.\n5. DOCS: [Mode B] This IS the documentation task — it updates README.md as a changeset-level sweep."
+                  "dependencies": [
+                    "P1.M1.T2.S3",
+                    "P1.M2.T1.S3",
+                    "P2.M1.T1.S2",
+                    "P2.M2.T1.S2",
+                    "P2.M3.T1.S2",
+                    "P3.M1.T1.S4",
+                    "P3.M1.T4.S2",
+                    "P3.M2.T4.S2",
+                    "P4.M1.T2.S1",
+                    "P4.M2.T1.S2",
+                    "P5.M1.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6 (Phase 6) specifies README.md should add: the distributed-PRD feature, the --adopt-prd / --accept-prd-changes / --validate / --bug-hunt flags, the canonical (PRP_*) config names (with ANTHROPIC_* deprecation note), the depth-chained research + two-phase commit + integrity-protection behavior, and the prd status alias. Reconcile with the §9.2.6 auth rewrite landed in 007.\n2. INPUT: All implementing subtasks from Phases 1-5 (listed in dependencies).\n3. LOGIC: Update README.md: (a) Add distributed-PRD feature description (@include directives, prd_selectors). (b) Add --adopt-prd, --accept-prd-changes, --validate, --bug-hunt flags to usage/CLI section. (c) Add canonical PRP_* config names with ANTHROPIC_* deprecation note in config section. (d) Add depth-chained research, two-phase commit, and integrity-protection behavior to features/architecture section. (e) Add prd status alias mention. (f) Reconcile with any §9.2.6 auth changes from session 007.\n4. OUTPUT: Updated README.md reflecting all delta features. No further subtask consumes this; it completes part of P6.M1.\n5. DOCS: [Mode B] This IS the documentation task — it updates README.md as a changeset-level sweep.",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h4.7",
+                    "h3.8",
+                    "h3.5",
+                    "h3.6",
+                    "h3.4",
+                    "h3.11"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -908,9 +1149,24 @@
                   "title": "Update docs/ARCHITECTURE.md for resolved-document invariant and new behaviors",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S3", "P1.M2.T1.S3", "P2.M2.T1.S2", "P3.M1.T3.S3", "P3.M1.T2.S2", "P3.M2.T4.S2", "P5.M1.T1.S3"],
-                  "prd_selectors": ["h3.2", "h4.2", "h3.4", "h3.8", "h4.9", "h4.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6 (Phase 6) specifies docs/ARCHITECTURE.md should refresh top-level capability framing for: the resolved-document invariant (§2.3), the three model roles + reasoning budget, the two-phase commit + integrity protections, and the adopt mode. Ensure no stale 'single-slot prefetch' / 'simplified bug-fix breakdown' framing remains.\n2. INPUT: All implementing subtasks from Phases 1-5 (listed in dependencies).\n3. LOGIC: Update docs/ARCHITECTURE.md: (a) Add resolved-document invariant section (§2.3 — all downstream consumers operate on include-expanded document). (b) Add three model roles + reasoning budget section (research/reasoning/implementation, xhigh for decomposition). (c) Add two-phase commit + integrity protections section (pre/post-cleanup commit, restore_critical_files, flock, orphaned-plan/ recovery). (d) Add adopt mode section. (e) Remove/replace any stale references to 'single-slot prefetch' (now depth-chained), 'simplified bug-fix breakdown' (now standard full breakdown), or old tier names (opus/sonnet/haiku → high/balanced/fast).\n4. OUTPUT: Updated docs/ARCHITECTURE.md. No further subtask consumes this; it completes part of P6.M1.\n5. DOCS: [Mode B] This IS the documentation task — it updates docs/ARCHITECTURE.md as a changeset-level sweep."
+                  "dependencies": [
+                    "P1.M1.T2.S3",
+                    "P1.M2.T1.S3",
+                    "P2.M2.T1.S2",
+                    "P3.M1.T3.S3",
+                    "P3.M1.T2.S2",
+                    "P3.M2.T4.S2",
+                    "P5.M1.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6 (Phase 6) specifies docs/ARCHITECTURE.md should refresh top-level capability framing for: the resolved-document invariant (§2.3), the three model roles + reasoning budget, the two-phase commit + integrity protections, and the adopt mode. Ensure no stale 'single-slot prefetch' / 'simplified bug-fix breakdown' framing remains.\n2. INPUT: All implementing subtasks from Phases 1-5 (listed in dependencies).\n3. LOGIC: Update docs/ARCHITECTURE.md: (a) Add resolved-document invariant section (§2.3 — all downstream consumers operate on include-expanded document). (b) Add three model roles + reasoning budget section (research/reasoning/implementation, xhigh for decomposition). (c) Add two-phase commit + integrity protections section (pre/post-cleanup commit, restore_critical_files, flock, orphaned-plan/ recovery). (d) Add adopt mode section. (e) Remove/replace any stale references to 'single-slot prefetch' (now depth-chained), 'simplified bug-fix breakdown' (now standard full breakdown), or old tier names (opus/sonnet/haiku → high/balanced/fast).\n4. OUTPUT: Updated docs/ARCHITECTURE.md. No further subtask consumes this; it completes part of P6.M1.\n5. DOCS: [Mode B] This IS the documentation task — it updates docs/ARCHITECTURE.md as a changeset-level sweep.",
+                  "prd_selectors": [
+                    "h3.2",
+                    "h4.2",
+                    "h3.4",
+                    "h3.8",
+                    "h4.9",
+                    "h4.10"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -918,9 +1174,24 @@
                   "title": "Update docs/CONFIGURATION.md as canonical env-var reference",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P2.M1.T1.S2", "P3.M1.T1.S1", "P3.M1.T4.S1", "P4.M2.T1.S1", "P4.M2.T2.S1", "P1.M1.T1.S1"],
-                  "prd_selectors": ["h4.7", "h4.1", "h4.2", "h3.4", "h3.9", "h3.6", "h3.2"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6 (Phase 6) specifies docs/CONFIGURATION.md should be the canonical reference for all new/renamed env vars; legacy names appear only in a deprecation table. Per-file Mode A docs from implementing subtasks added individual entries; this task ensures the full reference is coherent and complete.\n2. INPUT: All implementing subtasks that added env vars (listed in dependencies).\n3. LOGIC: Update docs/CONFIGURATION.md: (a) Ensure all new env vars have canonical entries: PRD_INCLUDE_MAX_DEPTH, PRD_INCLUDE_MARKERS, PRP_API_BASE_URL, PRP_MODEL_HIGH, PRP_MODEL_BALANCED, PRP_MODEL_FAST, PARALLEL_RESEARCH, RESEARCH_DEPTH, RESEARCH_TIMEOUT (1800s default), COMMIT_RETRY_MAX, COMMIT_RETRY_DELAY, VALIDATION_AGENT, VALIDATION_TIMEOUT, BUG_FINDER_AGENT (pizr default). (b) Add a deprecation table listing all legacy names (ANTHROPIC_DEFAULT_OPUS_MODEL → PRP_MODEL_HIGH, etc.) with the canonical replacement. (c) Ensure sections for distributed PRDs, model roles, research, commit resilience, validation/QA, and adopt mode are coherent.\n4. OUTPUT: Complete canonical docs/CONFIGURATION.md reference. Completes P6.M1 and P6.\n5. DOCS: [Mode B] This IS the documentation task — it updates docs/CONFIGURATION.md as a changeset-level sweep."
+                  "dependencies": [
+                    "P2.M1.T1.S2",
+                    "P3.M1.T1.S1",
+                    "P3.M1.T4.S1",
+                    "P4.M2.T1.S1",
+                    "P4.M2.T2.S1",
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD §6 (Phase 6) specifies docs/CONFIGURATION.md should be the canonical reference for all new/renamed env vars; legacy names appear only in a deprecation table. Per-file Mode A docs from implementing subtasks added individual entries; this task ensures the full reference is coherent and complete.\n2. INPUT: All implementing subtasks that added env vars (listed in dependencies).\n3. LOGIC: Update docs/CONFIGURATION.md: (a) Ensure all new env vars have canonical entries: PRD_INCLUDE_MAX_DEPTH, PRD_INCLUDE_MARKERS, PRP_API_BASE_URL, PRP_MODEL_HIGH, PRP_MODEL_BALANCED, PRP_MODEL_FAST, PARALLEL_RESEARCH, RESEARCH_DEPTH, RESEARCH_TIMEOUT (1800s default), COMMIT_RETRY_MAX, COMMIT_RETRY_DELAY, VALIDATION_AGENT, VALIDATION_TIMEOUT, BUG_FINDER_AGENT (pizr default). (b) Add a deprecation table listing all legacy names (ANTHROPIC_DEFAULT_OPUS_MODEL → PRP_MODEL_HIGH, etc.) with the canonical replacement. (c) Ensure sections for distributed PRDs, model roles, research, commit resilience, validation/QA, and adopt mode are coherent.\n4. OUTPUT: Complete canonical docs/CONFIGURATION.md reference. Completes P6.M1 and P6.\n5. DOCS: [Mode B] This IS the documentation task — it updates docs/CONFIGURATION.md as a changeset-level sweep.",
+                  "prd_selectors": [
+                    "h4.7",
+                    "h4.1",
+                    "h4.2",
+                    "h3.4",
+                    "h3.9",
+                    "h3.6",
+                    "h3.2"
+                  ]
                 }
               ]
             }

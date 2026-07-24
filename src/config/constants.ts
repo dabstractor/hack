@@ -274,3 +274,80 @@ export function getIssueRetryMax(): number {
   }
   return raw;
 }
+
+/**
+ * Environment variable name: max recursion depth for PRD `@`-include expansion (PRD §2.3).
+ *
+ * @remarks
+ * Bounds the include-expansion recursion (PRD §2.3: "expanded recursively with cycle
+ * detection up to `PRD_INCLUDE_MAX_DEPTH`"). The VALUE of this variable is read at runtime
+ * via {@link getPrdIncludeMaxDepth}. S1 (this subtask) declares the surface and uses it only
+ * as a base-case depth gate; the recursive loop lands in S2.
+ *
+ * @example
+ * ```ts
+ * import { PRD_INCLUDE_MAX_DEPTH } from './config/constants.js';
+ *
+ * console.log(PRD_INCLUDE_MAX_DEPTH); // 'PRD_INCLUDE_MAX_DEPTH'
+ * console.log(process.env[PRD_INCLUDE_MAX_DEPTH]); // e.g. '10'
+ * ```
+ */
+export const PRD_INCLUDE_MAX_DEPTH = 'PRD_INCLUDE_MAX_DEPTH';
+
+/**
+ * Default max include depth when `PRD_INCLUDE_MAX_DEPTH` is unset/invalid (PRD §2.3).
+ *
+ * @remarks
+ * When the `PRD_INCLUDE_MAX_DEPTH` env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_PRD_INCLUDE_MAX_DEPTH } from './config/constants.js';
+ *
+ * console.log(DEFAULT_PRD_INCLUDE_MAX_DEPTH); // 10
+ * ```
+ */
+export const DEFAULT_PRD_INCLUDE_MAX_DEPTH = 10;
+
+/**
+ * Read & validate the `PRD_INCLUDE_MAX_DEPTH` env var (PRD §2.3).
+ *
+ * @returns The configured max include depth, or {@link DEFAULT_PRD_INCLUDE_MAX_DEPTH}
+ *          when unset, non-numeric, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getPrdIncludeMaxDepth } from './config/constants.js';
+ *
+ * const depth = getPrdIncludeMaxDepth(); // 10 (default)
+ * ```
+ */
+export function getPrdIncludeMaxDepth(): number {
+  const raw = Number(
+    process.env[PRD_INCLUDE_MAX_DEPTH] ?? DEFAULT_PRD_INCLUDE_MAX_DEPTH
+  );
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_PRD_INCLUDE_MAX_DEPTH;
+  }
+  return raw;
+}
+
+/**
+ * Environment variable name: emit `<!-- @include -->` markers around expanded includes
+ * (PRD §2.3; consumed in S3).
+ *
+ * @remarks
+ * When set, resolved include output emits `<!-- @include: path -->` / `<!-- @end-include -->`
+ * comment markers, and a `.md` token that fails to resolve (stale include) emits a stderr
+ * warning. This is declared here so S3 only adds behavior, not new plumbing; it is NOT
+ * consumed by S1's `resolveIncludes`.
+ *
+ * @example
+ * ```ts
+ * import { PRD_INCLUDE_MARKERS } from './config/constants.js';
+ *
+ * console.log(PRD_INCLUDE_MARKERS); // 'PRD_INCLUDE_MARKERS'
+ * console.log(process.env[PRD_INCLUDE_MARKERS]); // e.g. '1'
+ * ```
+ */
+export const PRD_INCLUDE_MARKERS = 'PRD_INCLUDE_MARKERS';

@@ -23,10 +23,18 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  rename,
+  unlink,
+  stat,
+} from 'node:fs/promises';
 import { resolve, join, dirname, basename } from 'node:path';
 import { TextDecoder } from 'node:util';
 import { getLogger, type Logger } from '../utils/logger.js';
+import { getPrdIncludeMaxDepth } from '../config/constants.js';
 import type { Backlog, PRPDocument } from './models.js';
 import { BacklogSchema, PRPDocumentSchema } from './models.js';
 
@@ -258,6 +266,110 @@ export async function hashPRD(prdPath: string): Promise<string> {
     );
     throw new SessionFileError(prdPath, 'read PRD', error as Error);
   }
+}
+
+/**
+ * Tokenizer for `@path/to/file.md` include directives (PRD §2.3).
+ *
+ * @remarks
+ * Captures a candidate include token iff the BOUNDARY rule holds: the `@` is at content
+ * start OR preceded by a character that is NOT a path char (path chars = word chars plus
+ * `.`, `/`, `-`). Group 1 is the bare path (without the leading `@`). The character class
+ * `[\w./-]` mirrors the path-char set defined in PRD §2.3 / the include-tokenizer design.
+ * `\w` is `[A-Za-z0-9_]`, so this rejects `foo@bar.com` (`o` before `@` is a path char) and
+ * mid-word `@`, while accepting line-start, inline, and parenthesized tokens.
+ */
+const INCLUDE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
+
+/**
+ * Options for {@link resolveIncludes}.
+ */
+export interface ResolveOpts {
+  /**
+   * Override the max-depth gate. Defaults to {@link getPrdIncludeMaxDepth}.
+   *
+   * @remarks
+   * In S1 this is honored only as the base-case depth gate (a depth `< 1` returns the content
+   * unchanged). The recursive depth-decrementing loop lands in S2.
+   */
+  maxDepth?: number;
+  // (S3 will extend this interface with `markers?: boolean` — do NOT add it in S1.)
+}
+
+/**
+ * Resolve `@path/to/file.md` include directives in a PRD string (PRD §2.3).
+ *
+ * @remarks
+ * **SINGLE-LEVEL in S1**: each resolved token is replaced inline by its file's UTF-8 contents
+ * verbatim; substituted content is NOT re-scanned (recursive expansion + cycle detection =
+ * S2; markers + stale-include warnings = S3).
+ *
+ * A token expands iff BOTH hold:
+ * 1. **BOUNDARY** — the `@` is at content start or preceded by a non-path char
+ *    (path chars = `[A-Za-z0-9_./-]`); `foo@bar.com` and mid-word `@` stay literal.
+ * 2. **EXISTENCE** — `resolve(baseDir, token)` is an existing **file**. Missing paths and
+ *    directories stay verbatim and silent.
+ *
+ * Path resolution is project-root-relative: `resolve(baseDir, token)`, where `baseDir` is
+ * the entry PRD's directory (passed in by the caller). When a token does not expand, the
+ * ORIGINAL match bytes (`@token`) are preserved verbatim (idempotency-friendly for S3).
+ *
+ * @param content - Raw PRD string to scan for include directives.
+ * @param baseDir - Directory to resolve include paths against (the entry PRD's directory).
+ * @param opts - Optional {@link ResolveOpts} (currently only `maxDepth`).
+ * @returns The content with single-level includes expanded inline.
+ * @throws {SessionFileError} If an existing file cannot be read (e.g. invalid UTF-8) or a
+ *         `stat` call fails with a non-ENOENT error (e.g. EACCES).
+ *
+ * @example
+ * ```typescript
+ * import { resolveIncludes } from './core/session-utils.js';
+ *
+ * // Given docs/a.md exists with body 'ARCH BODY':
+ * await resolveIncludes('Top\n@docs/a.md\nBottom', '/proj');
+ * // → 'Top\nARCH BODY\nBottom'
+ * ```
+ */
+export async function resolveIncludes(
+  content: string,
+  baseDir: string,
+  opts?: ResolveOpts
+): Promise<string> {
+  const maxDepth = opts?.maxDepth ?? getPrdIncludeMaxDepth();
+  if (maxDepth < 1) {
+    return content; // depth gate (base case S2 recurses against)
+  }
+
+  const matches = [...content.matchAll(INCLUDE_TOKEN)];
+  let out = '';
+  let last = 0;
+  for (const m of matches) {
+    const idx = m.index!;
+    out += content.slice(last, idx); // gap before token (verbatim)
+    const token = m[1];
+    const abs = resolve(baseDir, token);
+    let replacement: string | undefined;
+    try {
+      const st = await stat(abs);
+      if (st.isFile()) {
+        // Reuse the strict-UTF-8 reader: fatal decode + SessionFileError on failure.
+        replacement = await readUTF8FileStrict(abs, 'read include');
+      }
+      // else: directory → not a file → replacement stays undefined (silent verbatim).
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') {
+        // missing → silent verbatim (S3 adds the .md-token stderr warning).
+        replacement = undefined;
+      } else {
+        throw new SessionFileError(abs, 'stat include', e as Error);
+      }
+    }
+    out += replacement ?? m[0]; // substitute OR keep original bytes
+    last = idx + m[0].length;
+  }
+  out += content.slice(last); // tail
+  return out;
 }
 
 /**
