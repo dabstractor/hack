@@ -17,6 +17,7 @@ import {
   createQAAgent,
   MCP_TOOLS,
   ROLE_CONFIG,
+  STATELESS_PERSONAS,
   type AgentPersona,
   type ModelRole,
 } from '../../../src/agents/agent-factory.js';
@@ -158,6 +159,54 @@ describe('agents/agent-factory', () => {
       // VERIFY: Fallback to empty strings when env vars are not set
       expect(config.env.ANTHROPIC_API_KEY).toBe('');
       expect(config.env.ANTHROPIC_BASE_URL).toBe('');
+    });
+  });
+
+  describe('stateless single-shot invariant (PRD §9.3.2 / P3.M2.T3.S1)', () => {
+    // SETUP: Ensure environment is configured before tests
+    beforeEach(() => {
+      vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'test-token');
+      vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.z.ai/api/anthropic');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-token');
+    });
+
+    // NOTE: This array is declared INLINE (NOT reusing the `personas` array above,
+    // which omits 'cleanup') so the cleanup branch of STATELESS_PERSONAS.has()
+    // executes — required for 100% coverage.
+    it.each([
+      ['coder', true],
+      ['qa', true],
+      ['cleanup', true],
+      ['architect', false],
+      ['researcher', false],
+    ] as const)(
+      'should set stateless=%s for %s persona per STATELESS_PERSONAS',
+      (persona, expected) => {
+        // EXECUTE
+        const config = createBaseConfig(persona);
+
+        // VERIFY — persona is the single source of truth for the invariant
+        expect(config.stateless).toBe(expected);
+      }
+    );
+
+    it('should expose STATELESS_PERSONAS matching PRD §9.3.2 (coder, qa, cleanup)', () => {
+      // VERIFY — exact membership per the §9.3.2 derivation
+      expect(STATELESS_PERSONAS.has('coder')).toBe(true);
+      expect(STATELESS_PERSONAS.has('qa')).toBe(true);
+      expect(STATELESS_PERSONAS.has('cleanup')).toBe(true);
+      expect(STATELESS_PERSONAS.has('architect')).toBe(false);
+      expect(STATELESS_PERSONAS.has('researcher')).toBe(false);
+      expect(STATELESS_PERSONAS.size).toBe(3);
+    });
+
+    it('should expose stateless as a readonly boolean on the config', () => {
+      // EXECUTE
+      const config = createBaseConfig('coder');
+
+      // VERIFY — the field is present, boolean, and reads true for a stateless persona
+      expect(typeof config.stateless).toBe('boolean');
+      expect(config.stateless).toBe(true);
     });
   });
 

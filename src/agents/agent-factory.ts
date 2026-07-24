@@ -164,6 +164,23 @@ export interface AgentConfig {
    * Groundswell's AgentConfig does not model thinking; harness wiring is downstream.
    */
   readonly thinking?: ThinkingLevel;
+  /** Stateless single-shot invariant (PRD §9.3.2 / P3.M2.T3.S1).
+   *
+   * `true` for personas in {@link STATELESS_PERSONAS}: the agent is single-shot and
+   * MUST NOT create or resume a pi session (the `pi --no-session` equivalent).
+   * Pipeline-internal invariant marker — Groundswell's `AgentConfig` /
+   * `HarnessOptions` do NOT model a session-disable field, and
+   * `PiHarness.execute()` hardcodes `createAgentSession({…})` WITHOUT a
+   * `sessionManager` (so pi defaults to the disk-persisted
+   * `SessionManager.create(cwd)` → orphaned JSONL under
+   * `~/.pi/agent/sessions/<encoded-cwd>/`). This flag records the intent and
+   * future-wires the disable: the moment a harness seam exposes
+   * `SessionManager.inMemory()` (the pi SDK supports it), the wiring is one
+   * line (`sessionManager: config.stateless ? SessionManager.inMemory(cwd)
+   * : undefined`). Today it is a guarded, tested, documented marker — NOT a
+   * mechanical switch (research/01).
+   */
+  readonly stateless: boolean;
   /** Environment variable overrides for SDK configuration */
   readonly env: {
     readonly ANTHROPIC_API_KEY: string;
@@ -185,6 +202,28 @@ const PERSONA_TOKEN_LIMITS = {
   qa: 4096,
   cleanup: 4096,
 } as const;
+
+/**
+ * Personas that are stateless single-shot invocations per PRD §9.3.2.
+ *
+ * @remarks
+ * Derivation from the PRD §9.3.2 list ("cleanup, mid-session task update,
+ * validation, post-validation fix, bug-finder, per-item PRP execution"):
+ * - per-item PRP execution → `coder` (`createCoderAgent`, prp-executor.ts:255)
+ * - post-validation fix   → `coder` (same coder agent, prp-executor fix-loop)
+ * - validation / bug-finder → `qa` (`createQAAgent`, bug-hunt-workflow.ts:267,
+ *   delta-analysis-workflow.ts:121)
+ * - cleanup → `cleanup` (`createCleanupAgent`, cleanup-runner.ts:117)
+ *
+ * `architect` (task breakdown) and `researcher` (PRP creation) are EXCLUDED —
+ * they are multi-turn / large-context and NOT in the §9.3.2 stateless list.
+ * "mid-session task update" has no persona yet (P4.M1.T2); when added it MUST
+ * be registered here.
+ *
+ * @see {@link AgentConfig.stateless}
+ */
+export const STATELESS_PERSONAS: ReadonlySet<AgentPersona> =
+  new Set<AgentPersona>(['coder', 'qa', 'cleanup']);
 
 /**
  * Role → { tier, thinking } mapping (PRD §9.2.3 / §6.1).
@@ -226,6 +265,14 @@ export const ROLE_CONFIG: Readonly<
  * normal budget) to preserve the behavior of existing one-arg call sites. Each factory
  * passes its PRD-mandated role explicitly — e.g. the Coder passes 'implementation',
  * which resolves to the fast tier via ROLE_CONFIG (no manual model override).
+ *
+ * The returned config carries the **stateless single-shot invariant**
+ * (PRD §9.3.2 / P3.M2.T3.S1) via {@link AgentConfig.stateless}, derived from
+ * {@link STATELESS_PERSONAS} — the persona is the single source of truth, NOT a
+ * per-factory manual override. The field is a pipeline-internal marker today;
+ * Groundswell's `PiHarness` gap (no `sessionManager` / `HarnessOptions` field)
+ * means the mechanical disable waits on an upstream harness seam (see
+ * {@link AgentConfig.stateless} JSDoc).
  *
  * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)
  * to SDK expectations (ANTHROPIC_API_KEY) via configureEnvironment().
@@ -269,6 +316,7 @@ export function createBaseConfig(
     system,
     model,
     thinking,
+    stateless: STATELESS_PERSONAS.has(persona), // P3.M2.T3.S1
     harness: resolvedHarness(),
     enableCache: true,
     enableReflection: true,
@@ -422,8 +470,14 @@ export function createQAAgent(): Agent {
  *
  * **Stateless single-shot** (PRD §9.3.3): `enableReflection: false` +
  * `enableCache: false` — cleanup is a one-shot reorg with no reflection loop
- * and no cacheable prompt. (`AgentConfig` has no `session` field yet;
- * P3.M2.T3.S1 audits/disables mechanical session persistence later.)
+ * and no cacheable prompt. Cleanup is also marked **stateless** via
+ * {@link STATELESS_PERSONAS} (PRD §9.3.2 / P3.M2.T3.S1), so
+ * {@link AgentConfig.stateless} is `true` on the returned config. The
+ * mechanical session-disable waits on a Groundswell `PiHarness` seam (no
+ * `sessionManager` / `HarnessOptions` field today; `PiHarness.execute()`
+ * hardcodes `createAgentSession` without a `sessionManager` → disk-persisted
+ * default) — the flag records the intent and future-wires the wiring; see
+ * {@link AgentConfig.stateless} JSDoc for the full gap.
  *
  * **Diverges from {@link createCommitMessageAgent}** by carrying `MCP_TOOLS`
  * (bash + filesystem + git): cleanup actually mutates the filesystem (move docs,

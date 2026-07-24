@@ -114,6 +114,16 @@ describe('agents/commit-message-agent', () => {
       expect(cfg.mcps).toBeUndefined();
     });
 
+    it('should mark itself stateless (single-shot, PRD §9.3.2)', () => {
+      // EXECUTE
+      createCommitMessageAgent();
+
+      // VERIFY — override forces stateless:true over the researcher base
+      // (researcher is NOT in STATELESS_PERSONAS). P3.M2.T3.S1.
+      const cfg = mockCreateAgent.mock.calls[0][0] as { stateless: boolean };
+      expect(cfg.stateless).toBe(true);
+    });
+
     it('should set a system prompt instructing conventional-commit output', () => {
       // EXECUTE
       createCommitMessageAgent();

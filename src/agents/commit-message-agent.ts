@@ -86,6 +86,11 @@ HARD RULES:
  * via {@link createBaseConfig} and overrides the name, system prompt, and token
  * budget — NO `mcps` field (the agent reads the diff from the prompt text).
  *
+ * **Stateless single-shot** (PRD §9.3.2 / P3.M2.T3.S1): the `researcher` base
+ * config has `stateless: false` (researcher is NOT in {@link STATELESS_PERSONAS}),
+ * so the override forces `stateless: true` here — the agent reads a staged diff
+ * and emits one message, never resuming a session.
+ *
  * @returns Configured Groundswell Agent instance.
  *
  * @example
@@ -104,6 +109,7 @@ export function createCommitMessageAgent(): Agent {
     maxTokens: 512,
     enableReflection: false,
     enableCache: false,
+    stateless: true, // single-shot stagecoach; overrides researcher base (P3.M2.T3.S1)
   };
   logger().debug(
     { persona: 'researcher', model: config.model },
