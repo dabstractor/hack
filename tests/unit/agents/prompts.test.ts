@@ -16,6 +16,7 @@ import {
   DELTA_PRD_PROMPT,
   DELTA_ANALYSIS_PROMPT,
   BUG_HUNT_PROMPT,
+  PRD_PREMERGED_DECLARATION,
   PROMPTS,
   type PromptKey,
 } from '../../../src/agents/prompts.js';
@@ -133,6 +134,49 @@ describe('agents/prompts', () => {
     it('BUG_HUNT_PROMPT should contain bash command placeholder', () => {
       expect(BUG_HUNT_PROMPT).toContain('$(cat "$PRD_FILE")');
       expect(BUG_HUNT_PROMPT).toContain('$(cat "$TASKS_FILE")');
+    });
+  });
+
+  describe('pre-merged PRD declaration (PRD §2.3 "Agent guidance")', () => {
+    it('should export PRD_PREMERGED_DECLARATION as a non-empty string', () => {
+      expect(typeof PRD_PREMERGED_DECLARATION).toBe('string');
+      expect(PRD_PREMERGED_DECLARATION.length).toBeGreaterThan(0);
+    });
+
+    it('should contain the verbatim pre-merged-document substring', () => {
+      expect(PRD_PREMERGED_DECLARATION).toContain(
+        'already the complete, merged document'
+      );
+    });
+
+    it('should contain the verbatim no-chase-includes substring', () => {
+      expect(PRD_PREMERGED_DECLARATION).toContain(
+        'do not chase @include directives yourself'
+      );
+    });
+
+    it('TASK_BREAKDOWN_PROMPT should carry the declaration (system channel)', () => {
+      expect(TASK_BREAKDOWN_PROMPT).toContain(
+        'do not chase @include directives yourself'
+      );
+    });
+
+    it('PRP_BLUEPRINT_PROMPT should carry the declaration (system channel)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain(
+        'do not chase @include directives yourself'
+      );
+    });
+
+    it('DELTA_ANALYSIS_PROMPT should carry the declaration (system channel)', () => {
+      expect(DELTA_ANALYSIS_PROMPT).toContain(
+        'do not chase @include directives yourself'
+      );
+    });
+
+    it('BUG_HUNT_PROMPT should carry the declaration (system channel)', () => {
+      expect(BUG_HUNT_PROMPT).toContain(
+        'do not chase @include directives yourself'
+      );
     });
   });
 

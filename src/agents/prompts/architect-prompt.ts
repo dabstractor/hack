@@ -12,7 +12,10 @@ import { createPrompt, type Prompt } from 'groundswell';
 import { z } from 'zod';
 
 // PATTERN: Import system prompt from sibling prompts file
-import { TASK_BREAKDOWN_PROMPT } from '../prompts.js';
+import {
+  TASK_BREAKDOWN_PROMPT,
+  PRD_PREMERGED_DECLARATION,
+} from '../prompts.js';
 
 /**
  * Create an Architect Agent prompt with structured Backlog output
@@ -78,8 +81,10 @@ export function createArchitectPrompt(
   // is the contract. `responseFormat: z.unknown()` satisfies PromptConfig's
   // required field while making validation a permissive no-op.
   return createPrompt({
-    // The user prompt is the PRD content to analyze
-    user: prdContent,
+    // The user prompt is the PRD content to analyze, prefixed with the
+    // PRD §2.3 pre-merged declaration so the agent knows the text is the
+    // complete, merged document and does not chase @include directives.
+    user: `${PRD_PREMERGED_DECLARATION}\n\n${prdContent}`,
 
     // The system prompt is the LEAD TECHNICAL ARCHITECT persona
     system: systemPrompt,

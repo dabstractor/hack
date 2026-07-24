@@ -16,7 +16,10 @@ import type { DeltaAnalysis } from '../../core/models.js';
 import { DeltaAnalysisSchema } from '../../core/models.js';
 
 // PATTERN: Import system prompt from sibling prompts file
-import { DELTA_ANALYSIS_PROMPT } from '../prompts.js';
+import {
+  DELTA_ANALYSIS_PROMPT,
+  PRD_PREMERGED_DECLARATION,
+} from '../prompts.js';
 
 /**
  * Construct the user prompt with PRD comparison data
@@ -65,6 +68,8 @@ ${completedTaskIds.map(id => `- ${id}`).join('\n')}
 
   // Construct the complete user prompt
   return `
+${PRD_PREMERGED_DECLARATION}
+
 ## Previous PRD
 
 ${oldPRD}

@@ -79,6 +79,27 @@ describe('agents/prompts/bug-hunt-prompt', () => {
       expect(prompt.user).toContain('Build a user authentication system');
     });
 
+    it('should declare the PRD is pre-merged before the Original PRD block (PRD §2.3)', () => {
+      // SETUP: Prepare test data
+      const prd = mockPRD;
+      const completedTasks = mockTasks;
+
+      // EXECUTE: Generate the prompt
+      const prompt = createBugHuntPrompt(prd, completedTasks);
+
+      // VERIFY: The pre-merged declaration sits adjacent to (before) the PRD
+      expect(prompt.user).toContain(
+        'do not chase @include directives yourself'
+      );
+      expect(prompt.user).toContain('already the complete, merged document');
+      const declarationIndex = prompt.user.indexOf(
+        'do not chase @include directives yourself'
+      );
+      const originalPrdIndex = prompt.user.indexOf('## Original PRD');
+      expect(declarationIndex).toBeGreaterThanOrEqual(0);
+      expect(originalPrdIndex).toBeGreaterThan(declarationIndex);
+    });
+
     it('should include completed tasks section in user prompt', () => {
       // SETUP: Prepare test data
       const prd = mockPRD;

@@ -21,6 +21,20 @@
  */
 
 /**
+ * Pre-merged PRD declaration — required by PRD §2.3 "Agent guidance".
+ *
+ * @remarks
+ * Every agent prompt that embeds PRD content MUST state that the text is
+ * already the complete, merged document so the agent does not resolve
+ * @include directives itself. The pipeline resolves includes upstream
+ * (§2.3 "Single canonical document downstream"). This is the single shared
+ * wording injected into the 4 system-prompt constants and the 3
+ * prompt-generator functions' user prompts.
+ */
+export const PRD_PREMERGED_DECLARATION =
+  '> **PRD document note (PRD §2.3):** The PRD text provided is already the complete, merged document — do not chase @include directives yourself.';
+
+/**
  * Task Breakdown System Prompt for Architect Agent
  *
  * @remarks
@@ -32,6 +46,8 @@
  */
 export const TASK_BREAKDOWN_PROMPT = `
 # LEAD TECHNICAL ARCHITECT & PROJECT SYNTHESIZER
+
+${PRD_PREMERGED_DECLARATION}
 
 > **ROLE:** Act as a Lead Technical Architect and Project Management Synthesizer.
 > **CONTEXT:** You represent the rigorous, unified consensus of a senior panel (Security, DevOps, Backend, Frontend, QA).
@@ -165,6 +181,8 @@ Use your file writing tools to create \`./$TASKS_FILE\` with this structure:
  */
 export const PRP_BLUEPRINT_PROMPT = `
 # Create PRP for Work Item
+
+${PRD_PREMERGED_DECLARATION}
 
 ## Work Item Information
 
@@ -761,6 +779,8 @@ It will be used as input to the task breakdown process for this delta session.
 export const DELTA_ANALYSIS_PROMPT = `
 # PRD Delta Analysis
 
+${PRD_PREMERGED_DECLARATION}
+
 You are a Requirements Change Analyst. Your mission is to compare two versions of a Product Requirements Document and generate a structured delta analysis.
 
 ## Inputs
@@ -883,6 +903,8 @@ Analyze the provided PRDs and output the delta analysis JSON.
  */
 export const BUG_HUNT_PROMPT = `
 # Creative Bug Finding - End-to-End PRD Validation
+
+${PRD_PREMERGED_DECLARATION}
 
 You are a creative QA engineer and bug hunter. Your mission is to rigorously test the implementation against the original PRD scope and find any issues that the standard validation might have missed.
 

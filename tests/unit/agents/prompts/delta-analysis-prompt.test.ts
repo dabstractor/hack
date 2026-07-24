@@ -63,6 +63,20 @@ describe('agents/prompts/delta-analysis-prompt', () => {
       expect(prompt.user).toContain(mockOldPRD);
     });
 
+    it('should declare the PRD is pre-merged before the Previous PRD block (PRD §2.3)', () => {
+      const prompt = createDeltaAnalysisPrompt(mockOldPRD, mockNewPRD);
+      expect(prompt.user).toContain(
+        'do not chase @include directives yourself'
+      );
+      expect(prompt.user).toContain('already the complete, merged document');
+      const declarationIndex = prompt.user.indexOf(
+        'do not chase @include directives yourself'
+      );
+      const previousPrdIndex = prompt.user.indexOf('## Previous PRD');
+      expect(declarationIndex).toBeGreaterThanOrEqual(0);
+      expect(previousPrdIndex).toBeGreaterThan(declarationIndex);
+    });
+
     it('should include new PRD in user prompt', () => {
       const prompt = createDeltaAnalysisPrompt(mockOldPRD, mockNewPRD);
       expect(prompt.user).toContain('## Current PRD');

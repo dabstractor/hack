@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Include-Expansion Resolver & Canonical Document Pipeline",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Build the resolvePRD resolver with boundary/existence rules, recursive expansion with cycle detection, idempotency, optional markers, and wire it through hashPRD, initialize(), createDeltaSession(), findSessionByHash(), handleDelta(), and agent prompt injection.",
           "tasks": [
             {
@@ -69,7 +69,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Wire Resolved Document Through All Downstream Consumers",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Route the resolved, include-expanded document through hashPRD, initialize(), createDeltaSession(), findSessionByHash(), handleDelta(), and all agent prompt injection points so that every consumer operates on the canonical resolved document.",
               "subtasks": [
                 {
@@ -110,7 +110,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "Add agent guidance text stating PRD is pre-merged",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S2"

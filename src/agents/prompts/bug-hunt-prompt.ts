@@ -17,7 +17,7 @@ import type { TestResults, Task } from '../../core/models.js';
 import { TestResultsSchema } from '../../core/models.js';
 
 // PATTERN: Import system prompt from sibling prompts file
-import { BUG_HUNT_PROMPT } from '../prompts.js';
+import { BUG_HUNT_PROMPT, PRD_PREMERGED_DECLARATION } from '../prompts.js';
 
 /**
  * Construct the user prompt with PRD and completed tasks
@@ -61,6 +61,8 @@ function constructUserPrompt(prd: string, completedTasks: Task[]): string {
 
   // Construct the complete user prompt
   return `
+${PRD_PREMERGED_DECLARATION}
+
 ## Original PRD
 
 ${prd}
