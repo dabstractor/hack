@@ -866,14 +866,14 @@
               "type": "Task",
               "id": "P4.M1.T3",
               "title": "Breakdown MUST Consume the Delta PRD",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Ensure delta-session task breakdown runs over delta_prd.md (the diffs), not the full PRD, by binding the breakdown input to the delta content after delta_prd.md is generated.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T3.S1",
                   "title": "Bind breakdown prompt to delta_prd.md after generation",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P4.M1.T1.S2"
