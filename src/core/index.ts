@@ -36,7 +36,7 @@ export {
 } from './prd-differ.js';
 
 // PRD section-index generator
-export { generateSectionIndex } from './prd-selector.js';
+export { generateSectionIndex, extractPRDSections } from './prd-selector.js';
 export type { SectionIndex, SelectorType } from './prd-selector.js';
 
 // Task patching

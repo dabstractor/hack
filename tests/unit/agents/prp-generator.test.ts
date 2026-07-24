@@ -255,6 +255,68 @@ describe('agents/prp-generator', () => {
       );
     });
 
+    it('should pass extracted PRD sections as the 6th arg to createPRPBlueprintPrompt', async () => {
+      // SETUP: A Subtask with EXPLICIT prd_selectors: [] (the factory omits it).
+      // [] ⇒ extractPRDSections falls back to the full resolved PRD. The mock
+      // session manager's prdSnapshot is '# PRD Content', so the 6th arg must
+      // equal that. generate() throws later at the agent/file-read step
+      // (PRE-EXISTING mock gap — readFile returns undefined) — swallow it;
+      // createPRPBlueprintPrompt is called BEFORE that step, so the spy records
+      // the call and we can assert the 6th arg.
+      const subtask: Subtask = {
+        ...createMockSubtask('P1.M2.T1.S3', 'Selector extraction'),
+        prd_selectors: [],
+      };
+      const backlog = createMockBacklog();
+      const generator = new PRPGenerator(mockSessionManager);
+
+      // EXECUTE — generate() rejects at the agent/file-read step; swallow it.
+      await expect(generator.generate(subtask, backlog)).rejects.toThrow();
+
+      // VERIFY: The 6th arg (prdSections) = the full resolved PRD (selectors=[]
+      // fallback). The full resolved PRD is the session's prdSnapshot.
+      expect(mockCreatePRPBlueprintPrompt).toHaveBeenCalledWith(
+        subtask,
+        backlog,
+        expect.any(String),
+        expect.any(String),
+        undefined,
+        '# PRD Content'
+      );
+    });
+
+    it('should pass extracted section text as the 6th arg when selectors resolve', async () => {
+      // SETUP: Override the session's prdSnapshot to a small PRD with a known
+      // h1.0, and a Subtask selecting ['h1.0']. All resolve ⇒ the 6th arg is
+      // that section's source text (NOT the full PRD). generate() throws later;
+      // swallow it.
+      const prdSnapshot = ['# Title', 'intro body'].join('\n');
+      (mockSessionManager as any).currentSession.prdSnapshot = prdSnapshot;
+      const subtask: Subtask = {
+        ...createMockSubtask('P1.M2.T1.S3', 'Selector extraction'),
+        prd_selectors: ['h1.0'],
+      };
+      const backlog = createMockBacklog();
+      const generator = new PRPGenerator(mockSessionManager);
+
+      // EXECUTE
+      await expect(generator.generate(subtask, backlog)).rejects.toThrow();
+
+      // VERIFY: The 6th arg contains the heading text (selective extraction
+      // worked end-to-end), not the full snapshot.
+      expect(mockCreatePRPBlueprintPrompt).toHaveBeenCalledWith(
+        subtask,
+        backlog,
+        expect.any(String),
+        expect.any(String),
+        undefined,
+        expect.stringContaining('# Title')
+      );
+      const callArgs = mockCreatePRPBlueprintPrompt.mock.calls.at(-1)!;
+      expect(callArgs[5]).toContain('# Title');
+      expect(callArgs[5]).toContain('intro body');
+    });
+
     it('should write PRP file with correct filename', async () => {
       // SETUP
       const task = createMockSubtask('P1.M2.T2.S2', 'Test Subtask');

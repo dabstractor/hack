@@ -218,6 +218,56 @@ describe('agents/prompts/prp-blueprint-prompt', () => {
       expect(prompt.user).not.toContain('<issue_feedback>');
     });
 
+    it('should include the ## PRD Context block when prdSections is provided', () => {
+      // SETUP: Get a test subtask and PRD sections text
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+      const prdSections = 'RELEVANT PRD SECTIONS TEXT';
+
+      // EXECUTE: Generate the prompt with prdSections (6th arg)
+      const prompt = createPRPBlueprintPrompt(
+        task,
+        mockBacklog,
+        undefined,
+        undefined,
+        undefined,
+        prdSections
+      );
+
+      // VERIFY: The ## PRD Context block is present with framing text and content
+      expect(prompt.user).toContain('## PRD Context');
+      expect(prompt.user).toContain('RELEVANT PRD SECTIONS TEXT');
+      expect(prompt.user).toContain('PRD §4.2 selective extraction');
+    });
+
+    it('should NOT include the ## PRD Context block when prdSections is omitted', () => {
+      // SETUP: Get a test subtask without prdSections
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+
+      // EXECUTE: Generate the prompt without prdSections
+      const prompt = createPRPBlueprintPrompt(task, mockBacklog);
+
+      // VERIFY: No ## PRD Context block is present (byte-identical to pre-S3)
+      expect(prompt.user).not.toContain('## PRD Context');
+    });
+
+    it('should NOT include the ## PRD Context block when prdSections is an empty string', () => {
+      // SETUP: Get a test subtask with empty prdSections
+      const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[1];
+
+      // EXECUTE: Generate the prompt with empty string prdSections
+      const prompt = createPRPBlueprintPrompt(
+        task,
+        mockBacklog,
+        undefined,
+        undefined,
+        undefined,
+        ''
+      );
+
+      // VERIFY: No ## PRD Context block is present
+      expect(prompt.user).not.toContain('## PRD Context');
+    });
+
     it('should handle Subtask with no dependencies', () => {
       // SETUP: Get a subtask with no dependencies
       const task = mockBacklog.backlog[0].milestones[0].tasks[0].subtasks[0];

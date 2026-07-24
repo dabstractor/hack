@@ -302,3 +302,46 @@ export function generateSectionIndex(resolvedPRD: string): SectionIndex {
 
   return { sections, counts };
 }
+
+/**
+ * Extract the PRD sections referenced by `selectors` from the RESOLVED document
+ * (PRD §4.2 "Selective PRD Section Extraction").
+ *
+ * @remarks
+ * Builds a {@link SectionIndex} via {@link generateSectionIndex} and returns the
+ * concatenated source text of ONLY the referenced sections, keeping the
+ * Researcher's context focused. Sections are concatenated in SELECTOR order.
+ *
+ * **Fallback (all-or-nothing):** if `selectors` is empty/absent OR if ANY single
+ * selector does not resolve in the index, the FULL `resolvedPRD` is returned.
+ * A partial slice is never returned — a miss on one selector means the Researcher
+ * gets the whole document rather than a confusing subset. In practice every live
+ * selector is a heading that resolves byte-exact, so fallback is rare.
+ *
+ * SYNC, no file I/O — the caller passes the already-resolved (include-expanded)
+ * PRD string (e.g. `sessionManager.currentSession.prdSnapshot`).
+ *
+ * @param resolvedPRD - The include-expanded PRD document string.
+ * @param selectors - Section-index selectors (e.g. ['h2.1','h3.0']); [] ⇒ full PRD.
+ * @returns Concatenated section text, or the full `resolvedPRD` on fallback.
+ *
+ * @example
+ * ```typescript
+ * const sections = extractPRDSections(resolvedPRD, subtask.prd_selectors);
+ * // pass `sections` to createPRPBlueprintPrompt as prdSections
+ * ```
+ */
+export function extractPRDSections(
+  resolvedPRD: string,
+  selectors: string[]
+): string {
+  if (!selectors || selectors.length === 0) return resolvedPRD;
+  const { sections } = generateSectionIndex(resolvedPRD);
+  const collected: string[] = [];
+  for (const selector of selectors) {
+    const text = sections.get(selector);
+    if (text === undefined) return resolvedPRD; // any-miss ⇒ full-PRD fallback
+    collected.push(text);
+  }
+  return collected.join('\n\n');
+}

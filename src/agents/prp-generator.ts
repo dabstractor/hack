@@ -12,6 +12,7 @@
 // CRITICAL: Import patterns - use .js extensions for ES modules
 import { createResearcherAgent } from './agent-factory.js';
 import { createPRPBlueprintPrompt } from './prompts/prp-blueprint-prompt.js';
+import { extractPRDSections } from '../core/prd-selector.js';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import { AgentError } from '../utils/errors.js';
@@ -655,12 +656,21 @@ export class PRPGenerator {
     await mkdir(join(this.sessionPath, 'prps'), { recursive: true });
 
     // Step 1: Build prompt with task context (pass issueFeedback for re-planning)
+    //
+    // Selective PRD section extraction (PRD §4.2): pull only the referenced
+    // sections from the resolved PRD; fall back to the full PRD when selectors
+    // are absent/[] (Tasks have no selectors; legacy Subtasks default to []).
+    const resolvedPRD = this.sessionManager.currentSession?.prdSnapshot ?? '';
+    const selectors = task.type === 'Subtask' ? task.prd_selectors : [];
+    const prdSections = extractPRDSections(resolvedPRD, selectors);
+
     const prompt = createPRPBlueprintPrompt(
       task,
       backlog,
       process.cwd(),
       prpOutputPath,
-      issueFeedback
+      issueFeedback,
+      prdSections
     );
 
     // Step 2: Execute Researcher Agent with centralized retry logic.

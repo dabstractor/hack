@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   generateSectionIndex,
+  extractPRDSections,
   type SectionIndex,
 } from '../../../src/core/prd-selector.js';
 
@@ -250,6 +251,127 @@ describe('generateSectionIndex', () => {
       expect(sections.get('list.0')).toContain('- first list');
       expect(sections.get('list.1')).toContain('1. second list');
       expect(sections.get('list.1')).toContain('2. continues');
+    });
+  });
+});
+
+/**
+ * Fixture PRD for extractPRDSections with two known h2 sections (h2.0, h2.1)
+ * plus a third h2 (h2.2) used to assert non-referenced sections are excluded.
+ *
+ * ```text
+ * # Title            → h1.0
+ * ## First           → h2.0  (body: "first body")
+ * ## Second          → h2.1  (body: "second body")
+ * ## Third           → h2.2  (body: "third body")
+ * ```
+ */
+const EXTRACTION_PRD = [
+  '# Title',
+  '## First',
+  'first body',
+  '## Second',
+  'second body',
+  '## Third',
+  'third body',
+].join('\n');
+
+describe('extractPRDSections', () => {
+  describe('GIVEN empty or absent selectors', () => {
+    it('SHOULD return the full PRD when selectors is an empty array', () => {
+      // EXECUTE
+      const out = extractPRDSections(EXTRACTION_PRD, []);
+
+      // VERIFY — empty selectors ⇒ full PRD (fallback)
+      expect(out).toBe(EXTRACTION_PRD);
+    });
+
+    it('SHOULD return the full PRD when selectors is undefined/null-ish', () => {
+      // EXECUTE — guard `!selectors` catches undefined/null
+      const outUndefined = extractPRDSections(EXTRACTION_PRD, undefined as any);
+      const outNull = extractPRDSections(EXTRACTION_PRD, null as any);
+
+      // VERIFY
+      expect(outUndefined).toBe(EXTRACTION_PRD);
+      expect(outNull).toBe(EXTRACTION_PRD);
+    });
+  });
+
+  describe('GIVEN selectors that all resolve', () => {
+    it('SHOULD return the concatenated section text in selector order', () => {
+      // EXECUTE
+      const out = extractPRDSections(EXTRACTION_PRD, ['h2.0', 'h2.1']);
+
+      // VERIFY — both referenced sections are present
+      expect(out).toContain('## First');
+      expect(out).toContain('first body');
+      expect(out).toContain('## Second');
+      expect(out).toContain('second body');
+
+      // VERIFY — selector order preserved (h2.0 before h2.1)
+      expect(out.indexOf('## First')).toBeLessThan(out.indexOf('## Second'));
+
+      // VERIFY — non-referenced section (h2.2) is excluded
+      expect(out).not.toContain('## Third');
+      expect(out).not.toContain('third body');
+    });
+
+    it('SHOULD join sections with a blank line separator', () => {
+      // EXECUTE
+      const out = extractPRDSections(EXTRACTION_PRD, ['h2.0', 'h2.1']);
+
+      // VERIFY — the two sections are separated by '\n\n'
+      const firstSection = extractPRDSections(EXTRACTION_PRD, ['h2.0']);
+      const secondSection = extractPRDSections(EXTRACTION_PRD, ['h2.1']);
+      expect(out).toBe(`${firstSection}\n\n${secondSection}`);
+    });
+
+    it('SHOULD return exactly one section when one selector resolves', () => {
+      // EXECUTE
+      const out = extractPRDSections(EXTRACTION_PRD, ['h2.1']);
+
+      // VERIFY — equals the single section's text (no join for one item)
+      const expected =
+        generateSectionIndex(EXTRACTION_PRD).sections.get('h2.1');
+      expect(out).toBe(expected);
+    });
+  });
+
+  describe('GIVEN selectors where ANY single selector misses', () => {
+    it('SHOULD fall back to the full PRD (all-or-nothing)', () => {
+      // EXECUTE — 'zzz.9' does not exist; any-miss ⇒ full PRD
+      const out = extractPRDSections(EXTRACTION_PRD, ['h2.0', 'zzz.9']);
+
+      // VERIFY — full PRD returned, NOT a partial slice
+      expect(out).toBe(EXTRACTION_PRD);
+      expect(out).toContain('## Third'); // confirms it's the full doc, not just h2.0
+    });
+
+    it('SHOULD fall back to the full PRD when the FIRST selector misses', () => {
+      // EXECUTE
+      const out = extractPRDSections(EXTRACTION_PRD, ['zzz.9', 'h2.0']);
+
+      // VERIFY
+      expect(out).toBe(EXTRACTION_PRD);
+    });
+
+    it('SHOULD fall back to the full PRD when the ONLY selector misses', () => {
+      // EXECUTE
+      const out = extractPRDSections(EXTRACTION_PRD, ['zzz.9']);
+
+      // VERIFY
+      expect(out).toBe(EXTRACTION_PRD);
+    });
+  });
+
+  describe('GIVEN the same inputs twice', () => {
+    it('SHOULD be deterministic (deep-equal across calls)', () => {
+      // EXECUTE
+      const first = extractPRDSections(EXTRACTION_PRD, ['h2.0', 'h2.1']);
+      const second = extractPRDSections(EXTRACTION_PRD, ['h2.0', 'h2.1']);
+
+      // VERIFY
+      expect(second).toBe(first);
     });
   });
 });

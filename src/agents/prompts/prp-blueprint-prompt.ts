@@ -123,6 +123,10 @@ Description: ${task.description}`;
  * @param issueFeedback - Optional feedback string for re-planning (PRD §4.5). When provided and non-empty,
  *   a clearly-delimited `<issue_feedback>…</issue_feedback>` block is injected into the user prompt
  *   so the Researcher addresses the prior planning gap. When omitted or empty, the prompt is unchanged.
+ * @param prdSections - Optional selectively-extracted PRD section text (PRD §4.2). When provided and
+ *   non-empty, a `## PRD Context` block is injected into the user prompt so the Researcher receives a
+ *   focused slice of the PRD. When omitted or empty (or when selective extraction fell back to the full
+ *   PRD), no block is emitted and the prompt is byte-identical to today.
  * @returns Complete user prompt string with all placeholders replaced
  *
  * @remarks
@@ -144,7 +148,8 @@ function constructUserPrompt(
   backlog: Backlog,
   codebasePath?: string,
   prpOutputPath?: string,
-  issueFeedback?: string
+  issueFeedback?: string,
+  prdSections?: string
 ): string {
   // Extract the description based on task type
   // For Subtask: use context_scope (always present)
@@ -178,6 +183,13 @@ Use this path to analyze the codebase structure and identify relevant files for 
     parentContext.length > 0
       ? parentContext
       : 'No parent context (root level item)';
+
+  // Build the PRD context section — '' when undefined/empty (byte-identical
+  // no-selectors path). Mirrors the codebaseSection/feedbackSection pattern.
+  const prdContextBlock =
+    prdSections !== undefined && prdSections.length > 0
+      ? `\n\n## PRD Context\n\nThe following PRD sections are relevant to this work item (PRD §4.2 selective extraction). When a selector did not resolve, the full PRD is provided as a fallback.\n\n${prdSections}\n`
+      : '';
 
   // Build issue feedback section — '' when undefined/empty (byte-identical no-feedback path)
   const feedbackSection =
@@ -224,9 +236,7 @@ ${taskContext}
 
 ## Parent Context
 
-${parentContextDisplay}
-
-${codebaseSection}${feedbackSection}
+${parentContextDisplay}${prdContextBlock}${codebaseSection}${feedbackSection}
 
 ---
 
@@ -264,6 +274,10 @@ ${PRP_BLUEPRINT_PROMPT}
  * @param issueFeedback - Optional feedback string for re-planning (PRD §4.5). When provided and non-empty,
  *   a `<issue_feedback>…</issue_feedback>` block is injected into the user prompt so the Researcher
  *   directly addresses the reported gap. When omitted or empty, the prompt is unchanged.
+ * @param prdSections - Optional selectively-extracted PRD section text (PRD §4.2). When provided and
+ *   non-empty, a `## PRD Context` block is injected into the user prompt so the Researcher receives a
+ *   focused slice of the PRD. When omitted or empty (or when selective extraction fell back to the full
+ *   PRD), no block is emitted and the prompt is byte-identical to today.
  * @returns Groundswell Prompt object configured for Researcher Agent
  *
  * @example
@@ -289,7 +303,8 @@ export function createPRPBlueprintPrompt(
   backlog: Backlog,
   codebasePath?: string,
   prpOutputPath?: string,
-  issueFeedback?: string
+  issueFeedback?: string,
+  prdSections?: string
 ): Prompt<unknown> {
   // Substitute the output path into the system prompt so the researcher knows
   // EXACTLY where to write the PRP JSON. Without this the prompt's vague
@@ -313,7 +328,8 @@ export function createPRPBlueprintPrompt(
       backlog,
       codebasePath,
       prpOutputPath,
-      issueFeedback
+      issueFeedback,
+      prdSections
     ),
 
     // The system prompt is the PRP_BLUEPRINT_PROMPT (Researcher persona)
