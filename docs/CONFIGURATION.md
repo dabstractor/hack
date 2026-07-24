@@ -175,7 +175,7 @@ Configure the bug hunt and bug fix behavior.
 
 | Variable           | Required | Default           | Description                                                                   |
 | ------------------ | -------- | ----------------- | ----------------------------------------------------------------------------- |
-| `BUG_FINDER_AGENT` | No       | `glp`             | Agent type for bug finding operations.                                        |
+| `BUG_FINDER_AGENT` | No       | `pizr`            | Reasoning-tier agent used for creative bug discovery (PRD §4.4, §9.2.3).      |
 | `BUG_RESULTS_FILE` | No       | `TEST_RESULTS.md` | Output file for bug hunt results.                                             |
 | `BUGFIX_SCOPE`     | No       | `subtask`         | Scope level for bug fix operations (`subtask`, `task`, `milestone`, `phase`). |
 
@@ -491,7 +491,7 @@ ZAI_API_KEY=your-zai-key-here
 # =============================================================================
 
 # Agent type for bug finding
-# BUG_FINDER_AGENT=glp
+# BUG_FINDER_AGENT=pizr
 
 # Output file for bug hunt results
 # BUG_RESULTS_FILE=TEST_RESULTS.md

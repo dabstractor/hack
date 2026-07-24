@@ -31,6 +31,7 @@ import {
   DEFAULT_RESEARCH_TIMEOUT_SECONDS,
   DEFAULT_VALIDATION_AGENT,
   DEFAULT_VALIDATION_TIMEOUT_SECONDS,
+  DEFAULT_BUG_FINDER_AGENT,
 } from '../../../src/config/constants.js';
 import type { ModelTier } from '../../../src/config/types.js';
 
@@ -251,6 +252,12 @@ describe('config/constants: DEFAULT_RESEARCH_TIMEOUT_SECONDS (1800)', () => {
 describe('config/constants: DEFAULT_VALIDATION_AGENT (pizr)', () => {
   it('SHOULD be "pizr" (PRD §4.4/§9.2.2 — reasoning-tier agent, default pizr)', () => {
     expect(DEFAULT_VALIDATION_AGENT).toBe('pizr');
+  });
+});
+
+describe('config/constants: DEFAULT_BUG_FINDER_AGENT (pizr)', () => {
+  it('SHOULD be "pizr" (PRD §4.4/§9.2.2 — reasoning-tier bug-finder agent, default pizr)', () => {
+    expect(DEFAULT_BUG_FINDER_AGENT).toBe('pizr');
   });
 });
 

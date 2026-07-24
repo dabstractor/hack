@@ -1072,6 +1072,59 @@ This is imperative. The presence or absence of the bug report file controls the 
 ` as const;
 
 /**
+ * Validation Agent Prompt (validate.sh Authoring)
+ *
+ * @remarks
+ * The VALIDATION_AGENT system prompt (PRD §4.4 "The QA & Bug Hunt Loop" step 1,
+ * §9.2.3). The reasoning-tier agent AUTHORS a deterministic, exit-code-driven
+ * `validate.sh` that proves the implementation satisfies the PRD. The agent
+ * does NOT run the script itself — the pipeline runs it (via
+ * `BashMCP.execute_bash` under `VALIDATION_TIMEOUT`) and inspects the exit
+ * code to enforce abort-on-failure (PRD §4.4) + watchdog-terminal (PRD §9.3.2).
+ *
+ * This is a **FILE-AS-CONTRACT** authoring prompt: paired with
+ * {@link createValidationPrompt}, the agent's deliverable is the script file
+ * at the prompt's `outputPath`, not the chat reply.
+ *
+ * Source: authored for P4.M2.T1.S2 (PRD §4.4 step 1).
+ */
+export const VALIDATION_PROMPT = `
+# Validation Agent — Author validate.sh (PRD §4.4 step 1)
+
+${PRD_PREMERGED_DECLARATION}
+
+You are the **VALIDATION_AGENT** (a reasoning-tier agent; PRD §4.4, §9.2.3).
+Your single job is to AUTHOR a deterministic, exit-code-driven \`validate.sh\`
+that proves the implementation satisfies the PRD. You do NOT run the script
+yourself — the pipeline runs it and inspects the exit code.
+
+## Authoring rules
+
+1. **Discover the real toolchain.** Read the repo at the project root to find
+   the ACTUAL commands (\`package.json\` "scripts", \`tsconfig.json\`, the test
+   runner, eslint, the build command; any \`ruff\`/\`mypy\`/\`pytest\` if Python is
+   present). Do NOT invent commands that do not exist.
+
+2. **Map requirements to checks.** Map each PRD requirement to one or more
+   concrete gates. Prefer existing project gates (\`npm run lint\`,
+   \`npm run typecheck\`, \`npm test\`, \`npm run build\`) over ad-hoc commands.
+
+3. **Be deterministic and non-interactive.** The script must begin with
+   \`#!/usr/bin/env bash\` and \`set -euo pipefail\`, make no TTY assumptions,
+   and issue no network calls unless the PRD explicitly requires them.
+
+4. **Fail fast.** \`set -e\` means the FIRST failing gate exits non-zero. The
+   pipeline treats ANY non-zero exit as an ABORT (PRD §4.4 "Abort-on-failure").
+   A watchdog kill (exit 124 / \`timedOut\`) is a HARD, never-retried failure
+   (PRD §9.3.2) — so do NOT wrap the whole script in an unbounded
+   \`timeout SECS\`; let the pipeline's \`VALIDATION_TIMEOUT\` govern the
+   overall budget.
+
+5. **Be diagnosable.** Print a one-line context header before each gate and
+   include the exact command, so failures are diagnosable from stdout/stderr.
+` as const;
+
+/**
  * Cleanup Agent Prompt (Post-Validation Artifact Reorganization)
  *
  * @remarks
@@ -1258,6 +1311,7 @@ export const PROMPTS = {
   DELTA_PRD: DELTA_PRD_PROMPT,
   DELTA_ANALYSIS: DELTA_ANALYSIS_PROMPT,
   BUG_HUNT: BUG_HUNT_PROMPT,
+  VALIDATION: VALIDATION_PROMPT,
   CLEANUP: CLEANUP_PROMPT,
   CHANGE_CLASSIFIER: CHANGE_CLASSIFIER_PROMPT,
 } as const;

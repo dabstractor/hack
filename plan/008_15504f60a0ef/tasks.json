@@ -940,14 +940,14 @@
               "type": "Task",
               "id": "P4.M2.T2",
               "title": "BUG_FINDER_AGENT Default to pizr",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Change the BUG_FINDER_AGENT default from glp to pizr (reasoning-tier), making the QA Agent the reasoning persona at max budget.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M2.T2.S1",
                   "title": "Update BUG_FINDER_AGENT default glp to pizr",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S2"

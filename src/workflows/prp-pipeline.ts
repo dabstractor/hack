@@ -55,6 +55,10 @@ import {
 import { TaskOrchestrator as TaskOrchestratorClass } from '../core/task-orchestrator.js';
 import { DeltaAnalysisWorkflow } from './delta-analysis-workflow.js';
 import { BugHuntWorkflow } from './bug-hunt-workflow.js';
+import {
+  ValidationWorkflow,
+  ValidationFailedError,
+} from './validation-workflow.js';
 import { FixCycleWorkflow } from './fix-cycle-workflow.js';
 import { isParallelResearch, getResearchDepth } from '../config/constants.js';
 import { patchBacklog } from '../core/task-patcher.js';
@@ -1392,6 +1396,62 @@ export class PRPPipeline extends Workflow {
   }
 
   /**
+   * Validation stage (PRD §4.4 step 1 "Validation Scripting").
+   *
+   * @remarks
+   * Constructs + runs a {@link ValidationWorkflow}: the reasoning agent
+   * (VALIDATION_AGENT, default `pizr`) AUTHORS `validate.sh` from the PRD +
+   * the repo's tooling (FILE-AS-CONTRACT), then the pipeline RUNS it via
+   * `BashMCP.execute_bash` at the project root under `VALIDATION_TIMEOUT`
+   * (overriding the generic gate timeout for this call only).
+   *
+   * **Abort-on-failure** (PRD §4.4): on `!outcome.success` this throws a
+   * {@link ValidationFailedError} carrying `{ timedOut, exitCode }` so
+   * {@link isWatchdogKillResult} (`src/utils/retry.ts`) classifies a watchdog
+   * kill (Node watchdog `timedOut` OR `timeout`-coreutil `exitCode 124`) as a
+   * HARD terminal failure that is never retried (PRD §9.3.2). A non-watchdog
+   * non-zero exit is a plain abort.
+   *
+   * This method is invoked from `run()` BEFORE `runQACycle()` — NOT inside its
+   * try/catch — so the throw propagates unconditionally (even under
+   * `--continue-on-error`, where `runQACycle`'s catch swallows non-fatal
+   * errors). The throw lands in `run()`'s catch → returns a failure result,
+   * so bug-hunt is never reached and `setStatus('completed')` is never called.
+   *
+   * @throws {ValidationFailedError} If validation fails (non-zero exit or
+   *   watchdog kill).
+   * @throws {Error} If no session path is available, or authoring fails.
+   */
+  async #runValidation(): Promise<void> {
+    const sessionPath = this.sessionManager.currentSession?.metadata.path;
+    if (!sessionPath) {
+      throw new Error('[PRPPipeline] No session path available for validation');
+    }
+    const prdContent = this.sessionManager.currentSession?.prdSnapshot ?? '';
+
+    this.logger.info(
+      '[PRPPipeline] Validation stage (PRD §4.4) — generate + run validate.sh'
+    );
+
+    const workflow = new ValidationWorkflow(prdContent, process.cwd());
+    const outcome = await workflow.run(sessionPath);
+
+    this.logger.info('[PRPPipeline] Validation outcome', {
+      success: outcome.success,
+      exitCode: outcome.exitCode,
+      timedOut: outcome.timedOut,
+      durationMs: outcome.durationMs,
+    });
+
+    // PRD §4.4 Abort-on-failure: non-zero exit aborts BEFORE bug-hunt. Watchdog
+    // kills are terminal (ValidationFailedError carries timedOut/exitCode so
+    // isWatchdogKillResult(error)===true → never retried by retryAgentPrompt).
+    if (!outcome.success) {
+      throw new ValidationFailedError(outcome);
+    }
+  }
+
+  /**
    * Run QA bug hunt cycle
    *
    * @remarks
@@ -2155,6 +2215,15 @@ Report Location: ${sessionPath}/RESOURCE_LIMIT_REPORT.md
         totalTasks: this.totalTasks,
         failedTasks: this.#countFailedTasks(),
       });
+
+      // PRD §4.4 step 1 (Validation Scripting): generate + run validate.sh.
+      // Lives in run() — NOT inside runQACycle()'s try/catch — so a validation
+      // abort propagates EVEN under --continue-on-error (runQACycle's catch
+      // swallows non-fatal errors when continueOnError===true; isFatalError
+      // returns false for ALL errors then). A throw here lands in run()'s catch
+      // → returns a failure result, bypassing bug-hunt/commit. Runs in ALL
+      // modes (fixes the --mode validate skip-QA defect).
+      await this.#runValidation();
 
       await this.runQACycle();
 

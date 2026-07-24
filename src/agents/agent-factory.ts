@@ -30,6 +30,7 @@ import {
   configureHarness,
   resolveApiKeyForProvider,
 } from '../config/harness.js';
+import { getBugFinderAgent } from '../config/constants.js';
 import type { AgentHarness, ModelTier } from '../config/types.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
@@ -430,9 +431,14 @@ export function createCoderAgent(): Agent {
  * Create a QA agent for validation and bug hunting
  *
  * @remarks
- * Uses the **Reasoning** model role (balanced tier, `xhigh` reasoning budget per PRD §6.5 —
- * bug-finding is a reasoning-tier activity). Uses the BUG_HUNT_PROMPT system prompt for
- * comprehensive end-to-end validation and creative bug finding.
+ * The runtime realization of `BUG_FINDER_AGENT` (default `pizr`, PRD §4.4 / §9.2.2 / §9.2.3):
+ * the reasoning persona (balanced tier @ `xhigh`) = the bash `pizr` agent (`pi` with
+ * `--thinking xhigh`). Uses the **Reasoning** model role (balanced tier, `xhigh` reasoning
+ * budget per PRD §6.5 / §9.2.3 — bug-finding is a reasoning-tier activity). The configured
+ * bug-finder identifier is resolved from `BUG_FINDER_AGENT` at agent-creation time and
+ * surfaced via {@link getBugFinderAgent} for observability (it NAMES the persona; it does
+ * NOT change the model tier, which stays balanced @ `xhigh`). Uses the BUG_HUNT_PROMPT
+ * system prompt for comprehensive end-to-end validation and creative bug finding.
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -451,7 +457,10 @@ export function createQAAgent(): Agent {
     system: BUG_HUNT_PROMPT,
     mcps: MCP_TOOLS,
   };
-  logger().debug({ persona: 'qa', model: config.model }, 'Creating agent');
+  logger().debug(
+    { persona: 'qa', model: config.model, bugFinderAgent: getBugFinderAgent() },
+    'Creating agent'
+  );
   return createAgent(config);
 }
 

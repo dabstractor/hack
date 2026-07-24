@@ -16,6 +16,7 @@ import {
   DELTA_PRD_PROMPT,
   DELTA_ANALYSIS_PROMPT,
   BUG_HUNT_PROMPT,
+  VALIDATION_PROMPT,
   CLEANUP_PROMPT,
   CHANGE_CLASSIFIER_PROMPT,
   PRD_PREMERGED_DECLARATION,
@@ -53,6 +54,11 @@ describe('agents/prompts', () => {
     it('should export BUG_HUNT_PROMPT as a string', () => {
       expect(typeof BUG_HUNT_PROMPT).toBe('string');
       expect(BUG_HUNT_PROMPT.length).toBeGreaterThan(100);
+    });
+
+    it('should export VALIDATION_PROMPT as a string', () => {
+      expect(typeof VALIDATION_PROMPT).toBe('string');
+      expect(VALIDATION_PROMPT.length).toBeGreaterThan(100);
     });
 
     it('should export CLEANUP_PROMPT as a string', () => {
@@ -104,15 +110,16 @@ describe('agents/prompts', () => {
   });
 
   describe('PROMPTS lookup object', () => {
-    it('should contain all eight prompts', () => {
+    it('should contain all nine prompts', () => {
       const keys = Object.keys(PROMPTS) as PromptKey[];
-      expect(keys).toHaveLength(8);
+      expect(keys).toHaveLength(9);
       expect(keys).toContain('TASK_BREAKDOWN');
       expect(keys).toContain('PRP_BLUEPRINT');
       expect(keys).toContain('PRP_BUILDER');
       expect(keys).toContain('DELTA_PRD');
       expect(keys).toContain('DELTA_ANALYSIS');
       expect(keys).toContain('BUG_HUNT');
+      expect(keys).toContain('VALIDATION');
       expect(keys).toContain('CLEANUP');
       expect(keys).toContain('CHANGE_CLASSIFIER');
     });
@@ -124,6 +131,7 @@ describe('agents/prompts', () => {
       expect(PROMPTS.DELTA_PRD).toBe(DELTA_PRD_PROMPT);
       expect(PROMPTS.DELTA_ANALYSIS).toBe(DELTA_ANALYSIS_PROMPT);
       expect(PROMPTS.BUG_HUNT).toBe(BUG_HUNT_PROMPT);
+      expect(PROMPTS.VALIDATION).toBe(VALIDATION_PROMPT);
       expect(PROMPTS.CLEANUP).toBe(CLEANUP_PROMPT);
       expect(PROMPTS.CHANGE_CLASSIFIER).toBe(CHANGE_CLASSIFIER_PROMPT);
     });

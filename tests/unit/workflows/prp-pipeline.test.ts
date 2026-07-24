@@ -103,6 +103,36 @@ vi.mock('../../../src/workflows/fix-cycle-workflow.js', () => ({
   })),
 }));
 
+// Mock ValidationWorkflow — the validation stage now runs in run() before
+// runQACycle (PRD §4.4 step 1). Default: validation passes; tests that need to
+// exercise the abort seam override mockValidationRun per-test.
+const { MockValidationWorkflow } = vi.hoisted(() => ({
+  MockValidationWorkflow: vi.fn(),
+}));
+vi.mock('../../../src/workflows/validation-workflow.js', () => ({
+  ValidationWorkflow: MockValidationWorkflow.mockImplementation(() => ({
+    run: vi.fn().mockResolvedValue({
+      success: true,
+      exitCode: 0,
+      timedOut: false,
+      stdout: '',
+      stderr: '',
+      scriptPath: '/plan/001_14b9dc2a33c7/validate.sh',
+      durationMs: 0,
+    }),
+  })),
+  ValidationFailedError: class ValidationFailedError extends Error {
+    readonly timedOut: boolean;
+    readonly exitCode: number | null;
+    constructor(outcome: { timedOut: boolean; exitCode: number | null }) {
+      super('Validation failed (mock)');
+      this.name = 'ValidationFailedError';
+      this.timedOut = outcome.timedOut || outcome.exitCode === 124;
+      this.exitCode = outcome.exitCode;
+    }
+  },
+}));
+
 // Mock TaskPatcher
 vi.mock('../../../src/core/task-patcher.js', () => ({
   patchBacklog: vi.fn().mockImplementation((backlog: Backlog) => backlog),

@@ -43,6 +43,32 @@ vi.mock('../../src/agents/agent-factory.js', () => ({
   createCoderAgent: vi.fn(),
 }));
 
+// Mock ValidationWorkflow — the validation stage now runs in run() before
+// runQACycle (PRD §4.4 step 1). Default: validation passes.
+vi.mock('../../src/workflows/validation-workflow.js', () => ({
+  ValidationWorkflow: vi.fn().mockImplementation(() => ({
+    run: vi.fn().mockResolvedValue({
+      success: true,
+      exitCode: 0,
+      timedOut: false,
+      stdout: '',
+      stderr: '',
+      scriptPath: '/plan/validate.sh',
+      durationMs: 0,
+    }),
+  })),
+  ValidationFailedError: class ValidationFailedError extends Error {
+    readonly timedOut: boolean;
+    readonly exitCode: number | null;
+    constructor(outcome: { timedOut: boolean; exitCode: number | null }) {
+      super('Validation failed (mock)');
+      this.name = 'ValidationFailedError';
+      this.timedOut = outcome.timedOut || outcome.exitCode === 124;
+      this.exitCode = outcome.exitCode;
+    }
+  },
+}));
+
 // Mock fs/promises for file operations - only mock readFile, let others work
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();

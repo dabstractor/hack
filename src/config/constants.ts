@@ -812,6 +812,81 @@ export function getValidationTimeoutSeconds(): number {
   return raw;
 }
 
+// =============================================================================
+// Bug Hunt Configuration (PRD §4.4, §9.2.2)
+// =============================================================================
+// The env-var knob for the QA & bug-hunt stage: which reasoning-tier agent runs the
+// creative bug discovery (BUG_FINDER_AGENT). OVERRIDES nothing — it NAMES the
+// reasoning persona that already runs the bug hunt (balanced tier @ `xhigh`). Consumed
+// by createQAAgent() (agent-factory.ts) for observability at agent-creation time.
+
+/**
+ * Environment variable name: the reasoning-tier agent used for creative bug discovery
+ * (PRD §4.4 step 2, §9.2.2 "Bug Hunt Configuration").
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getBugFinderAgent}) is an agent
+ * identifier. This constant is the env-var NAME itself. The DEFAULT
+ * ({@link DEFAULT_BUG_FINDER_AGENT}) is `pizr` — the bash-pipeline reasoning agent (`pi`
+ * with `--thinking xhigh` per PRD §9.2.3); in the TS rewrite the reasoning persona
+ * (balanced tier @ `xhigh`) realizes it via the `qa` persona (`createQAAgent`,
+ * `agent-factory.ts`).
+ *
+ * @example
+ * ```ts
+ * import { BUG_FINDER_AGENT } from './config/constants.js';
+ *
+ * console.log(BUG_FINDER_AGENT); // 'BUG_FINDER_AGENT'
+ * console.log(process.env[BUG_FINDER_AGENT]); // e.g. 'pizr'
+ * ```
+ */
+export const BUG_FINDER_AGENT = 'BUG_FINDER_AGENT';
+
+/**
+ * Default bug-finder agent identifier (PRD §4.4, §9.2.2, §9.2.3).
+ *
+ * @remarks
+ * `pizr` — the reasoning-tier agent. Uses `as const` to preserve the literal type
+ * (matches {@link DEFAULT_VALIDATION_AGENT}).
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_BUG_FINDER_AGENT } from './config/constants.js';
+ *
+ * console.log(DEFAULT_BUG_FINDER_AGENT); // 'pizr'
+ * ```
+ */
+export const DEFAULT_BUG_FINDER_AGENT = 'pizr' as const;
+
+/**
+ * Read the BUG_FINDER_AGENT env var (PRD §4.4, §9.2.2).
+ *
+ * @returns The configured bug-finder agent identifier, or {@link DEFAULT_BUG_FINDER_AGENT}
+ *          (`'pizr'`) when unset or blank (empty/whitespace-only).
+ *
+ * @remarks
+ * Mirrors {@link getValidationAgent} exactly (same trim-empty guard). The bug-finder
+ * agent is the runtime reasoning persona (`createQAAgent`, balanced tier @ `xhigh` per
+ * PRD §9.2.3); this getter surfaces the configured identifier for observability and honors
+ * a user override. An explicitly-empty value (`BUG_FINDER_AGENT=`) falls back to the
+ * default rather than yielding `''`, which would silently break observability.
+ *
+ * @example
+ * ```ts
+ * import { getBugFinderAgent } from './config/constants.js';
+ *
+ * const agent = getBugFinderAgent(); // 'pizr' (default)
+ * ```
+ */
+export function getBugFinderAgent(): string {
+  const raw = process.env[BUG_FINDER_AGENT];
+  if (raw === undefined) {
+    return DEFAULT_BUG_FINDER_AGENT;
+  }
+  const trimmed = raw.trim();
+  return trimmed === '' ? DEFAULT_BUG_FINDER_AGENT : trimmed;
+}
+
 /**
  * Environment variable name: max recursion depth for PRD `@`-include expansion (PRD §2.3).
  *

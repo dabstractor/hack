@@ -12,6 +12,7 @@ export { createArchitectPrompt } from './architect-prompt.js';
 export { createPRPBlueprintPrompt } from './prp-blueprint-prompt.js';
 export { createDeltaAnalysisPrompt } from './delta-analysis-prompt.js';
 export { createBugHuntPrompt } from './bug-hunt-prompt.js';
+export { createValidationPrompt } from './validation-prompt.js';
 export {
   createChangeClassificationPrompt,
   createArtifactClassificationPrompt,
