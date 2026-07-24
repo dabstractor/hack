@@ -11,7 +11,7 @@
  *     discarding unauthorized mutations.
  *  2. If the on-disk file fails to parse/validate, walks git history to restore
  *     the last valid committed version, re-applies the legitimate delta, and
- *     preserves items currently in `Researching`/`Retrying` status.
+ *     preserves items currently in `Researching`/`Ready` status (PRD §5.1).
  *
  * It is **always non-fatal** — never throws to the caller; on total failure it
  * logs and leaves state as-is. Returns a typed result for observability.
@@ -27,6 +27,7 @@
  * ```
  */
 
+import { readFile } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
 import type { Backlog, Status } from './models.js';
 import { BacklogSchema } from './models.js';
@@ -39,6 +40,56 @@ import { getLogger, type Logger } from '../utils/logger.js';
 
 let _logger: Logger | undefined;
 const logger = (): Logger => (_logger ??= getLogger('tasks-json-recovery'));
+
+/**
+ * Statuses whose live IDs are snapshotted from the working-tree file before the
+ * git-history restore (PRD §5.1, P3.M2.T1.S1).
+ */
+const RESEARCH_PRESERVE_STATUSES = new Set<string>(['Researching', 'Ready']);
+
+/**
+ * Best-effort snapshot of `Researching`/`Ready` item IDs from the working-tree
+ * `tasks.json` (PRD §5.1, P3.M2.T1.S1).
+ *
+ * @param tasksPath - Absolute path to the tasks.json FILE.
+ * @returns The IDs of items whose `status` is `'Researching'` or `'Ready'`,
+ *   extracted via a lenient DFS over the raw parsed JSON. `[]` if the file
+ *   cannot be read or parsed. NEVER throws.
+ *
+ * @remarks
+ * In PATH B the working-tree file is corrupt by construction (a schema-valid
+ * file takes PATH A), so this does NOT use `readTasksJSON`/`BacklogSchema`
+ * (too strict). It reads raw bytes, `JSON.parse`s, and walks the parsed value
+ * collecting any node with a string `id` whose string `status` is exactly
+ * `'Researching'` or `'Ready'`. This survives partial structures, missing
+ * fields, and unknown nesting. Read OUTSIDE the lock (pure best-effort read;
+ * the real mutation happens later, inside `withLockedTasksJSON`).
+ */
+async function snapshotResearchingReadyIds(
+  tasksPath: string
+): Promise<readonly string[]> {
+  const ids: string[] = [];
+  const visit = (node: unknown): void => {
+    if (node && typeof node === 'object') {
+      const obj = node as Record<string, unknown>;
+      if (
+        typeof obj.id === 'string' &&
+        typeof obj.status === 'string' &&
+        RESEARCH_PRESERVE_STATUSES.has(obj.status)
+      ) {
+        ids.push(obj.id);
+      }
+      for (const v of Object.values(obj)) visit(v);
+    }
+  };
+  try {
+    const raw = await readFile(tasksPath, 'utf-8');
+    visit(JSON.parse(raw));
+  } catch {
+    // unreadable / unparseable working-tree file — graceful degradation to []
+  }
+  return ids;
+}
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -66,6 +117,22 @@ export interface TasksJsonRecoveryResult {
    * avoiding a second lock acquisition and a TOCTOU window.
    */
   readonly backlog?: Backlog;
+  /**
+   * IDs of items that were `Researching` or `Ready` in the **working-tree**
+   * `tasks.json` BEFORE the git-history restore (PATH B), captured so the
+   * restore can re-apply them afterward (PRD §5.1, P3.M2.T1.S1).
+   *
+   * @remarks
+   * - Populated ONLY on the PATH-B branches (corrupt-disk → git restore). PATH
+   *   A (clean disk) and PATH C (total failure) return `[]`.
+   * - Read directly from the working-tree file (NOT an in-memory index — PRD
+   *   §5.1 forbids depending on a drift-prone index). Best-effort: `[]` when
+   *   the working-tree file is unparseable.
+   * - Consumed by P3.M2.T1.S2, which re-applies each id gated on filesystem
+   *   evidence (`Ready` only if the item's `PRP.md` exists; `Researching` only
+   *   if its `research/` directory exists).
+   */
+  readonly preservedResearchingReadyIds: readonly string[];
 }
 
 /**
@@ -104,8 +171,10 @@ export interface RecoverTasksJsonOptions {
  *    restores the LAST VALID committed version + re-applies `legitimateDelta`
  *    INSIDE the lock, preferring a now-healed fresh read if another writer fixed
  *    the corruption during the walk. Preserves items currently in `Researching`
- *    or `Retrying` status (they are carried forward from the restored version —
- *    never dropped to `Planned`). There is NO `Ready` status.
+ *    or `Ready` status: the pre-revert snapshot (P3.M2.T1.S1) captures their IDs
+ *    from the working-tree file, and P3.M2.T1.S2 re-applies them afterward gated
+ *    on filesystem evidence. (`Retrying` items are also carried forward from the
+ *    restored version.) `Ready` IS a valid status (models.ts).
  *  - **Total failure**: logs and leaves state as-is. NEVER throws — a single
  *    corrupting agent must never terminate the session.
  *
@@ -168,12 +237,21 @@ export async function recoverTasksJson(
         source: 'disk',
         reason: 're-applied legitimate status delta',
         backlog: written,
+        // PATH A: no git revert → no snapshot needed (Researching/Ready items in
+        // the working tree are already preserved; PATH A never overwrites disk
+        // with a git blob).
+        preservedResearchingReadyIds: [],
       };
     }
 
     // ---- PATH B: corrupt disk → walk git history for the last valid version ----
     // The git walk is READ-ONLY and can take seconds; it runs OUTSIDE the lock
     // so a waiter's stale-age check cannot delete a LIVE lock mid-walk (R3).
+    // PRD §5.1 / P3.M2.T1.S1: snapshot live Researching/Ready IDs from the
+    // working-tree file BEFORE the git-history restore overwrites disk. The
+    // working tree is the authoritative copy of what the research supervisor
+    // wrote (it may be uncommitted). Best-effort: [] on unparseable files.
+    const snapshotIds = await snapshotResearchingReadyIds(tasksPath);
     const history = await gitFileHistory(relPath, repoPath); // [] on no-history; throws on git error (→ PATH C)
     let restoredBacklog: Backlog | null = null;
     let restoreCommit: string | null = null;
@@ -191,7 +269,10 @@ export async function recoverTasksJson(
     }
 
     if (!restoredBacklog || !restoreCommit) {
-      // ---- PATH C: no valid version found in history ----
+      // ---- no valid version found in git history ----
+      // (Still PATH B: the snapshot was captured above, before the walk, so it
+      // is in scope and threaded into this return — S2 / a future caller may
+      // want the working-tree snapshot even when recovery itself fails.)
       logger().error(
         { relPath, historyLength: history.length },
         'tasks.json recovery failed: no valid version in git history'
@@ -200,6 +281,7 @@ export async function recoverTasksJson(
         restored: false,
         source: 'disk',
         reason: 'recovery failed: no valid version in git history',
+        preservedResearchingReadyIds: snapshotIds,
       };
     }
 
@@ -207,8 +289,11 @@ export async function recoverTasksJson(
     // another writer HEALED disk during the walk, so prefer that fresh read;
     // or (b) throw — disk is still corrupt, so use the restored blob as the
     // base (passed as the accessor's readFallback). Then apply ONLY the
-    // legitimate delta. Researching/Retrying items are preserved automatically
-    // (we mutate ONLY the target item).
+    // legitimate delta. Items in Researching/Ready that were in the COMMITTED
+    // version are preserved automatically (we mutate ONLY the target item). The
+    // working-tree snapshot (captured above) covers statuses the supervisor
+    // wrote but never committed — P3.M2.T1.S2 re-applies those gated on FS
+    // evidence.
     const commit = restoreCommit;
     const written = await withLockedTasksJSON(
       sessionDir,
@@ -233,6 +318,7 @@ export async function recoverTasksJson(
       source: 'git',
       reason: `restored from commit ${commit}`,
       backlog: written,
+      preservedResearchingReadyIds: snapshotIds,
     };
   } catch (error) {
     // ---- PATH C: any uncaught error (git threw, write threw, etc.) — non-fatal ----
@@ -244,6 +330,11 @@ export async function recoverTasksJson(
       restored: false,
       source: 'disk',
       reason: `recovery failed: ${(error as Error).message}`,
+      // PATH C outer catch: total failure (git threw, write threw, etc.).
+      // snapshotIds is out of scope here; [] is the defensible value — the
+      // outer catch means total failure, and S2 re-applying nothing is exactly
+      // today's behavior.
+      preservedResearchingReadyIds: [],
     };
   }
 }

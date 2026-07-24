@@ -202,11 +202,12 @@ describe('tasks-json-recovery e2e (R4)', () => {
       { repoPath: dir }
     );
 
-    expect(result).toEqual({
-      restored: false,
-      source: 'disk',
-      reason: 're-applied legitimate status delta',
-    });
+    expect(result.restored).toBe(false);
+    expect(result.source).toBe('disk');
+    expect(result.reason).toBe('re-applied legitimate status delta');
+    // P3.M2.T1.S1: PATH A returns [] (no revert → no snapshot).
+    expect(result.preservedResearchingReadyIds).toEqual([]);
+    expect(result.backlog).toBeDefined();
     const after = await readTasksJSON(dir);
     expect(findSubtask(after, 'P1.M1.T1.S1')!.status).toBe('Complete');
   });

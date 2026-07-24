@@ -240,4 +240,163 @@ describe('core/tasks-json-recovery', () => {
     const raw = await readFile(join(dir, 'tasks.json'), 'utf-8');
     expect(raw).toBe('{ "truncated');
   });
+
+  // --------------------------------------------------------------------------
+  // P3.M2.T1.S1: pre-revert working-tree snapshot of Researching/Ready IDs
+  // --------------------------------------------------------------------------
+
+  /**
+   * Writes a JSON-parseable but BacklogSchema-INVALID working-tree file whose
+   * Researching/Ready subtask {id,status} nodes remain intact. Forces PATH B
+   * (readTasksJSON throws → diskClean=false) while still allowing the
+   * best-effort snapshot helper to extract ids via its lenient DFS.
+   *
+   * The schema violation is applied to an UNRELATED item (the Phase's `type`),
+   * so it does not interfere with the snapshot extraction.
+   */
+  async function writeSchemaInvalidWorkingTree(
+    backlog: Backlog,
+    violation: { setPhaseType?: string } = {}
+  ) {
+    const asObj = JSON.parse(JSON.stringify(backlog)) as Backlog;
+    if (violation.setPhaseType) {
+      // @ts-expect-error — intentionally writing an invalid ItemTypeEnum value
+      asObj.backlog[0].type = violation.setPhaseType;
+    }
+    await writeFile(join(dir, 'tasks.json'), JSON.stringify(asObj, null, 2));
+  }
+
+  it('PATH B — snapshot captures uncommitted Ready id from working tree', async () => {
+    // committed baseline has S2 = Planned (the supervisor has NOT yet committed Ready)
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    // supervisor wrote S2 = Ready to the working tree (uncommitted) AND the
+    // file is schema-invalid (Phase type = BogusType) so PATH B runs.
+    const workingTree = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Ready',
+    });
+    await writeSchemaInvalidWorkingTree(workingTree, {
+      setPhaseType: 'BogusType',
+    });
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    expect(result.source).toBe('git');
+    // The committed version had S2 = Planned; the working tree had Ready. The
+    // snapshot captured the WORKING-TREE value — proving the snapshot is read
+    // from the FILE, not from an in-memory baselineBacklog (which was Planned).
+    expect(result.preservedResearchingReadyIds).toContain('P1.M1.T1.S2');
+  });
+
+  it('PATH B — snapshot captures both Researching and Ready ids', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline');
+
+    // working tree has S1 = Researching and S2 = Ready (both uncommitted),
+    // plus a schema violation on the Phase so PATH B runs.
+    const workingTree = makeValidBacklog({
+      s1Status: 'Researching',
+      s2Status: 'Ready',
+    });
+    await writeSchemaInvalidWorkingTree(workingTree, {
+      setPhaseType: 'BogusType',
+    });
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    expect(result.preservedResearchingReadyIds).toEqual(
+      expect.arrayContaining(['P1.M1.T1.S1', 'P1.M1.T1.S2'])
+    );
+  });
+
+  it('PATH B — snapshot is [] when working-tree file is unparseable garbage', async () => {
+    const seed = makeValidBacklog({ s1Status: 'Implementing' });
+    await commitBacklog(git, dir, seed, 'seed valid');
+
+    // truncated garbage — JSON.parse throws → snapshot helper returns []
+    await writeFile(join(dir, 'tasks.json'), '{ "trun');
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    // git history still has the valid committed version → restored.
+    expect(result.restored).toBe(true);
+    expect(result.source).toBe('git');
+    // graceful degradation: snapshot is [], no throw.
+    expect(result.preservedResearchingReadyIds).toEqual([]);
+  });
+
+  it('PATH A — preservedResearchingReadyIds is [] (no revert)', async () => {
+    const seed = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Ready', // even with a Ready item, PATH A returns []
+    });
+    await commitBacklog(git, dir, seed, 'seed clean');
+    // working tree is schema-VALID (clean) → PATH A runs (no revert, no snapshot).
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(false);
+    expect(result.source).toBe('disk');
+    expect(result.preservedResearchingReadyIds).toEqual([]);
+  });
+
+  it('PATH B — snapshot survives even when no valid committed version exists in history', async () => {
+    // Commit a non-backlog file so git history is non-empty (gitFileHistory
+    // returns a non-throwing []  -only- when there are commits; an empty repo
+    // throws). The single commit's blob fails BacklogSchema, so the walk finds
+    // NO valid version → the PATH-B no-valid-version return runs. The snapshot
+    // was captured BEFORE the walk, so it is still present on the result.
+    await writeFile(
+      join(dir, 'tasks.json'),
+      JSON.stringify({ not: 'a backlog' })
+    );
+    await git.add('tasks.json');
+    await git.commit('invalid backlog commit');
+
+    // working tree is JSON-parseable + schema-invalid AND contains a Ready id.
+    const workingTree = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Ready',
+    });
+    await writeSchemaInvalidWorkingTree(workingTree, {
+      setPhaseType: 'BogusType',
+    });
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(false);
+    expect(result.reason).toMatch(/no valid version in git history/);
+    // snapshot captured before the (failed) walk is still returned.
+    expect(result.preservedResearchingReadyIds).toContain('P1.M1.T1.S2');
+  });
 });

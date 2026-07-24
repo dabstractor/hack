@@ -587,14 +587,14 @@
               "type": "Task",
               "id": "P3.M2.T1",
               "title": "Restore Snapshot-Before-Revert with FS Evidence",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Change tasks-json-recovery.ts to snapshot live Researching/Ready item IDs from the working-tree tasks.json before the git revert, then re-apply afterward gated on filesystem evidence (PRP.md exists → Ready; research/ exists → Researching).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T1.S1",
                   "title": "Snapshot live Researching/Ready IDs before git revert",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: recoverTasksJson (tasks-json-recovery.ts) preserves Researching/Retrying items by mutating only the target item (PATH A/B). The code comment notes 'There is NO Ready status' but architecture/system_context.md Finding #2 confirms the Status type (models.ts:175) DOES include 'Ready'. PRD §5.1 mandates snapshotting live Researching/Ready item IDs from the working-tree tasks.json BEFORE the git revert.\n2. INPUT: No prior subtask output consumed (recovery code is standalone).\n3. LOGIC: In recoverTasksJson, before the git revert/recovery operation (PATH B), read the working-tree tasks.json and snapshot the IDs of items in 'Researching' and 'Ready' status. Store these IDs in a local variable or temporary structure. The snapshot must come from the working-tree file, not an in-memory index that can drift.\n4. OUTPUT: Pre-revert snapshot of Researching/Ready IDs in recoverTasksJson. Consumed by P3.M2.T1.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
@@ -606,7 +606,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S2",
                   "title": "Re-apply statuses gated on filesystem evidence",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M2.T1.S1"
@@ -629,7 +629,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T2.S1",
                   "title": "Detect exit 124 in bash-mcp and surface timedOut flag",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G4 documents: BashToolResult exposes {success, stdout, stderr, exitCode, error} — internal timedOut/killed flags are NOT surfaced. PRPExecutor.#runValidationGates checks only result.success, so a SIGKILL'd validation is retried. bash-mcp.ts (tools/bash-mcp.ts) uses SIGTERM→SIGKILL.\n2. INPUT: No prior subtask output consumed (bash tool modification is foundational).\n3. LOGIC: (a) Add `timedOut: boolean` and `killed: boolean` to BashToolResult interface in src/tools/bash-mcp.ts. (b) Populate these fields in executeBashCommand when the process is killed by the watchdog/timeout (exit 124 or signal). (c) The executeBashCommand function already handles SIGTERM→SIGKILL; ensure the timedOut flag is set when the timeout fires.\n4. OUTPUT: BashToolResult surfaces timedOut/killed flags. Consumed by P3.M2.T2.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
