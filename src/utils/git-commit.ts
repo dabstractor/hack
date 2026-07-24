@@ -27,6 +27,12 @@ import { AgentError } from './errors.js';
 import { createPrompt } from 'groundswell';
 import { z } from 'zod';
 import { createCommitMessageAgent } from '../agents/commit-message-agent.js';
+import { retry, createDefaultOnRetry } from './retry.js';
+import {
+  getCommitRetryMax,
+  getCommitRetryDelayMs,
+  getCommitRetryDelayCapMs,
+} from '../config/constants.js';
 
 let _logger: Logger | undefined;
 const logger = (): Logger => (_logger ??= getLogger('smartCommit'));
@@ -109,7 +115,8 @@ export function formatCommitMessage(message: string): string {
  *
  * On generation failure, `smartCommit` logs and returns `null` (it never
  * throws); the retry layer (P3.M1.T4.S1) wraps the inner
- * {@link generateCommitMessage} boundary with `retryAgentPrompt`.
+ * {@link generateCommitMessage} boundary with a bounded `retry()` loop using
+ * the `COMMIT_RETRY_*` constants (PRD §5.1).
  */
 export interface SmartCommitOptions {
   /** When `true`, delegate commit-message generation to the stagecoach LLM
@@ -148,8 +155,10 @@ function buildCommitMessageUserPrompt(diff: string): string {
  *
  * @remarks
  * **This is the transient-API-sensitive generation boundary** that
- * P3.M1.T4.S1 wraps with `retryAgentPrompt`. A generation timeout is LLM-API
- * slowness, not a stuck subprocess — so the boundary throws {@link AgentError}
+ * P3.M1.T4.S1 wraps with a bounded `retry()` loop (PRD §5.1, using the
+ * `COMMIT_RETRY_*` constants — NOT the hardcoded `retryAgentPrompt`). A
+ * generation timeout is LLM-API slowness, not a stuck subprocess — so the
+ * boundary throws {@link AgentError}
  * (which hardcodes `code = PIPELINE_AGENT_LLM_FAILED` and is classified
  * **transient** by `isTransientError`). This lets the retry layer distinguish
  * "LLM-API slowness (retry)" from an exit-124 subprocess hang (never retry).
@@ -231,7 +240,11 @@ export async function generateCommitMessage(diff: string): Promise<string> {
  *   {@link AgentError} on failure (transient — classified by
  *   `isTransientError`), but `smartCommit`'s outer `try/catch` converts that
  *   throw to a `null` return + `error` log. The retry layer (P3.M1.T4.S1)
- *   wraps the INNER `generateCommitMessage` boundary, NOT `smartCommit`.
+ *   wraps the INNER `generateCommitMessage` boundary with a bounded `retry()`
+ *   loop using the `COMMIT_RETRY_*` constants (PRD §5.1), NOT `smartCommit`.
+ *   When all retry attempts are exhausted, the last `AgentError` propagates to
+ *   this outer `try/catch` → `null` return. P3.M1.T4.S2 will layer the
+ *   last-resort fallback placeholder commit on top of that `null` return.
  * - Returns `null` on any failure to allow the pipeline to continue.
  *
  * **Protected Files**:
@@ -333,10 +346,28 @@ export async function smartCommit(
         logger().error(`Git diff (staged) failed: ${diffResult.error}`);
         return null;
       }
-      // generateCommitMessage throws AgentError (transient) on failure → caught
-      // by the outer try/catch below → null return. P3.M1.T4.S1's retry wraps
-      // this INNER boundary, not smartCommit.
-      const generated = await generateCommitMessage(diffResult.diff ?? '');
+      // generateCommitMessage is the transient-API-sensitive LLM boundary
+      // (PRD §5.1). Wrap ONLY this boundary in a bounded retry loop with
+      // exponential backoff — NOT gitDiff/gitAdd/gitCommit (the index is
+      // staged once and committed once; no re-staging between retries). The
+      // diff is read ONCE above and captured here; only the LLM call repeats.
+      // isRetryable is intentionally OMITTED → defaults to isTransientError
+      // (PRD §5.1 contract item 3c). generateCommitMessage throws AgentError
+      // (PIPELINE_AGENT_LLM_FAILED) which isTransientError classifies
+      // transient. Permanent errors (none today) would not retry.
+      const generated = await retry(
+        () => generateCommitMessage(diffResult.diff ?? ''),
+        {
+          maxAttempts: getCommitRetryMax(),
+          baseDelay: getCommitRetryDelayMs(),
+          maxDelay: getCommitRetryDelayCapMs(),
+          backoffFactor: 2, // doubling (PRD §5.1)
+          onRetry: createDefaultOnRetry(
+            'stagecoach.generateCommitMessage',
+            getCommitRetryMax()
+          ),
+        }
+      );
       formattedMessage = formatCommitMessage(generated);
     } else {
       formattedMessage = formatCommitMessage(message);

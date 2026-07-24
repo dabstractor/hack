@@ -426,6 +426,187 @@ export function getIssueRetryMax(): number {
 }
 
 /**
+ * Environment variable name: max stagecoach commit-message-generation attempts
+ * before falling back (PRD §5.1 "Smart Commit Resilience").
+ *
+ * @remarks
+ * Bounds the bounded-retry-with-backoff loop around the transient-API-sensitive
+ * stagecoach LLM commit-message generation boundary
+ * ({@link generateCommitMessage} in `src/utils/git-commit.ts`). PRD §5.1 mandates:
+ * "commit-generation is retried up to `COMMIT_RETRY_MAX` (default 5) attempts with
+ * exponential backoff." This is the TOTAL attempt count (initial + retries), matching
+ * `retry()`'s `maxAttempts` semantics — NOT the retry count. The VALUE of this variable
+ * is read at runtime via {@link getCommitRetryMax}.
+ *
+ * @example
+ * ```ts
+ * import { COMMIT_RETRY_MAX } from './config/constants.js';
+ *
+ * console.log(COMMIT_RETRY_MAX); // 'COMMIT_RETRY_MAX'
+ * console.log(process.env[COMMIT_RETRY_MAX]); // e.g. '5'
+ * ```
+ */
+export const COMMIT_RETRY_MAX = 'COMMIT_RETRY_MAX';
+
+/**
+ * Default max stagecoach commit-message-generation attempts before falling back
+ * (PRD §5.1).
+ *
+ * @remarks
+ * When the COMMIT_RETRY_MAX env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_COMMIT_RETRY_MAX } from './config/constants.js';
+ *
+ * console.log(DEFAULT_COMMIT_RETRY_MAX); // 5
+ * ```
+ */
+export const DEFAULT_COMMIT_RETRY_MAX = 5;
+
+/**
+ * Read & validate the COMMIT_RETRY_MAX env var (PRD §5.1, §9.2.2).
+ *
+ * @returns The configured max stagecoach generation attempts, or
+ *          {@link DEFAULT_COMMIT_RETRY_MAX} when unset, non-numeric, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getCommitRetryMax } from './config/constants.js';
+ *
+ * const max = getCommitRetryMax(); // 5 (default)
+ * ```
+ */
+export function getCommitRetryMax(): number {
+  const raw = Number(process.env[COMMIT_RETRY_MAX] ?? DEFAULT_COMMIT_RETRY_MAX);
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_COMMIT_RETRY_MAX;
+  }
+  return Math.floor(raw);
+}
+
+/**
+ * Environment variable name: base delay in milliseconds between stagecoach
+ * commit-message-generation retries (PRD §5.1 "Smart Commit Resilience").
+ *
+ * @remarks
+ * The exponential-backoff base delay (doubling, per `backoffFactor: 2`) for the
+ * retry loop around the stagecoach generation boundary. PRD §5.1 mandates a
+ * default of 10s ("`COMMIT_RETRY_DELAY`, default 10s, doubling, capped at 120s").
+ * Expressed in MILLISECONDS (10_000) to feed `retry()`'s `baseDelay` option.
+ * The VALUE of this variable is read at runtime via {@link getCommitRetryDelayMs}.
+ *
+ * @example
+ * ```ts
+ * import { COMMIT_RETRY_DELAY } from './config/constants.js';
+ *
+ * console.log(COMMIT_RETRY_DELAY); // 'COMMIT_RETRY_DELAY'
+ * console.log(process.env[COMMIT_RETRY_DELAY]); // e.g. '10000'
+ * ```
+ */
+export const COMMIT_RETRY_DELAY = 'COMMIT_RETRY_DELAY';
+
+/**
+ * Default base retry delay in milliseconds for stagecoach commit-message
+ * generation (PRD §5.1: 10s).
+ *
+ * @remarks
+ * When the COMMIT_RETRY_DELAY env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_COMMIT_RETRY_DELAY_MS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_COMMIT_RETRY_DELAY_MS); // 10000
+ * ```
+ */
+export const DEFAULT_COMMIT_RETRY_DELAY_MS = 10_000;
+
+/**
+ * Read & validate the COMMIT_RETRY_DELAY env var (PRD §5.1, §9.2.2).
+ *
+ * @returns The configured base retry delay in ms, or
+ *          {@link DEFAULT_COMMIT_RETRY_DELAY_MS} when unset, non-numeric, or
+ *          non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getCommitRetryDelayMs } from './config/constants.js';
+ *
+ * const baseDelay = getCommitRetryDelayMs(); // 10000 (default)
+ * ```
+ */
+export function getCommitRetryDelayMs(): number {
+  const raw = Number(
+    process.env[COMMIT_RETRY_DELAY] ?? DEFAULT_COMMIT_RETRY_DELAY_MS
+  );
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_COMMIT_RETRY_DELAY_MS;
+  }
+  return Math.floor(raw);
+}
+
+/**
+ * Environment variable name: maximum delay cap in milliseconds for stagecoach
+ * commit-message-generation backoff (PRD §5.1 "Smart Commit Resilience").
+ *
+ * @remarks
+ * Caps the exponential-backoff growth so a single retry never waits longer
+ * than this. PRD §5.1 mandates a cap of 120s ("doubling, capped at 120s").
+ * Expressed in MILLISECONDS (120_000) to feed `retry()`'s `maxDelay` option.
+ * The VALUE of this variable is read at runtime via {@link getCommitRetryDelayCapMs}.
+ *
+ * @example
+ * ```ts
+ * import { COMMIT_RETRY_DELAY_CAP } from './config/constants.js';
+ *
+ * console.log(COMMIT_RETRY_DELAY_CAP); // 'COMMIT_RETRY_DELAY_CAP'
+ * console.log(process.env[COMMIT_RETRY_DELAY_CAP]); // e.g. '120000'
+ * ```
+ */
+export const COMMIT_RETRY_DELAY_CAP = 'COMMIT_RETRY_DELAY_CAP';
+
+/**
+ * Default max-delay cap in milliseconds for stagecoach commit-message
+ * generation backoff (PRD §5.1: capped 120s).
+ *
+ * @remarks
+ * When the COMMIT_RETRY_DELAY_CAP env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_COMMIT_RETRY_DELAY_CAP_MS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_COMMIT_RETRY_DELAY_CAP_MS); // 120000
+ * ```
+ */
+export const DEFAULT_COMMIT_RETRY_DELAY_CAP_MS = 120_000;
+
+/**
+ * Read & validate the COMMIT_RETRY_DELAY_CAP env var (PRD §5.1, §9.2.2).
+ *
+ * @returns The configured max-delay cap in ms, or
+ *          {@link DEFAULT_COMMIT_RETRY_DELAY_CAP_MS} when unset, non-numeric,
+ *          or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getCommitRetryDelayCapMs } from './config/constants.js';
+ *
+ * const maxDelay = getCommitRetryDelayCapMs(); // 120000 (default)
+ * ```
+ */
+export function getCommitRetryDelayCapMs(): number {
+  const raw = Number(
+    process.env[COMMIT_RETRY_DELAY_CAP] ?? DEFAULT_COMMIT_RETRY_DELAY_CAP_MS
+  );
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_COMMIT_RETRY_DELAY_CAP_MS;
+  }
+  return Math.floor(raw);
+}
+
+/**
  * Environment variable name: max recursion depth for PRD `@`-include expansion (PRD §2.3).
  *
  * @remarks

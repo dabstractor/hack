@@ -379,7 +379,7 @@
           "type": "Milestone",
           "id": "P3.M1",
           "title": "Inner-Loop Concurrency & Commit Integrity",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Convert ResearchQueue to depth-chained supervisor, add tasks.json write concurrency (flock + atomic), implement two-phase commit via stagecoach with cleanup agent, and add smart commit resilience with bounded retry and fallback.",
           "tasks": [
             {
@@ -541,14 +541,14 @@
               "type": "Task",
               "id": "P3.M1.T4",
               "title": "Smart Commit Resilience",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add bounded retry with exponential backoff for stagecoach commit-message generation, and a last-resort fallback placeholder commit so staged work is never stranded.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T4.S1",
                   "title": "Bounded retry with exponential backoff for stagecoach generation",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T3.S1"
@@ -562,7 +562,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T4.S2",
                   "title": "Last-resort fallback placeholder commit",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T4.S1"
@@ -594,7 +594,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S1",
                   "title": "Snapshot live Researching/Ready IDs before git revert",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: recoverTasksJson (tasks-json-recovery.ts) preserves Researching/Retrying items by mutating only the target item (PATH A/B). The code comment notes 'There is NO Ready status' but architecture/system_context.md Finding #2 confirms the Status type (models.ts:175) DOES include 'Ready'. PRD §5.1 mandates snapshotting live Researching/Ready item IDs from the working-tree tasks.json BEFORE the git revert.\n2. INPUT: No prior subtask output consumed (recovery code is standalone).\n3. LOGIC: In recoverTasksJson, before the git revert/recovery operation (PATH B), read the working-tree tasks.json and snapshot the IDs of items in 'Researching' and 'Ready' status. Store these IDs in a local variable or temporary structure. The snapshot must come from the working-tree file, not an in-memory index that can drift.\n4. OUTPUT: Pre-revert snapshot of Researching/Ready IDs in recoverTasksJson. Consumed by P3.M2.T1.S2.\n5. DOCS: none — no user-facing/config/API surface change.",

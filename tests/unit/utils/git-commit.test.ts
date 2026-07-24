@@ -840,6 +840,10 @@ describe('utils/git-commit', () => {
   // (PRP P3.M1.T3.S1) — opt-in 3rd param. Default path stays byte-identical.
   // ===========================================================================
   describe('smartCommit generateMessage option', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
     it('happy path: generates message, wraps via formatCommitMessage, commits', async () => {
       // SETUP
       mockGitStatus.mockResolvedValue({
@@ -909,7 +913,12 @@ describe('utils/git-commit', () => {
     });
 
     it('generateCommitMessage throws → returns null (outer catch), error logged, gitCommit never called', async () => {
-      // SETUP — agent status error → generateCommitMessage throws AgentError
+      // SETUP — agent status error → generateCommitMessage throws AgentError.
+      // Disable the retry loop (1 attempt = no retries) so the boundary is
+      // called once and the test stays fast (no 10s backoff sleeps). P3.M1.T4.S1
+      // wraps generateCommitMessage in a bounded retry; with COMMIT_RETRY_MAX=1
+      // the exhausted-retry throw still propagates to the outer catch → null.
+      vi.stubEnv('COMMIT_RETRY_MAX', '1');
       mockGitStatus.mockResolvedValue({
         success: true,
         modified: ['src/index.ts'],
@@ -991,6 +1000,9 @@ describe('utils/git-commit', () => {
       // SETUP — gitDiff returns success:true but no `diff` string. smartCommit
       // passes `diffResult.diff ?? ''` to generateCommitMessage, which throws
       // AgentError on the empty diff → outer catch → null return.
+      // Disable the retry loop so the boundary is called once and the test
+      // stays fast (no backoff sleeps).
+      vi.stubEnv('COMMIT_RETRY_MAX', '1');
       mockGitStatus.mockResolvedValue({
         success: true,
         modified: ['src/index.ts'],
@@ -1008,5 +1020,134 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).not.toHaveBeenCalled();
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
     });
+
+    it('PRD §5.1 retry: transient error retried, succeeds on 3rd attempt → commit created, gitDiff called once', async () => {
+      // SETUP — P3.M1.T4.S1 wraps generateCommitMessage in a bounded retry loop.
+      // Lower the delays so the backoff sleeps are ~1ms instead of 10s/120s
+      // (CRITICAL for test speed). The agent's prompt() throws a transient
+      // AgentError on the first 2 calls then succeeds on the 3rd → retry loops
+      // twice and returns the 3rd result → smartCommit commits it.
+      vi.stubEnv('COMMIT_RETRY_MAX', '3');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY_CAP', '1');
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({
+        success: true,
+        diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
+      });
+      // Build a fake agent, then rewire its .prompt() to throw twice then
+      // succeed. makeFakeAgent returns { prompt: vi.fn().mockResolvedValue(r) }.
+      const fakeAgent = makeFakeAgent({
+        status: 'success',
+        data: 'feat: retry works',
+        error: null,
+      });
+      const mockPrompt = vi.mocked(fakeAgent.prompt);
+      mockPrompt.mockReset();
+      mockPrompt
+        .mockRejectedValueOnce(
+          new AgentError(
+            'stagecoach commit-message generation failed: timeout #1'
+          )
+        )
+        .mockRejectedValueOnce(
+          new AgentError(
+            'stagecoach commit-message generation failed: timeout #2'
+          )
+        )
+        .mockResolvedValueOnce({
+          status: 'success',
+          data: 'feat: retry works',
+          error: null,
+        });
+      mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'retry-hash',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY — retry succeeded on the 3rd attempt → commit hash returned.
+      // The transient AgentErrors are classified retryable by isTransientError
+      // (the default RetryOptions.isRetryable), so retry looped.
+      expect(result).toBe('retry-hash');
+      // The boundary (agent.prompt) was invoked exactly 3 times (2 transient
+      // failures + 1 success).
+      expect(mockPrompt).toHaveBeenCalledTimes(3);
+      // gitDiff is called ONCE (outside the retry closure — the diff is read
+      // once and captured; only the LLM call repeats). PRD §5.1: "the index is
+      // left untouched."
+      expect(mockGitDiff).toHaveBeenCalledTimes(1);
+      // The committed message is the 3rd-attempt output, wrapped.
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message:
+          '[PRP Auto] feat: retry works\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+      });
+    });
+
+    it('PRD §5.1 retry: exhausted attempts → returns null (P3.M1.T4.S2 layers fallback on this null)', async () => {
+      // SETUP — the agent always throws a transient AgentError. With
+      // COMMIT_RETRY_MAX=2 the boundary is attempted twice then the last error
+      // propagates → outer catch → null return. Lower the delays for speed.
+      vi.stubEnv('COMMIT_RETRY_MAX', '2');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY_CAP', '1');
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+      const fakeAgent = makeFakeAgent({
+        status: 'success',
+        data: 'unused',
+        error: null,
+      });
+      const mockPrompt = vi.mocked(fakeAgent.prompt);
+      mockPrompt.mockReset();
+      mockPrompt.mockRejectedValue(
+        new AgentError(
+          'stagecoach commit-message generation failed: always fails'
+        )
+      );
+      mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY — retry exhausted both attempts, then the last AgentError
+      // propagated to smartCommit's outer catch → null. P3.M1.T4.S2 will layer
+      // the last-resort fallback placeholder commit on this null return.
+      expect(result).toBeNull();
+      expect(mockPrompt).toHaveBeenCalledTimes(2);
+      expect(mockGitCommit).not.toHaveBeenCalled();
+      expect(mockGitDiff).toHaveBeenCalledTimes(1); // read once outside retry
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/Unexpected error/)
+      );
+    });
+
+    // NOTE (permanent-error path): contract item 3c requires the retry to use
+    // isTransientError() so permanent errors are NOT retried. We do NOT assert
+    // that here via smartCommit because generateCommitMessage ONLY ever throws
+    // AgentError (hardcoded code = PIPELINE_AGENT_LLM_FAILED), which
+    // isTransientError always classifies transient. Exercising the
+    // permanent-error short-circuit through smartCommit would require mocking
+    // the boundary to throw a non-transient error, but generateCommitMessage
+    // wraps every failure in a transient AgentError. The permanent-error
+    // classification is therefore owned + tested by retry.ts's own
+    // isTransientError unit tests (unchanged by this task). This test would
+    // belong here only if generateCommitMessage gained a permanent failure mode.
   });
 });
