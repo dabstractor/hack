@@ -673,6 +673,145 @@ export function getCommitRetryDelayCapMs(): number {
   return Math.floor(raw);
 }
 
+// =============================================================================
+// Validation Control (PRD §4.4, §9.2.2)
+// =============================================================================
+// Two env-var knobs for the QA & validation stage: which reasoning-tier agent runs
+// validation (VALIDATION_AGENT), and the watchdog budget for that call only
+// (VALIDATION_TIMEOUT). Both OVERRIDE the generic agent defaults for the validation
+// call only. Consumed by P4.M2.T1.S2 (validate.sh generation + abort-on-failure).
+
+/**
+ * Environment variable name: the reasoning-tier agent that generates and runs `validate.sh`
+ * (PRD §4.4 step 1, §9.2.2 "Validation Control").
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getValidationAgent}) is an agent
+ * identifier. Overrides the generic `$AGENT` for the validation call only. This constant is
+ * the env-var NAME itself. The DEFAULT ({@link DEFAULT_VALIDATION_AGENT}) is `pizr` — the
+ * bash-pipeline reasoning agent (`pi` with `--thinking xhigh` per PRD §9.2.3); in the TS
+ * rewrite the reasoning persona (balanced tier @ `xhigh`) realizes it via the `qa` persona
+ * (`createQAAgent`, `agent-factory.ts`).
+ *
+ * @example
+ * ```ts
+ * import { VALIDATION_AGENT } from './config/constants.js';
+ *
+ * console.log(VALIDATION_AGENT); // 'VALIDATION_AGENT'
+ * console.log(process.env[VALIDATION_AGENT]); // e.g. 'pizr'
+ * ```
+ */
+export const VALIDATION_AGENT = 'VALIDATION_AGENT';
+
+/**
+ * Default validation agent identifier (PRD §4.4, §9.2.3).
+ *
+ * @remarks
+ * `pizr` — the reasoning-tier agent. Uses `as const` to preserve the literal type (matches
+ * {@link DEFAULT_HARNESS}).
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_VALIDATION_AGENT } from './config/constants.js';
+ *
+ * console.log(DEFAULT_VALIDATION_AGENT); // 'pizr'
+ * ```
+ */
+export const DEFAULT_VALIDATION_AGENT = 'pizr' as const;
+
+/**
+ * Read the VALIDATION_AGENT env var (PRD §4.4, §9.2.2).
+ *
+ * @returns The configured validation agent identifier, or {@link DEFAULT_VALIDATION_AGENT}
+ *          (`'pizr'`) when unset or blank (empty/whitespace-only).
+ *
+ * @remarks
+ * The trim-empty guard is the string analog of the numeric getters' `NaN`/`<=0` guard: an
+ * explicitly-empty value (`VALIDATION_AGENT=`) falls back to the default rather than yielding
+ * `''`, which would silently break the validation call.
+ *
+ * @example
+ * ```ts
+ * import { getValidationAgent } from './config/constants.js';
+ *
+ * const agent = getValidationAgent(); // 'pizr' (default)
+ * ```
+ */
+export function getValidationAgent(): string {
+  const raw = process.env[VALIDATION_AGENT];
+  if (raw === undefined) {
+    return DEFAULT_VALIDATION_AGENT;
+  }
+  const trimmed = raw.trim();
+  return trimmed === '' ? DEFAULT_VALIDATION_AGENT : trimmed;
+}
+
+/**
+ * Environment variable name: the watchdog budget in seconds for the validation call
+ * (PRD §4.4 step 1, §9.2.2 "Validation Control").
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getValidationTimeoutSeconds}) is a
+ * positive number of seconds. Overrides the generic agent timeout for the validation call
+ * only — validation legitimately runs full test suites (PRD §4.4). This constant is the
+ * env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { VALIDATION_TIMEOUT } from './config/constants.js';
+ *
+ * console.log(VALIDATION_TIMEOUT); // 'VALIDATION_TIMEOUT'
+ * console.log(process.env[VALIDATION_TIMEOUT]); // e.g. '7200'
+ * ```
+ */
+export const VALIDATION_TIMEOUT = 'VALIDATION_TIMEOUT';
+
+/**
+ * Default watchdog budget (7200s = 2h) for the validation call (PRD §4.4).
+ *
+ * @remarks
+ * When the VALIDATION_TIMEOUT env var is unset or invalid, this value is used. 2h because
+ * validation legitimately runs full test suites (PRD §4.4).
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_VALIDATION_TIMEOUT_SECONDS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_VALIDATION_TIMEOUT_SECONDS); // 7200
+ * ```
+ */
+export const DEFAULT_VALIDATION_TIMEOUT_SECONDS = 7200;
+
+/**
+ * Read & validate the VALIDATION_TIMEOUT env var (PRD §4.4, §9.2.2).
+ *
+ * @returns The configured watchdog budget in seconds, or
+ *          {@link DEFAULT_VALIDATION_TIMEOUT_SECONDS} (`7200`) when unset, non-numeric, or
+ *          non-positive.
+ *
+ * @remarks
+ * Mirrors {@link getResearchTimeoutSeconds} exactly (same `Number(... ?? default)` + `NaN`/
+ * `<=0` → default guard). PRD §4.4: validation runs on its own watchdog; a non-zero exit MUST
+ * abort before cleanup/commit/bug-hunt (the abort is wired by P4.M2.T1.S2; this getter only
+ * supplies the budget).
+ *
+ * @example
+ * ```ts
+ * import { getValidationTimeoutSeconds } from './config/constants.js';
+ *
+ * const budget = getValidationTimeoutSeconds(); // 7200 (default)
+ * ```
+ */
+export function getValidationTimeoutSeconds(): number {
+  const raw = Number(
+    process.env[VALIDATION_TIMEOUT] ?? DEFAULT_VALIDATION_TIMEOUT_SECONDS
+  );
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_VALIDATION_TIMEOUT_SECONDS;
+  }
+  return raw;
+}
+
 /**
  * Environment variable name: max recursion depth for PRD `@`-include expansion (PRD §2.3).
  *

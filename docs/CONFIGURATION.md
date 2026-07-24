@@ -16,6 +16,7 @@
   - [Pipeline Control](#pipeline-control)
   - [Resilience Tuning](#resilience-tuning)
   - [Bug Hunt Configuration](#bug-hunt-configuration)
+  - [Validation Control](#validation-control)
   - [Advanced Configuration](#advanced-configuration)
 - [CLI Options](#cli-options)
   - [Required Options](#required-options)
@@ -177,6 +178,15 @@ Configure the bug hunt and bug fix behavior.
 | `BUG_FINDER_AGENT` | No       | `glp`             | Agent type for bug finding operations.                                        |
 | `BUG_RESULTS_FILE` | No       | `TEST_RESULTS.md` | Output file for bug hunt results.                                             |
 | `BUGFIX_SCOPE`     | No       | `subtask`         | Scope level for bug fix operations (`subtask`, `task`, `milestone`, `phase`). |
+
+### Validation Control
+
+Configure the validation stage of the QA & bug-hunt loop. See PRD §4.4 and §9.2.2.
+
+| Variable             | Required | Default | Description                                                                                                                                                                    |
+| -------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VALIDATION_AGENT`   | No       | `pizr`  | Reasoning-tier agent that generates and runs `validate.sh`. Overrides the generic `$AGENT` for the validation call only. See PRD §4.4, §9.2.3.                                 |
+| `VALIDATION_TIMEOUT` | No       | `7200`  | Watchdog budget in seconds for the validation call (2h — validation legitimately runs full test suites). Overrides the generic agent timeout for this call only. See PRD §4.4. |
 
 ### Advanced Configuration
 
@@ -488,6 +498,16 @@ ZAI_API_KEY=your-zai-key-here
 
 # Scope level for bug fix operations
 # BUGFIX_SCOPE=subtask
+
+# =============================================================================
+# VALIDATION CONFIGURATION (OPTIONAL)
+# =============================================================================
+
+# Reasoning-tier agent that generates and runs validate.sh (default: pizr)
+# VALIDATION_AGENT=pizr
+
+# Watchdog budget in seconds for the validation call (default: 7200 = 2h)
+# VALIDATION_TIMEOUT=7200
 
 # =============================================================================
 # ADVANCED CONFIGURATION (OPTIONAL)

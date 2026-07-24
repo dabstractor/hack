@@ -906,7 +906,7 @@
                   "type": "Subtask",
                   "id": "P4.M2.T1.S1",
                   "title": "VALIDATION_AGENT and VALIDATION_TIMEOUT config",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S2"

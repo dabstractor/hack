@@ -29,6 +29,8 @@ import {
   PARALLEL_RESEARCH,
   isParallelResearch,
   DEFAULT_RESEARCH_TIMEOUT_SECONDS,
+  DEFAULT_VALIDATION_AGENT,
+  DEFAULT_VALIDATION_TIMEOUT_SECONDS,
 } from '../../../src/config/constants.js';
 import type { ModelTier } from '../../../src/config/types.js';
 
@@ -243,5 +245,17 @@ describe('config/constants: PARALLEL_RESEARCH', () => {
 describe('config/constants: DEFAULT_RESEARCH_TIMEOUT_SECONDS (1800)', () => {
   it('SHOULD be 1800 (PRD §4.2 — 30min default, was the buggy 300)', () => {
     expect(DEFAULT_RESEARCH_TIMEOUT_SECONDS).toBe(1800);
+  });
+});
+
+describe('config/constants: DEFAULT_VALIDATION_AGENT (pizr)', () => {
+  it('SHOULD be "pizr" (PRD §4.4/§9.2.2 — reasoning-tier agent, default pizr)', () => {
+    expect(DEFAULT_VALIDATION_AGENT).toBe('pizr');
+  });
+});
+
+describe('config/constants: DEFAULT_VALIDATION_TIMEOUT_SECONDS (7200)', () => {
+  it('SHOULD be 7200 (PRD §4.4/§9.2.2 — 2h; validation runs full suites)', () => {
+    expect(DEFAULT_VALIDATION_TIMEOUT_SECONDS).toBe(7200);
   });
 });
