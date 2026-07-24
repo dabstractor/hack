@@ -20,6 +20,15 @@ vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(),
 }));
 
+// Mock session-utils so handleDelta's resolvePRD call is controlled (no real I/O).
+// Only resolvePRD is consumed by handleDelta; keep all other exports passthrough-real
+// (they are re-exported/imported indirectly and must not be undefined).
+vi.mock('../../../src/core/session-utils.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/core/session-utils.js')>();
+  return { ...actual, resolvePRD: vi.fn() };
+});
+
 // Mock SessionManager
 vi.mock('../../../src/core/session-manager.js', () => ({
   SessionManager: vi.fn().mockImplementation(() => ({
@@ -103,6 +112,7 @@ vi.mock('../../../src/utils/validation/execution-guard.js', () => ({
 import { readFile } from 'node:fs/promises';
 import { createArchitectAgent } from '../../../src/agents/agent-factory.js';
 import { SessionManager as SessionManagerClass } from '../../../src/core/session-manager.js';
+import { resolvePRD } from '../../../src/core/session-utils.js';
 import { DeltaAnalysisWorkflow } from '../../../src/workflows/delta-analysis-workflow.js';
 import { patchBacklog } from '../../../src/core/task-patcher.js';
 import { filterByStatus } from '../../../src/utils/task-utils.js';
@@ -113,6 +123,7 @@ import {
 
 // Cast mocked functions
 const mockReadFile = readFile as any;
+const mockResolvePRD = resolvePRD as any;
 const mockCreateArchitectAgent = createArchitectAgent as any;
 const MockDeltaAnalysisWorkflow = DeltaAnalysisWorkflow as any;
 const mockPatchBacklog = patchBacklog as any;
@@ -988,8 +999,8 @@ describe('PRPPipeline', () => {
 
     describe('handleDelta', () => {
       beforeEach(() => {
-        // Setup default mocks for handleDelta tests
-        mockReadFile.mockResolvedValue('# Updated PRD');
+        // Setup default mocks for handleDelta tests (new PRD is resolved via resolvePRD)
+        mockResolvePRD.mockResolvedValue('# Updated PRD');
         mockFilterByStatus.mockReturnValue([]);
         mockPatchBacklog.mockImplementation((backlog: Backlog) => backlog);
       });
@@ -1017,7 +1028,7 @@ describe('PRPPipeline', () => {
         );
       });
 
-      it('should load new PRD from disk via readFile', async () => {
+      it('should load new PRD from disk via resolvePRD', async () => {
         // SETUP
         const newPRD = '# Updated PRD\nNew content here';
         const backlog = createTestBacklog([]);
@@ -1027,7 +1038,7 @@ describe('PRPPipeline', () => {
         mockManager.currentSession = mockSession;
         mockManager.prdPath = '/test/prd.md';
 
-        mockReadFile.mockResolvedValue(newPRD);
+        mockResolvePRD.mockResolvedValue(newPRD);
 
         const pipeline = new PRPPipeline('./test.md');
         (pipeline as any).sessionManager = mockManager;
@@ -1036,7 +1047,7 @@ describe('PRPPipeline', () => {
         await pipeline.handleDelta();
 
         // VERIFY
-        expect(mockReadFile).toHaveBeenCalledWith('/test/prd.md', 'utf-8');
+        expect(mockResolvePRD).toHaveBeenCalledWith('/test/prd.md');
         expect(MockDeltaAnalysisWorkflow).toHaveBeenCalledWith(
           expect.any(String),
           newPRD,
@@ -1180,7 +1191,7 @@ describe('PRPPipeline', () => {
         );
       });
 
-      it('should throw if readFile fails', async () => {
+      it('should throw if resolvePRD fails', async () => {
         // SETUP
         const backlog = createTestBacklog([]);
         const mockSession = createTestSession(backlog);
@@ -1188,7 +1199,7 @@ describe('PRPPipeline', () => {
         const mockManager = createMockSessionManager(mockSession, true);
         mockManager.currentSession = mockSession;
 
-        mockReadFile.mockRejectedValue(new Error('File not found'));
+        mockResolvePRD.mockRejectedValue(new Error('File not found'));
 
         const pipeline = new PRPPipeline('./test.md');
         (pipeline as any).sessionManager = mockManager;

@@ -92,7 +92,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Wire resolver through createDeltaSession, findSessionByHash, and delta workflow",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -144,7 +144,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Add prd_selectors field to Subtask model and Zod schema",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md Finding #1 confirms Subtask interface (models.ts:273-337) has NO prd_selectors field. SubtaskSchema (models.ts:360-381) mirrors Subtask exactly. The PRD §4.2 step 2 specifies prd_selectors as an array of selector strings (e.g. ['h2.1', 'h3.0']).\n2. INPUT: No prior subtask output consumed (model change is standalone).\n3. LOGIC: Add `readonly prd_selectors: string[]` to the Subtask interface in src/core/models.ts (after context_scope). Update SubtaskSchema to include `prd_selectors: z.array(z.string()).optional().default([])`. The field should be optional with a default empty array so existing serialized tasks.json files remain valid. Ensure BacklogSchema recursive validation still passes.\n4. OUTPUT: Updated Subtask interface and SubtaskSchema in models.ts. Consumed by P1.M2.T1.S3.\n5. DOCS: [Mode A] JSDoc on the prd_selectors field in the Subtask interface documenting its purpose (referencing PRD section selectors for selective extraction). This rides WITH the work.",

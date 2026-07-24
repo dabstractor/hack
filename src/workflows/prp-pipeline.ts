@@ -23,7 +23,6 @@
  */
 
 import { Workflow, Step } from 'groundswell';
-import { readFile } from 'node:fs/promises';
 import type { SessionManager } from '../core/session-manager.js';
 import type { TaskOrchestrator } from '../core/task-orchestrator.js';
 import type { PRPRuntime } from '../agents/prp-runtime.js';
@@ -41,6 +40,7 @@ import {
   isNestedExecutionError,
 } from '../utils/validation/execution-guard.js';
 import { SessionManager as SessionManagerClass } from '../core/session-manager.js';
+import { resolvePRD } from '../core/session-utils.js';
 import { TaskOrchestrator as TaskOrchestratorClass } from '../core/task-orchestrator.js';
 import { DeltaAnalysisWorkflow } from './delta-analysis-workflow.js';
 import { BugHuntWorkflow } from './bug-hunt-workflow.js';
@@ -640,10 +640,11 @@ export class PRPPipeline extends Workflow {
         throw new Error('Cannot handle delta: no PRD snapshot in session');
       }
 
-      // Step 2: Load new PRD from disk
+      // Step 2: Load new PRD from disk (resolved once — PRD §2.3 "Single canonical
+      // document downstream"; the old PRD snapshot is already resolved from init).
       let newPRD: string;
       try {
-        newPRD = await readFile(this.sessionManager.prdPath, 'utf-8');
+        newPRD = await resolvePRD(this.sessionManager.prdPath);
       } catch (error) {
         throw new Error(
           `Failed to load new PRD from ${this.sessionManager.prdPath}: ${error}`

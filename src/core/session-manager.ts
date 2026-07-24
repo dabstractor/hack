@@ -601,6 +601,13 @@ export class SessionManager {
    * Computes hash of new PRD, generates diff summary, and creates
    * new session directory with parent_session.txt reference.
    *
+   * The new PRD is resolved ONCE via {@link resolvePRD} (expanding `@`-includes,
+   * PRD §2.3 "Single canonical document downstream"). That single resolved string
+   * then feeds {@link hashPRDContent}, the resolved-vs-resolved {@link diffPRDs},
+   * the in-memory `prdSnapshot`/`newPRD`, and the `precomputedHash` passed to
+   * {@link createSessionDirectory} (so it does not re-resolve/re-hash). Mirrors
+   * {@link SessionManager.initialize}'s resolve-once architecture.
+   *
    * @param newPRDPath - Path to modified PRD file
    * @returns DeltaSession with oldPRD, newPRD, diffSummary
    * @throws {SessionFileError} If new PRD does not exist or session creation fails
@@ -619,19 +626,19 @@ export class SessionManager {
       throw new SessionFileError(absPath, 'validate new PRD exists');
     }
 
-    // 2. Hash new PRD
-    const newHash = await hashPRD(newPRDPath);
+    // 2. Resolve the new PRD ONCE (PRD §2.3): the resolved document feeds hash + diff +
+    //    in-memory snapshot (mirrors initialize's resolve-once design).
+    const newPRD = await resolvePRD(newPRDPath);
+    const newHash = hashPRDContent(newPRD); // pure hash of the resolved bytes
     const sessionHash = newHash.slice(0, 12);
 
-    // 3. Read PRD contents
+    // 3. Diff resolved-vs-resolved (oldPRD snapshot is already resolved — S1's initialize)
     const oldPRD = this.#currentSession.prdSnapshot;
-    const newPRD = await readFile(absPath, 'utf-8');
-
-    // 4. Generate diff summary using structured PRD differ
     const diffResult = diffPRDs(oldPRD, newPRD);
     const diffSummary = diffResult.summaryText;
 
-    // 5. Create new session directory
+    // 4. Create new session directory (pass the precomputed hash so it does NOT
+    //    re-resolve/re-hash — S1's 4th param).
     const currentSeq = parseInt(
       this.#currentSession.metadata.id.split('_')[0],
       10
@@ -640,17 +647,18 @@ export class SessionManager {
     const sessionPath = await createSessionDirectory(
       newPRDPath,
       newSeq,
-      this.planDir
+      this.planDir,
+      newHash
     );
 
-    // 6. Write parent session reference
+    // 5. Write parent session reference
     await writeFile(
       resolve(sessionPath, 'parent_session.txt'),
       this.#currentSession.metadata.id,
       { mode: 0o644 }
     );
 
-    // 7. Create DeltaSessionState
+    // 6. Create DeltaSessionState (prdSnapshot/newPRD hold the resolved content)
     const sessionId = `${String(newSeq).padStart(3, '0')}_${sessionHash}`;
     const metadata: SessionMetadata = {
       id: sessionId,
@@ -1340,6 +1348,11 @@ export class SessionManager {
    * SessionMetadata if found, null otherwise.
    *
    * Validates that the PRD file exists before computing the hash.
+   *
+   * @remarks The hash is computed over the FULLY-RESOLVED, include-expanded document
+   *   via the resolve-aware {@link hashPRD} (PRD §2.3 "Single canonical document downstream" /
+   *   §4.3 "Delta detection"). Therefore a lookup hash matches the {@link SessionManager.initialize}
+   *   hash for the same PRD — resolved-content consistency between init and lookup.
    *
    * @param prdPath - Path to PRD markdown file
    * @param planDir - Path to plan directory (default: resolve('plan'))

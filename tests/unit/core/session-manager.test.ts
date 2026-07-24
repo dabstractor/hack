@@ -869,11 +869,9 @@ describe('SessionManager', () => {
     });
 
     it('should validate new PRD exists', async () => {
-      // SETUP: Initialize with current session
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      // SETUP: Initialize with current session (beforeEach defaults resolve+hash)
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
@@ -889,46 +887,49 @@ describe('SessionManager', () => {
     });
 
     it('should hash new PRD', async () => {
-      // SETUP: Initialize current session
+      // SETUP: Initialize current session (initialize resolves once + hashes the
+      // resolved doc via the beforeEach defaults).
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: Mock new PRD hash
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      // SETUP: Mock createDeltaSession's resolve-once (feeds hash+diff+snapshot) +
+      // the pure hash of the resolved bytes (createDeltaSession uses hashPRDContent).
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
       await manager.createDeltaSession('/new/PRD.md');
 
-      // VERIFY
-      expect(mockHashPRD).toHaveBeenCalledWith('/new/PRD.md');
+      // VERIFY: createDeltaSession resolves the new PRD and hashes the resolved doc
+      // (PRD §2.3); it no longer calls the path-based hashPRD.
+      expect(mockResolvePRD).toHaveBeenCalledWith('/new/PRD.md');
+      expect(mockHashPRDContent).toHaveBeenCalledWith('# New PRD');
+      expect(mockHashPRD).not.toHaveBeenCalledWith('/new/PRD.md');
     });
 
     it('should compare new PRD hash with current session hash', async () => {
       // SETUP: Initialize current session
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: Different hash for new PRD
+      // SETUP: Different hash for new PRD (resolved once, then hashed)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
@@ -945,23 +946,21 @@ describe('SessionManager', () => {
     it('should read old PRD from current session prdSnapshot', async () => {
       // SETUP
       const oldPRD = '# Old PRD Content';
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockResolvePRD.mockResolvedValue(oldPRD);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue(oldPRD);
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: New PRD
+      // SETUP: New PRD (resolved once for createDeltaSession)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
-      mockReadFile.mockResolvedValue('# New PRD');
 
       // EXECUTE
       const deltaSession = await manager.createDeltaSession('/new/PRD.md');
@@ -973,21 +972,19 @@ describe('SessionManager', () => {
     it('should read new PRD from file', async () => {
       // SETUP
       const newPRD = '# New PRD Content';
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: New PRD - reset mock and setup for new PRD read
-      mockReadFile.mockReset().mockResolvedValue(newPRD);
+      // SETUP: New PRD is resolved once by createDeltaSession (feeds hash+diff+snapshot)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce(newPRD);
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
@@ -999,24 +996,20 @@ describe('SessionManager', () => {
 
     it('should generate diff summary', async () => {
       // SETUP
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD\n');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: New PRD with different content
+      // SETUP: New PRD with different content (resolved once for createDeltaSession)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD\n\nExtra content');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
-      mockReadFile
-        .mockResolvedValueOnce('# Old PRD\n')
-        .mockResolvedValueOnce('# New PRD\n\nExtra content');
 
       // EXECUTE
       const deltaSession = await manager.createDeltaSession('/new/PRD.md');
@@ -1028,20 +1021,19 @@ describe('SessionManager', () => {
 
     it('should create new session with incremented sequence', async () => {
       // SETUP
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: Create delta session
+      // SETUP: Create delta session (resolved once, hashed via hashPRDContent)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
@@ -1052,26 +1044,26 @@ describe('SessionManager', () => {
       expect(mockCreateSessionDirectory).toHaveBeenCalledWith(
         '/new/PRD.md',
         2,
-        resolve('plan')
+        resolve('plan'),
+        newHash
       );
     });
 
     it('should write parent_session.txt to new session directory', async () => {
       // SETUP
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: Create delta session
+      // SETUP: Create delta session (resolved once)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
@@ -1087,20 +1079,19 @@ describe('SessionManager', () => {
 
     it('should set parentSession to current session ID', async () => {
       // SETUP
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: Create delta session
+      // SETUP: Create delta session (resolved once)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
@@ -1114,22 +1105,20 @@ describe('SessionManager', () => {
       // SETUP
       const oldPRD = '# Old PRD';
       const newPRD = '# New PRD\n\nAdditional content';
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockResolvePRD.mockResolvedValue(oldPRD);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue(oldPRD);
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: Create delta session - reset mock for new PRD read
-      mockReadFile.mockReset().mockResolvedValue(newPRD);
+      // SETUP: Create delta session — resolve the new PRD once (resolved-vs-resolved diff)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce(newPRD);
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
 
       // EXECUTE
@@ -1147,10 +1136,8 @@ describe('SessionManager', () => {
 
     it('should propagate SessionFileError from new PRD validation', async () => {
       // SETUP: Initialize current session
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
@@ -1170,26 +1157,24 @@ describe('SessionManager', () => {
 
     it('should propagate SessionFileError from createSessionDirectory()', async () => {
       // SETUP: Initialize current session
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# Old PRD');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // SETUP: createSessionDirectory throws
+      // SETUP: createSessionDirectory throws (resolve-once + hash first)
       const dirError = new SessionFileError(
         '/plan/002_a3f8e9d12b4a',
         'create directory'
       );
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# New PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockRejectedValue(dirError);
-      mockReadFile.mockResolvedValue('# New PRD');
 
       // EXECUTE & VERIFY
       await expect(manager.createDeltaSession('/new/PRD.md')).rejects.toThrow(
@@ -1233,12 +1218,12 @@ describe('SessionManager', () => {
       expect(session2.metadata.id).toBe('001_14b9dc2a33c7');
       expect(session2.taskRegistry.backlog[0].status).toBe('Complete');
 
-      // EXECUTE: Create delta session with modified PRD
+      // EXECUTE: Create delta session with modified PRD (resolved once)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# Modified PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
-      mockReadFile.mockReset().mockResolvedValue('# Modified PRD');
 
       const deltaSession = await manager.createDeltaSession('/modified/PRD.md');
 
@@ -1252,41 +1237,35 @@ describe('SessionManager', () => {
     it('should handle multiple sequential sessions', async () => {
       // SETUP
       mockStatSync.mockReturnValue({ isFile: () => true });
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
-      mockReadFile.mockResolvedValue('# PRD');
       mockWriteFile.mockResolvedValue(undefined);
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
 
-      // EXECUTE: Create first session
+      // EXECUTE: Create first session (initialize resolves once + hashes resolved)
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
       await manager.initialize();
 
-      // EXECUTE: Simulate PRD change, create second session
+      // EXECUTE: Simulate PRD change, create second session (resolve once)
       const hash2 =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(hash2);
+      mockResolvePRD.mockResolvedValueOnce('# PRD v2');
+      mockHashPRDContent.mockReturnValueOnce(hash2);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
-      mockReadFile
-        .mockResolvedValueOnce('# PRD')
-        .mockResolvedValueOnce('# PRD v2');
       mockStat.mockResolvedValue({});
 
       await manager.createDeltaSession('/test/PRD.md');
 
-      // EXECUTE: Another PRD change, create third session
+      // EXECUTE: Another PRD change, create third session (resolve once)
       const hash3 =
         'xyz789abc12a4567890abcdef1234567890abcdef1234567890abcdef123456';
-      mockHashPRD.mockResolvedValueOnce(hash3);
+      mockResolvePRD.mockResolvedValueOnce('# PRD v3');
+      mockHashPRDContent.mockReturnValueOnce(hash3);
       mockCreateSessionDirectory.mockResolvedValue('/plan/003_xyz789abc12');
-      mockReadFile
-        .mockResolvedValueOnce('# PRD v2')
-        .mockResolvedValueOnce('# PRD v3');
 
       await manager.createDeltaSession('/test/PRD.md');
 
-      // VERIFY: Sequence numbers incremented correctly
+      // VERIFY: Sequence numbers incremented correctly (precomputedHash passed)
       expect(mockCreateSessionDirectory).toHaveBeenNthCalledWith(
         1,
         '/test/PRD.md',
@@ -1298,13 +1277,15 @@ describe('SessionManager', () => {
         2,
         '/test/PRD.md',
         2,
-        resolve('plan')
+        resolve('plan'),
+        hash2
       );
       expect(mockCreateSessionDirectory).toHaveBeenNthCalledWith(
         3,
         '/test/PRD.md',
         3,
-        resolve('plan')
+        resolve('plan'),
+        hash3
       );
     });
   });
@@ -1449,33 +1430,31 @@ describe('SessionManager', () => {
     });
 
     it('should handle createDeltaSession called twice with different PRDs', async () => {
-      // SETUP: Initialize
+      // SETUP: Initialize (beforeEach defaults resolve+hash)
       mockStatSync.mockReturnValue({ isFile: () => true });
-      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
-      mockReadFile.mockResolvedValue('# PRD v1');
       mockWriteFile.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({});
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // EXECUTE: First delta
+      // EXECUTE: First delta (resolve once)
       const hash2 =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(hash2);
+      mockResolvePRD.mockResolvedValueOnce('# PRD v2');
+      mockHashPRDContent.mockReturnValueOnce(hash2);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
-      mockReadFile.mockReset().mockResolvedValue('# PRD v2');
 
       await manager.createDeltaSession('/test/PRD.md');
 
-      // EXECUTE: Second delta (different PRD)
+      // EXECUTE: Second delta (different PRD, resolve once)
       const hash3 =
         'xyz789abc12a4567890abcdef1234567890abcdef1234567890abcdef123456';
-      mockHashPRD.mockResolvedValueOnce(hash3);
+      mockResolvePRD.mockResolvedValueOnce('# PRD v3');
+      mockHashPRDContent.mockReturnValueOnce(hash3);
       mockCreateSessionDirectory.mockResolvedValue('/plan/003_xyz789abc12a');
-      mockReadFile.mockReset().mockResolvedValue('# PRD v3');
 
       const delta2 = await manager.createDeltaSession('/test/PRD.md');
 
@@ -1484,7 +1463,8 @@ describe('SessionManager', () => {
       expect(mockCreateSessionDirectory).toHaveBeenCalledWith(
         '/test/PRD.md',
         3,
-        resolve('plan')
+        resolve('plan'),
+        hash3
       );
     });
   });
@@ -2323,9 +2303,9 @@ describe('SessionManager', () => {
       // Create a delta session with different hash (simulating PRD change)
       const newHash =
         'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
-      mockHashPRD.mockResolvedValueOnce(newHash);
+      mockResolvePRD.mockResolvedValueOnce('# Different PRD');
+      mockHashPRDContent.mockReturnValueOnce(newHash);
       mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
-      mockReadFile.mockResolvedValue('# Different PRD');
       mockStat.mockResolvedValue({});
 
       await manager.createDeltaSession('/new/PRD.md');

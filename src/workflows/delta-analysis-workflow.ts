@@ -63,8 +63,12 @@ export class DeltaAnalysisWorkflow extends Workflow {
   /**
    * Creates a new DeltaAnalysisWorkflow instance
    *
-   * @param oldPRD - Previous PRD markdown content
-   * @param newPRD - Current PRD markdown content
+   * @param oldPRD - Previous PRD markdown content. MUST be the fully-resolved, include-expanded
+   *   PRD document (PRD §2.3 "Single canonical document downstream"). Callers resolve before
+   *   constructing; agents must not chase `@`-includes themselves.
+   * @param newPRD - Current PRD markdown content. MUST be the fully-resolved, include-expanded
+   *   PRD document (PRD §2.3). Callers resolve before constructing; agents must not chase
+   *   `@`-includes themselves.
    * @param completedTasks - List of completed task IDs to preserve
    * @throws {Error} If oldPRD or newPRD is empty
    */
