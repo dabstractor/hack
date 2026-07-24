@@ -27,8 +27,8 @@
  * ```
  */
 
-import { readFile } from 'node:fs/promises';
-import { dirname, relative, resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, join, relative, resolve } from 'node:path';
 import type { Backlog, Status } from './models.js';
 import { BacklogSchema } from './models.js';
 import { readTasksJSON } from './session-utils.js';
@@ -89,6 +89,61 @@ async function snapshotResearchingReadyIds(
     // unreadable / unparseable working-tree file — graceful degradation to []
   }
   return ids;
+}
+
+/**
+ * Resolve the research status to re-apply for a snapshotted item id, gated on
+ * FILESYSTEM EVIDENCE (PRD §5.1, P3.M2.T1.S2).
+ *
+ * @param itemId - The hierarchy id (e.g. `P1.M1.T1.S2`).
+ * @param sessionDir - Absolute session directory (parent of tasks.json).
+ * @returns `'Ready'` if the item's PRP file exists (either layout),
+ *   `'Researching'` if its `research/` directory exists, `null` if neither
+ *   (leave the reverted status). NEVER throws.
+ *
+ * @remarks
+ * The codebase has two PRP layouts:
+ *  - per-item-dir: `{sessionDir}/{sanitizedId}/PRP.md` (models.ts @format)
+ *  - runtime:      `{sessionDir}/prps/{sanitizedId}.md` (prp-generator.ts:232,
+ *    prp-runtime.ts:195)
+ * Either counts as `Ready` evidence. The `research/` directory probe uses the
+ * per-item-dir layout (`{sessionDir}/{sanitizedId}/research`) and requires it be
+ * a DIRECTORY (a stray file named `research` does not count). All probes are
+ * best-effort: any `stat` error (permission, dangling symlink, mid-stat race,
+ * ENOENT) degrades to "evidence absent" → `null` → leave the reverted status.
+ */
+async function resolveResearchStatus(
+  itemId: string,
+  sessionDir: string
+): Promise<Status | null> {
+  const sanitizedId = itemId.replace(/\./g, '_');
+  const prpCandidates = [
+    join(sessionDir, sanitizedId, 'PRP.md'), // per-item-dir layout (models.ts)
+    join(sessionDir, 'prps', `${sanitizedId}.md`), // runtime layout (prp-generator/runtime)
+  ];
+  const researchCandidate = join(sessionDir, sanitizedId, 'research');
+
+  const pathExists = async (p: string): Promise<boolean> => {
+    try {
+      await stat(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const dirExists = async (p: string): Promise<boolean> => {
+    try {
+      return (await stat(p)).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+
+  for (const candidate of prpCandidates) {
+    if (await pathExists(candidate)) return 'Ready';
+  }
+  if (await dirExists(researchCandidate)) return 'Researching';
+  return null;
 }
 
 // ============================================================================
@@ -289,15 +344,19 @@ export async function recoverTasksJson(
     // another writer HEALED disk during the walk, so prefer that fresh read;
     // or (b) throw — disk is still corrupt, so use the restored blob as the
     // base (passed as the accessor's readFallback). Then apply ONLY the
-    // legitimate delta. Items in Researching/Ready that were in the COMMITTED
-    // version are preserved automatically (we mutate ONLY the target item). The
-    // working-tree snapshot (captured above) covers statuses the supervisor
-    // wrote but never committed — P3.M2.T1.S2 re-applies those gated on FS
-    // evidence.
+    // legitimate delta. The legitimate delta is applied FIRST (authoritative
+    // for this run). Then snapshotted Researching/Ready ids (P3.M2.T1.S1,
+    // captured above) are re-applied gated on filesystem evidence
+    // (P3.M2.T1.S2): PRP.md → Ready, research/ dir → Researching, else left at
+    // the reverted status. The legitimate-delta id is SKIPPED (its status is
+    // authoritative for this run). Items in the COMMITTED blob's
+    // Researching/Ready that are NOT in the snapshot are NOT re-gated (the
+    // snapshot is the authoritative set of supervisor-written statuses; the
+    // restore write carries the committed statuses unchanged).
     const commit = restoreCommit;
     const written = await withLockedTasksJSON(
       sessionDir,
-      base => {
+      async base => {
         // If we got here via a successful read (disk healed), `base` is the
         // fresh disk read; validate it and prefer it. If the read threw and the
         // accessor used restoredBacklog, `base` is the restored blob (always
@@ -307,6 +366,17 @@ export async function recoverTasksJson(
           ? base
           : (structuredClone(restoredBacklog!) as Backlog);
         setItemStatus(target, legitimateDelta.itemId, legitimateDelta.status);
+        // PRD §5.1 / P3.M2.T1.S2: re-apply snapshotted Researching/Ready ids
+        // gated on filesystem evidence (PRP.md → Ready; research/ dir →
+        // Researching). The legitimate-delta item is skipped (its status is
+        // authoritative for this run). The FS probes are pure reads and fast;
+        // the lock is held across them intentionally (serialized with the
+        // restore write — no second lock, no lost-update window).
+        for (const id of snapshotIds) {
+          if (id === legitimateDelta.itemId) continue;
+          const status = await resolveResearchStatus(id, sessionDir);
+          if (status) setItemStatus(target, id, status);
+        }
         return target;
       },
       undefined,

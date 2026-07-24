@@ -12,9 +12,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import simpleGit, { type SimpleGit } from 'simple-git';
 import { recoverTasksJson } from '../../../src/core/tasks-json-recovery.js';
 import { readTasksJSON } from '../../../src/core/session-utils.js';
@@ -25,13 +25,26 @@ import type { Status } from '../../../src/core/models.js';
 // TEST FIXTURES & HELPERS
 // ============================================================================
 
+/** Sanitize a hierarchy id to its directory/file stem (matches
+ * prp-generator.ts / prp-runtime.ts: replace '.' with '_'). */
+const san = (id: string): string => id.replace(/\./g, '_');
+
+/** Write `content` to `path`, creating parent directories as needed. */
+async function writeNestedFile(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content);
+}
+
 /**
  * Minimal schema-valid Backlog. context_scope MUST match ContextScopeSchema.
+ * The optional 3rd subtask (P1.M1.T1.S3) is included ONLY when `s3Status` is
+ * supplied (keeps existing 2-subtask assertions byte-identical).
  */
 function makeValidBacklog(
   overrides: {
     s1Status?: Status;
     s2Status?: Status;
+    s3Status?: Status;
   } = {}
 ): Backlog {
   const cs =
@@ -77,6 +90,19 @@ function makeValidBacklog(
                     dependencies: ['P1.M1.T1.S1'],
                     context_scope: cs,
                   },
+                  ...(overrides.s3Status === undefined
+                    ? []
+                    : [
+                        {
+                          id: 'P1.M1.T1.S3',
+                          type: 'Subtask' as const,
+                          title: 'S3',
+                          status: overrides.s3Status,
+                          story_points: 1,
+                          dependencies: ['P1.M1.T1.S2'],
+                          context_scope: cs,
+                        },
+                      ]),
                 ],
               },
             ],
@@ -398,5 +424,243 @@ describe('core/tasks-json-recovery', () => {
     expect(result.reason).toMatch(/no valid version in git history/);
     // snapshot captured before the (failed) walk is still returned.
     expect(result.preservedResearchingReadyIds).toContain('P1.M1.T1.S2');
+  });
+
+  // --------------------------------------------------------------------------
+  // P3.M2.T1.S2: FS-evidence-gated re-apply of the snapshotted ids (PATH B)
+  // --------------------------------------------------------------------------
+  // Every test below forces PATH B by writing a JSON-parseable but
+  // BacklogSchema-INVALID working-tree file (Phase type = 'BogusType') whose
+  // {id,status} nodes of interest remain intact, so the lenient snapshot
+  // extracts the Ready/Researching ids. sessionDir === dir here, so PRP /
+  // research artifacts are written directly under `dir`.
+
+  it('PATH B — re-applies snapshotted Ready id when PRP.md exists (per-item-dir layout)', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    // supervisor wrote S2 = Ready to the working tree (uncommitted) + schema violation.
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({ s1Status: 'Implementing', s2Status: 'Ready' }),
+      { setPhaseType: 'BogusType' }
+    );
+    // Ready evidence: per-item-dir PRP.md layout (models.ts @format).
+    await writeNestedFile(join(dir, san('P1.M1.T1.S2'), 'PRP.md'), '# PRP');
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    expect(result.preservedResearchingReadyIds).toContain('P1.M1.T1.S2');
+    const after = await readTasksJSON(dir);
+    expect(findSubtask(after, 'P1.M1.T1.S1')!.status).toBe('Complete'); // legitimate delta
+    expect(findSubtask(after, 'P1.M1.T1.S2')!.status).toBe('Ready'); // re-applied (FS evidence: PRP.md)
+  });
+
+  it('PATH B — re-applies snapshotted Ready id from runtime layout (prps/{sanitizedId}.md)', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({ s1Status: 'Implementing', s2Status: 'Ready' }),
+      { setPhaseType: 'BogusType' }
+    );
+    // Ready evidence: runtime PRP layout (prp-generator.ts:232 / prp-runtime.ts:195).
+    await writeNestedFile(
+      join(dir, 'prps', `${san('P1.M1.T1.S2')}.md`),
+      '# PRP'
+    );
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    const after = await readTasksJSON(dir);
+    expect(findSubtask(after, 'P1.M1.T1.S2')!.status).toBe('Ready'); // re-applied (runtime PRP)
+  });
+
+  it('PATH B — re-applies snapshotted Researching id when research/ dir exists', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+      s3Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({
+        s1Status: 'Implementing',
+        s2Status: 'Planned',
+        s3Status: 'Researching',
+      }),
+      { setPhaseType: 'BogusType' }
+    );
+    // Researching evidence: per-item-dir research/ DIRECTORY.
+    await writeNestedFile(
+      join(dir, san('P1.M1.T1.S3'), 'research', 'note.md'),
+      ''
+    );
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    const after = await readTasksJSON(dir);
+    expect(findSubtask(after, 'P1.M1.T1.S3')!.status).toBe('Researching'); // re-applied
+  });
+
+  it('PATH B — leaves item at reverted status when NEITHER PRP.md nor research/ exists', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({ s1Status: 'Implementing', s2Status: 'Ready' }),
+      { setPhaseType: 'BogusType' }
+    );
+    // NO PRP.md and NO research/ dir written → FS evidence absent.
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    expect(result.preservedResearchingReadyIds).toContain('P1.M1.T1.S2');
+    const after = await readTasksJSON(dir);
+    // reverted (committed) baseline wins: Planned (no FS evidence → null → not re-applied).
+    expect(findSubtask(after, 'P1.M1.T1.S2')!.status).toBe('Planned');
+  });
+
+  it('PATH B — legitimate delta takes precedence over snapshot re-apply (id skipped)', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Planned',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    // working tree has S1 = Researching — the SAME id as the legitimate delta.
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({ s1Status: 'Researching', s2Status: 'Planned' }),
+      { setPhaseType: 'BogusType' }
+    );
+    // Researching evidence exists for S1 → resolveResearchStatus would return 'Researching' …
+    await writeNestedFile(
+      join(dir, san('P1.M1.T1.S1'), 'research', 'note.md'),
+      ''
+    );
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' }, // ← legitimate delta targets S1
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    const after = await readTasksJSON(dir);
+    // … but the legitimate-delta id is SKIPPED → status stays Complete, NOT Researching.
+    expect(findSubtask(after, 'P1.M1.T1.S1')!.status).toBe('Complete');
+  });
+
+  it('PATH B — stray FILE named "research" does not flip to Researching (isDirectory check)', async () => {
+    const baseline = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Planned',
+    });
+    await commitBacklog(git, dir, baseline, 'baseline Planned');
+
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({ s1Status: 'Implementing', s2Status: 'Researching' }),
+      { setPhaseType: 'BogusType' }
+    );
+    // a stray FILE (not a directory) named "research" must NOT count as evidence.
+    await writeNestedFile(join(dir, san('P1.M1.T1.S2'), 'research'), 'oops');
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(true);
+    const after = await readTasksJSON(dir);
+    // isDirectory() rejects the stray file → null → reverted baseline (Planned) wins.
+    expect(findSubtask(after, 'P1.M1.T1.S2')!.status).toBe('Planned');
+  });
+
+  it('PATH A does NOT re-apply (clean disk → no revert; Ready status untouched)', async () => {
+    const cleanSeed = makeValidBacklog({
+      s1Status: 'Implementing',
+      s2Status: 'Ready',
+    });
+    await commitBacklog(git, dir, cleanSeed, 'seed with Ready');
+    // working tree is schema-VALID (clean) → PATH A runs.
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(false);
+    expect(result.source).toBe('disk');
+    expect(result.preservedResearchingReadyIds).toEqual([]);
+    const after = await readTasksJSON(dir);
+    // PATH A never reverted disk → the Ready status is still on disk (untouched).
+    expect(findSubtask(after, 'P1.M1.T1.S2')!.status).toBe('Ready');
+  });
+
+  it('PATH C does NOT re-apply (no valid version → writes NOTHING; snapshot returned for observability)', async () => {
+    // Commit a non-backlog blob so git history is non-empty but has NO valid
+    // version → the no-valid-version return runs (PATH C sibling). The snapshot
+    // was captured BEFORE the walk, so it is returned; but recovery writes
+    // NOTHING (no restored backlog to re-apply onto).
+    await writeFile(
+      join(dir, 'tasks.json'),
+      JSON.stringify({ not: 'backlog' })
+    );
+    await git.add('tasks.json');
+    await git.commit('invalid backlog commit');
+
+    // working tree is JSON-parseable + schema-invalid AND contains a Ready id;
+    // plus FS evidence (PRP.md) that WOULD flip S2 to Ready if S2 re-applied.
+    await writeSchemaInvalidWorkingTree(
+      makeValidBacklog({ s1Status: 'Implementing', s2Status: 'Ready' }),
+      { setPhaseType: 'BogusType' }
+    );
+    await writeNestedFile(join(dir, san('P1.M1.T1.S2'), 'PRP.md'), '# PRP');
+
+    const result = await recoverTasksJson(
+      tasksPath(),
+      { itemId: 'P1.M1.T1.S1', status: 'Complete' },
+      { repoPath: dir }
+    );
+
+    expect(result.restored).toBe(false);
+    expect(result.reason).toMatch(/no valid version in git history/);
+    // snapshot WAS captured (observability) …
+    expect(result.preservedResearchingReadyIds).toContain('P1.M1.T1.S2');
+    // … but S2 wrote NOTHING — the on-disk file is still the invalid working-tree
+    // bytes (read raw; readTasksJSON would throw on the schema-invalid file).
+    const raw = await readFile(join(dir, 'tasks.json'), 'utf-8');
+    expect(raw).toContain('BogusType');
   });
 });

@@ -587,7 +587,7 @@
               "type": "Task",
               "id": "P3.M2.T1",
               "title": "Restore Snapshot-Before-Revert with FS Evidence",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Change tasks-json-recovery.ts to snapshot live Researching/Ready item IDs from the working-tree tasks.json before the git revert, then re-apply afterward gated on filesystem evidence (PRP.md exists → Ready; research/ exists → Researching).",
               "subtasks": [
                 {
@@ -606,7 +606,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S2",
                   "title": "Re-apply statuses gated on filesystem evidence",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M2.T1.S1"
