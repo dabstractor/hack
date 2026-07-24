@@ -716,14 +716,14 @@
               "type": "Task",
               "id": "P3.M2.T5",
               "title": "Orphaned-plan/ Recovery",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add skip-recovery that checks the item's status in HEAD's tasks.json (not working tree) and persists stranded plan/ dirs immediately, complemented by the pre-cleanup commit guard from P3.M1.T3.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T5.S1",
                   "title": "Skip-recovery checks HEAD's tasks.json for Completed status",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T3.S2"

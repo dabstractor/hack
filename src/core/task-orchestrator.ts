@@ -35,15 +35,17 @@ import type {
   Status,
   PRPCompressionLevel,
 } from './models.js';
+import { BacklogSchema } from './models.js';
 import type { HierarchyItem } from '../utils/task-utils.js';
-import { getDependencies } from '../utils/task-utils.js';
+import { getDependencies, findItem } from '../utils/task-utils.js';
 import type { Scope } from './scope-resolver.js';
 import { resolveScope } from './scope-resolver.js';
 import { smartCommit } from '../utils/git-commit.js';
+import { gitReadFileAtCommit } from '../tools/git-mcp.js';
 import { TaskError } from '../utils/errors.js';
 import { atomicWrite, readTasksJSON } from './session-utils.js';
 import { recoverTasksJson } from './tasks-json-recovery.js';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { ResearchQueue, ResearchTimeoutError } from './research-queue.js';
 import { PRPRuntime } from '../agents/prp-runtime.js';
 import {
@@ -775,7 +777,34 @@ export class TaskOrchestrator {
     // Without this, every resume re-runs every completed subtask, wasting
     // 10+ min each and producing duplicate commits whose only changed file
     // is regenerated execution telemetry.
+    //
+    // PRD §5.1 "Orphaned-`plan/` Recovery → Skip-recovery": before skipping,
+    // verify HEAD also records the item Complete. A force-interrupted prior
+    // run can leave the item Complete in the working tree but never committed
+    // — stranding its plan/ dir + status as untracked/unstaged. Because the
+    // cleanup agent is forbidden from touching plan/ and no later commit
+    // reaches a skipped item, a blind skip would orphan that work forever.
+    // If HEAD disagrees, run smartCommit to persist the stranded state before
+    // skipping (so the next resume is a clean skip).
     if (subtask.status === 'Complete') {
+      const sessionPath = this.sessionManager.currentSession?.metadata.path;
+      if (sessionPath) {
+        const headComplete = await this.#checkHeadComplete(
+          sessionPath,
+          subtask.id
+        );
+        if (!headComplete) {
+          this.#logger.warn(
+            { subtaskId: subtask.id },
+            'Completed in working tree but not in HEAD — stranded plan/ detected; running recovery commit'
+          );
+          await smartCommit(
+            sessionPath,
+            `${subtask.id}: ${subtask.title} (skip-recovery: persist stranded plan/)`,
+            { generateMessage: true }
+          );
+        }
+      }
       this.#logger.info(
         { subtaskId: subtask.id },
         'Already complete, skipping'
@@ -1252,6 +1281,56 @@ export class TaskOrchestrator {
       },
       'Cache metrics'
     );
+  }
+
+  /**
+   * PRD §5.1 "Orphaned-`plan/` Recovery" — skip-recovery HEAD check.
+   *
+   * Reads HEAD's `tasks.json` and returns `true` ONLY when HEAD records
+   * `itemId` with status `'Complete'`. Used by {@link executeSubtask} on the
+   * Completed-skip path to detect the stranded state: an item that is
+   * `'Complete'` in the working tree but was never committed (a force-
+   * interrupted prior run left its `plan/` dir + status untracked). When this
+   * returns `false`, the caller runs `smartCommit` to persist the stranded
+   * state before skipping.
+   *
+   * **HEAD-not-found ⇒ `false` (stranded):** if `findItem` cannot locate
+   * `itemId` in HEAD's backlog at all, HEAD has no record of the completion →
+   * it is certainly not recorded Complete → stranded. Do NOT treat not-found
+   * as a safe skip.
+   *
+   * **Non-fatal:** any error (git read failure, invalid JSON, schema
+   * validation failure) is logged at `warn` and returns `false`. The caller's
+   * recovery commit is itself non-throwing (`smartCommit` never-fail-on-commit
+   * contract), and `executeSubtask` always `return`s after the skip block — so
+   * a recovery failure NEVER causes the already-Complete item to be re-run.
+   *
+   * @param sessionPath - The session metadata dir (currentSession.metadata.path).
+   * @param itemId - The subtask id to look up in HEAD's tasks.json.
+   * @returns `true` iff HEAD's tasks.json records `itemId` as `'Complete'`.
+   */
+  async #checkHeadComplete(
+    sessionPath: string,
+    itemId: string
+  ): Promise<boolean> {
+    try {
+      const repoPath = process.cwd();
+      // repo-RELATIVE path for git (mirror tasks-json-recovery.ts PATH B):
+      // resolve → absolute → relative handles both repo-relative and absolute
+      // sessionPath inputs correctly.
+      const relPath = relative(repoPath, resolve(sessionPath, 'tasks.json'));
+      const blob = await gitReadFileAtCommit(relPath, 'HEAD', repoPath); // THROWS → caught
+      const headBacklog = BacklogSchema.parse(JSON.parse(blob)) as Backlog; // THROWS on bad JSON/schema
+      const headItem = findItem(headBacklog, itemId);
+      return headItem?.status === 'Complete';
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.#logger.warn(
+        { itemId, err: msg },
+        'Skip-recovery: could not read/parse HEAD tasks.json; assuming stranded (non-fatal)'
+      );
+      return false;
+    }
   }
 
   /**

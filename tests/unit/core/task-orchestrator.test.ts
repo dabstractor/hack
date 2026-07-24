@@ -57,6 +57,18 @@ vi.mock('../../../src/utils/git-commit.js', () => ({
   formatCommitMessage: vi.fn((msg: string) => msg),
 }));
 
+// Mock the git-mcp module for the skip-recovery HEAD check (gitReadFileAtCommit).
+// Use importOriginal to preserve other exports (e.g. GitMCP) consumed transitively
+// by agent-factory → prp-generator. Only override gitReadFileAtCommit.
+vi.mock('../../../src/tools/git-mcp.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/tools/git-mcp.js')>();
+  return {
+    ...actual,
+    gitReadFileAtCommit: vi.fn(),
+  };
+});
+
 // Mock the cleanup agent factory so the DEFAULT createCleanupRunner() (P3.M1.T3.S3)
 // does not attempt real agent/LLM construction in orchestrator tests. The mock
 // agent's prompt resolves success, so tests that exercise the default-runner
@@ -148,11 +160,13 @@ vi.mock('../../../src/agents/prp-runtime.js', () => ({
 import { getNextPendingItem } from '../../../src/utils/task-utils.js';
 import { resolveScope } from '../../../src/core/scope-resolver.js';
 import { smartCommit } from '../../../src/utils/git-commit.js';
+import { gitReadFileAtCommit } from '../../../src/tools/git-mcp.js';
 
 // Cast mocked functions
 const mockGetNextPendingItem = getNextPendingItem as any;
 const mockResolveScope = resolveScope as any;
 const mockSmartCommit = smartCommit as any;
+const mockGitReadFileAtCommit = gitReadFileAtCommit as any;
 
 // Set default mock for resolveScope to return empty array (for backward compatibility)
 mockResolveScope.mockReturnValue([]);
@@ -1316,6 +1330,227 @@ describe('TaskOrchestrator', () => {
         // VERIFY: default runner reports success → TWO commits happen.
         expect(mockSmartCommit).toHaveBeenCalledTimes(2);
       });
+    });
+  });
+
+  describe('executeSubtask — skip-recovery (PRD §5.1, orphaned-plan/ recovery)', () => {
+    beforeEach(() => {
+      mockGitReadFileAtCommit.mockReset();
+      mockSmartCommit.mockReset();
+      // Default: smartCommit returns a fake recovery hash (non-fatal null on failure).
+      mockSmartCommit.mockResolvedValue('recoveryhash');
+    });
+
+    /**
+     * Serialize a schema-valid backlog containing a single subtask `id` at
+     * `status`. Built directly (not via the shared factories) so it passes
+     * BacklogSchema.parse: the factory context_scope ('Test scope') violates
+     * ContextScopeSchema's CONTRACT DEFINITION format, which would throw and
+     * turn every test into the stranded path. Uses a minimal valid CONTRACT
+     * DEFINITION string.
+     */
+    const VALID_SCOPE = [
+      'CONTRACT DEFINITION:',
+      '1. RESEARCH NOTE: none',
+      '2. INPUT: none',
+      '3. LOGIC: none',
+      '4. OUTPUT: none',
+    ].join('\n');
+    const backlogBlob = (id: string, status: Status) =>
+      JSON.stringify({
+        backlog: [
+          {
+            id: 'P1',
+            type: 'Phase',
+            title: 'Phase 1',
+            status: 'Planned',
+            description: 'P',
+            milestones: [
+              {
+                id: 'P1.M1',
+                type: 'Milestone',
+                title: 'Milestone 1',
+                status: 'Planned',
+                description: 'M',
+                tasks: [
+                  {
+                    id: 'P1.M1.T1',
+                    type: 'Task',
+                    title: 'Task 1',
+                    status: 'Planned',
+                    description: 'T',
+                    subtasks: [
+                      {
+                        id,
+                        type: 'Subtask',
+                        title: 'Sub',
+                        status,
+                        story_points: 2,
+                        dependencies: [],
+                        context_scope: VALID_SCOPE,
+                        prd_selectors: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+    /** Shared session/orchestrator builder; pass path=undefined for the no-path case. */
+    const buildOrchestrator = (path: string | undefined) => {
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: path as unknown as string,
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: createTestBacklog([]),
+        currentItemId: null,
+      };
+      return new TaskOrchestrator(createMockSessionManager(currentSession));
+    };
+
+    it('SAFE SKIP — HEAD also records Complete: no recovery commit, logs skip', async () => {
+      // SETUP: HEAD's tasks.json has the item at Complete.
+      mockGitReadFileAtCommit.mockResolvedValue(
+        backlogBlob('P1.M1.T1.S1', 'Complete')
+      );
+      const orchestrator = buildOrchestrator('/plan/001_14b9dc2a33c7');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(
+        createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Complete')
+      );
+
+      // VERIFY: HEAD read happened once with (relPath, 'HEAD', cwd); no commit; skip logged.
+      expect(mockGitReadFileAtCommit).toHaveBeenCalledTimes(1);
+      expect(mockGitReadFileAtCommit).toHaveBeenCalledWith(
+        expect.stringContaining('tasks.json'),
+        'HEAD',
+        process.cwd()
+      );
+      expect(mockSmartCommit).not.toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        'Already complete, skipping'
+      );
+    });
+
+    it('STRANDED (HEAD non-Complete) — recovery commit runs once', async () => {
+      // SETUP: HEAD records the item at Implementing (stranded).
+      mockGitReadFileAtCommit.mockResolvedValue(
+        backlogBlob('P1.M1.T1.S1', 'Implementing')
+      );
+      const orchestrator = buildOrchestrator('/plan/001_14b9dc2a33c7');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(
+        createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Complete')
+      );
+
+      // VERIFY: stranded warning + recovery commit exactly once, then skip.
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        'Completed in working tree but not in HEAD — stranded plan/ detected; running recovery commit'
+      );
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      expect(mockSmartCommit).toHaveBeenCalledWith(
+        '/plan/001_14b9dc2a33c7',
+        expect.stringContaining('skip-recovery'),
+        { generateMessage: true }
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        'Already complete, skipping'
+      );
+    });
+
+    it('STRANDED (HEAD not-found) — findItem → null → recovery commit runs', async () => {
+      // SETUP: HEAD's backlog does NOT contain P1.M1.T1.S1 at all.
+      mockGitReadFileAtCommit.mockResolvedValue(
+        backlogBlob('OTHER.ID.S9', 'Complete')
+      );
+      const orchestrator = buildOrchestrator('/plan/001_14b9dc2a33c7');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(
+        createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Complete')
+      );
+
+      // VERIFY: not-found ⇒ stranded ⇒ recovery commit runs once.
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      expect(mockSmartCommit).toHaveBeenCalledWith(
+        '/plan/001_14b9dc2a33c7',
+        expect.stringContaining('skip-recovery'),
+        { generateMessage: true }
+      );
+    });
+
+    it('RECOVERABLE ERROR (git throws) — logged, recovery commit runs, never re-runs', async () => {
+      // SETUP: gitReadFileAtCommit rejects (path not in HEAD / git error).
+      mockGitReadFileAtCommit.mockRejectedValue(
+        new Error("path 'plan/.../tasks.json' does not exist in 'HEAD'")
+      );
+      const orchestrator = buildOrchestrator('/plan/001_14b9dc2a33c7');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(
+        createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Complete')
+      );
+
+      // VERIFY: #checkHeadComplete logged a warn (non-fatal) → stranded → commit runs;
+      // executeSubtask still returns (never re-runs the already-Complete item).
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { itemId: 'P1.M1.T1.S1', err: expect.any(String) },
+        'Skip-recovery: could not read/parse HEAD tasks.json; assuming stranded (non-fatal)'
+      );
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+    });
+
+    it('RECOVERABLE ERROR (invalid JSON / schema fail) — same non-fatal stranded path', async () => {
+      // SETUP: HEAD blob is malformed → JSON.parse throws.
+      mockGitReadFileAtCommit.mockResolvedValue('not json{');
+      const orchestrator = buildOrchestrator('/plan/001_14b9dc2a33c7');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(
+        createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Complete')
+      );
+
+      // VERIFY: warn logged, recovery commit runs once, returns (no throw, no re-run).
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { itemId: 'P1.M1.T1.S1', err: expect.any(String) },
+        'Skip-recovery: could not read/parse HEAD tasks.json; assuming stranded (non-fatal)'
+      );
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        'Already complete, skipping'
+      );
+    });
+
+    it('No session path — skips HEAD check entirely, logs + returns', async () => {
+      // SETUP: currentSession.metadata.path is undefined.
+      const orchestrator = buildOrchestrator(undefined);
+
+      // EXECUTE
+      await orchestrator.executeSubtask(
+        createTestSubtask('P1.M1.T1.S1', 'Test Subtask', 'Complete')
+      );
+
+      // VERIFY: no HEAD read, no commit, safe skip logged.
+      expect(mockGitReadFileAtCommit).not.toHaveBeenCalled();
+      expect(mockSmartCommit).not.toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S1' },
+        'Already complete, skipping'
+      );
     });
   });
 
