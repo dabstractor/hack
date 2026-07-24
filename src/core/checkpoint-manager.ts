@@ -67,6 +67,13 @@ export interface ValidationGateResult {
   readonly exitCode: number | null;
   /** True if this gate was skipped (manual or no command) */
   readonly skipped: boolean;
+  /**
+   * True iff this gate was killed by a watchdog (Node watchdog
+   * `timedOut === true` or `timeout` coreutil `exitCode === 124`). Terminal
+   * per PRD §9.3.2 / P3.M2.T2.S2. Mirrors the field on the PRPExecutor's
+   * ValidationGateResult so checkpointed results round-trip faithfully.
+   */
+  readonly timedOut: boolean;
 }
 
 /**
@@ -199,6 +206,7 @@ const ValidationGateResultSchema = z.object({
   stderr: z.string(),
   exitCode: z.number().nullable(),
   skipped: z.boolean(),
+  timedOut: z.boolean(),
 });
 
 /**

@@ -141,6 +141,7 @@ const createMockExecutionResult = (success: boolean): ExecutionResult => ({
       stderr: success ? '' : 'Lint errors found',
       exitCode: success ? 0 : 1,
       skipped: false,
+      timedOut: false,
     },
   ],
   artifacts: ['/src/agents/prp-runtime.ts'],

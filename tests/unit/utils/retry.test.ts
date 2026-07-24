@@ -24,6 +24,7 @@ import {
   retry,
   isTransientError,
   isPermanentError,
+  isWatchdogKillResult,
   createDefaultOnRetry,
   retryAgentPrompt,
   retryMcpTool,
@@ -1152,6 +1153,171 @@ describe('Retry utility', () => {
 
       expect(result.success).toBe(true);
       expect(attempts).toBe(2);
+    });
+  });
+
+  // ========================================================================
+  // watchdog-kill (exit 124) detection (P3.M2.T2.S2)
+  // ========================================================================
+
+  describe('watchdog-kill (exit 124) detection', () => {
+    describe('isWatchdogKillResult() direct', () => {
+      it('should return false for null', () => {
+        expect(isWatchdogKillResult(null)).toBe(false);
+      });
+
+      it('should return false for undefined', () => {
+        expect(isWatchdogKillResult(undefined)).toBe(false);
+      });
+
+      it('should return false for a string', () => {
+        expect(isWatchdogKillResult('Command timed out')).toBe(false);
+      });
+
+      it('should return false for a number', () => {
+        expect(isWatchdogKillResult(42)).toBe(false);
+      });
+
+      it('should return true for { timedOut: true } (Node watchdog vector)', () => {
+        expect(isWatchdogKillResult({ timedOut: true })).toBe(true);
+      });
+
+      it('should return true for { timedOut: true, killed: true, exitCode: 143 }', () => {
+        expect(
+          isWatchdogKillResult({ timedOut: true, killed: true, exitCode: 143 })
+        ).toBe(true);
+      });
+
+      it('should return true for { exitCode: 124 } (timeout coreutil vector)', () => {
+        expect(isWatchdogKillResult({ exitCode: 124 })).toBe(true);
+      });
+
+      it('should return false for { timedOut: 1 } (truthy but not === true)', () => {
+        expect(isWatchdogKillResult({ timedOut: 1 })).toBe(false);
+      });
+
+      it("should return false for { exitCode: '124' } (string, not number)", () => {
+        expect(isWatchdogKillResult({ exitCode: '124' })).toBe(false);
+      });
+
+      it('should return false for { timedOut: false, exitCode: 1 }', () => {
+        expect(isWatchdogKillResult({ timedOut: false, exitCode: 1 })).toBe(
+          false
+        );
+      });
+
+      it('should return false for a plain Error with no watchdog fields', () => {
+        expect(isWatchdogKillResult(new Error('something broke'))).toBe(false);
+      });
+    });
+
+    describe('isPermanentError() — watchdog kills are terminal', () => {
+      it('should return true for { exitCode: 124, timedOut: false }', () => {
+        expect(isPermanentError({ exitCode: 124, timedOut: false })).toBe(true);
+      });
+
+      it('should return true for { timedOut: true, killed: true, exitCode: 143 }', () => {
+        expect(
+          isPermanentError({
+            timedOut: true,
+            killed: true,
+            exitCode: 143,
+          })
+        ).toBe(true);
+      });
+
+      it('should return false for { exitCode: 1, timedOut: false } (no false positive)', () => {
+        expect(isPermanentError({ exitCode: 1, timedOut: false })).toBe(false);
+      });
+
+      it('should return false for { exitCode: 137, timedOut: false } (signal exit WITHOUT the flag)', () => {
+        expect(isPermanentError({ exitCode: 137, timedOut: false })).toBe(
+          false
+        );
+      });
+
+      it('should NOT flag a plain AgentError (LLM-timeout path intact)', () => {
+        const error = new AgentError(
+          'Agent exceeded the 300s RESEARCH_TIMEOUT deadline',
+          { taskId: 'P1.M1.T1' }
+        );
+        expect(isPermanentError(error)).toBe(false);
+      });
+    });
+
+    describe('isTransientError() — closes the false-positive trap', () => {
+      it('should return false for { exitCode: 124, message: "Command timed out after 120000ms" }', () => {
+        // The CRITICAL false-positive guard: without the early helper return,
+        // the 'timeout' message-pattern fallback would retry this.
+        expect(
+          isTransientError({
+            exitCode: 124,
+            message: 'Command timed out after 120000ms',
+          })
+        ).toBe(false);
+      });
+
+      it('should return false for { timedOut: true, killed: true, exitCode: 143, message: "Command timed out…" }', () => {
+        expect(
+          isTransientError({
+            timedOut: true,
+            killed: true,
+            exitCode: 143,
+            message: 'Command timed out after 120000ms',
+          })
+        ).toBe(false);
+      });
+
+      it('should return false for { exitCode: 124 } with no message', () => {
+        expect(isTransientError({ exitCode: 124 })).toBe(false);
+      });
+
+      it('should return true for an AgentError (LLM-call deadline retry path UNCHANGED, Req 3.4)', () => {
+        // withAgentDeadline throws a plain AgentError (PIPELINE_AGENT_LLM_FAILED)
+        // with NO timedOut/exitCode fields — it MUST remain transient/retryable.
+        const error = new AgentError(
+          'Agent exceeded the 300s RESEARCH_TIMEOUT deadline',
+          { taskId: 'P1.M1.T1' }
+        );
+        expect(isTransientError(error)).toBe(true);
+      });
+    });
+
+    describe('retry() never retries a watchdog-killed error', () => {
+      // Real timers: the error throws on attempt 1, the loop exits before any
+      // calculateDelay/sleep, so fake timers are unnecessary here.
+      beforeEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('should call fn exactly ONCE when it throws { timedOut: true, message: "Command timed out…" }', async () => {
+        let calls = 0;
+        const fn = async () => {
+          calls++;
+          throw {
+            timedOut: true,
+            killed: true,
+            exitCode: 143,
+            message: 'Command timed out after 120000ms',
+          };
+        };
+
+        await expect(retry(fn, { maxAttempts: 5 })).rejects.toThrow(
+          'Command timed out after 120000ms'
+        );
+        expect(calls).toBe(1); // never retried
+      });
+
+      it('should call fn exactly ONCE when it throws { exitCode: 124, message: "timeout" }', async () => {
+        let calls = 0;
+        const fn = async () => {
+          calls++;
+          throw { exitCode: 124, message: 'timeout' };
+        };
+
+        await expect(retry(fn, { maxAttempts: 5 })).rejects.toThrow('timeout');
+        expect(calls).toBe(1); // never retried
+      });
     });
   });
 

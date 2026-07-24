@@ -670,6 +670,7 @@ describe('CheckpointManager', () => {
           stderr: '',
           exitCode: 0,
           skipped: false,
+          timedOut: false,
         },
         {
           level: 2,
@@ -680,6 +681,7 @@ describe('CheckpointManager', () => {
           stderr: '',
           exitCode: 0,
           skipped: false,
+          timedOut: false,
         },
       ];
 

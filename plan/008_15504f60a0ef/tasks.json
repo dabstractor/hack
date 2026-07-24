@@ -622,7 +622,7 @@
               "type": "Task",
               "id": "P3.M2.T2",
               "title": "Watchdog Kills Are Terminal",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Make watchdog kills (exit 124) a hard failure that is never retried, distinguishing them from LLM-generation timeouts (which should be retried). Surface timedOut flag in BashToolResult and wire terminal-fail into retry logic.",
               "subtasks": [
                 {
@@ -641,7 +641,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T2.S2",
                   "title": "Wire terminal-fail into retry.ts — exit 124 never retried",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M2.T2.S1"

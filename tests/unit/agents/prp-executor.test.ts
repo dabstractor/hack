@@ -16,6 +16,7 @@ import {
   PRPExecutionError,
   ValidationError,
   type ExecutionResult,
+  type ValidationGateResult,
 } from '../../../src/agents/prp-executor.js';
 import type { PRPDocument } from '../../../src/core/models.js';
 
@@ -51,11 +52,17 @@ vi.mock('../../../src/utils/retry.js', () => ({
     }
     return result;
   }),
+  // withAgentDeadline just races the promise against a deadline; in tests we
+  // pass the inner promise straight through (no real timer).
+  withAgentDeadline: vi.fn(
+    async <T>(promise: Promise<T>): Promise<T> => promise
+  ),
   retry: vi.fn(),
   retryMcpTool: vi.fn(),
   sleep: vi.fn(),
   isTransientError: vi.fn(),
   isPermanentError: vi.fn(),
+  isWatchdogKillResult: vi.fn(),
   calculateDelay: vi.fn(),
   createDefaultOnRetry: vi.fn(),
 }));
@@ -395,6 +402,114 @@ describe('agents/prp-executor', () => {
       { timeout: 10000 }
     );
 
+    // ====================================================================
+    // Watchdog-killed gate — terminal abort (PRD §9.3.2; P3.M2.T2.S2)
+    // ====================================================================
+
+    /** PRP fixture with a single executable validation gate (Level 1). */
+    const createSingleGatePRP = (taskId: string): PRPDocument => ({
+      taskId,
+      objective: 'Implement feature X',
+      context: '## Context\nFull context here',
+      implementationSteps: ['Step 1: Create file'],
+      validationGates: [
+        {
+          level: 1,
+          description: 'Unit tests',
+          command: 'npm test',
+          manual: false,
+        },
+      ],
+      successCriteria: [
+        { description: 'Feature works as expected', satisfied: false },
+      ],
+      references: [],
+    });
+
+    it(
+      'aborts (outcome:fail) without fix-retry when a gate is watchdog-killed (timedOut:true)',
+      async () => {
+        // SETUP
+        const prp = createSingleGatePRP('P3.M2.T2.S2');
+        const prpPath = '/tmp/test-session/prps/P3M2T2S2.md';
+
+        // Mock Coder Agent → success (we must reach validation)
+        mockAgent.prompt.mockResolvedValue(
+          JSON.stringify({
+            result: 'success',
+            message: 'Implementation complete',
+          })
+        );
+
+        // Mock the gate as a Node-watchdog kill: timedOut:true, exitCode 143.
+        mockExecuteBash.mockResolvedValue({
+          success: false,
+          stdout: '',
+          stderr: 'killed',
+          exitCode: 143,
+          timedOut: true,
+          killed: true,
+        });
+
+        const executor = new PRPExecutor(sessionPath);
+
+        // EXECUTE
+        const result = await executor.execute(prp, prpPath);
+
+        // VERIFY: terminal abort — outcome:fail, flag surfaced, NO fix-retry.
+        expect(result.outcome).toBe('fail');
+        expect(result.success).toBe(false);
+        expect(result.validationResults[0].timedOut).toBe(true);
+        expect(result.fixAttempts).toBe(0);
+        // Initial coder run ONLY — #fixAndRetry never invoked.
+        expect(mockAgent.prompt).toHaveBeenCalledTimes(1);
+        // The hung command ran exactly once (no re-run).
+        expect(mockExecuteBash).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 10000 }
+    );
+
+    it(
+      'aborts without fix-retry for a coreutil-killed gate (exitCode:124)',
+      async () => {
+        // SETUP
+        const prp = createSingleGatePRP('P3.M2.T2.S2');
+        const prpPath = '/tmp/test-session/prps/P3M2T2S2.md';
+
+        mockAgent.prompt.mockResolvedValue(
+          JSON.stringify({
+            result: 'success',
+            message: 'Implementation complete',
+          })
+        );
+
+        // Mock the gate as a `timeout` coreutil kill: exitCode 124, Node
+        // watchdog did NOT fire (timedOut:false). Layer B must map this to
+        // gateResult.timedOut === true.
+        mockExecuteBash.mockResolvedValue({
+          success: false,
+          stdout: '',
+          stderr: '',
+          exitCode: 124,
+          timedOut: false,
+          killed: false,
+        });
+
+        const executor = new PRPExecutor(sessionPath);
+
+        // EXECUTE
+        const result = await executor.execute(prp, prpPath);
+
+        // VERIFY: same terminal abort as the timedOut vector.
+        expect(result.outcome).toBe('fail');
+        expect(result.success).toBe(false);
+        expect(result.validationResults[0].timedOut).toBe(true); // mapped from 124
+        expect(result.fixAttempts).toBe(0);
+        expect(mockAgent.prompt).toHaveBeenCalledTimes(1); // no fix-retry
+      },
+      { timeout: 10000 }
+    );
+
     it('should handle JSON parsing errors from Coder Agent', async () => {
       // SETUP
       const prp = createMockPRPDocument('P1.M2.T2.S2');
@@ -627,6 +742,7 @@ describe('agents/prp-executor', () => {
         stderr: '',
         exitCode: 0,
         skipped: false,
+        timedOut: false,
       };
 
       // VERIFY: All properties are set
@@ -638,6 +754,7 @@ describe('agents/prp-executor', () => {
       expect(result.stderr).toBe('');
       expect(result.exitCode).toBe(0);
       expect(result.skipped).toBe(false);
+      expect(result.timedOut).toBe(false);
     });
   });
 

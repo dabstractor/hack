@@ -55,6 +55,14 @@ export interface ValidationGateResult {
   readonly exitCode: number | null;
   /** True if this gate was skipped (manual or no command) */
   readonly skipped: boolean;
+  /**
+   * True iff this gate was killed by a watchdog — either the Node watchdog
+   * (`result.timedOut === true`, exitCode 137/143) or the `timeout` coreutil
+   * (`result.exitCode === 124`). Terminal: the fix-and-retry loop MUST abort
+   * on this (PRD §9.3.2; P3.M2.T2.S2) — a hung process will simply re-hang,
+   * so churning fix-retries is wrong.
+   */
+  readonly timedOut: boolean;
 }
 
 /**
@@ -375,6 +383,19 @@ export class PRPExecutor {
       while (fixAttempts <= maxFixAttempts) {
         validationResults = await this.#runValidationGates(prp);
 
+        // Terminal abort: a watchdog-killed gate must NOT be fix-retried
+        // (PRD §9.3.2 + Req 4.4). A hung process will simply re-hang, so
+        // invoking #fixAndRetry (an LLM call) + re-running the same hung
+        // command is wrong. Break → existing allPassed=false → outcome:'fail'.
+        const watchdogKilled = validationResults.some(r => r.timedOut);
+        if (watchdogKilled) {
+          this.#logger.error(
+            { prpTaskId: prp.taskId },
+            'Validation gate watchdog-killed (exit 124 / timedOut) — aborting without fix-retry (PRD §9.3.2)'
+          );
+          break;
+        }
+
         // CHECKPOINT: After each validation gate completion
         if (validationResults.length > 0) {
           const lastGate = validationResults[validationResults.length - 1];
@@ -509,6 +530,7 @@ export class PRPExecutor {
           stderr: '',
           exitCode: null,
           skipped: true,
+          timedOut: false,
         });
         continue;
       }
@@ -533,6 +555,7 @@ export class PRPExecutor {
         stderr: result.stderr,
         exitCode: result.exitCode ?? null,
         skipped: false,
+        timedOut: result.timedOut || result.exitCode === 124,
       };
 
       results.push(gateResult);

@@ -292,6 +292,33 @@ interface RetryableError extends Error {
 }
 
 /**
+ * Detects a watchdog-killed subprocess result/error — a TERMINAL, non-retryable
+ * failure per PRD §9.3.2 ("Watchdog kills are terminal").
+ *
+ * @remarks
+ * Two vectors (both terminal):
+ *  - **Node watchdog**: `executeBashCommand`'s own `setTimeout` → `child.kill`
+ *    surfaces `timedOut: true` (P3.M2.T2.S1); exitCode is 137/143, NOT 124.
+ *  - **`timeout` coreutil**: a PRP `validate.sh` wrapping `timeout SECS cmd` exits
+ *    124; `timedOut` is false (the NODE watchdog did not fire).
+ *
+ * Used by {@link isPermanentError} (→ `true`) and {@link isTransientError}
+ * (→ `false`, BEFORE the message-pattern fallback) so a thrown
+ * `"Command timed out after 120000ms"` error is never retried. Distinct from
+ * the LLM-call deadline ({@link withAgentDeadline} → {@link AgentError}), which
+ * has neither field and remains transient (Req 3.4).
+ *
+ * @param error - Unknown value to inspect (duck-typed on object shape)
+ * @returns `true` iff `error` is an object with `timedOut === true` OR
+ *          `exitCode === 124`
+ */
+export function isWatchdogKillResult(error: unknown): boolean {
+  if (error == null || typeof error !== 'object') return false;
+  const e = error as { timedOut?: unknown; exitCode?: unknown };
+  return e.timedOut === true || e.exitCode === 124;
+}
+
+/**
  * Detects if an error is transient (retryable)
  *
  * @param error - Unknown error to check
@@ -329,6 +356,11 @@ export function isTransientError(error: unknown): boolean {
   }
 
   const err = error as RetryableError;
+
+  // Watchdog-killed subprocess (PRD §9.3.2): TERMINAL, never retried. MUST run
+  // BEFORE the TRANSIENT_PATTERNS message fallback below — a thrown
+  // "Command timed out after 120000ms" error would otherwise be mis-retried.
+  if (isWatchdogKillResult(err)) return false;
 
   // Check PipelineError from P5.M4.T1.S1
   // We need to check the code before type narrowing since AgentError has a fixed code
@@ -400,6 +432,9 @@ export function isPermanentError(error: unknown): boolean {
   }
 
   const err = error as RetryableError;
+
+  // Watchdog-killed subprocess (PRD §9.3.2): TERMINAL, never retried.
+  if (isWatchdogKillResult(err)) return true;
 
   // Check ValidationError from P5.M4.T1.S1
   if (isValidationError(err)) {
