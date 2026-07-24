@@ -34,7 +34,10 @@ import {
 import { resolve, join, dirname, basename } from 'node:path';
 import { TextDecoder } from 'node:util';
 import { getLogger, type Logger } from '../utils/logger.js';
-import { getPrdIncludeMaxDepth } from '../config/constants.js';
+import {
+  getPrdIncludeMaxDepth,
+  getPrdIncludeMarkers,
+} from '../config/constants.js';
 import type { Backlog, PRPDocument } from './models.js';
 import { BacklogSchema, PRPDocumentSchema } from './models.js';
 
@@ -293,7 +296,13 @@ export interface ResolveOpts {
    * unchanged). The recursive depth-decrementing loop lands in S2.
    */
   maxDepth?: number;
-  // (S3 will extend this interface with `markers?: boolean` — do NOT add it in S1.)
+  /**
+   * When `true`, wrap each expanded include with `<!-- @include: path -->` /
+   * `<!-- @end-include -->` markers (PRD §2.3). Defaults to
+   * {@link getPrdIncludeMarkers} (the `PRD_INCLUDE_MARKERS` env var). Pass `false` explicitly
+   * to suppress markers even when the env var is set.
+   */
+  markers?: boolean;
 }
 
 /**
@@ -400,6 +409,9 @@ const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
  * @param maxDepth - Max nesting depth (the gate is `depth >= maxDepth` → stop expanding).
  * @param depth - Current nesting depth (the entry file is depth 0).
  * @param visited - Absolute ancestry paths (path-based / per-branch) for cycle detection.
+ * @param markers - When `true`, wrap each EXPANDED include in `<!-- @include: token -->` /
+ *        `<!-- @end-include -->` markers (PRD §2.3). Literal survivors (missing/dir/cycle/depth)
+ *        are never wrapped.
  * @returns The content with includes recursively expanded inline.
  * @throws {SessionFileError} If an existing included file cannot be read (e.g. invalid UTF-8)
  *         or a `stat` call fails with a non-ENOENT error (e.g. EACCES).
@@ -409,7 +421,8 @@ async function expandIncludesRecursive(
   baseDir: string,
   maxDepth: number,
   depth: number,
-  visited: Set<string>
+  visited: Set<string>,
+  markers: boolean
 ): Promise<string> {
   if (depth >= maxDepth) {
     return content; // depth gate — remaining @tokens stay literal
@@ -442,7 +455,8 @@ async function expandIncludesRecursive(
           baseDir,
           maxDepth,
           depth + 1,
-          childVisited
+          childVisited,
+          markers
         );
       }
       // else: directory → not a file → replacement stays undefined (silent verbatim).
@@ -454,7 +468,22 @@ async function expandIncludesRecursive(
         throw new SessionFileError(abs, 'stat include', e as Error);
       }
     }
-    out += replacement ?? m[0]; // substitute OR keep original bytes (S3 wraps this site with markers)
+    // S3: stale-include stderr warning — a `.md` token that matched the boundary rule but did
+    //     NOT resolve to an existing file (ENOENT or a directory). Cycle back-edges `continue`d
+    //     above; depth-exceeded tokens returned early at the gate. Non-`.md` survivors are silent.
+    //     Routed through `console.warn` (→ process.stderr, sync) because the pino logger writes to
+    //     stdout (PRD §2.3 requires stderr).
+    if (replacement === undefined && token.endsWith('.md')) {
+      console.warn(
+        `[prd-resolver] stale include '@${token}': path does not resolve to an existing file (${abs})`
+      );
+    }
+    // S3: optional include markers around EXPANDED content only (PRD §2.3). Literal survivors
+    //     (missing/dir/cycle/depth) are never wrapped — `markers && replacement !== undefined`.
+    out +=
+      markers && replacement !== undefined
+        ? `<!-- @include: ${token} -->\n${replacement}\n<!-- @end-include -->`
+        : (replacement ?? m[0]);
     last = idx + m[0].length;
   }
   out += content.slice(last); // tail
@@ -466,6 +495,11 @@ async function expandIncludesRecursive(
  *
  * @remarks
  * Reads the entry PRD, then recursively expands include directives to their full depth:
+ *  - **IDEMPOTENCY**: for any within-depth fixture, re-resolving this function's own output
+ *    yields byte-identical results (`resolve(resolve(x)) === resolve(x)`). This is the basis
+ *    for §4.1 hashing, §4.3 delta detection, and `prd_snapshot.md` consistency. Stale survivors
+ *    (missing/dir) re-fail identically; depth-exceeded is an intentional safety-valve
+ *    truncation that is NOT a fixed point.
  *  - **CYCLE DETECTION**: a path-based visited `Set` (absolute paths of the current ancestry)
  *    prevents infinite recursion on self/mutual cycles; the back-edge `@token` is left literal.
  *    Diamond includes (a→c and b→c) still expand `c` in both branches (the visited set is
@@ -475,11 +509,22 @@ async function expandIncludesRecursive(
  *    `maxDepth = N` allows N nesting levels below the entry.
  *  - **BASE INVARIANT**: all paths resolve project-root-relative — against the entry PRD's
  *    directory, regardless of which file contains the directive (PRD §2.3).
+ *  - **MARKERS (optional)**: when `opts.markers` is `true` OR the `PRD_INCLUDE_MARKERS` env var
+ *    is truthy (unset/empty/`0`/`false`/`no`/`off` → off), each EXPANDED include is wrapped as
+ *    `<!-- @include: path -->` / `<!-- @end-include -->` (where `path` is the original matched
+ *    token). Literal survivors (missing/dir/cycle/depth) are never wrapped. `opts.markers`
+ *    overrides the env var in both directions. The marker format is self-protecting against
+ *    re-expansion, so markers-on output remains idempotent (PRD §2.3).
+ *  - **STALE-INCLUDE WARNING**: a `.md` token that matches the boundary rule but does NOT resolve
+ *    to an existing file (ENOENT or a directory) emits exactly one **stderr** warning per resolve
+ *    pass via `console.warn` (the pino logger writes to stdout; PRD §2.3 requires stderr). The
+ *    token stays verbatim in the output. Non-`.md` tokens, cycle back-edges, depth-exceeded
+ *    tokens, and successfully-resolved tokens emit NO warning (PRD §2.3).
  *
- * Missing files, directories, and cycle back-edges stay verbatim + silent (S3 adds warnings).
+ * Missing files, directories, and cycle back-edges stay verbatim.
  *
  * @param prdPath - Path to the entry PRD file (relative or absolute).
- * @param opts - Optional {@link ResolveOpts} (currently only `maxDepth`).
+ * @param opts - Optional {@link ResolveOpts} (`maxDepth`, `markers`).
  * @returns The fully include-expanded document.
  * @throws {SessionFileError} If the entry file (or any included file) cannot be read / is
  *         invalid UTF-8, or a `stat` fails with a non-ENOENT error.
@@ -499,9 +544,10 @@ export async function resolvePRD(
   const absEntry = resolve(prdPath);
   const baseDir = dirname(absEntry); // project-root-relative base invariant (PRD §2.3)
   const maxDepth = opts?.maxDepth ?? getPrdIncludeMaxDepth();
+  const markers = opts?.markers ?? getPrdIncludeMarkers(); // S3: marker toggle (opts wins over env)
 
   logger().debug(
-    { prdPath: absEntry, baseDir, maxDepth },
+    { prdPath: absEntry, baseDir, maxDepth, markers },
     'Resolving PRD includes'
   );
 
@@ -512,7 +558,8 @@ export async function resolvePRD(
     baseDir,
     maxDepth,
     0,
-    new Set<string>([absEntry])
+    new Set<string>([absEntry]),
+    markers
   );
 }
 

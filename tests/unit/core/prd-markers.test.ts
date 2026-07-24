@@ -1,0 +1,243 @@
+/**
+ * Unit tests for `resolvePRD` markers, stale-include warnings, and idempotency (PRD §2.3; S3)
+ *
+ * @remarks
+ * Tests validate the S3 behaviors layered onto S2's landed `resolvePRD` /
+ * `expandIncludesRecursive` in `src/core/session-utils.ts`:
+ *  - MARKERS: default off; `PRD_INCLUDE_MARKERS=1` wraps each expanded include; `opts.markers`
+ *    overrides env both ways; nested includes wrap at every depth; literal survivors never wrap;
+ *    inline and line-start expansions both wrap.
+ *  - STALE WARNING: a missing `.md` token emits exactly ONE stderr `console.warn` per pass and
+ *    stays verbatim; a directory named `*.md` warns too; non-`.md` missing tokens, cycle
+ *    back-edges, depth-exceeded, and resolved tokens emit NO warning.
+ *  - IDEMPOTENCY: `resolve(resolve(x)) === resolve(x)` byte-for-byte for within-depth fixtures,
+ *    markers OFF and ON, and with stale survivors.
+ *  - GETTER: `getPrdIncludeMarkers()` rejects unset/empty/`0`/`false`/`no`/`off` (case-insensitive,
+ *    trimmed); accepts any other non-empty value.
+ *
+ * Uses a REAL tmpdir (NOT `vi.mock('node:fs/promises')`) — boundary + existence + recursion logic
+ * is only trustworthy against real files. Mirrors S1's `prd-includes.test.ts` scaffolding.
+ *
+ * @see {@link ../../../src/core/session-utils.ts}
+ * @see {@link ../../../src/config/constants.ts}
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { resolvePRD } from '../../../src/core/session-utils.js';
+import {
+  getPrdIncludeMarkers,
+  PRD_INCLUDE_MARKERS,
+} from '../../../src/config/constants.js';
+
+let tmp: string;
+
+describe('resolvePRD — markers, stale warnings, idempotency', () => {
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'prd-markers-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  // ── MARKERS CASES ──────────────────────────────────────────────────────────
+
+  it('emits NO markers by default (env unset)', async () => {
+    writeFileSync(join(tmp, 'a.md'), 'A');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe('A');
+  });
+
+  it('wraps expanded includes when PRD_INCLUDE_MARKERS is set', async () => {
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    writeFileSync(join(tmp, 'a.md'), 'A');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe(
+      '<!-- @include: a.md -->\nA\n<!-- @end-include -->'
+    );
+  });
+
+  it('wraps expanded includes when opts.markers=true (env unset)', async () => {
+    writeFileSync(join(tmp, 'a.md'), 'A');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    await expect(
+      resolvePRD(join(tmp, 'main.md'), { markers: true })
+    ).resolves.toBe('<!-- @include: a.md -->\nA\n<!-- @end-include -->');
+  });
+
+  it('opts.markers=false suppresses markers even when env=1', async () => {
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    writeFileSync(join(tmp, 'a.md'), 'A');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    await expect(
+      resolvePRD(join(tmp, 'main.md'), { markers: false })
+    ).resolves.toBe('A');
+  });
+
+  it('wraps nested includes at every depth', async () => {
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    writeFileSync(join(tmp, 'b.md'), 'B');
+    writeFileSync(join(tmp, 'a.md'), '@b.md');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    const out = await resolvePRD(join(tmp, 'main.md'));
+    expect(out).toContain('<!-- @include: a.md -->');
+    expect(out).toContain('<!-- @include: b.md -->');
+    // b is nested inside a's marker block
+    expect(out).toBe(
+      '<!-- @include: a.md -->\n<!-- @include: b.md -->\nB\n<!-- @end-include -->\n<!-- @end-include -->'
+    );
+  });
+
+  it('does NOT wrap a literal survivor (missing .md) even when markers on', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    writeFileSync(join(tmp, 'main.md'), '@missing.md');
+    const out = await resolvePRD(join(tmp, 'main.md'));
+    expect(out).toBe('@missing.md'); // never wrap a non-expansion
+    expect(out).not.toContain('<!-- @include');
+  });
+
+  it('wraps inline expansions identically to line-start (surrounding prose preserved)', async () => {
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    writeFileSync(join(tmp, 'a.md'), 'A');
+    writeFileSync(join(tmp, 'inline.md'), 'see @a.md here');
+    writeFileSync(join(tmp, 'linestart.md'), '@a.md');
+    const inline = await resolvePRD(join(tmp, 'inline.md'));
+    const linestart = await resolvePRD(join(tmp, 'linestart.md'));
+    expect(inline).toBe(
+      'see <!-- @include: a.md -->\nA\n<!-- @end-include --> here'
+    );
+    expect(linestart).toBe('<!-- @include: a.md -->\nA\n<!-- @end-include -->');
+  });
+
+  // ── STALE-WARNING CASES ────────────────────────────────────────────────────
+
+  it('emits a stderr warning for a stale .md token and keeps it verbatim', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeFileSync(join(tmp, 'main.md'), '@missing.md');
+    const out = await resolvePRD(join(tmp, 'main.md'));
+    expect(out).toBe('@missing.md'); // stays literal
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('missing.md');
+  });
+
+  it('does NOT warn for a non-.md missing token', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeFileSync(join(tmp, 'main.md'), '@missing.txt');
+    const out = await resolvePRD(join(tmp, 'main.md'));
+    expect(out).toBe('@missing.txt');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('does NOT warn for a cycle back-edge (file exists)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Entry IS a.md; inner @a.md points back at the entry → a cycle (file exists, not stale).
+    writeFileSync(join(tmp, 'a.md'), 'X @a.md Y');
+    const out = await resolvePRD(join(tmp, 'a.md'));
+    expect(warn).not.toHaveBeenCalled();
+    expect(out).toBe('X @a.md Y');
+  });
+
+  it('warns for a directory named *.md (path does not resolve to a FILE)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mkdirSync(join(tmp, 'docs.md')); // a DIRECTORY named docs.md
+    writeFileSync(join(tmp, 'main.md'), '@docs.md');
+    const out = await resolvePRD(join(tmp, 'main.md'));
+    expect(out).toBe('@docs.md'); // directory is not a file → verbatim
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('docs.md');
+  });
+
+  it('does NOT warn for a successfully-resolved .md token', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeFileSync(join(tmp, 'a.md'), 'A');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    await resolvePRD(join(tmp, 'main.md'));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // ── IDEMPOTENCY CASES ──────────────────────────────────────────────────────
+
+  it('is idempotent with markers OFF (resolve(resolve(x)) === resolve(x))', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeFileSync(join(tmp, 'b.md'), 'B');
+    writeFileSync(join(tmp, 'a.md'), '@b.md');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    const r1 = await resolvePRD(join(tmp, 'main.md'));
+    writeFileSync(join(tmp, 'round2.md'), r1);
+    const r2 = await resolvePRD(join(tmp, 'round2.md'));
+    expect(r2).toBe(r1);
+  });
+
+  it('is idempotent with markers ON (resolve(resolve(x)) === resolve(x))', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    writeFileSync(join(tmp, 'b.md'), 'B');
+    writeFileSync(join(tmp, 'a.md'), '[@b.md]');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+    const r1 = await resolvePRD(join(tmp, 'main.md'), { markers: true });
+    writeFileSync(join(tmp, 'round2.md'), r1);
+    const r2 = await resolvePRD(join(tmp, 'round2.md'), { markers: true });
+    expect(r2).toBe(r1);
+  });
+
+  it('is idempotent with a stale survivor (re-fail yields same bytes)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeFileSync(join(tmp, 'real.md'), 'R');
+    writeFileSync(join(tmp, 'main.md'), '@real.md @missing.md');
+    const r1 = await resolvePRD(join(tmp, 'main.md'));
+    writeFileSync(join(tmp, 'round2.md'), r1);
+    const r2 = await resolvePRD(join(tmp, 'round2.md'));
+    expect(r2).toBe(r1);
+  });
+});
+
+describe('config/constants: getPrdIncludeMarkers', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns false for off spellings (unset/empty/0/false/no/off, case-insensitive, trimmed)', () => {
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '');
+    expect(getPrdIncludeMarkers()).toBe(false);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '0');
+    expect(getPrdIncludeMarkers()).toBe(false);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'false');
+    expect(getPrdIncludeMarkers()).toBe(false);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'no');
+    expect(getPrdIncludeMarkers()).toBe(false);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'off');
+    expect(getPrdIncludeMarkers()).toBe(false);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'FALSE');
+    expect(getPrdIncludeMarkers()).toBe(false);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, ' 0 ');
+    expect(getPrdIncludeMarkers()).toBe(false);
+  });
+
+  it('returns true for any other non-empty value (1/true/yes/on/ON/enable/trimmed)', () => {
+    vi.stubEnv(PRD_INCLUDE_MARKERS, '1');
+    expect(getPrdIncludeMarkers()).toBe(true);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'true');
+    expect(getPrdIncludeMarkers()).toBe(true);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'yes');
+    expect(getPrdIncludeMarkers()).toBe(true);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'on');
+    expect(getPrdIncludeMarkers()).toBe(true);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'ON');
+    expect(getPrdIncludeMarkers()).toBe(true);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, 'enable');
+    expect(getPrdIncludeMarkers()).toBe(true);
+    vi.stubEnv(PRD_INCLUDE_MARKERS, ' 1 ');
+    expect(getPrdIncludeMarkers()).toBe(true);
+  });
+
+  it('returns false when unset', () => {
+    delete process.env[PRD_INCLUDE_MARKERS];
+    expect(getPrdIncludeMarkers()).toBe(false);
+  });
+});

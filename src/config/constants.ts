@@ -351,3 +351,31 @@ export function getPrdIncludeMaxDepth(): number {
  * ```
  */
 export const PRD_INCLUDE_MARKERS = 'PRD_INCLUDE_MARKERS';
+
+/**
+ * Read & validate the `PRD_INCLUDE_MARKERS` env var (PRD §2.3; S3).
+ *
+ * @remarks
+ * Truthy unless unset/empty or one of the common "off" spellings (`'0'`, `'false'`, `'no'`,
+ * `'off'`, case-insensitive, surrounding whitespace trimmed). Value is compared case-insensitively
+ * AFTER `trim().toLowerCase()`; any other non-empty value → `true`. This is the first boolean
+ * env getter in this module.
+ *
+ * @returns `true` iff markers should be emitted around expanded includes.
+ *
+ * @example
+ * ```ts
+ * import { getPrdIncludeMarkers } from './config/constants.js';
+ *
+ * console.log(getPrdIncludeMarkers()); // false (unset)
+ * // PRD_INCLUDE_MARKERS=1 → true; PRD_INCLUDE_MARKERS=off → false
+ * ```
+ */
+export function getPrdIncludeMarkers(): boolean {
+  const raw = process.env[PRD_INCLUDE_MARKERS];
+  if (raw === undefined) {
+    return false;
+  }
+  const v = raw.trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
+}

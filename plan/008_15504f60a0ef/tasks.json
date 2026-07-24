@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Core Include-Expansion Resolver Engine",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Implement the resolvePRD function that turns a multi-file PRD into one canonical document at load time, with include-directive parsing, boundary/existence rules, recursive expansion, cycle detection, max-depth enforcement, idempotency guarantee, and optional markers.",
               "subtasks": [
                 {
@@ -53,7 +53,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Idempotency guarantee, optional markers, and stale-include warnings",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -76,7 +76,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Thread resolvePRD through hashPRD, initialize, and snapshot write",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S3"
@@ -92,7 +92,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Wire resolver through createDeltaSession, findSessionByHash, and delta workflow",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
