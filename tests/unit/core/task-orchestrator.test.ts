@@ -866,10 +866,20 @@ describe('TaskOrchestrator', () => {
         // EXECUTE
         await orchestrator.executeSubtask(subtask);
 
-        // VERIFY: smartCommit was called with session path and commit message
-        expect(mockSmartCommit).toHaveBeenCalledWith(
+        // VERIFY: two-phase commit — exactly TWO smartCommit calls, both with
+        // { generateMessage: true }: survival commit then post-cleanup commit.
+        expect(mockSmartCommit).toHaveBeenCalledTimes(2);
+        expect(mockSmartCommit).toHaveBeenNthCalledWith(
+          1,
           '/plan/001_14b9dc2a33c7',
-          'P1.M1.T1.S1: Test Subtask'
+          'P1.M1.T1.S1: Test Subtask',
+          { generateMessage: true }
+        );
+        expect(mockSmartCommit).toHaveBeenNthCalledWith(
+          2,
+          '/plan/001_14b9dc2a33c7',
+          'cleanup: doc reorganization',
+          { generateMessage: true }
         );
       });
 
@@ -901,10 +911,10 @@ describe('TaskOrchestrator', () => {
         // EXECUTE
         await orchestrator.executeSubtask(subtask);
 
-        // VERIFY: Commit hash was logged
+        // VERIFY: Survival commit hash was logged (first phase)
         expect(mockLogger.info).toHaveBeenCalledWith(
           { commitHash: 'abc123def456' },
-          'Commit created'
+          'Survival commit created'
         );
       });
 
@@ -936,8 +946,10 @@ describe('TaskOrchestrator', () => {
         // EXECUTE
         await orchestrator.executeSubtask(subtask);
 
-        // VERIFY: "No files to commit" was logged
-        expect(mockLogger.info).toHaveBeenCalledWith('No files to commit');
+        // VERIFY: Survival commit empty was logged (first phase returns null)
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          'No substance to commit (survival commit empty)'
+        );
       });
 
       it('should log error but not fail subtask when smartCommit throws', async () => {
@@ -1012,6 +1024,270 @@ describe('TaskOrchestrator', () => {
           'Session path not available for smart commit'
         );
         expect(mockSmartCommit).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('two-phase commit + cleanup seam', () => {
+      beforeEach(() => {
+        mockSmartCommit.mockReset();
+      });
+
+      /** Shared session/orchestrator builder for two-phase tests. */
+      const buildOrchestrator = (
+        cleanupRunner?: (ctx: any) => Promise<any>
+      ) => {
+        mockSmartCommit.mockResolvedValue('abc123def456');
+        const testBacklog = createTestBacklog([]);
+        const currentSession = {
+          metadata: {
+            id: '001_14b9dc2a33c7',
+            hash: '14b9dc2a33c7',
+            path: '/plan/001_14b9dc2a33c7',
+            createdAt: new Date(),
+            parentSession: null,
+          },
+          prdSnapshot: '# Test PRD',
+          taskRegistry: testBacklog,
+          currentItemId: null,
+        };
+        const mockManager = createMockSessionManager(currentSession);
+        const orchestrator = new TaskOrchestrator(
+          mockManager,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          cleanupRunner ? { cleanupRunner } : undefined
+        );
+        return { orchestrator, mockManager };
+      };
+
+      it('should invoke the cleanup runner once with correct context (sessionPath, subtask, repoRoot=process.cwd())', async () => {
+        // SETUP: inject a spy cleanup runner via the constructor options bag.
+        const spyRunner = vi.fn().mockResolvedValue({
+          success: true,
+          summary: 'spy ran',
+        });
+        const { orchestrator } = buildOrchestrator(spyRunner);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        // EXECUTE
+        await orchestrator.executeSubtask(subtask);
+
+        // VERIFY: cleanup runner invoked exactly once with the right context.
+        expect(spyRunner).toHaveBeenCalledTimes(1);
+        expect(spyRunner).toHaveBeenCalledWith({
+          sessionPath: '/plan/001_14b9dc2a33c7',
+          subtask,
+          repoRoot: process.cwd(),
+        });
+      });
+
+      it('should call smartCommit twice (survival then post-cleanup) with generateMessage:true when cleanup succeeds', async () => {
+        const spyRunner = vi.fn().mockResolvedValue({ success: true });
+        const { orchestrator } = buildOrchestrator(spyRunner);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        await orchestrator.executeSubtask(subtask);
+
+        expect(mockSmartCommit).toHaveBeenCalledTimes(2);
+        expect(mockSmartCommit).toHaveBeenNthCalledWith(
+          1,
+          '/plan/001_14b9dc2a33c7',
+          'P1.M1.T1.S1: Test Subtask',
+          { generateMessage: true }
+        );
+        expect(mockSmartCommit).toHaveBeenNthCalledWith(
+          2,
+          '/plan/001_14b9dc2a33c7',
+          'cleanup: doc reorganization',
+          { generateMessage: true }
+        );
+      });
+
+      it('should NOT throw (subtask still succeeds) when the cleanup runner throws', async () => {
+        // SETUP: cleanup runner throws — must be swallowed (non-fatal).
+        const spyRunner = vi.fn().mockRejectedValue(new Error('cleanup boom'));
+        const { orchestrator } = buildOrchestrator(spyRunner);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        // EXECUTE: resolves (no throw, no TaskError).
+        await expect(
+          orchestrator.executeSubtask(subtask)
+        ).resolves.toBeUndefined();
+
+        // VERIFY: survival commit ran (once), post-cleanup commit SKIPPED.
+        expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+        expect(mockSmartCommit).toHaveBeenCalledWith(
+          '/plan/001_14b9dc2a33c7',
+          'P1.M1.T1.S1: Test Subtask',
+          { generateMessage: true }
+        );
+        // The swallowed throw was logged as a warning.
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          { error: 'cleanup boom' },
+          'Cleanup runner threw — continuing (survival commit already safe)'
+        );
+      });
+
+      it('should skip the post-cleanup commit when cleanup runner returns { success: false }', async () => {
+        const spyRunner = vi.fn().mockResolvedValue({
+          success: false,
+          error: 'simulated cleanup failure',
+        });
+        const { orchestrator } = buildOrchestrator(spyRunner);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        // EXECUTE: resolves (cleanup failure is non-fatal).
+        await expect(
+          orchestrator.executeSubtask(subtask)
+        ).resolves.toBeUndefined();
+
+        // VERIFY: only survival commit ran; post-cleanup skipped.
+        expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          { error: 'simulated cleanup failure' },
+          'Cleanup runner reported failure'
+        );
+      });
+
+      it('should continue cleanup + attempt post-cleanup commit when survival smartCommit returns null', async () => {
+        // SETUP: survival commit returns null (nothing staged) — flow continues.
+        mockSmartCommit
+          .mockResolvedValueOnce(null) // survival: empty
+          .mockResolvedValueOnce('posthash'); // post-cleanup: ok
+        const spyRunner = vi.fn().mockResolvedValue({ success: true });
+        const { orchestrator } = buildOrchestrator(spyRunner);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        await orchestrator.executeSubtask(subtask);
+
+        // VERIFY: both calls happened; survival-empty logged at info.
+        expect(mockSmartCommit).toHaveBeenCalledTimes(2);
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          'No substance to commit (survival commit empty)'
+        );
+        // cleanup still ran.
+        expect(spyRunner).toHaveBeenCalledTimes(1);
+      });
+
+      it('should log at info when post-cleanup smartCommit returns null (cleanup changed nothing)', async () => {
+        // SETUP: survival ok; post-cleanup returns null (nothing committable).
+        mockSmartCommit
+          .mockResolvedValueOnce('survivalhash')
+          .mockResolvedValueOnce(null);
+        const spyRunner = vi.fn().mockResolvedValue({ success: true });
+        const { orchestrator } = buildOrchestrator(spyRunner);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        await orchestrator.executeSubtask(subtask);
+
+        expect(mockSmartCommit).toHaveBeenCalledTimes(2);
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          'No cleanup changes to commit'
+        );
+      });
+
+      it('should make ZERO smartCommit calls and ZERO cleanup calls on the FAILED path', async () => {
+        // SETUP: make prpRuntime.executeSubtask FAIL so succeeded=false.
+        const testBacklog = createTestBacklog([]);
+        const currentSession = {
+          metadata: {
+            id: '001_14b9dc2a33c7',
+            hash: '14b9dc2a33c7',
+            path: '/plan/001_14b9dc2a33c7',
+            createdAt: new Date(),
+            parentSession: null,
+          },
+          prdSnapshot: '# Test PRD',
+          taskRegistry: testBacklog,
+          currentItemId: null,
+        };
+        const mockManager = createMockSessionManager(currentSession);
+        const spyRunner = vi.fn().mockResolvedValue({ success: true });
+        const orchestrator = new TaskOrchestrator(
+          mockManager,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { cleanupRunner: spyRunner }
+        );
+        // Force the PRPRuntime mock to report failure.
+        (orchestrator.prpRuntime.executeSubtask as any).mockResolvedValueOnce({
+          success: false,
+          error: 'boom',
+        });
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        // EXECUTE: executeSubtask throws TaskError (halt-on-failure).
+        await expect(orchestrator.executeSubtask(subtask)).rejects.toThrow();
+
+        // VERIFY: no commit, no cleanup on the failed path.
+        expect(mockSmartCommit).not.toHaveBeenCalled();
+        expect(spyRunner).not.toHaveBeenCalled();
+      });
+
+      it('should use the default no-op cleanup runner when no options are passed (backward compat)', async () => {
+        // SETUP: default constructor (no options) — uses createCleanupRunner().
+        mockSmartCommit.mockResolvedValue('abc123def456');
+        const testBacklog = createTestBacklog([]);
+        const currentSession = {
+          metadata: {
+            id: '001_14b9dc2a33c7',
+            hash: '14b9dc2a33c7',
+            path: '/plan/001_14b9dc2a33c7',
+            createdAt: new Date(),
+            parentSession: null,
+          },
+          prdSnapshot: '# Test PRD',
+          taskRegistry: testBacklog,
+          currentItemId: null,
+        };
+        const mockManager = createMockSessionManager(currentSession);
+        const orchestrator = new TaskOrchestrator(mockManager);
+        const subtask = createTestSubtask(
+          'P1.M1.T1.S1',
+          'Test Subtask',
+          'Planned'
+        );
+
+        await orchestrator.executeSubtask(subtask);
+
+        // VERIFY: default runner reports success → TWO commits happen.
+        expect(mockSmartCommit).toHaveBeenCalledTimes(2);
       });
     });
   });
@@ -4150,7 +4426,9 @@ describe('TaskOrchestrator', () => {
       ).resolves.toBeUndefined();
 
       // VERIFY: execution continued past recovery to smartCommit + flushUpdates
-      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      // (two-phase commit: survival commit + post-cleanup commit, both via the
+      //  default no-op cleanup runner which reports success)
+      expect(mockSmartCommit).toHaveBeenCalledTimes(2);
       // VERIFY: the non-fatal failure was logged
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ itemId: 'P1.M1.T1.S1' }),

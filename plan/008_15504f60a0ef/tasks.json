@@ -508,7 +508,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T3.S2",
                   "title": "Pre-cleanup survival commit and post-cleanup commit in executeSubtask",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T3.S1"
@@ -548,7 +548,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T4.S1",
                   "title": "Bounded retry with exponential backoff for stagecoach generation",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T3.S1"

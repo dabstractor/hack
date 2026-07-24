@@ -59,12 +59,30 @@ import {
   TaskRetryManager,
   type TaskRetryConfig,
 } from './task-retry-manager.js';
+import { createCleanupRunner, type CleanupRunner } from './cleanup-runner.js';
 
 /** Local structural type so the method doesn't need to import ExecutionResult directly */
 type ExecutionResultLike = {
   readonly success: boolean;
   readonly outcome?: 'success' | 'fail' | 'issue';
 };
+
+/**
+ * Constructor options bag for {@link TaskOrchestrator} (DI-light).
+ *
+ * @remarks
+ * Trailing options object — backward compatible with all existing positional
+ * constructor callers (they simply omit it). P3.M1.T3.S3 wires the real
+ * cleanup-agent persona through {@link cleanupRunner}.
+ */
+export interface TaskOrchestratorOptions {
+  /**
+   * Injected cleanup runner. Defaults to the no-op
+   * {@link createCleanupRunner}. P3.M1.T3.S3 wires the real cleanup-agent
+   * persona here. Cleanup failure is always non-fatal to `executeSubtask`.
+   */
+  readonly cleanupRunner?: CleanupRunner;
+}
 
 /**
  * Task Orchestrator for PRP Pipeline backlog processing
@@ -127,6 +145,9 @@ export class TaskOrchestrator {
   /** Per-item issue-driven re-planning attempt counts (PRD §4.5). Bounded by getIssueRetryMax(). */
   #issueAttempts: Map<string, number> = new Map();
 
+  /** Injectable cleanup runner (DI-light). Defaults to the no-op createCleanupRunner(). */
+  readonly #cleanupRunner: CleanupRunner;
+
   /** Current item ID being processed (for progress tracking) */
   currentItemId: string | null = null;
 
@@ -154,7 +175,8 @@ export class TaskOrchestrator {
     researchQueueConcurrency: number = 3,
     cacheTtlMs: number = 24 * 60 * 60 * 1000,
     prpCompression: PRPCompressionLevel = 'standard',
-    retryConfig?: Partial<TaskRetryConfig>
+    retryConfig?: Partial<TaskRetryConfig>,
+    options?: TaskOrchestratorOptions
   ) {
     this.#logger = getLogger('TaskOrchestrator');
     this.sessionManager = sessionManager;
@@ -162,6 +184,8 @@ export class TaskOrchestrator {
     this.#researchQueueConcurrency = researchQueueConcurrency;
     this.#cacheTtlMs = cacheTtlMs;
     this.#prpCompression = prpCompression;
+    // DI-light cleanup seam: default no-op; S3 (P3.M1.T3.S3) wires the real persona.
+    this.#cleanupRunner = options?.cleanupRunner ?? createCleanupRunner();
 
     // Load initial backlog from session state
     const currentSession = sessionManager.currentSession;
@@ -1000,13 +1024,76 @@ export class TaskOrchestrator {
           if (!sessionPath) {
             this.#logger.warn('Session path not available for smart commit');
           } else {
-            const commitMessage = `${subtask.id}: ${subtask.title}`;
-            const commitHash = await smartCommit(sessionPath, commitMessage);
-
-            if (commitHash) {
-              this.#logger.info({ commitHash }, 'Commit created');
+            // ── Two-phase commit stagecoach pattern (PRD §4.2 step 4, §5.1) ──
+            // (a) SURVIVAL COMMIT — substance + plan/ work dir + Complete status.
+            //     Runs BEFORE the long/interruptible cleanup so a force-interrupt
+            //     during cleanup can no longer strand an item
+            //     "Complete on disk but uncommitted" (orphaning state).
+            const preHash = await smartCommit(
+              sessionPath,
+              `${subtask.id}: ${subtask.title}`,
+              { generateMessage: true }
+            );
+            if (preHash) {
+              this.#logger.info(
+                { commitHash: preHash },
+                'Survival commit created'
+              );
             } else {
-              this.#logger.info('No files to commit');
+              this.#logger.info(
+                'No substance to commit (survival commit empty)'
+              );
+            }
+
+            // (b) CLEANUP — best-effort, isolated, NEVER fatal. The cleanup
+            //     runner is UNTRUSTED (S3's persona) so its own try/catch MUST
+            //     swallow — a throw escaping here would reach the outer catch
+            //     (→ Failed + rethrow), violating "cleanup is non-fatal".
+            const repoRoot = process.cwd();
+            let cleanupOk = false;
+            try {
+              const res = await this.#cleanupRunner({
+                sessionPath,
+                subtask,
+                repoRoot,
+              });
+              cleanupOk = res.success;
+              if (!res.success) {
+                this.#logger.warn(
+                  { error: res.error },
+                  'Cleanup runner reported failure'
+                );
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              this.#logger.warn(
+                { error: msg },
+                'Cleanup runner threw — continuing (survival commit already safe)'
+              );
+              cleanupOk = false;
+            }
+
+            // cleanup may have written tasks.json — persist before post-cleanup commit
+            await this.sessionManager.flushUpdates();
+
+            // (c) POST-CLEANUP COMMIT — doc reorganization, stagecoach. Only
+            //     when cleanup succeeded; if cleanup failed, nothing was
+            //     reorganized. smartCommit returning null (cleanup changed
+            //     nothing committable) is logged at info and is fine.
+            if (cleanupOk) {
+              const postHash = await smartCommit(
+                sessionPath,
+                'cleanup: doc reorganization',
+                { generateMessage: true }
+              );
+              if (postHash) {
+                this.#logger.info(
+                  { commitHash: postHash },
+                  'Post-cleanup commit created'
+                );
+              } else {
+                this.#logger.info('No cleanup changes to commit');
+              }
             }
           }
         } catch (error) {
