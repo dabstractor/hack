@@ -307,12 +307,34 @@ export function tryUnlink(lockPath: string): boolean {
 const _held = new Map<string, Promise<void>>();
 
 /**
- * Re-entrancy tracker: the set of session dirs the current async chain already
- * holds a lock on. A transitive re-entry on the same dir takes the fast path.
+ * Re-entrancy ownership context for the current async chain.
+ *
+ * @remarks
+ * `held` is the set of session dirs this async chain already holds a lock on
+ * (a transitive re-entry on the same dir takes the fast path). `inflight` maps
+ * each held dir to the in-flight {@link Backlog} currently being mutated by the
+ * owning critical section. Re-entrant inner mutators MUST operate on the SAME
+ * in-flight object the outer mutator is mutating — re-reading from disk would
+ * lose the outer's pending deltas (S2 / D4). Each `ownership.run` copies both
+ * collections so concurrent independent critical sections never share state.
  *
  * @internal
  */
-const ownership = new AsyncLocalStorage<Set<string>>();
+interface LockOwnership {
+  /** Session dirs this async chain currently holds a lock on. */
+  readonly held: Set<string>;
+  /** sessionDir → in-flight backlog being mutated by the owning critical section. */
+  readonly inflight: Map<string, Backlog>;
+}
+
+/**
+ * Re-entrancy tracker: the ownership context for the current async chain.
+ * A transitive re-entry on the same dir takes the fast path (operating on the
+ * stashed in-flight backlog, not a disk re-read).
+ *
+ * @internal
+ */
+const ownership = new AsyncLocalStorage<LockOwnership>();
 
 /**
  * Set of lockfile paths currently held by THIS process, for best-effort
@@ -432,22 +454,31 @@ export function releaseTasksJSONLock(sessionDir: string): void {
  *    its age exceeds `staleMs`, so a SIGKILLed process does not wedge the next
  *    caller for the full `staleMs`.
  *
- * In the re-entrant fast path, the inner call re-reads `tasks.json` (SAFE:
- * the outer caller already holds the lock, so no other process can be
- * mid-write) and runs the mutator. It does NOT re-write by itself — the
+ * In the re-entrant fast path, the inner call operates on the SAME in-flight
+ * {@link Backlog} the outer critical section is mutating (stashed in the
+ * {@link AsyncLocalStorage} ownership context, SAFE: the outer caller already
+ * holds the lock, so no other process can be mid-write). It does NOT re-read
+ * disk — re-reading would lose the outer's pending deltas under the delta-merge
+ * mutators introduced in S2 (D4). It also does NOT re-write by itself — the
  * returned backlog is written by whichever call actually owns the lock. See
- * Implementation Decision D3 in the PRP.
+ * Implementation Decision D3/D4 in the PRP.
  *
  * @param sessionDir - Absolute path of the session directory (the directory
  *                     containing `tasks.json`).
  * @param mutator - Receives the current {@link Backlog} and returns the NEXT
  *                  (mutated) `Backlog` to persist. May be async.
  * @param opts - Optional lock tunables (`staleMs` / `timeoutMs` / `pollMs`).
+ * @param readFallback - Optional {@link Backlog} to use when the locked read
+ *                       of `tasks.json` throws (e.g. corrupt/missing file, as
+ *                       in recovery PATH B). When omitted, a read failure is
+ *                       re-thrown (the normal runtime path never has corrupt
+ *                       disk under the lock).
  * @returns The persisted `Backlog` (the value returned by `mutator`).
  * @throws {TasksLockAcquisitionError} If the lock cannot be acquired within
  *         `timeoutMs`.
- * @throws {Error} Re-throws any error from `readTasksJSON`, `mutator`, or
- *         `writeTasksJSON`; the lock is always released (in a `finally`).
+ * @throws {Error} Re-throws any error from `readTasksJSON` (when no
+ *         `readFallback` is supplied), `mutator`, or `writeTasksJSON`; the
+ *         lock is always released (in a `finally`).
  *
  * @example
  * ```typescript
@@ -460,16 +491,21 @@ export function releaseTasksJSONLock(sessionDir: string): void {
 export async function withLockedTasksJSON(
   sessionDir: string,
   mutator: (backlog: Backlog) => Backlog | Promise<Backlog>,
-  opts?: TasksLockOptions
+  opts?: TasksLockOptions,
+  readFallback?: Backlog
 ): Promise<Backlog> {
   // ── Re-entrant fast path: this async chain already holds this dir's lock ──
   const owned = ownership.getStore();
-  if (owned?.has(sessionDir)) {
+  if (owned?.held.has(sessionDir)) {
     logger().debug(
       { sessionDir, reentrant: true },
       'Re-entrant withLockedTasksJSON — skipping re-acquire'
     );
-    const cur = await readTasksJSON(sessionDir); // SAFE: we hold the lock
+    // D4: operate on the SAME in-flight backlog the outer critical section is
+    // mutating — never a disk re-read (which would lose the outer's pending
+    // deltas). Fall back to a read only if no in-flight object was stashed.
+    const inflight = owned.inflight.get(sessionDir);
+    const cur = inflight ?? (await readTasksJSON(sessionDir));
     return mutator(cur);
   }
 
@@ -487,15 +523,30 @@ export async function withLockedTasksJSON(
 
   try {
     const resolved = resolveOpts(opts);
-    // Run the critical section inside an ALS context that records ownership of
-    // this dir so transitive re-entries on the same dir short-circuit above.
+    // Copy the parent context's collections so this independent critical
+    // section does not share inflight state with a concurrent sibling, then add
+    // this dir to the held set. The inflight entry is stashed right after the
+    // locked read below so re-entrant inner mutators see the same object.
+    const inflightForRun = new Map(owned?.inflight ?? []);
     return await ownership.run(
-      new Set(owned ?? []).add(sessionDir),
+      {
+        held: new Set(owned?.held ?? []).add(sessionDir),
+        inflight: inflightForRun,
+      },
       async () => {
         await acquireFileLock(tasksLockPath(sessionDir), resolved);
         _heldLockPaths.add(tasksLockPath(sessionDir));
         try {
-          const backlog = await readTasksJSON(sessionDir); // READ
+          // READ — when a readFallback is supplied (recovery PATH B: corrupt
+          // disk), use it if the read throws; otherwise propagate.
+          let backlog: Backlog;
+          try {
+            backlog = await readTasksJSON(sessionDir);
+          } catch (readErr) {
+            if (readFallback === undefined) throw readErr;
+            backlog = structuredClone(readFallback); // repo/caller-owned → clone
+          }
+          inflightForRun.set(sessionDir, backlog); // D4: stash for re-entry
           const next = await mutator(backlog); // MODIFY
           await writeTasksJSON(sessionDir, next); // WRITE (atomic temp+rename)
           return next;

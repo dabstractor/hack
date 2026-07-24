@@ -22,7 +22,11 @@ import type { Backlog } from '../../../src/core/models.js';
 import { SessionManager } from '../../../src/core/session-manager.js';
 import {
   hashPRD,
+  resolvePRD,
+  hashPRDContent,
+  snapshotPRD,
   createSessionDirectory,
+  readTasksJSON,
   writeTasksJSON,
   SessionFileError,
 } from '../../../src/core/session-utils.js';
@@ -53,7 +57,10 @@ vi.mock('node:crypto', () => ({
 // Mock the session-utils module
 vi.mock('../../../src/core/session-utils.js', () => ({
   hashPRD: vi.fn(),
+  resolvePRD: vi.fn(),
+  hashPRDContent: vi.fn(),
   createSessionDirectory: vi.fn(),
+  snapshotPRD: vi.fn(),
   readTasksJSON: vi.fn(),
   writeTasksJSON: vi.fn(),
   SessionFileError: class extends Error {
@@ -78,11 +85,50 @@ vi.mock('../../../src/utils/prd-validator.js', () => ({
   PRDValidator: vi.fn(),
 }));
 
-// Mock the task-utils module
+// Mock the task-utils module. setItemStatus is given a REAL implementation
+// (pure function) so the delta-merge mutator in saveBacklog works under the
+// file-lock passthrough; updateItemStatus stays a bare spy shaped per-test.
 vi.mock('../../../src/utils/task-utils.js', () => ({
   updateItemStatus: vi.fn(),
+  setItemStatus: vi.fn(function setItemStatus(backlog, itemId, status) {
+    let found = false;
+    const visit = item => {
+      if (item.id === itemId) {
+        item.status = status;
+        found = true;
+        return;
+      }
+      if ('milestones' in item) item.milestones.forEach(visit);
+      if ('tasks' in item) item.tasks.forEach(visit);
+      if ('subtasks' in item) item.subtasks.forEach(visit);
+    };
+    backlog.backlog.forEach(visit);
+    return found;
+  }),
   findItem: vi.fn(),
   getAllSubtasks: vi.fn(() => []),
+}));
+
+// Mock the file-lock module: node:fs is mocked (no sync fns) and the session
+// path is a fake string, so bypass the real O_EXCL lock. The passthrough mirrors
+// the real accessor (read fresh → mutator → write) so the spied writeTasksJSON
+// still records the call AND existing retry/count assertions stay meaningful.
+vi.mock('../../../src/core/file-lock.js', () => ({
+  withLockedTasksJSON: vi.fn(
+    async (_sessionDir, mutator, _opts, readFallback) => {
+      const { readTasksJSON, writeTasksJSON } =
+        await import('../../../src/core/session-utils.js');
+      let fresh;
+      try {
+        fresh = await readTasksJSON(_sessionDir);
+      } catch {
+        fresh = readFallback;
+      }
+      const next = await mutator(fresh);
+      await writeTasksJSON(_sessionDir, next);
+      return next;
+    }
+  ),
 }));
 
 // Import mocked modules
@@ -101,6 +147,10 @@ const mockStatSync = vi.mocked(statSync);
 const mockRandomBytes = vi.mocked(randomBytes);
 
 const mockHashPRD = vi.mocked(hashPRD);
+const mockResolvePRD = vi.mocked(resolvePRD);
+const mockHashPRDContent = vi.mocked(hashPRDContent);
+const mockSnapshotPRD = vi.mocked(snapshotPRD);
+const mockReadTasksJSON = vi.mocked(readTasksJSON);
 const mockCreateSessionDirectory = vi.mocked(createSessionDirectory);
 const mockWriteTasksJSON = vi.mocked(writeTasksJSON);
 const mockPRDValidator = vi.mocked(PRDValidator);
@@ -224,6 +274,17 @@ async function createMockSessionManager(
 
   // Mock hashPRD to return a valid hash
   mockHashPRD.mockResolvedValue('14b9dc2a33c7' + '0'.repeat(52));
+  // resolvePRD + hashPRDContent are called by SessionManager.initialize() to
+  // derive the session hash; snapshotPRD captures the PRD snapshot.
+  mockResolvePRD.mockResolvedValue('# Test PRD');
+  mockHashPRDContent.mockReturnValue('14b9dc2a33c7' + '0'.repeat(52));
+  mockSnapshotPRD.mockReturnValue({
+    rawContent: '# Test PRD',
+    frontmatter: {},
+  });
+  // Seed the locked read so the delta-merge mutator has a structured base to
+  // apply the queued {itemId, status} deltas onto (mirrors real runtime).
+  mockReadTasksJSON.mockResolvedValue(_createMockBacklog());
 
   // Mock createSessionDirectory
   mockCreateSessionDirectory.mockResolvedValue('/test/plan/001_14b9dc2a33c7');

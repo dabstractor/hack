@@ -28,18 +28,13 @@
  */
 
 import { dirname, relative, resolve } from 'node:path';
-import type {
-  Backlog,
-  Phase,
-  Milestone,
-  Task,
-  Subtask,
-  Status,
-} from './models.js';
+import type { Backlog, Status } from './models.js';
 import { BacklogSchema } from './models.js';
-import { readTasksJSON, writeTasksJSON } from './session-utils.js';
+import { readTasksJSON } from './session-utils.js';
 import { validateBacklogState } from './state-validator.js';
+import { withLockedTasksJSON } from './file-lock.js';
 import { gitFileHistory, gitReadFileAtCommit } from '../tools/git-mcp.js';
+import { setItemStatus } from '../utils/task-utils.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 
 let _logger: Logger | undefined;
@@ -64,6 +59,13 @@ export interface TasksJsonRecoveryResult {
   readonly source: 'disk' | 'git';
   /** Human-readable detail (commit hash, path taken, or failure cause). */
   readonly reason?: string;
+  /**
+   * The authoritative backlog that was written to disk under the lock (PRD §5.1,
+   * P3.M1.T2.S2). `undefined` ONLY on a PATH-C failure (no backlog produced).
+   * Callers should reuse this directly instead of re-reading `tasks.json`,
+   * avoiding a second lock acquisition and a TOCTOU window.
+   */
+  readonly backlog?: Backlog;
 }
 
 /**
@@ -83,43 +85,6 @@ export interface RecoverTasksJsonOptions {
 }
 
 // ============================================================================
-// INTERNAL HELPERS
-// ============================================================================
-
-/**
- * Union of any hierarchy node (all have id + status).
- */
-type AnyItem = Phase | Milestone | Task | Subtask;
-
-/**
- * Recursively set the status of the item with `itemId` (mutates in place via
- * the established readonly-cast idiom; mirrors state-validator.ts repair fns).
- * Returns true if the item was found.
- *
- * @internal
- */
-function setItemStatus(
-  backlog: Backlog,
-  itemId: string,
-  status: Status
-): boolean {
-  let found = false;
-  const visit = (item: AnyItem): void => {
-    if (item.id === itemId) {
-      // readonly cast idiom (same as state-validator's dependency repair)
-      (item as { status: Status }).status = status;
-      found = true;
-      return; // ids are unique; stop descending once found
-    }
-    if ('milestones' in item) item.milestones.forEach(visit);
-    if ('tasks' in item) item.tasks.forEach(visit);
-    if ('subtasks' in item) item.subtasks.forEach(visit);
-  };
-  backlog.backlog.forEach(visit);
-  return found;
-}
-
-// ============================================================================
 // PUBLIC API
 // ============================================================================
 
@@ -129,16 +94,24 @@ function setItemStatus(
  * @remarks
  * Reconciles on-disk tasks.json after a Coder/agent run:
  *  - **Clean disk** (parses + validates): reconstructs from `opts.baselineBacklog`
- *    (preferred) or the disk backlog, applies ONLY `legitimateDelta`, and writes.
- *    Unauthorized agent mutations to unrelated items are discarded when a
- *    baseline is supplied.
+ *    (preferred) or the disk backlog, applies ONLY `legitimateDelta`, and writes
+ *    INSIDE `withLockedTasksJSON` so the read-modify-write is serialized against
+ *    every other writer. Unauthorized agent mutations to unrelated items are
+ *    discarded when a baseline is supplied.
  *  - **Corrupt disk** (parse/validate failure): walks git history (via the S1
- *    primitives), restores the LAST VALID committed version, re-applies
- *    `legitimateDelta`, and preserves items currently in `Researching` or
- *    `Retrying` status (they are carried forward from the restored version —
+ *    primitives) OUTSIDE the lock (the walk is read-only and can take seconds;
+ *    holding the O_EXCL lock across it risks a stale-lock false-positive), then
+ *    restores the LAST VALID committed version + re-applies `legitimateDelta`
+ *    INSIDE the lock, preferring a now-healed fresh read if another writer fixed
+ *    the corruption during the walk. Preserves items currently in `Researching`
+ *    or `Retrying` status (they are carried forward from the restored version —
  *    never dropped to `Planned`). There is NO `Ready` status.
  *  - **Total failure**: logs and leaves state as-is. NEVER throws — a single
  *    corrupting agent must never terminate the session.
+ *
+ * The written backlog is returned as `result.backlog` so callers reuse it
+ * directly instead of re-reading `tasks.json` (eliminates a second lock
+ * acquisition + a TOCTOU window).
  *
  * @param tasksPath - Path to the tasks.json FILE (e.g. 'plan/005_.../tasks.json').
  * @param legitimateDelta - The item id + the status the orchestrator intends/just applied.
@@ -167,70 +140,99 @@ export async function recoverTasksJson(
   // CRITICAL: outer non-fatal guard — recoverTasksJson NEVER throws to S3.
   try {
     // ---- PATH A: clean disk (parse + validate) ----
-    let diskBacklog: Backlog | null = null;
+    // The validity probe is a best-effort, harmless read; it decides which
+    // path to take. It runs OUTSIDE the lock (no serialization needed for a
+    // probe).
+    let diskClean = false;
     try {
       const candidate = await readTasksJSON(sessionDir); // throws on parse/schema fail
-      if (validateBacklogState(candidate).isValid) diskBacklog = candidate;
+      if (validateBacklogState(candidate).isValid) diskClean = true;
     } catch {
       // corruption signal — fall through to PATH B
     }
 
-    if (diskBacklog) {
-      const base = opts?.baselineBacklog ?? diskBacklog; // baseline preferred → discards unauthorized mutations
-      const reconstructed = structuredClone(base) as Backlog;
-      setItemStatus(
-        reconstructed,
-        legitimateDelta.itemId,
-        legitimateDelta.status
-      );
-      await writeTasksJSON(sessionDir, reconstructed);
+    if (diskClean) {
+      // RMW inside the lock: merge the legitimate delta onto the FRESH locked
+      // read (another writer may have landed changes between the probe and
+      // here). Prefer the caller's baseline so unauthorized agent mutations to
+      // unrelated items are discarded.
+      const written = await withLockedTasksJSON(sessionDir, fresh => {
+        const base = opts?.baselineBacklog
+          ? (structuredClone(opts.baselineBacklog) as Backlog) // caller-owned → clone
+          : fresh; // already a fresh Zod object (no clone needed, R6)
+        setItemStatus(base, legitimateDelta.itemId, legitimateDelta.status);
+        return base;
+      });
       return {
         restored: false,
         source: 'disk',
         reason: 're-applied legitimate status delta',
+        backlog: written,
       };
     }
 
     // ---- PATH B: corrupt disk → walk git history for the last valid version ----
+    // The git walk is READ-ONLY and can take seconds; it runs OUTSIDE the lock
+    // so a waiter's stale-age check cannot delete a LIVE lock mid-walk (R3).
     const history = await gitFileHistory(relPath, repoPath); // [] on no-history; throws on git error (→ PATH C)
+    let restoredBacklog: Backlog | null = null;
+    let restoreCommit: string | null = null;
     for (const entry of history) {
       const blob = await gitReadFileAtCommit(relPath, entry.commit, repoPath); // throws on error (→ PATH C)
       try {
         const parsed = JSON.parse(blob);
-        const restored = BacklogSchema.parse(parsed) as Backlog; // schema-valid
-        // prefer fully-valid; schema-valid alone is acceptable (deeper issues are rare post-restore)
-        // Researching/Retrying items are preserved automatically (we mutate ONLY the target item below)
-        const reconstructed = structuredClone(restored) as Backlog;
-        setItemStatus(
-          reconstructed,
-          legitimateDelta.itemId,
-          legitimateDelta.status
-        );
-        await writeTasksJSON(sessionDir, reconstructed);
-        logger().info(
-          { commit: entry.commit },
-          'tasks.json restored from git history'
-        );
-        return {
-          restored: true,
-          source: 'git',
-          reason: `restored from commit ${entry.commit}`,
-        };
+        restoredBacklog = BacklogSchema.parse(parsed) as Backlog; // schema-valid
+        restoreCommit = entry.commit;
+        break;
       } catch {
         // this commit's blob wasn't valid JSON / didn't validate — try the next older commit
         continue;
       }
     }
 
-    // ---- PATH C: no valid version found in history ----
-    logger().error(
-      { relPath, historyLength: history.length },
-      'tasks.json recovery failed: no valid version in git history'
+    if (!restoredBacklog || !restoreCommit) {
+      // ---- PATH C: no valid version found in history ----
+      logger().error(
+        { relPath, historyLength: history.length },
+        'tasks.json recovery failed: no valid version in git history'
+      );
+      return {
+        restored: false,
+        source: 'disk',
+        reason: 'recovery failed: no valid version in git history',
+      };
+    }
+
+    // Phase 2 (under lock, sub-second): the locked read may either (a) succeed —
+    // another writer HEALED disk during the walk, so prefer that fresh read;
+    // or (b) throw — disk is still corrupt, so use the restored blob as the
+    // base (passed as the accessor's readFallback). Then apply ONLY the
+    // legitimate delta. Researching/Retrying items are preserved automatically
+    // (we mutate ONLY the target item).
+    const commit = restoreCommit;
+    const written = await withLockedTasksJSON(
+      sessionDir,
+      base => {
+        // If we got here via a successful read (disk healed), `base` is the
+        // fresh disk read; validate it and prefer it. If the read threw and the
+        // accessor used restoredBacklog, `base` is the restored blob (always
+        // valid by construction) → validateBacklogState(...).isValid is true.
+        const useFresh = validateBacklogState(base).isValid;
+        const target = useFresh
+          ? base
+          : (structuredClone(restoredBacklog!) as Backlog);
+        setItemStatus(target, legitimateDelta.itemId, legitimateDelta.status);
+        return target;
+      },
+      undefined,
+      restoredBacklog // readFallback: corrupt disk → use the restored blob
     );
+    logger().info({ commit }, 'tasks.json restored from git history');
     return {
-      restored: false,
-      source: 'disk',
-      reason: 'recovery failed: no valid version in git history',
+      restored: true,
+      source: 'git',
+      reason: `restored from commit ${commit}`,
+      backlog: written,
     };
   } catch (error) {
     // ---- PATH C: any uncaught error (git threw, write threw, etc.) — non-fatal ----

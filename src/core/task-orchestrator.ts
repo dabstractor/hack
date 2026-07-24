@@ -1126,15 +1126,22 @@ export class TaskOrchestrator {
         );
       }
 
-      // --- 3. Reload the session registry from the recovered disk (refreshBacklog() is
-      //        in-memory only — implementation_notes §6). readTasksJSON may throw if
-      //        recovery left the disk corrupt (PATH C); that throw is caught below. ---
-      const recovered = await readTasksJSON(session.metadata.path);
-      // readonly-cast idiom (SessionState.taskRegistry is readonly; mirrors state-validator.ts)
-      (
-        this.sessionManager.currentSession as { taskRegistry: Backlog }
-      ).taskRegistry = recovered;
-      await this.refreshBacklog();
+      // --- 3. Reload the session registry from recovery's locked result. When
+      //        recovery produced a backlog (PATH A/B), reuse it directly — no
+      //        second locked re-read, no TOCTOU window. When recovery produced
+      //        none (PATH C failure), fall back to a best-effort read that
+      //        tolerates a corrupt-disk throw. refreshBacklog() is in-memory
+      //        only (implementation_notes §6). ---
+      const recovered =
+        recovery.backlog ??
+        (await readTasksJSON(session.metadata.path).catch(() => null));
+      if (recovered) {
+        // readonly-cast idiom (SessionState.taskRegistry is readonly; mirrors state-validator.ts)
+        (
+          this.sessionManager.currentSession as { taskRegistry: Backlog }
+        ).taskRegistry = recovered;
+        await this.refreshBacklog();
+      }
     } catch (error) {
       // NON-FATAL: a recovery/reload failure must never terminate the session (PRD §5.1).
       const errorMessage =

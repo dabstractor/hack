@@ -210,31 +210,35 @@ describe('core/file-lock', () => {
   // ── Case 5: re-entrancy (same-dir transitive call does not deadlock) ──────
   it('does not deadlock on a re-entrant call to the same session dir', async () => {
     let innerReadCount = 0;
-    let innerDiskValue = -1;
+    let innerSawOuterDelta = false;
 
     // The outer mutator re-enters withLockedTasksJSON on the SAME dir.
     // ALS must propagate the ownership so the inner call takes the fast path
-    // and does NOT re-acquire the file lock (no deadlock). The inner call
-    // re-reads tasks.json from DISK (which still holds the seed value, since
-    // the outer's write happens only after its mutator returns) and does NOT
-    // re-write by itself. The outer's in-memory mutation is what gets persisted.
+    // and does NOT re-acquire the file lock (no deadlock). Per D4, the inner
+    // call operates on the SAME in-flight backlog the outer is mutating (NOT a
+    // disk re-read) — so it sees the outer's pending delta and its own delta
+    // both land on the single persisted write.
     await withLockedTasksJSON(dir, async outer => {
       outer.backlog[0].milestones[0].tasks[0].subtasks[0].story_points = 8;
       await withLockedTasksJSON(dir, inner => {
         innerReadCount++;
-        innerDiskValue =
-          inner.backlog[0].milestones[0].tasks[0].subtasks[0].story_points;
+        // inner sees the outer's in-flight mutation (8), proving the stashed
+        // in-flight backlog is shared, not a disk re-read (which would be 1).
+        innerSawOuterDelta =
+          inner.backlog[0].milestones[0].tasks[0].subtasks[0].story_points ===
+          8;
+        inner.backlog[0].milestones[0].tasks[0].subtasks[0].story_points = 9;
         return inner; // returned but NOT written by the inner call
       });
       return outer;
     });
 
     // VERIFY: inner fast path ran exactly once (no re-acquire / deadlock),
-    // saw the on-disk seed value (1) — proving it re-read under the held lock
-    // rather than seeing the outer's in-flight 8 — and the outer persisted 8.
+    // saw the outer's in-flight delta (D4 stashed backlog, not a disk re-read),
+    // and the outer persisted the inner's mutation too (9).
     expect(innerReadCount).toBe(1);
-    expect(innerDiskValue).toBe(1);
-    expect(await readPoints(dir)).toBe(8);
+    expect(innerSawOuterDelta).toBe(true);
+    expect(await readPoints(dir)).toBe(9);
     expect(existsSync(join(dir, 'tasks.json.lock'))).toBe(false);
   });
 

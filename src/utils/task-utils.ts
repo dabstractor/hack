@@ -486,3 +486,61 @@ export function updateItemStatus(
   // Complete, and so on up to the phase. Monotonic + idempotent.
   return rollupCompletion(updated);
 }
+
+/**
+ * Union of any hierarchy node (all have `id` + `status`).
+ *
+ * @remarks
+ * Used by {@link setItemStatus} for the recursive tree walk. Kept here so the
+ * canonical per-item status-setter lives alongside the other hierarchy
+ * utilities (PRD §5.1, P3.M1.T2.S2 — single merge implementation shared by the
+ * session-manager delta-merge mutator and the recovery path).
+ */
+export type AnyItem = Phase | Milestone | Task | Subtask;
+
+/**
+ * Recursively set the `status` of the item with `itemId`, mutating the backlog
+ * IN PLACE via the established readonly-cast idiom.
+ *
+ * @remarks
+ * This is the **canonical per-item last-writer-wins merge** for the `status`
+ * field (the only field that changes at runtime — the tree structure is
+ * immutable after breakdown). It is shared by:
+ *  - `SessionManager.saveBacklog`'s delta-merge mutator (applies queued
+ *    `{itemId, status}` deltas onto the fresh locked disk read), and
+ *  - `recoverTasksJson`'s legitimate-delta re-apply (PATH A + PATH B).
+ *
+ * Mirrors `state-validator.ts`'s repair fns. Returns `true` if the item was
+ * found (so callers can short-circuit / log). Idempotent: setting the existing
+ * status is a no-op write.
+ *
+ * @param backlog - The backlog to mutate (in place).
+ * @param itemId - The hierarchy id to locate (e.g. `P1.M1.T1.S1`).
+ * @param status - The status to assign.
+ * @returns `true` if an item with `itemId` was found and updated.
+ *
+ * @example
+ * ```typescript
+ * setItemStatus(backlog, 'P1.M1.T1.S1', 'Complete');
+ * ```
+ */
+export function setItemStatus(
+  backlog: Backlog,
+  itemId: string,
+  status: Status
+): boolean {
+  let found = false;
+  const visit = (item: AnyItem): void => {
+    if (item.id === itemId) {
+      // readonly cast idiom (same as state-validator's dependency repair)
+      (item as { status: Status }).status = status;
+      found = true;
+      return; // ids are unique; stop descending once found
+    }
+    if ('milestones' in item) item.milestones.forEach(visit);
+    if ('tasks' in item) item.tasks.forEach(visit);
+    if ('subtasks' in item) item.subtasks.forEach(visit);
+  };
+  backlog.backlog.forEach(visit);
+  return found;
+}

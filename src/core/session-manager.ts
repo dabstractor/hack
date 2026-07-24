@@ -40,14 +40,15 @@ import {
   createSessionDirectory,
   snapshotPRD,
   readTasksJSON,
-  writeTasksJSON,
   SessionFileError,
 } from './session-utils.js';
 import { diffPRDs } from './prd-differ.js';
 import {
   updateItemStatus as updateItemStatusUtil,
+  setItemStatus,
   findItem,
 } from '../utils/task-utils.js';
+import { withLockedTasksJSON } from './file-lock.js';
 import { PRDValidator } from '../utils/prd-validator.js';
 import { ValidationError } from '../utils/errors.js';
 import { detectCircularDeps } from './dependency-validator.js';
@@ -175,6 +176,20 @@ export class SessionManager {
 
   /** Batching state: latest accumulated backlog state */
   #pendingUpdates: Backlog | null = null;
+
+  /**
+   * Batching state: queued per-item status deltas (PRD §5.1 lost-update fix).
+   *
+   * @remarks
+   * `#pendingUpdates` is a FULL in-memory Backlog snapshot, so writing it as a
+   * blind overwrite would clobber a concurrent writer even under the lock. This
+   * queue records ONLY the intended `{itemId, status}` changes; `saveBacklog`
+   * applies them onto the FRESH locked disk read inside `withLockedTasksJSON`,
+   * yielding a per-item last-writer-wins merge that preserves concurrent
+   * writers' changes. Cleared on a successful flush (preserved on error, like
+   * `#pendingUpdates`).
+   */
+  #pendingDeltas: Array<{ itemId: string; status: Status }> = [];
 
   /** Batching state: count of accumulated updates (for stats) */
   #updateCount: number = 0;
@@ -694,45 +709,60 @@ export class SessionManager {
   }
 
   /**
-   * Atomically saves backlog to tasks.json
+   * Atomically saves backlog to tasks.json under an exclusive lock with a
+   * per-item delta merge (PRD §5.1 lost-update prevention).
    *
    * @remarks
-   * Delegates to writeTasksJSON() which uses atomic write pattern
-   * (temp file + rename) to prevent data corruption if process crashes.
+   * Routes through {@link withLockedTasksJSON} so this read-modify-write is
+   * serialized against every other writer (the background research supervisor,
+   * the concurrent executor, recovery). When `#pendingDeltas` is non-empty
+   * (the normal runtime status-update path), the mutator reads the FRESH disk
+   * state inside the lock and applies ONLY those `{itemId, status}` deltas onto
+   * it — it does NOT overwrite with the stale `#pendingUpdates` snapshot, which
+   * would silently revert a concurrent writer's status. When `#pendingDeltas`
+   * is empty (init-time full writes from `handleDelta`/`decomposePRD`, which are
+   * single-writer), the caller's `backlog` is written verbatim.
    *
-   * @param backlog - Backlog object to persist
-   * @throws {Error} If no session is loaded
-   * @throws {SessionFileError} If write fails
+   * The in-memory registry is synced to the MERGED result the accessor returns
+   * (it includes concurrent writers' changes too), so memory and disk never
+   * diverge.
    *
-   * @example
-   * ```typescript
-   * const backlog: Backlog = { backlog: [/* ... *\/] };
-   * await manager.saveBacklog(backlog);
-   * ```
+   * @param backlog - Backlog object to persist.
+   * @throws {Error} If no session is loaded.
+   * @throws {TasksLockAcquisitionError} If the lock cannot be acquired.
+   * @throws {SessionFileError} If the underlying write fails.
    */
   async saveBacklog(backlog: Backlog): Promise<void> {
     if (!this.#currentSession) {
       throw new Error('Cannot save backlog: no session loaded');
     }
 
-    await writeTasksJSON(this.#currentSession.metadata.path, backlog);
+    const sessionDir = this.#currentSession.metadata.path;
+    // Capture the delta queue at call time; flushUpdates clears it on success.
+    // (There is a single SessionManager per pipeline run and flushUpdates
+    // serializes via #dirty, so this capture is safe.)
+    const deltas = this.#pendingDeltas;
 
-    // Keep the in-memory registry in sync with what we just persisted. Disk is
-    // the source of truth (PRD §9.3.2); the in-memory taskRegistry is a mirror
-    // of it. Without this, disk and memory diverge — e.g. after the Architect
-    // generates the backlog the on-disk tasks.json is populated but
-    // currentSession.taskRegistry stays empty, so every downstream read (task
-    // counts, the orchestrator's execution queue, and the shutdown save) all
-    // operate on stale/empty state, and the final cleanup() then writes the
-    // empty registry back over the populated file.
+    const written = await withLockedTasksJSON(sessionDir, fresh => {
+      if (deltas.length === 0) {
+        // Init-time / single-writer full write — honor the caller's backlog.
+        return backlog;
+      }
+      // Runtime status-update path — apply ONLY the queued deltas onto the
+      // fresh locked disk read, preserving concurrent writers' changes (R1).
+      for (const d of deltas) setItemStatus(fresh, d.itemId, d.status);
+      return fresh;
+    });
+
+    // Sync memory to the MERGED result (picks up concurrent changes too):
     this.#currentSession = {
       ...this.#currentSession,
-      taskRegistry: backlog,
+      taskRegistry: written,
     };
 
     this.#logger.debug(
-      { backlogPath: this.#currentSession.metadata.path },
-      'Backlog persisted'
+      { backlogPath: sessionDir, deltasApplied: deltas.length },
+      'Backlog persisted under lock'
     );
   }
 
@@ -804,6 +834,7 @@ export class SessionManager {
         this.#dirty = false;
         this.#pendingUpdates = null;
         this.#updateCount = 0;
+        this.#pendingDeltas = [];
 
         this.#logger.debug('Batching state reset');
         return;
@@ -846,6 +877,7 @@ export class SessionManager {
         this.#dirty = false;
         this.#pendingUpdates = null;
         this.#updateCount = 0;
+        this.#pendingDeltas = [];
 
         this.#logger.debug('Batching state reset');
         return; // Success - exit retry loop
@@ -1060,6 +1092,10 @@ export class SessionManager {
     this.#pendingUpdates = updated;
     this.#dirty = true;
     this.#updateCount++;
+
+    // Record the intended {itemId, status} delta so saveBacklog can apply ONLY
+    // it onto the fresh locked disk read (per-item LWW merge, PRD §5.1).
+    this.#pendingDeltas.push({ itemId, status });
 
     // Update internal session state
     this.#currentSession = {

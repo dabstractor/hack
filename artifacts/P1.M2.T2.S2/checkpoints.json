@@ -2,7 +2,7 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M2.T2.S2_1784894635965_coder-response_62fb8b92",
+      "id": "P1.M2.T2.S2_1784897555536_coder-response_67cf04f3",
       "taskId": "P1.M2.T2.S2",
       "label": "After Coder Agent response",
       "state": {
@@ -14,12 +14,12 @@
           "message": "Implementation complete"
         },
         "validationResults": [],
-        "timestamp": "2026-07-24T12:03:55.965Z"
+        "timestamp": "2026-07-24T12:52:35.536Z"
       },
-      "createdAt": "2026-07-24T12:03:55.965Z"
+      "createdAt": "2026-07-24T12:52:35.536Z"
     },
     {
-      "id": "P1.M2.T2.S2_1784894635977_validation-gate-4_8ffc9007",
+      "id": "P1.M2.T2.S2_1784897555547_validation-gate-4_33877c27",
       "taskId": "P1.M2.T2.S2",
       "label": "After validation gate 4",
       "state": {
@@ -72,12 +72,12 @@
             "skipped": true
           }
         ],
-        "timestamp": "2026-07-24T12:03:55.977Z"
+        "timestamp": "2026-07-24T12:52:35.547Z"
       },
-      "createdAt": "2026-07-24T12:03:55.977Z"
+      "createdAt": "2026-07-24T12:52:35.547Z"
     },
     {
-      "id": "P1.M2.T2.S2_1784894635978_complete_e65cad61",
+      "id": "P1.M2.T2.S2_1784897555548_complete_690228ea",
       "taskId": "P1.M2.T2.S2",
       "label": "Task completed successfully",
       "state": {
@@ -130,24 +130,24 @@
             "skipped": true
           }
         ],
-        "timestamp": "2026-07-24T12:03:55.978Z"
+        "timestamp": "2026-07-24T12:52:35.548Z"
       },
-      "createdAt": "2026-07-24T12:03:55.978Z"
+      "createdAt": "2026-07-24T12:52:35.548Z"
     },
     {
-      "id": "P1.M2.T2.S2_1784894635979_pre-execution_76f827f7",
+      "id": "P1.M2.T2.S2_1784897555549_pre-execution_9a028142",
       "taskId": "P1.M2.T2.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-07-24T12:03:55.979Z"
+        "timestamp": "2026-07-24T12:52:35.549Z"
       },
-      "createdAt": "2026-07-24T12:03:55.979Z"
+      "createdAt": "2026-07-24T12:52:35.549Z"
     },
     {
-      "id": "P1.M2.T2.S2_1784894635980_coder-response_48c47937",
+      "id": "P1.M2.T2.S2_1784897555550_coder-response_d9ce9b8d",
       "taskId": "P1.M2.T2.S2",
       "label": "After Coder Agent response",
       "state": {
@@ -159,10 +159,10 @@
           "message": "Failed to parse Coder Agent response: not valid json at all"
         },
         "validationResults": [],
-        "timestamp": "2026-07-24T12:03:55.980Z"
+        "timestamp": "2026-07-24T12:52:35.550Z"
       },
-      "createdAt": "2026-07-24T12:03:55.980Z"
+      "createdAt": "2026-07-24T12:52:35.550Z"
     }
   ],
-  "lastModified": "2026-07-24T12:03:55.980Z"
+  "lastModified": "2026-07-24T12:52:35.550Z"
 }

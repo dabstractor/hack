@@ -100,6 +100,7 @@ vi.mock('../../../src/core/tasks-json-recovery.js', () => ({
     restored: false,
     source: 'disk',
     reason: 're-applied legitimate status delta',
+    backlog: undefined,
   }),
 }));
 

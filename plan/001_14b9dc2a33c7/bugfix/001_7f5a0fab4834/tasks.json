@@ -34,7 +34,13 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Create npm link from Groundswell directory",
+<<<<<<< Updated upstream
                   "status": "Complete",
+||||||| Stash base
+                  "status": "Planned",
+=======
+                  "status": "Implementing",
+>>>>>>> Stashed changes
                   "story_points": 1,
                   "dependencies": ["P1.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Groundswell must be linked as global npm package per architecture/external_deps.md\n2. INPUT: exists: boolean from S1. If false, throw error with helpful message.\n3. LOGIC: Execute bash commands: `cd ~/projects/groundswell && npm link`. Capture stdout/stderr. Verify success by checking return code. Mock bash execution for testing.\n4. OUTPUT: Return { success: boolean, message: string }. Success if npm link completes without errors. Consume in S3 for conditional logic."
@@ -43,7 +49,13 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Link Groundswell in hacky-hack project",
+<<<<<<< Updated upstream
                   "status": "Complete",
+||||||| Stash base
+                  "status": "Planned",
+=======
+                  "status": "Researching",
+>>>>>>> Stashed changes
                   "story_points": 1,
                   "dependencies": ["P1.M1.T1.S2"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Must create symlink in node_modules/groundswell per architecture/external_deps.md\n2. INPUT: { success: boolean, message: string } from S2. If success is false, skip this subtask.\n3. LOGIC: Execute bash commands: `cd ~/projects/hacky-hack && npm link groundswell`. Capture output. Mock bash execution for testing.\n4. OUTPUT: Return { success: boolean, message: string }. Verify symlink exists. Consume in S4 for validation."

@@ -71,11 +71,51 @@ vi.mock('../../../src/core/session-utils.js', () => ({
   },
 }));
 
-// Mock the task-utils module
+// Mock the task-utils module. setItemStatus is given a REAL implementation
+// (it is a pure function) so the delta-merge mutator in saveBacklog works
+// correctly under the file-lock passthrough; updateItemStatus/findItem stay
+// bare spies so individual tests can shape their return values.
 vi.mock('../../../src/utils/task-utils.js', () => ({
   updateItemStatus: vi.fn(),
+  setItemStatus: vi.fn(function setItemStatus(backlog, itemId, status) {
+    let found = false;
+    const visit = item => {
+      if (item.id === itemId) {
+        item.status = status;
+        found = true;
+        return;
+      }
+      if ('milestones' in item) item.milestones.forEach(visit);
+      if ('tasks' in item) item.tasks.forEach(visit);
+      if ('subtasks' in item) item.subtasks.forEach(visit);
+    };
+    backlog.backlog.forEach(visit);
+    return found;
+  }),
   findItem: vi.fn(),
   getAllSubtasks: vi.fn(() => []),
+}));
+
+// Mock the file-lock module: node:fs is mocked (no sync fns) and the session
+// path is a fake string, so bypass the real O_EXCL lock. The passthrough mirrors
+// the real accessor (read fresh → mutator → write) so the spied writeTasksJSON
+// still records the call AND existing assertions on it stay meaningful.
+vi.mock('../../../src/core/file-lock.js', () => ({
+  withLockedTasksJSON: vi.fn(
+    async (_sessionDir, mutator, _opts, readFallback) => {
+      const { readTasksJSON, writeTasksJSON } =
+        await import('../../../src/core/session-utils.js');
+      let fresh;
+      try {
+        fresh = await readTasksJSON(_sessionDir);
+      } catch {
+        fresh = readFallback;
+      }
+      const next = await mutator(fresh);
+      await writeTasksJSON(_sessionDir, next);
+      return next;
+    }
+  ),
 }));
 
 // Mock the prd-validator module
@@ -1636,6 +1676,19 @@ describe('SessionManager', () => {
       // Mock updateItemStatusUtil to transform empty backlog to updated backlog
       mockUpdateItemStatusUtil.mockReturnValue(updatedBacklog);
       mockWriteTasksJSON.mockResolvedValue(undefined);
+      // Seed the locked read so the delta-merge mutator has a structured base to
+      // apply the {P1.M1.T1.S1 → Complete} delta onto (mirrors real runtime:
+      // flush reads fresh disk, then applies only the queued delta).
+      const preUpdateBacklog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Planned', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Planned', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Planned'),
+            ]),
+          ]),
+        ]),
+      ]);
+      mockReadTasksJSON.mockResolvedValue(preUpdateBacklog);
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
@@ -1655,7 +1708,8 @@ describe('SessionManager', () => {
       // EXECUTE: Flush to persist the batched updates
       await manager.flushUpdates();
 
-      // VERIFY: writeTasksJSON was called after flush
+      // VERIFY: writeTasksJSON was called after flush with the delta-merged
+      // backlog (fresh pre-update base + the queued Complete delta)
       expect(mockWriteTasksJSON).toHaveBeenCalledWith(
         '/plan/001_14b9dc2a33c7',
         updatedBacklog
@@ -2560,6 +2614,15 @@ describe('SessionManager', () => {
         .mockReturnValueOnce(backlog1)
         .mockReturnValueOnce(backlog2)
         .mockReturnValueOnce(backlog3);
+      // Seed the locked read with a structured base (P1 + P2 both Planned) so
+      // the delta-merge mutator applies the 3 queued deltas onto it and yields
+      // backlog3 (P1=Complete via LWW, P2=Implementing).
+      mockReadTasksJSON.mockResolvedValue(
+        createTestBacklog([
+          createTestPhase('P1', 'Phase 1', 'Planned'),
+          createTestPhase('P2', 'Phase 2', 'Planned'),
+        ])
+      );
 
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
