@@ -529,3 +529,172 @@ export function getPrdIncludeMarkers(): boolean {
   const v = raw.trim().toLowerCase();
   return v !== '' && v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
 }
+
+// =============================================================================
+// tasks.json lockfile tunables (PRD §5.1 — read-modify-write mutual exclusion)
+// =============================================================================
+// These three env-var-backed tunables configure the O_EXCL lockfile used by
+// src/core/file-lock.ts to serialize every read-modify-write of tasks.json.
+// See PRD §5.1 "tasks.json Write Concurrency (lost-update prevention)".
+
+/**
+ * Environment variable name: age (ms) at which an unreleased tasks.json.lock
+ * is considered stale and forcibly removed (PRD §5.1).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getTasksLockStaleMs})
+ * is a number of milliseconds. This constant is the env-var NAME itself. Used
+ * as the age-based fallback in the dual (PID + mtime) stale-detection scheme.
+ *
+ * @example
+ * ```ts
+ * import { TASKS_LOCK_STALE_MS } from './config/constants.js';
+ *
+ * console.log(TASKS_LOCK_STALE_MS); // 'TASKS_LOCK_STALE_MS'
+ * console.log(process.env[TASKS_LOCK_STALE_MS]); // e.g. '30000'
+ * ```
+ */
+export const TASKS_LOCK_STALE_MS = 'TASKS_LOCK_STALE_MS';
+
+/**
+ * Default stale age (30000ms = 30s) for an unreleased tasks.json.lock (PRD §5.1).
+ *
+ * @remarks
+ * When the TASKS_LOCK_STALE_MS env var is unset or invalid, this value is used.
+ * Must exceed the longest possible read-modify-write critical section.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_TASKS_LOCK_STALE_MS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_TASKS_LOCK_STALE_MS); // 30000
+ * ```
+ */
+export const DEFAULT_TASKS_LOCK_STALE_MS = 30_000;
+
+/**
+ * Read & validate the TASKS_LOCK_STALE_MS env var (PRD §5.1).
+ *
+ * @returns The configured stale age in ms, or {@link DEFAULT_TASKS_LOCK_STALE_MS}
+ *          when unset, non-finite, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getTasksLockStaleMs } from './config/constants.js';
+ *
+ * const staleMs = getTasksLockStaleMs(); // 30000 (default)
+ * ```
+ */
+export function getTasksLockStaleMs(): number {
+  const raw = Number(
+    process.env[TASKS_LOCK_STALE_MS] ?? DEFAULT_TASKS_LOCK_STALE_MS
+  );
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TASKS_LOCK_STALE_MS;
+}
+
+/**
+ * Environment variable name: deadline (ms) to acquire tasks.json.lock before
+ * giving up with a {@link TasksLockAcquisitionError} (PRD §5.1).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getTasksLockTimeoutMs})
+ * is a number of milliseconds. This constant is the env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { TASKS_LOCK_TIMEOUT_MS } from './config/constants.js';
+ *
+ * console.log(TASKS_LOCK_TIMEOUT_MS); // 'TASKS_LOCK_TIMEOUT_MS'
+ * console.log(process.env[TASKS_LOCK_TIMEOUT_MS]); // e.g. '30000'
+ * ```
+ */
+export const TASKS_LOCK_TIMEOUT_MS = 'TASKS_LOCK_TIMEOUT_MS';
+
+/**
+ * Default acquisition deadline (30000ms = 30s) for tasks.json.lock (PRD §5.1).
+ *
+ * @remarks
+ * When the TASKS_LOCK_TIMEOUT_MS env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_TASKS_LOCK_TIMEOUT_MS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_TASKS_LOCK_TIMEOUT_MS); // 30000
+ * ```
+ */
+export const DEFAULT_TASKS_LOCK_TIMEOUT_MS = 30_000;
+
+/**
+ * Read & validate the TASKS_LOCK_TIMEOUT_MS env var (PRD §5.1).
+ *
+ * @returns The configured acquisition deadline in ms, or
+ *          {@link DEFAULT_TASKS_LOCK_TIMEOUT_MS} when unset, non-finite, or
+ *          non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getTasksLockTimeoutMs } from './config/constants.js';
+ *
+ * const timeoutMs = getTasksLockTimeoutMs(); // 30000 (default)
+ * ```
+ */
+export function getTasksLockTimeoutMs(): number {
+  const raw = Number(
+    process.env[TASKS_LOCK_TIMEOUT_MS] ?? DEFAULT_TASKS_LOCK_TIMEOUT_MS
+  );
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TASKS_LOCK_TIMEOUT_MS;
+}
+
+/**
+ * Environment variable name: retry interval (ms) between lock-acquisition
+ * attempts when tasks.json.lock is held by another process (PRD §5.1).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getTasksLockPollMs})
+ * is a number of milliseconds. This constant is the env-var NAME itself.
+ *
+ * @example
+ * ```ts
+ * import { TASKS_LOCK_POLL_MS } from './config/constants.js';
+ *
+ * console.log(TASKS_LOCK_POLL_MS); // 'TASKS_LOCK_POLL_MS'
+ * console.log(process.env[TASKS_LOCK_POLL_MS]); // e.g. '50'
+ * ```
+ */
+export const TASKS_LOCK_POLL_MS = 'TASKS_LOCK_POLL_MS';
+
+/**
+ * Default retry interval (50ms) between lock-acquisition attempts (PRD §5.1).
+ *
+ * @remarks
+ * When the TASKS_LOCK_POLL_MS env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_TASKS_LOCK_POLL_MS } from './config/constants.js';
+ *
+ * console.log(DEFAULT_TASKS_LOCK_POLL_MS); // 50
+ * ```
+ */
+export const DEFAULT_TASKS_LOCK_POLL_MS = 50;
+
+/**
+ * Read & validate the TASKS_LOCK_POLL_MS env var (PRD §5.1).
+ *
+ * @returns The configured retry interval in ms, or {@link DEFAULT_TASKS_LOCK_POLL_MS}
+ *          when unset, non-finite, or non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getTasksLockPollMs } from './config/constants.js';
+ *
+ * const pollMs = getTasksLockPollMs(); // 50 (default)
+ * ```
+ */
+export function getTasksLockPollMs(): number {
+  const raw = Number(
+    process.env[TASKS_LOCK_POLL_MS] ?? DEFAULT_TASKS_LOCK_POLL_MS
+  );
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TASKS_LOCK_POLL_MS;
+}
