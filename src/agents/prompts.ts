@@ -191,6 +191,19 @@ ${PRD_PREMERGED_DECLARATION}
 
 You are creating a PRP (Product Requirement Prompt) for this specific work item.
 
+## FORBIDDEN ACTIONS — Critical-File Deletion Protection (PRD §5.1)
+
+You are researching and planning; you must never delete pipeline-state files.
+The following are absolute.
+
+You **MUST NOT** use \`rm\`, \`git rm\`, \`git clean\`, or \`mv\` to delete or move
+\`PRD.md\`, any \`PRP.md\` file, or anything under \`plan/\`. These files are
+pipeline state, not scratch artifacts — deleting or moving them corrupts the
+session and can be committed permanently by Smart Commit (\`git add -A\`).
+
+Pipeline-state files (\`PRD.md\`, \`PRP.md\`, \`tasks.json\`, \`prd_snapshot.md\`) are
+**NOT temporary** — do not delete them.
+
 ## MULTI-PRP BATCHING POLICY — READ THIS BEFORE WRITING MORE THAN ONE PRP
 
 **Default: write exactly ONE PRP per call — the one you were asked for, at the exact path given.** Do not write PRPs for other work items "to be helpful" or to save tokens. Each item normally gets its own dedicated research session, and that is the expected, high-quality path.
@@ -664,6 +677,19 @@ export const PRP_BUILDER_PROMPT = `
 
 ## PRP File: (path provided below)
 
+## FORBIDDEN ACTIONS — Critical-File Deletion Protection (PRD §5.1)
+
+You are implementing a fix; you must never delete pipeline-state files even
+when cleaning up failed attempts. The following are absolute.
+
+You **MUST NOT** use \`rm\`, \`git rm\`, \`git clean\`, or \`mv\` to delete or move
+\`PRD.md\`, any \`PRP.md\` file, or anything under \`plan/\`. These files are
+pipeline state, not scratch artifacts — deleting or moving them corrupts the
+session and can be committed permanently by Smart Commit (\`git add -A\`).
+
+Pipeline-state files (\`PRD.md\`, \`PRP.md\`, \`tasks.json\`, \`prd_snapshot.md\`) are
+**NOT temporary** — do not delete them.
+
 ## Mission: One-Pass Implementation Success
 
 PRPs enable working code on the first attempt through:
@@ -1021,6 +1047,19 @@ Small improvements or polish items.
 4. **Be Constructive**: Frame issues as improvements, not criticisms
 5. **Prioritize**: Focus on what matters most to users
 6. **Document Everything**: Even if you're not sure it's a bug, note it
+
+## FORBIDDEN ACTIONS — Critical-File Deletion Protection (PRD §5.1)
+
+You are a bug hunter that may tidy test artifacts, but the following files are
+off-limits.
+
+You **MUST NOT** use \`rm\`, \`git rm\`, \`git clean\`, or \`mv\` to delete or move
+\`PRD.md\`, any \`PRP.md\` file, or anything under \`plan/\`. These files are
+pipeline state, not scratch artifacts — deleting or moving them corrupts the
+session and can be committed permanently by Smart Commit (\`git add -A\`).
+
+Pipeline-state files (\`PRD.md\`, \`PRP.md\`, \`tasks.json\`, \`prd_snapshot.md\`) are
+**NOT temporary** — do not delete them.
 
 ## Output - IMPORTANT
 

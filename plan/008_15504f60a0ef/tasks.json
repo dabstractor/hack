@@ -681,14 +681,14 @@
               "type": "Task",
               "id": "P3.M2.T4",
               "title": "Critical-File Deletion Protection",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Add prompt-layer deletion prohibitions to deletion-capable agent prompts, and a mechanical restore_critical_files layer invoked from smartCommit that detects and undoes staged deletions of PRD.md/PRP.md.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T4.S1",
                   "title": "Prompt layer — add deletion prohibitions to deletion-capable agents",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that PROTECTED_FILES in git-commit.ts includes PRD.md but NOT PRP.md. PRD §5.1 specifies every deletion-capable agent prompt (cleanup, bug hunter, bug-fix breakdown, post-validation fix) forbids rm/git rm/git clean/mv against PRD.md, any PRP.md, or anything under plan/, and forbids treating pipeline-state files as 'temporary.'\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: Add explicit deletion-prohibition text to the system prompts of deletion-capable agents: CLEANUP_PROMPT (from P3.M1.T3.S3 or create new), BUG_HUNT_PROMPT (prompts.ts), PRP_BLUEPRINT_PROMPT (prompts.ts — for bug-fix breakdown), and any post-validation fix prompt. The text must state: 'You MUST NOT use rm, git rm, git clean, or mv to delete or move PRD.md, any PRP.md file, or anything under plan/. Pipeline-state files (PRD.md, PRP.md, tasks.json, prd_snapshot.md) are NOT temporary — do not delete them.'\n4. OUTPUT: Deletion prohibitions in all deletion-capable agent prompts. Consumed by P3.M2.T4.S2.\n5. DOCS: none — no user-facing/config/API surface change (prompt-internal).",
@@ -700,7 +700,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T4.S2",
                   "title": "Mechanical layer — restore_critical_files in smartCommit",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M2.T4.S1"

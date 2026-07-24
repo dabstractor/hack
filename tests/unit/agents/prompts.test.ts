@@ -263,4 +263,48 @@ describe('agents/prompts', () => {
       expect(TASK_BREAKDOWN_PROMPT).toMatch(/when in doubt/i);
     });
   });
+
+  describe('critical-file deletion prohibition (PRD §5.1)', () => {
+    // The three prompts that gained the shared-core FORBIDDEN ACTIONS section in
+    // this work item. They share an identical core paragraph (verbatim) that uses
+    // the literal phrase "NOT temporary".
+    const NEW_PROHIBITION_TARGETS = [
+      ['BUG_HUNT_PROMPT', BUG_HUNT_PROMPT],
+      ['PRP_BLUEPRINT_PROMPT', PRP_BLUEPRINT_PROMPT],
+      ['PRP_BUILDER_PROMPT', PRP_BUILDER_PROMPT],
+    ] as const;
+
+    it.each(NEW_PROHIBITION_TARGETS)(
+      '%s must forbid rm/git rm/git clean/mv against protected files',
+      (_name, prompt) => {
+        expect(prompt).toContain('`rm`');
+        expect(prompt).toContain('`git rm`');
+        expect(prompt).toContain('`git clean`');
+        expect(prompt).toContain('`mv`');
+        expect(prompt).toContain('`PRD.md`');
+        expect(prompt).toContain('`PRP.md`');
+        expect(prompt).toContain('`plan/`');
+        expect(prompt).toContain('NOT temporary');
+      }
+    );
+
+    // CLEANUP_PROMPT already carried the FORBIDDEN ACTIONS block (P3.M1.T3.S3).
+    // It is the reference template — it is NOT modified here. It forbids the same
+    // verbs/path-classes but phrases the "temporary" rule as `Never temporary`
+    // and `as "temporary"` rather than the literal `NOT temporary`, so it is
+    // asserted separately to document full four-prompt coverage without duplicating
+    // its block.
+    it('CLEANUP_PROMPT must also forbid deletion of protected files (reference template, P3.M1.T3.S3)', () => {
+      expect(CLEANUP_PROMPT).toContain('`rm`');
+      expect(CLEANUP_PROMPT).toContain('`git rm`');
+      expect(CLEANUP_PROMPT).toContain('`git clean`');
+      expect(CLEANUP_PROMPT).toContain('`mv`');
+      expect(CLEANUP_PROMPT).toContain('`PRD.md`');
+      expect(CLEANUP_PROMPT).toContain('`PRP.md`');
+      expect(CLEANUP_PROMPT).toContain('`plan/`');
+      expect(CLEANUP_PROMPT).toMatch(
+        /Never temporary|as "temporary"|NOT temporary/
+      );
+    });
+  });
 });
