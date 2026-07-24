@@ -1760,7 +1760,7 @@ describe('ResearchQueue', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       vi.useFakeTimers();
-      vi.stubEnv(RESEARCH_TIMEOUT, '5'); // 5s deadline; POSITIVE (S1 guards <=0 → 300)
+      vi.stubEnv(RESEARCH_TIMEOUT, '5'); // 5s deadline; POSITIVE (S1 guards <=0 → 1800)
     });
 
     afterEach(() => {

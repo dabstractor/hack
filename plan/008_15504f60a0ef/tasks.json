@@ -421,7 +421,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S3",
                   "title": "Update RESEARCH_TIMEOUT default and documentation",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S1"

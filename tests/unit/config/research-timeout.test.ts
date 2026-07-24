@@ -4,7 +4,7 @@
  * @remarks
  * Tests validate the getResearchTimeoutSeconds() function from src/config/constants.ts.
  * Covers all 6 contract cases:
- * - (a) Returns DEFAULT (300) when env var is unset
+ * - (a) Returns DEFAULT (1800) when env var is unset
  * - (b) Honors a stubbed positive integer (120)
  * - (c) Returns DEFAULT when stubbed with NaN ('abc')
  * - (d) Returns DEFAULT when stubbed with zero ('0')
@@ -30,14 +30,14 @@ describe('config/constants: getResearchTimeoutSeconds', () => {
     vi.unstubAllEnvs();
   });
 
-  it('(a) returns the default (300) when env var is unset', () => {
+  it('(a) returns the default (1800) when env var is unset', () => {
     // SETUP — env var already deleted in beforeEach
 
     // EXECUTE
     const result = getResearchTimeoutSeconds();
 
     // VERIFY
-    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 300
+    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 1800
   });
 
   it('(b) honors a stubbed positive integer', () => {
@@ -59,7 +59,7 @@ describe('config/constants: getResearchTimeoutSeconds', () => {
     const result = getResearchTimeoutSeconds();
 
     // VERIFY
-    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 300
+    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 1800
   });
 
   it('(d) returns default when env var is zero', () => {
@@ -70,7 +70,7 @@ describe('config/constants: getResearchTimeoutSeconds', () => {
     const result = getResearchTimeoutSeconds();
 
     // VERIFY
-    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 300
+    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 1800
   });
 
   it('(e) returns default when env var is negative', () => {
@@ -81,7 +81,7 @@ describe('config/constants: getResearchTimeoutSeconds', () => {
     const result = getResearchTimeoutSeconds();
 
     // VERIFY
-    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 300
+    expect(result).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 1800
   });
 
   it('(f) returns a stubbed integer value', () => {
@@ -93,5 +93,16 @@ describe('config/constants: getResearchTimeoutSeconds', () => {
 
     // VERIFY
     expect(result).toBe(150);
+  });
+
+  it('(g) returns a positive deadline that bounds research (grace-period property, PRD §4.2)', () => {
+    // The deadline is a HARD upper bound: a stuck supervisor fails fast at this
+    // value; legitimate long research that completes before it is never flagged
+    // (no intermediate heartbeat is emitted — see getResearchTimeoutSeconds() JSDoc).
+    // The wait/abandon behavior itself is covered by research-queue.test.ts
+    // (waitForPRP) and retry.test.ts (withAgentDeadline) integration tests.
+    const deadline = getResearchTimeoutSeconds();
+    expect(deadline).toBeGreaterThan(0);
+    expect(deadline).toBe(DEFAULT_RESEARCH_TIMEOUT_SECONDS); // 1800 when unset
   });
 });

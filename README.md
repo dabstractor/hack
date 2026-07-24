@@ -125,7 +125,7 @@ The pipeline recovers from common agent failures without human intervention. Thr
 keep a session running:
 
 - **Research deadline & synchronous fallback** — background research is bounded by
-  `RESEARCH_TIMEOUT` (default `300`s; PRD §4.2). If the deadline elapses, the in-flight research
+  `RESEARCH_TIMEOUT` (default `1800`s; PRD §4.2). If the deadline elapses, the in-flight research
   is abandoned and the item is re-researched synchronously inline, so a single hung agent cannot
   stall the pipeline.
 - **Issue-driven re-planning** — when a coder reports an `issue` (a recoverable planning gap),

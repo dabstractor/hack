@@ -254,6 +254,16 @@ export const DEFAULT_RESEARCH_TIMEOUT_SECONDS = 1800;
  * @returns The configured deadline in seconds, or DEFAULT_RESEARCH_TIMEOUT_SECONDS
  *          when unset, non-numeric, or non-positive.
  *
+ * @remarks
+ * Grace period / hard deadline (PRD §4.2): the deadline is a HARD upper bound —
+ * `waitForPRP` (research-queue.ts) and `withAgentDeadline` (retry.ts) race the
+ * in-flight research against this value and fail fast on a genuinely stuck
+ * supervisor. No intermediate "heartbeat" warning is emitted during the window,
+ * so legitimately long research is never flagged as stuck (a heartbeat would
+ * surface only after a grace period; today there is no heartbeat, so nothing is
+ * spammed). On expiry the work is abandoned and re-researched synchronously
+ * inline (PRD §4.2 fallback).
+ *
  * @example
  * ```ts
  * import { getResearchTimeoutSeconds } from './config/constants.js';

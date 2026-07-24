@@ -93,7 +93,7 @@ The pipeline recovers from common agent failures without human intervention. Thr
 the execution loop and the state layer — keep a session running:
 
 - **Research deadline & synchronous fallback** — background research for the next item is bounded by
-  `RESEARCH_TIMEOUT` (default `300`s; PRD §4.2); on expiry the work is abandoned and re-researched inline.
+  `RESEARCH_TIMEOUT` (default `1800`s; PRD §4.2); on expiry the work is abandoned and re-researched inline.
   See [Phase 4: Backlog Execution](#phase-4-backlog-execution).
 - **Issue-driven re-planning** — when a coder reports an `issue` (a recoverable planning gap), the stale PRP
   is deleted and research re-runs with the captured feedback, bounded by `ISSUE_RETRY_MAX` (default `3`;
@@ -400,7 +400,7 @@ if (this.shutdownRequested) {
 Two mechanisms keep the loop moving when agents misbehave:
 
 - **Research deadline & synchronous fallback** — while executing item _N_, the orchestrator researches item
-  _N+1_ in the background, bounded by `RESEARCH_TIMEOUT` (default `300`s; PRD §4.2). If the deadline elapses,
+  _N+1_ in the background, bounded by `RESEARCH_TIMEOUT` (default `1800`s; PRD §4.2). If the deadline elapses,
   the in-flight research is abandoned and the item is re-researched synchronously, inline, so a single hung
   agent cannot stall the pipeline.
 - **Tri-state outcomes** — each item's execution reports `success`, `fail`, or `issue`. An `issue` (a
