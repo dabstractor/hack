@@ -214,7 +214,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "Rename ModelTier type and MODEL_NAMES keys to high/balanced/fast",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 2 documents: constants.ts:43-55 has MODEL_NAMES = { opus: 'glm-5.2', sonnet: 'glm-5.2', haiku: 'glm-5-turbo' }; types.ts:24 has type ModelTier = 'opus' | 'sonnet' | 'haiku'. PRD §9.2.8 mandates tier rename: opus→high, sonnet→balanced, haiku→fast. Role→tier mapping unchanged.\n2. INPUT: No prior subtask output consumed (type/constant change is foundational).\n3. LOGIC: (a) Update type ModelTier in src/config/types.ts:24 from 'opus'|'sonnet'|'haiku' to 'high'|'balanced'|'fast'. (b) Update MODEL_NAMES in src/config/constants.ts:43 keys from opus/sonnet/haiku to high/balanced/fast (values unchanged). (c) Update MODEL_ENV_VARS in constants.ts:65 keys similarly. This is a pure rename — values remain the same models.\n4. OUTPUT: Updated ModelTier type, MODEL_NAMES, MODEL_ENV_VARS with new key names. Consumed by P2.M1.T1.S2.\n5. DOCS: [Mode A] JSDoc on ModelTier and MODEL_NAMES documenting the new tier names. This rides WITH the work.",
@@ -227,7 +227,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Canonical-first-with-fallback env loader and deprecation warning",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1"
