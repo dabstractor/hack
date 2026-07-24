@@ -263,14 +263,14 @@
           "type": "Milestone",
           "id": "P2.M2",
           "title": "Three Model Roles and Maximum Reasoning Budget",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Generalize agent-factory to three roles (research/reasoning/implementation) so cost/speed/reasoning-depth are independently tunable, and wire maximum reasoning budget (xhigh) into decomposition, bug-finding, and validation personas.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M2.T1",
               "title": "Separate Research, Reasoning, and Implementation Roles",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add reasoning-tier config with xhigh budget to agent-factory, map personas to three roles, and wire xhigh thinking budget into decomposition demand-write retry.",
               "subtasks": [
                 {
@@ -309,7 +309,7 @@
                   "type": "Subtask",
                   "id": "P2.M2.T1.S3",
                   "title": "Wire xhigh reasoning budget into decomposition demand-write retry",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S2"

@@ -52,10 +52,14 @@ vi.mock('../../../src/agents/agent-factory.js', () => ({
   createQAAgent: vi.fn(),
 }));
 
-// Mock prompts
-vi.mock('../../../src/agents/prompts.js', () => ({
-  TASK_BREAKDOWN_PROMPT: 'Mock TASK_BREAKDOWN_PROMPT',
-}));
+// Mock prompts — passthrough-real so the dynamically-imported real
+// architect-prompt.js (which imports PRD_PREMERGED_DECLARATION from here) gets
+// the real exports; only override TASK_BREAKDOWN_PROMPT for unit-test determinism.
+vi.mock('../../../src/agents/prompts.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/agents/prompts.js')>();
+  return { ...actual, TASK_BREAKDOWN_PROMPT: 'Mock TASK_BREAKDOWN_PROMPT' };
+});
 
 // Mock DeltaAnalysisWorkflow
 vi.mock('../../../src/workflows/delta-analysis-workflow.js', () => ({
@@ -111,6 +115,7 @@ vi.mock('../../../src/utils/validation/execution-guard.js', () => ({
 // Import mocked modules
 import { readFile } from 'node:fs/promises';
 import { createArchitectAgent } from '../../../src/agents/agent-factory.js';
+import { AgentError } from '../../../src/utils/errors.js';
 import { SessionManager as SessionManagerClass } from '../../../src/core/session-manager.js';
 import { resolvePRD } from '../../../src/core/session-utils.js';
 import { DeltaAnalysisWorkflow } from '../../../src/workflows/delta-analysis-workflow.js';
@@ -351,6 +356,46 @@ describe('PRPPipeline', () => {
 
       // VERIFY
       expect(pipeline.currentPhase).toBe('prd_decomposed');
+    });
+
+    it('reuses the same single Architect agent instance for the initial call and every demand-write retry (PRD §6.1 xhigh-budget invariant)', async () => {
+      // SETUP: force retryAgentPrompt to re-invoke the SAME mock instance.
+      //   AgentError has code PIPELINE_AGENT_LLM_FAILED → isTransientError = true → retried.
+      //   Messages must NOT contain "parse"/"parsing" or isTransientError returns false.
+      const promptFn = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new AgentError('transient breakdown failure (attempt 1)')
+        )
+        .mockRejectedValueOnce(
+          new AgentError('transient breakdown failure (attempt 2)')
+        )
+        .mockResolvedValueOnce({ status: 'success', output: '' });
+      mockCreateArchitectAgent.mockReturnValue({ prompt: promptFn } as never);
+
+      // Session with an EMPTY backlog so decomposePRD() enters the generation path.
+      const backlog = createTestBacklog([]);
+      const mockSession = createTestSession(backlog);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+
+      // decomposePRD() reads tasks.json after the agent "writes" it; stub readFile
+      // to return a valid Backlog JSON so the success path completes cleanly.
+      // Mirror the default mock shape: a string of { backlog: [...] }.
+      mockReadFile.mockResolvedValueOnce(JSON.stringify({ backlog: [] }));
+
+      // EXECUTE
+      await pipeline.decomposePRD();
+
+      // VERIFY — the §6.1 invariant S3 protects:
+      // 1. The Architect agent is created EXACTLY ONCE (never re-created on retry).
+      expect(mockCreateArchitectAgent).toHaveBeenCalledTimes(1);
+      // 2. The SAME agent instance's prompt() is invoked on EVERY attempt (3 total:
+      //    initial + 2 retries). This is what makes every retry inherit the xhigh
+      //    budget baked into the single createArchitectAgent() config.
+      expect(promptFn).toHaveBeenCalledTimes(3);
     });
   });
 

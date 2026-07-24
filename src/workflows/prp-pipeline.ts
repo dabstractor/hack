@@ -771,6 +771,14 @@ export class PRPPipeline extends Workflow {
         await import('../agents/prompts/architect-prompt.js');
 
       // Create Architect agent
+      // INVARIANT (PRD §6.1): the Architect is created ONCE here with the
+      // Reasoning role (xhigh budget — wired by createArchitectAgent via S2).
+      // The "demand-write" retry below (retryAgentPrompt) re-invokes THIS SAME
+      // instance on every attempt, so every retry inherits the xhigh budget.
+      // Do NOT move createArchitectAgent() inside the retry closure — a fresh
+      // agent could rebind to a downgraded config and break §6.1's "same budget"
+      // rule for the retry. Regression-locked by the
+      // "reuses the same single Architect agent instance ..." unit test.
       const architectAgent = createArchitectAgent();
 
       // Get PRD content from session snapshot
