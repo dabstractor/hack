@@ -38,7 +38,7 @@ import {
   getPrdIncludeMaxDepth,
   getPrdIncludeMarkers,
 } from '../config/constants.js';
-import type { Backlog, PRPDocument } from './models.js';
+import type { Backlog, DeltaAnalysis, PRPDocument } from './models.js';
 import { BacklogSchema, PRPDocumentSchema } from './models.js';
 
 /**
@@ -1338,4 +1338,132 @@ export async function refreshSnapshotToCurrentPRD(
       error as Error
     );
   }
+}
+
+/**
+ * Render a focused delta-PRD markdown from a structured {@link DeltaAnalysis}.
+ *
+ * @remarks
+ * PRD §4.3 step 5 ("Delta PRD Generation"): the delta PRD focuses ONLY on
+ * differences (added/modified/removed) plus preserved completed work. This is a
+ * DETERMINISTIC render of the semantic diff that
+ * {@link DeltaAnalysisWorkflow.analyzeDelta} already produced (retried via
+ * `retryAgentPrompt`, `maxAttempts: 3`) — there is NO second LLM call. The
+ * retry/fail-fast contract (PRD §4.3 "retry then fail fast") is inherited from
+ * that upstream retried step: if the LLM exhausts retries, `spawnDeltaSession`
+ * throws before this render runs.
+ *
+ * The output is the breakdown input for delta sessions (consumed by
+ * `decomposePRD` via {@link loadDeltaPRD}). It is NOT the full PRD — it carries
+ * only Added/Modified/Removed sections, a completed-work-preserved list, patch
+ * instructions, and tasks to re-execute.
+ *
+ * Pure: no I/O, no imports beyond the `DeltaAnalysis` type.
+ *
+ * @param delta - The structured delta analysis (changes + patch instructions +
+ *        task IDs to re-execute).
+ * @param completedTaskIds - Parent-session task IDs that are already complete
+ *        (preserved — not to be re-implemented).
+ * @param parentSessionId - The parent session id (referenced in the header).
+ * @returns Focused delta-PRD markdown string.
+ */
+export function renderDeltaPRD(
+  delta: DeltaAnalysis,
+  completedTaskIds: string[],
+  parentSessionId: string
+): string {
+  const added = delta.changes.filter(c => c.type === 'added');
+  const modified = delta.changes.filter(c => c.type === 'modified');
+  const removed = delta.changes.filter(c => c.type === 'removed');
+  const lines: string[] = [];
+  lines.push('# Delta PRD');
+  lines.push('');
+  lines.push(
+    `> Focused on differences vs parent session \`${parentSessionId}\`.`
+  );
+  lines.push(
+    '> This is NOT the full PRD — only added/modified/removed requirements.'
+  );
+  lines.push('');
+  if (completedTaskIds.length > 0) {
+    lines.push('## Completed Work (preserved — do NOT re-implement)');
+    for (const id of completedTaskIds) lines.push(`- ${id}`);
+    lines.push('');
+  }
+  const section = (title: string, items: typeof added): void => {
+    if (items.length === 0) return;
+    lines.push(`## ${title}`);
+    for (const c of items) {
+      lines.push(`### ${c.itemId}`);
+      lines.push(`- **What changed:** ${c.description}`);
+      lines.push(`- **Impact:** ${c.impact}`);
+      lines.push('');
+    }
+  };
+  section('Added', added);
+  section('Modified', modified);
+  if (removed.length > 0) {
+    lines.push('## Removed (for awareness — no implementation tasks)');
+    for (const c of removed) lines.push(`- **${c.itemId}:** ${c.description}`);
+    lines.push('');
+  }
+  lines.push('## Patch Instructions');
+  lines.push(delta.patchInstructions);
+  lines.push('');
+  if (delta.taskIds.length > 0) {
+    lines.push('## Tasks to Re-execute');
+    for (const id of delta.taskIds) lines.push(`- ${id}`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Write `delta_prd.md` to a session directory (atomic).
+ *
+ * @remarks
+ * PRD §4.3 step 5 ("Delta PRD Generation"): generates the focused delta PRD
+ * artifact for a delta session. Uses {@link atomicWrite} (temp file + rename)
+ * for crash-safety, mirroring {@link writePRP}. The input is already-built
+ * markdown (from {@link renderDeltaPRD}) — no Zod validation is applied.
+ *
+ * @param sessionPath - Absolute session directory path.
+ * @param content - The delta-PRD markdown to write.
+ * @throws {SessionFileError} If the atomic write fails (disk/permissions).
+ */
+export async function writeDeltaPRD(
+  sessionPath: string,
+  content: string
+): Promise<void> {
+  const deltaPrdPath = resolve(sessionPath, 'delta_prd.md');
+  try {
+    await atomicWrite(deltaPrdPath, content);
+  } catch (error) {
+    if (error instanceof SessionFileError) throw error;
+    throw new SessionFileError(deltaPrdPath, 'write delta PRD', error as Error);
+  }
+}
+
+/**
+ * Read `delta_prd.md` from a session directory.
+ *
+ * @remarks
+ * PRD §4.3 step 5 ("Breakdown MUST consume the delta PRD"): the delta
+ * breakdown runs over `delta_prd.md`, NOT the full PRD. This loader is the
+ * source for `decomposePRD` on a delta session. Mirrors {@link loadSnapshot}
+ * but reads `delta_prd.md` instead of `prd_snapshot.md`.
+ *
+ * Throws {@link SessionFileError} on ENOENT — `decomposePRD`'s delta branch
+ * uses this as the missing-file detector (PRD §4.3: incomplete delta sessions
+ * must NOT silently fall back to the full PRD).
+ *
+ * @param sessionPath - Absolute session directory path.
+ * @returns Promise resolving to the delta-PRD markdown content.
+ * @throws {SessionFileError} If the file is missing or has invalid UTF-8.
+ */
+export async function loadDeltaPRD(sessionPath: string): Promise<string> {
+  return readUTF8FileStrict(
+    resolve(sessionPath, 'delta_prd.md'),
+    'read delta PRD'
+  );
 }

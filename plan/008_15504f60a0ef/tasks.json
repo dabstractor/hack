@@ -785,7 +785,7 @@
           "type": "Milestone",
           "id": "P4.M1",
           "title": "Change Classification & Response Selection",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add LLM-driven COSMETIC/SUBSTANTIVE and CLEAN/DIRTY classifiers with transient-API retry and protective default, implement response selection (--accept-prd-changes, integrate, validate reuse), and bind breakdown to delta_prd.md.",
           "tasks": [
             {
@@ -866,14 +866,14 @@
               "type": "Task",
               "id": "P4.M1.T3",
               "title": "Breakdown MUST Consume the Delta PRD",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Ensure delta-session task breakdown runs over delta_prd.md (the diffs), not the full PRD, by binding the breakdown input to the delta content after delta_prd.md is generated.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T3.S1",
                   "title": "Bind breakdown prompt to delta_prd.md after generation",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P4.M1.T1.S2"
@@ -899,14 +899,14 @@
               "type": "Task",
               "id": "P4.M2.T1",
               "title": "Validation Control and Abort-on-Failure",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add VALIDATION_AGENT and VALIDATION_TIMEOUT config, generate a custom validate.sh from PRD + codebase tools, run it on the validation agent under its own timeout, and abort before cleanup/commit/bug-hunt on non-zero exit.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M2.T1.S1",
                   "title": "VALIDATION_AGENT and VALIDATION_TIMEOUT config",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S2"
@@ -922,7 +922,7 @@
                   "type": "Subtask",
                   "id": "P4.M2.T1.S2",
                   "title": "validate.sh generation and abort-on-failure",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P4.M2.T1.S1",

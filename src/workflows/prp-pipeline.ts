@@ -48,6 +48,9 @@ import {
   writePendingDeltaHash,
   clearPendingDeltaHash,
   refreshSnapshotToCurrentPRD,
+  renderDeltaPRD,
+  writeDeltaPRD,
+  loadDeltaPRD,
 } from '../core/session-utils.js';
 import { TaskOrchestrator as TaskOrchestratorClass } from '../core/task-orchestrator.js';
 import { DeltaAnalysisWorkflow } from './delta-analysis-workflow.js';
@@ -930,8 +933,25 @@ export class PRPPipeline extends Workflow {
       const patchedBacklog = patchBacklog(backlog, delta);
 
       // Step 6: Create delta session
+      // Capture the PARENT session id BEFORE createDeltaSession reassigns
+      // #currentSession to the new delta session (after which .metadata.id is
+      // the DELTA id, not the parent).
+      const parentSessionIdRef = currentSession.metadata.id;
       this.logger.info('[PRPPipeline] Creating delta session...');
       await this.sessionManager.createDeltaSession(this.sessionManager.prdPath);
+
+      // Step 6b: Render + write delta_prd.md (PRD §4.3 step 5 — "Delta PRD
+      // Generation"). DETERMINISTIC render of the structured DeltaAnalysis that
+      // DeltaAnalysisWorkflow already produced (no second LLM call; the
+      // retry/fail-fast contract is inherited from the retried QA step). The
+      // delta branch in decomposePRD() later consumes this file for the
+      // breakdown input — see PRD §4.3 "Breakdown MUST consume the delta PRD."
+      const deltaSessionPath =
+        this.sessionManager.currentSession!.metadata.path;
+      await writeDeltaPRD(
+        deltaSessionPath,
+        renderDeltaPRD(delta, completedTaskIds, parentSessionIdRef)
+      );
 
       // Step 7: Save patched backlog to delta session
       await this.sessionManager.saveBacklog(patchedBacklog);
@@ -1028,9 +1048,30 @@ export class PRPPipeline extends Workflow {
       // "reuses the same single Architect agent instance ..." unit test.
       const architectAgent = createArchitectAgent();
 
-      // Get PRD content from session snapshot
-      const prdContent = this.sessionManager.currentSession?.prdSnapshot ?? '';
+      // Source the breakdown input. PRD §4.3 step 5 ("Breakdown MUST consume
+      // the delta PRD"): on a delta session the breakdown runs over
+      // delta_prd.md (the diffs), NOT the full PRD. `prdSnapshot` on a delta
+      // session is the FULL resolved new PRD (createDeltaSession sets it), so
+      // using it here would silently embed the entire PRD and ignore the delta.
+      // If delta_prd.md is missing on a delta session, throw a clear error —
+      // NEVER fall back to prdSnapshot (that re-introduces the full-PRD leak;
+      // the next run regenerates delta_prd.md via the delta spawn path).
       const sessionPath = this.sessionManager.currentSession!.metadata.path;
+      const isDelta =
+        this.sessionManager.currentSession?.metadata.parentSession != null;
+      let prdContent: string;
+      if (isDelta) {
+        try {
+          prdContent = await loadDeltaPRD(sessionPath);
+        } catch {
+          throw new Error(
+            `Delta session has no delta_prd.md at ${sessionPath} — cannot break down ` +
+              'the delta. Re-run to regenerate it via the delta spawn path.'
+          );
+        }
+      } else {
+        prdContent = this.sessionManager.currentSession?.prdSnapshot ?? '';
+      }
 
       // Create properly typed prompt with PRD content.
       // Pass the session path so $TASKS_FILE / $SESSION_DIR placeholders in the

@@ -48,11 +48,18 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 // Mock session-utils: spread actual so the REAL marker-trio + refresh run
-// (they only touch the mocked node:fs/promises), and override resolvePRD only.
+// (they only touch the mocked node:fs/promises), and override resolvePRD +
+// writeDeltaPRD. writeDeltaPRD would otherwise call atomicWrite (needs `rename`
+// from node:fs/promises, which this suite doesn't mock) on a fake session path;
+// mock it so spawnDeltaSession's new delta_prd.md step stays I/O-isolated.
 vi.mock('../../../src/core/session-utils.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../../src/core/session-utils.js')>();
-  return { ...actual, resolvePRD: vi.fn() };
+  return {
+    ...actual,
+    resolvePRD: vi.fn(),
+    writeDeltaPRD: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 // Mock SessionManager (factory-impl — rebound per-test via createMockSessionManager).

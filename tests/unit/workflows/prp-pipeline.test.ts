@@ -23,12 +23,17 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 // Mock session-utils so handleDelta's resolvePRD call is controlled (no real I/O).
-// Only resolvePRD is consumed by handleDelta; keep all other exports passthrough-real
-// (they are re-exported/imported indirectly and must not be undefined).
+// Only resolvePRD + writeDeltaPRD are consumed by handleDelta/spawnDeltaSession
+// with paths that don't exist on disk in this unit suite; mock them so the delta
+// flow stays I/O-isolated. renderDeltaPRD is pure and left real (passthrough).
 vi.mock('../../../src/core/session-utils.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../../src/core/session-utils.js')>();
-  return { ...actual, resolvePRD: vi.fn() };
+  return {
+    ...actual,
+    resolvePRD: vi.fn(),
+    writeDeltaPRD: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 // Mock SessionManager
