@@ -486,6 +486,73 @@ export function getCommitRetryMax(): number {
 }
 
 /**
+ * Environment variable name: max LLM change/artifact classifier attempts before
+ * failing to the protective/conservative default (PRD §4.3 "The Delta Workflow",
+ * h3.5, step 1, "Change Classification").
+ *
+ * @remarks
+ * Bounds the bounded-retry-with-backoff loop around the transient-API-sensitive
+ * LLM classifier boundary ({@link classifyChange} / {@link classifyArtifact} in
+ * `src/core/change-classifier.ts`). PRD §4.3 mandates: "These classifiers MUST
+ * distinguish transient API failures (empty output, connection errors, rate
+ * limits, overloaded) from invalid model responses, retrying up to a bounded count
+ * (default 4) before giving up. On exhaustion they MUST fail to the
+ * protective/conservative default (treat as SUBSTANTIVE / DIRTY) — never silently
+ * fall through to 'could not classify' and proceed unprotected." This is the TOTAL
+ * attempt count (initial + retries), matching `retry()`'s `maxAttempts` semantics.
+ * The VALUE of this variable is read at runtime via {@link getClassifierRetryMax}.
+ *
+ * @example
+ * ```ts
+ * import { CLASSIFIER_RETRY_MAX } from './config/constants.js';
+ *
+ * console.log(CLASSIFIER_RETRY_MAX); // 'CLASSIFIER_RETRY_MAX'
+ * console.log(process.env[CLASSIFIER_RETRY_MAX]); // e.g. '4'
+ * ```
+ */
+export const CLASSIFIER_RETRY_MAX = 'CLASSIFIER_RETRY_MAX';
+
+/**
+ * Default max LLM change/artifact classifier attempts before failing to the
+ * protective/conservative default (PRD §4.3).
+ *
+ * @remarks
+ * When the CLASSIFIER_RETRY_MAX env var is unset or invalid, this value is used.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_CLASSIFIER_RETRY_MAX } from './config/constants.js';
+ *
+ * console.log(DEFAULT_CLASSIFIER_RETRY_MAX); // 4
+ * ```
+ */
+export const DEFAULT_CLASSIFIER_RETRY_MAX = 4;
+
+/**
+ * Read & validate the CLASSIFIER_RETRY_MAX env var (PRD §4.3, §9.2.2).
+ *
+ * @returns The configured max classifier attempts, or
+ *          {@link DEFAULT_CLASSIFIER_RETRY_MAX} when unset, non-numeric, or
+ *          non-positive.
+ *
+ * @example
+ * ```ts
+ * import { getClassifierRetryMax } from './config/constants.js';
+ *
+ * const max = getClassifierRetryMax(); // 4 (default)
+ * ```
+ */
+export function getClassifierRetryMax(): number {
+  const raw = Number(
+    process.env[CLASSIFIER_RETRY_MAX] ?? DEFAULT_CLASSIFIER_RETRY_MAX
+  );
+  if (Number.isNaN(raw) || raw <= 0) {
+    return DEFAULT_CLASSIFIER_RETRY_MAX;
+  }
+  return Math.floor(raw);
+}
+
+/**
  * Environment variable name: base delay in milliseconds between stagecoach
  * commit-message-generation retries (PRD §5.1 "Smart Commit Resilience").
  *

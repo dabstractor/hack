@@ -792,7 +792,7 @@
               "type": "Task",
               "id": "P4.M1.T1",
               "title": "LLM Change Classifier",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add LLM-driven binary classifiers (COSMETIC/SUBSTANTIVE and CLEAN/DIRTY) on top of the existing structural prd-differ, with transient-API failure retry and protective default on exhaustion.",
               "subtasks": [
                 {
@@ -812,7 +812,7 @@
                   "type": "Subtask",
                   "id": "P4.M1.T1.S2",
                   "title": "Transient-API retry and protective default on exhaustion",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P4.M1.T1.S1"

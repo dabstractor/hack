@@ -44,6 +44,8 @@ import {
 } from '../agents/prompts/change-classifier-prompt.js';
 import { AgentError } from '../utils/errors.js';
 import { getLogger, type Logger } from '../utils/logger.js';
+import { retry, createDefaultOnRetry } from '../utils/retry.js';
+import { getClassifierRetryMax } from '../config/constants.js';
 
 // PATTERN: lazy logger accessor (mirrors dependency-validator.ts, retry.ts).
 let _logger: Logger | undefined;
@@ -172,4 +174,112 @@ export async function classifyArtifact(
   const result = response.data as ArtifactClassification;
   logger().debug({ classification: result }, 'artifact classified');
   return result;
+}
+
+/**
+ * Classify a detected PRD change as `COSMETIC` or `SUBSTANTIVE` with
+ * TRANSIENT-API RETRY and a PROTECTIVE DEFAULT on exhaustion. PRD §4.3.
+ *
+ * @remarks
+ * Wraps {@link classifyChange} (the inner LLM call) in a bounded `retry()` loop
+ * with `maxAttempts = getClassifierRetryMax()` (default 4, configurable via the
+ * `CLASSIFIER_RETRY_MAX` env var). Transient API failures (empty output,
+ * connection errors, rate limits, overloaded) and the inner classifier's
+ * `AgentError(PIPELINE_AGENT_LLM_FAILED)` are retried (via the default
+ * `isTransientError`). On exhaustion (all attempts fail) this function FAILS TO THE
+ * PROTECTIVE DEFAULT `'SUBSTANTIVE'` and warns — it NEVER returns
+ * `'could not classify'`, `undefined`, or throws.
+ *
+ * Per PRD §4.3: "On exhaustion they MUST fail to the protective/conservative
+ * default (treat as SUBSTANTIVE / DIRTY) — never silently fall through to 'could
+ * not classify' and proceed unprotected through a SUBSTANTIVE change."
+ *
+ * Mirrors the stagecoach retry boundary in `src/utils/git-commit.ts` (the LLM
+ * boundary wrapped in `retry()` with a catch-and-fallback). `isRetryable` is
+ * intentionally OMITTED so it defaults to `isTransientError`.
+ *
+ * @param diffSummary - The structural diff summary from `diffPRDs()`
+ *   (`src/core/prd-differ.ts`).
+ * @returns `'COSMETIC'` on a confident trivial change; `'SUBSTANTIVE'` on a
+ *          significant change OR on retry exhaustion (protective default).
+ */
+export async function classifyChangeWithRetry(
+  diffSummary: DiffSummary
+): Promise<ChangeClassification> {
+  const maxAttempts = getClassifierRetryMax();
+  try {
+    return await retry(() => classifyChange(diffSummary), {
+      maxAttempts,
+      baseDelay: 1000,
+      maxDelay: 30000,
+      backoffFactor: 2,
+      // isRetryable intentionally OMITTED → defaults to isTransientError
+      // (mirrors git-commit.ts). S1 throws AgentError(PIPELINE_AGENT_LLM_FAILED)
+      // which is transient (message avoids 'parse'/'parsing'), so it is retried.
+      onRetry: createDefaultOnRetry(
+        'ChangeClassifier.classifyChange',
+        maxAttempts
+      ),
+    });
+  } catch (error) {
+    // PRD §4.3 protective default: all retries exhausted → fail SAFE (treat as
+    // SUBSTANTIVE). retry() rethrows the last error on exhaustion; this catch
+    // applies the protective default instead of letting it escape.
+    logger().warn(
+      { error, maxAttempts },
+      'change classifier exhausted retries; failing to protective default SUBSTANTIVE'
+    );
+    return 'SUBSTANTIVE';
+  }
+}
+
+/**
+ * Classify a generated artifact (e.g. `delta_prd.md` content) as `CLEAN` or
+ * `DIRTY` with TRANSIENT-API RETRY and a PROTECTIVE DEFAULT on exhaustion.
+ * PRD §4.3.
+ *
+ * @remarks
+ * Wraps {@link classifyArtifact} in a bounded `retry()` loop (same configuration as
+ * {@link classifyChangeWithRetry}). On exhaustion this function FAILS TO THE
+ * PROTECTIVE DEFAULT `'DIRTY'` and warns — it NEVER returns
+ * `'could not classify'`, `undefined`, or throws.
+ *
+ * Per PRD §4.3: "On exhaustion they MUST fail to the protective/conservative
+ * default (treat as SUBSTANTIVE / DIRTY)."
+ *
+ * Mirrors the stagecoach retry boundary in `src/utils/git-commit.ts`.
+ * `isRetryable` is intentionally OMITTED so it defaults to `isTransientError`.
+ *
+ * @param content - The artifact text to classify (e.g. `delta_prd.md` content).
+ * @returns `'CLEAN'` on a well-formed faithful artifact; `'DIRTY'` on a
+ *          contaminated artifact OR on retry exhaustion (protective default).
+ */
+export async function classifyArtifactWithRetry(
+  content: string
+): Promise<ArtifactClassification> {
+  const maxAttempts = getClassifierRetryMax();
+  try {
+    return await retry(() => classifyArtifact(content), {
+      maxAttempts,
+      baseDelay: 1000,
+      maxDelay: 30000,
+      backoffFactor: 2,
+      // isRetryable intentionally OMITTED → defaults to isTransientError
+      // (mirrors git-commit.ts). The inner classifyArtifact's transient throws
+      // (including the empty-content guard) are retried.
+      onRetry: createDefaultOnRetry(
+        'ChangeClassifier.classifyArtifact',
+        maxAttempts
+      ),
+    });
+  } catch (error) {
+    // PRD §4.3 protective default: all retries exhausted → fail SAFE (treat as
+    // DIRTY). retry() rethrows the last error on exhaustion; this catch applies
+    // the protective default instead of letting it escape.
+    logger().warn(
+      { error, maxAttempts },
+      'artifact classifier exhausted retries; failing to protective default DIRTY'
+    );
+    return 'DIRTY';
+  }
 }
