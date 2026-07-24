@@ -18,6 +18,8 @@ import { Backlog, SessionState, Status } from '../../../src/core/models.js';
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  copyFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock session-utils so handleDelta's resolvePRD call is controlled (no real I/O).
@@ -119,6 +121,8 @@ import { AgentError } from '../../../src/utils/errors.js';
 import { SessionManager as SessionManagerClass } from '../../../src/core/session-manager.js';
 import { resolvePRD } from '../../../src/core/session-utils.js';
 import { DeltaAnalysisWorkflow } from '../../../src/workflows/delta-analysis-workflow.js';
+import { BugHuntWorkflow } from '../../../src/workflows/bug-hunt-workflow.js';
+import { FixCycleWorkflow } from '../../../src/workflows/fix-cycle-workflow.js';
 import { patchBacklog } from '../../../src/core/task-patcher.js';
 import { filterByStatus } from '../../../src/utils/task-utils.js';
 import {
@@ -131,6 +135,8 @@ const mockReadFile = readFile as any;
 const mockResolvePRD = resolvePRD as any;
 const mockCreateArchitectAgent = createArchitectAgent as any;
 const MockDeltaAnalysisWorkflow = DeltaAnalysisWorkflow as any;
+const MockBugHuntWorkflow = BugHuntWorkflow as any;
+const MockFixCycleWorkflow = FixCycleWorkflow as any;
 const mockPatchBacklog = patchBacklog as any;
 const mockFilterByStatus = filterByStatus as any;
 const mockValidateNestedExecution = validateNestedExecution as any;
@@ -576,6 +582,141 @@ describe('PRPPipeline', () => {
 
       // VERIFY
       expect(pipeline.currentPhase).toBe('qa_complete');
+    });
+
+    it('forwards PARALLEL_RESEARCH + RESEARCH_DEPTH to FixCycleWorkflow (parallel on)', async () => {
+      // SETUP - all-Complete backlog so QA runs, then bug-found branch
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+
+      // Bug-hunt mode forces QA to run immediately (reaches the fix-spawn branch)
+      (pipeline as any).mode = 'bug-hunt';
+
+      // BugHuntWorkflow must report bugs so the fix-spawn branch executes
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: true,
+          bugs: [
+            {
+              id: 'BUG-001',
+              severity: 'major',
+              title: 'Bug',
+              description: 'desc',
+              reproduction: 'repro',
+            },
+          ],
+          summary: 'Found 1 bug',
+          recommendations: [],
+        }),
+      }));
+      // FixCycleWorkflow returns a resolved cycle (no remaining bugs)
+      MockFixCycleWorkflow.mockClear();
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: false,
+          bugs: [],
+          summary: 'All bugs fixed',
+          recommendations: [],
+        }),
+      }));
+
+      // EXECUTE - forward parallel-on settings via env
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '3');
+      try {
+        await pipeline.runQACycle();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      // VERIFY - 5th arg built from isParallelResearch() + getResearchDepth()
+      expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        { parallelResearch: true, researchDepth: 3 }
+      );
+    });
+
+    it('forwards parallel-off config when PARALLEL_RESEARCH unset', async () => {
+      // SETUP - all-Complete backlog so QA runs, then bug-found branch
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+
+      // Bug-hunt mode forces QA to run immediately (reaches the fix-spawn branch)
+      (pipeline as any).mode = 'bug-hunt';
+
+      // BugHuntWorkflow must report bugs so the fix-spawn branch executes
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: true,
+          bugs: [
+            {
+              id: 'BUG-001',
+              severity: 'major',
+              title: 'Bug',
+              description: 'desc',
+              reproduction: 'repro',
+            },
+          ],
+          summary: 'Found 1 bug',
+          recommendations: [],
+        }),
+      }));
+      MockFixCycleWorkflow.mockClear();
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: false,
+          bugs: [],
+          summary: 'All bugs fixed',
+          recommendations: [],
+        }),
+      }));
+
+      // EXECUTE - parallel off (unset) → isParallelResearch()=false, depth default 2
+      vi.stubEnv('PARALLEL_RESEARCH', '');
+      vi.stubEnv('RESEARCH_DEPTH', '');
+      try {
+        await pipeline.runQACycle();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      // VERIFY
+      expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        { parallelResearch: false, researchDepth: 2 }
+      );
     });
   });
 

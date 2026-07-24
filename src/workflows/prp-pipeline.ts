@@ -45,6 +45,7 @@ import { TaskOrchestrator as TaskOrchestratorClass } from '../core/task-orchestr
 import { DeltaAnalysisWorkflow } from './delta-analysis-workflow.js';
 import { BugHuntWorkflow } from './bug-hunt-workflow.js';
 import { FixCycleWorkflow } from './fix-cycle-workflow.js';
+import { isParallelResearch, getResearchDepth } from '../config/constants.js';
 import { patchBacklog } from '../core/task-patcher.js';
 import { filterByStatus } from '../utils/task-utils.js';
 import { progressTracker, type ProgressTracker } from '../utils/progress.js';
@@ -1246,7 +1247,14 @@ export class PRPPipeline extends Workflow {
             bugfixSessionPath,
             prdContent,
             this.taskOrchestrator,
-            this.sessionManager
+            this.sessionManager,
+            // PRD §4.2: forward parallel-research settings to the bugfix child
+            // so its shared orchestrator's depth-chain prefetch stays active
+            // during fix execution (the main items are already Complete by now).
+            {
+              parallelResearch: isParallelResearch(),
+              researchDepth: getResearchDepth(),
+            }
           );
 
           const fixResults = await fixCycleWorkflow.run();

@@ -10,10 +10,14 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { readFile, access, constants } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { FixCycleWorkflow } from '../../../src/workflows/fix-cycle-workflow.js';
+import {
+  PARALLEL_RESEARCH,
+  RESEARCH_DEPTH,
+} from '../../../src/config/constants.js';
 import type {
   Task,
   TestResults,
@@ -934,6 +938,85 @@ describe('FixCycleWorkflow', () => {
       expect(workflow.iteration).toBe(2);
       expect(results.hasBugs).toBe(true);
       expect(mockBugHuntInstance.run).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('research config forwarding', () => {
+    const validBugfixPath = 'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918';
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('stores forwarded researchConfig and applies it to process.env', () => {
+      // SETUP - clear env so the constructor's write is observable
+      vi.stubEnv(PARALLEL_RESEARCH, '');
+      vi.stubEnv(RESEARCH_DEPTH, '');
+      const orchestrator = createMockTaskOrchestrator();
+      const sessionManager = createMockSessionManager();
+
+      // EXECUTE
+      const workflow = new FixCycleWorkflow(
+        validBugfixPath,
+        'PRD content',
+        orchestrator,
+        sessionManager,
+        { parallelResearch: true, researchDepth: 3 }
+      );
+
+      // VERIFY
+      expect(workflow.researchConfig).toEqual({
+        parallelResearch: true,
+        researchDepth: 3,
+      });
+      expect(process.env[PARALLEL_RESEARCH]).toBe('true');
+      expect(process.env[RESEARCH_DEPTH]).toBe('3');
+    });
+
+    it("writes 'false' to env when parallelResearch is false (ternary false-branch)", () => {
+      // SETUP
+      vi.stubEnv(PARALLEL_RESEARCH, '');
+      vi.stubEnv(RESEARCH_DEPTH, '');
+      const orchestrator = createMockTaskOrchestrator();
+      const sessionManager = createMockSessionManager();
+
+      // EXECUTE
+      const workflow = new FixCycleWorkflow(
+        validBugfixPath,
+        'PRD content',
+        orchestrator,
+        sessionManager,
+        { parallelResearch: false, researchDepth: 2 }
+      );
+
+      // VERIFY
+      expect(workflow.researchConfig).toEqual({
+        parallelResearch: false,
+        researchDepth: 2,
+      });
+      expect(process.env[PARALLEL_RESEARCH]).toBe('false');
+      expect(process.env[RESEARCH_DEPTH]).toBe('2');
+    });
+
+    it('leaves researchConfig null and env UNCHANGED when 5th arg omitted', () => {
+      // SETUP - capture env values BEFORE construction
+      const parallelBefore = process.env[PARALLEL_RESEARCH];
+      const depthBefore = process.env[RESEARCH_DEPTH];
+      const orchestrator = createMockTaskOrchestrator();
+      const sessionManager = createMockSessionManager();
+
+      // EXECUTE - legacy 4-arg call (no researchConfig)
+      const workflow = new FixCycleWorkflow(
+        validBugfixPath,
+        'PRD content',
+        orchestrator,
+        sessionManager
+      );
+
+      // VERIFY - no env mutation, field is null
+      expect(workflow.researchConfig).toBeNull();
+      expect(process.env[PARALLEL_RESEARCH]).toBe(parallelBefore);
+      expect(process.env[RESEARCH_DEPTH]).toBe(depthBefore);
     });
   });
 });

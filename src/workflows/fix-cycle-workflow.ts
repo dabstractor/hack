@@ -42,6 +42,7 @@ import {
   validateBugfixSession,
   BugfixSessionValidationError,
 } from '../utils/validation/session-validation.js';
+import { PARALLEL_RESEARCH, RESEARCH_DEPTH } from '../config/constants.js';
 
 /**
  * Fix Cycle workflow class
@@ -72,6 +73,16 @@ export class FixCycleWorkflow extends Workflow {
 
   /** Session manager for state persistence */
   sessionManager: SessionManager;
+
+  /**
+   * Forwarded parallel-research settings for the bugfix child (PRD §4.2
+   * "Propagation to Bugfix Sub-Pipeline"). When provided, the bugfix child's
+   * shared TaskOrchestrator reads these via isParallelResearch() /
+   * getResearchDepth() (live env reads), so the depth-chain prefetch model
+   * stays active during fix execution. Null when omitted (legacy callers).
+   */
+  researchConfig: { parallelResearch: boolean; researchDepth: number } | null =
+    null;
 
   /** Current iteration counter (starts at 0, increments each loop) */
   iteration: number = 0;
@@ -106,6 +117,7 @@ export class FixCycleWorkflow extends Workflow {
    * @param prdContent - Original PRD content for QA context
    * @param taskOrchestrator - Task orchestrator for executing fix tasks
    * @param sessionManager - Session manager for state persistence
+   * @param researchConfig - Optional forwarded parallel-research settings (PRD §4.2)
    * @throws {Error} If sessionPath is not a valid non-empty string
    * @throws {BugfixSessionValidationError} If sessionPath is not a valid bugfix session
    */
@@ -113,7 +125,8 @@ export class FixCycleWorkflow extends Workflow {
     sessionPath: string,
     prdContent: string,
     taskOrchestrator: TaskOrchestrator,
-    sessionManager: SessionManager
+    sessionManager: SessionManager,
+    researchConfig?: { parallelResearch: boolean; researchDepth: number }
   ) {
     super('FixCycleWorkflow');
 
@@ -126,6 +139,7 @@ export class FixCycleWorkflow extends Workflow {
     this.prdContent = prdContent;
     this.taskOrchestrator = taskOrchestrator;
     this.sessionManager = sessionManager;
+    this.researchConfig = researchConfig ?? null;
 
     // Validate bugfix session path
     this.logger.debug(
@@ -152,6 +166,25 @@ export class FixCycleWorkflow extends Workflow {
       // Defensive: Handle unexpected error types
       throw new Error(
         'FixCycleWorkflow initialization failed: validation error'
+      );
+    }
+
+    // PRD §4.2: defensively re-apply forwarded settings to process.env so the
+    // shared orchestrator's live reads (isParallelResearch / getResearchDepth)
+    // are correct inside the bugfix child. Idempotent: a no-op when the env was
+    // already set to these values; a hardening for a future process-isolated
+    // bugfix child. Only runs when the caller explicitly forwarded settings.
+    if (researchConfig) {
+      process.env[PARALLEL_RESEARCH] = researchConfig.parallelResearch
+        ? 'true'
+        : 'false';
+      process.env[RESEARCH_DEPTH] = String(researchConfig.researchDepth);
+      this.logger.debug(
+        '[FixCycleWorkflow] Forwarded parallel-research settings applied to env',
+        {
+          parallelResearch: researchConfig.parallelResearch,
+          researchDepth: researchConfig.researchDepth,
+        }
       );
     }
 

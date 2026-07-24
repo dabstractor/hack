@@ -386,7 +386,7 @@
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "Depth-Chained Parallel Research",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add RESEARCH_DEPTH and PARALLEL_RESEARCH config, convert ResearchQueue from flat maxSize pool to depth-chained supervisor that prefetches a chain of items ahead, update RESEARCH_TIMEOUT default to 1800s, and forward settings to bugfix children.",
               "subtasks": [
                 {
@@ -436,7 +436,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S4",
                   "title": "Forward PARALLEL_RESEARCH and RESEARCH_DEPTH to bugfix child",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S2"
@@ -453,14 +453,14 @@
               "type": "Task",
               "id": "P3.M1.T2",
               "title": "tasks.json Write Concurrency (Lost-Update Prevention)",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Add process-level mutual exclusion (flock) and atomic writes for tasks.json so concurrent foreground executor and background research supervisor write cycles cannot clobber each other.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T2.S1",
                   "title": "Add flock-based process-level mutex for tasks.json read-modify-write",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 Finding G3 documents: no file lock/mutex exists. atomicWrite (session-utils.ts:99) uses temp+rename but no lock. SessionManager.flushUpdates() (session-manager.ts:754) batches then writes. ConcurrentTaskExecutor.executeParallel → concurrent executeSubtask → concurrent flushUpdates can lose status deltas. PRD §5.1 specifies every read-modify-write of tasks.json serialized under an exclusive lock (e.g. flock on a sibling lockfile), safe under recursion and the backgrounded supervisor.\n2. INPUT: No prior subtask output consumed (concurrency infrastructure is foundational).\n3. LOGIC: (a) Create a locked-accessor utility (e.g. withLockedTasksJSON or a FileLock class) in src/core/session-utils.ts or a new src/core/file-lock.ts. Use proper-lockfile or Node's fs.open + flock equivalent (note: Node doesn't have native flock; use proper-lockfile npm package or implement via O_EXCL lockfile with retry). (b) The lock must serialize read-modify-write: acquire exclusive lock → read → mutate → atomicWrite → release. (c) Safe under recursion (re-entrant or separate lock instances). (d) Safe when the backgrounded supervisor (from P3.M1.T1) writes concurrently.\n4. OUTPUT: Locked-accessor utility for tasks.json. Consumed by P3.M1.T2.S2.\n5. DOCS: [Mode A] JSDoc on the locked accessor / FileLock class documenting the mutual-exclusion guarantee and atomic-write property. This rides WITH the work.",
@@ -472,7 +472,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T2.S2",
                   "title": "Wrap all RMW paths through the locked accessor",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T2.S1"
