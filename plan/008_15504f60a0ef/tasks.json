@@ -372,7 +372,7 @@
       "type": "Phase",
       "id": "P3",
       "title": "Execution-Loop Resilience & State Integrity",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Add depth-chained parallel research, tasks.json write concurrency protection, two-phase commit via stagecoach, smart commit resilience, snapshot-before-revert recovery with FS evidence, watchdog-kill terminal handling, stateless single-shot invocations, critical-file deletion protection, orphaned-plan/ recovery, and prompt delivery safety.",
       "milestones": [
         {
@@ -580,7 +580,7 @@
           "type": "Milestone",
           "id": "P3.M2",
           "title": "Crash, Deletion & Prompt Safety",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add snapshot-before-revert recovery with FS evidence, watchdog-kill terminal handling, stateless single-shot invocations, critical-file deletion protection, orphaned-plan/ recovery, and prompt delivery safety (no argv).",
           "tasks": [
             {
@@ -739,7 +739,7 @@
               "type": "Task",
               "id": "P3.M2.T6",
               "title": "Prompt Delivery (No argv-Size Limit)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Audit that no agent invocation delivers prompts via argv, and ensure temp files backing prompts are cleaned up on both graceful and hard-killed exits, re-written on every retry attempt.",
               "subtasks": [
                 {
@@ -758,7 +758,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T6.S2",
                   "title": "Temp-file cleanup on graceful and hard-killed exits",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M2.T6.S1"
