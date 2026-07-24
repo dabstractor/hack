@@ -60,6 +60,27 @@ interface BashToolResult {
   exitCode: number | null;
   /** Error message if spawn failed or timed out */
   error?: string;
+  /**
+   * True iff the Node watchdog fired — i.e. the command exceeded its `timeout`
+   * and `executeBashCommand` invoked `child.kill('SIGTERM'→'SIGKILL')`.
+   *
+   * PRD §9.3.2 ("Watchdog kills are terminal"): a timed-out validation is a
+   * HARD, non-retryable failure. This flag lets the retry layer
+   * (P3.M2.T2.S2) distinguish a watchdog kill from a genuine non-zero exit
+   * and abort instead of churning retries against a hung process. Note: when
+   * a PRP `validate.sh` wraps a command in the `timeout` coreutil, the shell
+   * itself exits 124 — that surfaces here as `exitCode: 124` (with
+   * `timedOut: false`, because the NODE watchdog did not fire); consumers
+   * should treat EITHER signal as terminal.
+   */
+  timedOut: boolean;
+  /**
+   * True iff `child.kill()` was invoked (SIGTERM or SIGKILL). In this tool
+   * the only caller of `kill()` is the watchdog, so `killed === timedOut` in
+   * the close handler; surfaced separately as a redundant, robust signal per
+   * the P3.M2.T2.S1 contract.
+   */
+  killed: boolean;
 }
 
 /**
@@ -166,6 +187,8 @@ async function executeBashCommand(
       stderr: '',
       exitCode: null,
       error: error instanceof Error ? error.message : String(error),
+      timedOut: false,
+      killed: false,
     });
   }
 
@@ -214,6 +237,8 @@ async function executeBashCommand(
         stdout,
         stderr,
         exitCode,
+        timedOut,
+        killed,
       };
 
       if (timedOut) {
@@ -234,6 +259,8 @@ async function executeBashCommand(
         stderr,
         exitCode: null,
         error: error.message,
+        timedOut: false,
+        killed: false,
       });
     });
   });

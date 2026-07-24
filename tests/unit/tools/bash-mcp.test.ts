@@ -338,6 +338,54 @@ describe('tools/bash-mcp', () => {
         }
         await resultPromise;
       });
+
+      it('should surface timedOut=true and killed=true when the watchdog fires', async () => {
+        // SETUP - manual non-closing child capturing the close callback.
+        // The watchdog sets timedOut/killed=true on the FIRST setTimeout tick
+        // (before the 2s SIGKILL grace), so real timers with small values suffice.
+        let closeCallback: ((code: number) => void) | null = null;
+        let childKilled = false;
+        const hangingChild = {
+          stdout: { on: vi.fn() },
+          stderr: { on: vi.fn() },
+          on: vi.fn((event: string, callback: any) => {
+            if (event === 'close') closeCallback = callback;
+          }),
+          kill: vi.fn(() => {
+            childKilled = true;
+          }),
+          get killed() {
+            return childKilled;
+          },
+        } as any;
+        mockSpawn.mockReturnValue(hangingChild as any);
+
+        const input: BashToolInput = { command: 'hang', timeout: 10 };
+
+        // EXECUTE - start command (do not await yet)
+        const resultPromise = executeBashCommand(input);
+
+        // Wait long enough for the watchdog setTimeout (10ms) to fire SIGTERM
+        await new Promise(resolve => setTimeout(resolve, 40));
+
+        // VERIFY (pre-close) - the watchdog fired: kill was invoked and the
+        // in-closure locals are now true. The result is not resolved yet
+        // because we have not emitted 'close'.
+        expect(hangingChild.kill).toHaveBeenCalledWith('SIGTERM');
+
+        // TRIGGER close (SIGTERM exit code 143) to resolve the promise
+        if (closeCallback) {
+          (closeCallback as (code: number) => void)(143);
+        }
+        const result = await resultPromise;
+
+        // VERIFY - the watchdog flags are surfaced on the result
+        expect(result.timedOut).toBe(true);
+        expect(result.killed).toBe(true);
+        expect(result.success).toBe(false);
+        expect(result.exitCode).toBe(143);
+        expect(result.error).toContain('timed out');
+      });
     });
 
     describe('spawn error handling', () => {
@@ -670,6 +718,8 @@ describe('tools/bash-mcp', () => {
       expect(result.success).toBe(false);
       expect(result.exitCode).toBeNull();
       expect(result.error).toBe('string error');
+      expect(result.timedOut).toBe(false);
+      expect(result.killed).toBe(false);
     });
   });
 });
