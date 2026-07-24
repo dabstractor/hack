@@ -479,6 +479,109 @@ export function parseCLIArgs():
       }
     });
 
+  // Shared action handler for `task` and its `status` alias (PRD §5.3).
+  // Extracted so both .command('task') and .command('status') share identical
+  // behavior without duplicating the body.
+  const taskAction = async (
+    action: string,
+    options: { file?: string; output?: string }
+  ): Promise<void> => {
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const planDir = resolve('plan');
+      const tasksFile = options.file
+        ? resolve(options.file)
+        : resolve(planDir, 'tasks.json');
+
+      const content = await readFile(tasksFile, 'utf-8');
+      const data = JSON.parse(content);
+
+      if (action === 'next') {
+        // Find next executable task (first Planned subtask)
+        const findNext = (items: any[]): any => {
+          for (const item of items) {
+            if (item.type === 'Subtask' && item.status === 'Planned') {
+              return item;
+            }
+            if (item.subtasks) {
+              const found = findNext(item.subtasks);
+              if (found) return found;
+            }
+            if (item.tasks) {
+              const found = findNext(item.tasks);
+              if (found) return found;
+            }
+            if (item.milestones) {
+              const found = findNext(item.milestones);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        const next = findNext(data.backlog || []);
+        if (next) {
+          if (options.output === 'json') {
+            console.log(JSON.stringify(next, null, 2));
+          } else {
+            console.log(`Next task: ${next.id}`);
+            console.log(`  Title: ${next.title}`);
+            console.log(`  Status: ${next.status}`);
+          }
+        } else {
+          console.log('No tasks remaining.');
+        }
+      } else if (action === 'status') {
+        // Count tasks by status
+        const counts: Record<string, number> = {};
+        const countByStatus = (items: any[]) => {
+          for (const item of items) {
+            counts[item.status] = (counts[item.status] || 0) + 1;
+            if (item.subtasks) countByStatus(item.subtasks);
+            if (item.tasks) countByStatus(item.tasks);
+            if (item.milestones) countByStatus(item.milestones);
+          }
+        };
+        countByStatus(data.backlog || []);
+        if (options.output === 'json') {
+          console.log(JSON.stringify(counts, null, 2));
+        } else {
+          console.log('Task status summary:');
+          for (const [status, count] of Object.entries(counts)) {
+            console.log(`  ${status}: ${count}`);
+          }
+        }
+      } else {
+        // Default: list all tasks
+        const listItems = (items: any[], indent = 0) => {
+          for (const item of items) {
+            const prefix = '  '.repeat(indent);
+            const statusIcon =
+              item.status === 'Complete'
+                ? '✅'
+                : item.status === 'Implementing'
+                  ? '🔄'
+                  : item.status === 'Blocked'
+                    ? '🚫'
+                    : '⬜';
+            console.log(
+              `${prefix}${statusIcon} [${item.id}] ${item.title} (${item.status})`
+            );
+            if (item.subtasks) listItems(item.subtasks, indent + 1);
+            if (item.tasks) listItems(item.tasks, indent + 1);
+            if (item.milestones) listItems(item.milestones, indent + 1);
+          }
+        };
+        listItems(data.backlog || []);
+      }
+      process.exit(0);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger().error(`Task command failed: ${errorMessage}`);
+      process.exit(1);
+    }
+  };
+
   // Add task subcommand (PRD §5.3)
   program
     .command('task')
@@ -486,102 +589,16 @@ export function parseCLIArgs():
     .argument('[action]', 'Action: (none), next, status', '')
     .option('-f, --file <path>', 'Override tasks.json file path')
     .option('-o, --output <format>', 'Output format (table, json)', 'table')
-    .action(async (action, options) => {
-      try {
-        const { readFile } = await import('node:fs/promises');
-        const planDir = resolve('plan');
-        const tasksFile = options.file
-          ? resolve(options.file)
-          : resolve(planDir, 'tasks.json');
+    .action(taskAction);
 
-        const content = await readFile(tasksFile, 'utf-8');
-        const data = JSON.parse(content);
-
-        if (action === 'next') {
-          // Find next executable task (first Planned subtask)
-          const findNext = (items: any[]): any => {
-            for (const item of items) {
-              if (item.type === 'Subtask' && item.status === 'Planned') {
-                return item;
-              }
-              if (item.subtasks) {
-                const found = findNext(item.subtasks);
-                if (found) return found;
-              }
-              if (item.tasks) {
-                const found = findNext(item.tasks);
-                if (found) return found;
-              }
-              if (item.milestones) {
-                const found = findNext(item.milestones);
-                if (found) return found;
-              }
-            }
-            return null;
-          };
-          const next = findNext(data.backlog || []);
-          if (next) {
-            if (options.output === 'json') {
-              console.log(JSON.stringify(next, null, 2));
-            } else {
-              console.log(`Next task: ${next.id}`);
-              console.log(`  Title: ${next.title}`);
-              console.log(`  Status: ${next.status}`);
-            }
-          } else {
-            console.log('No tasks remaining.');
-          }
-        } else if (action === 'status') {
-          // Count tasks by status
-          const counts: Record<string, number> = {};
-          const countByStatus = (items: any[]) => {
-            for (const item of items) {
-              counts[item.status] = (counts[item.status] || 0) + 1;
-              if (item.subtasks) countByStatus(item.subtasks);
-              if (item.tasks) countByStatus(item.tasks);
-              if (item.milestones) countByStatus(item.milestones);
-            }
-          };
-          countByStatus(data.backlog || []);
-          if (options.output === 'json') {
-            console.log(JSON.stringify(counts, null, 2));
-          } else {
-            console.log('Task status summary:');
-            for (const [status, count] of Object.entries(counts)) {
-              console.log(`  ${status}: ${count}`);
-            }
-          }
-        } else {
-          // Default: list all tasks
-          const listItems = (items: any[], indent = 0) => {
-            for (const item of items) {
-              const prefix = '  '.repeat(indent);
-              const statusIcon =
-                item.status === 'Complete'
-                  ? '✅'
-                  : item.status === 'Implementing'
-                    ? '🔄'
-                    : item.status === 'Blocked'
-                      ? '🚫'
-                      : '⬜';
-              console.log(
-                `${prefix}${statusIcon} [${item.id}] ${item.title} (${item.status})`
-              );
-              if (item.subtasks) listItems(item.subtasks, indent + 1);
-              if (item.tasks) listItems(item.tasks, indent + 1);
-              if (item.milestones) listItems(item.milestones, indent + 1);
-            }
-          };
-          listItems(data.backlog || []);
-        }
-        process.exit(0);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        logger().error(`Task command failed: ${errorMessage}`);
-        process.exit(1);
-      }
-    });
+  // Add status subcommand — alias of `task` (PRD §5.3: git muscle memory)
+  program
+    .command('status')
+    .description('Display and query pipeline tasks (alias of `task`)')
+    .argument('[action]', 'Action: (none), next, status', '')
+    .option('-f, --file <path>', 'Override tasks.json file path')
+    .option('-o, --output <format>', 'Output format (table, json)', 'table')
+    .action(taskAction);
 
   // Parse arguments
   program.parse(process.argv);
@@ -631,6 +648,15 @@ export function parseCLIArgs():
   }
   if (args.length > 0 && args[0] === 'task') {
     // Task subcommand was invoked and already handled by action()
+    return {
+      subcommand: 'task',
+      options: {},
+    };
+  }
+  if (args.length > 0 && args[0] === 'status') {
+    // 'status' is an alias of 'task' (PRD §5.3). The action() handler already
+    // ran (and called process.exit); this return is type-safety-only, mirroring
+    // the 'task' branch exactly.
     return {
       subcommand: 'task',
       options: {},

@@ -13,6 +13,7 @@
   - [Pipeline Execution](#pipeline-execution)
   - [Scoped Execution](#scoped-execution)
   - [Special Modes](#special-modes)
+  - [Task Management](#task-management)
 - [Options](#options)
   - [Required Options](#required-options)
   - [Execution Control](#execution-control)
@@ -142,6 +143,35 @@ npm run dev -- --prd ./PRD.md --validate-prd
 ```
 
 Validates the PRD syntax and structure without running the pipeline. Exits with code 0 if valid, 1 if invalid. It makes no API calls and **requires no credential**, so you can lint your PRD before configuring API access.
+
+### Task Management
+
+The CLI provides task-querying subcommands for inspecting the current session's
+backlog:
+
+| Command           | Description                                               |
+| ----------------- | --------------------------------------------------------- |
+| `prd task`        | List all tasks in the current session (default action)    |
+| `prd task next`   | Show the next executable (Planned) subtask                |
+| `prd task status` | Show a status-counts summary (grouped by status)          |
+| `prd status`      | **Alias of `prd task`** (git muscle memory; see PRD §5.3) |
+
+**Options:**
+
+| Option                  | Description                                |
+| ----------------------- | ------------------------------------------ |
+| `-f, --file <path>`     | Override the `tasks.json` file path        |
+| `-o, --output <format>` | Output format: `table` (default) or `json` |
+
+```bash
+# List all tasks
+prd task
+# Same thing, git-style
+prd status
+
+# Get the next executable subtask (JSON)
+prd status next -o json
+```
 
 ---
 

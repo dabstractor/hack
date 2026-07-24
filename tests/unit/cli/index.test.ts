@@ -22,9 +22,19 @@ import {
 const originalArgv = process.argv;
 const originalExit = process.exit;
 
-// Mock the node:fs module
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(),
+// Mock the node:fs module (existsSync is overridden per-test; readFileSync
+// is preserved so parseCLIArgs can read package.json for --version).
+vi.mock('node:fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+  };
+});
+
+// Mock node:fs/promises for the task/status action handler (dynamic import)
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(async () => JSON.stringify({ backlog: [] })),
 }));
 
 // Mock the logger with hoisted variables
@@ -42,8 +52,10 @@ vi.mock('../../../src/utils/logger.js', () => ({
 }));
 
 import { existsSync } from 'node:fs';
+import { readFile as mockReadFile } from 'node:fs/promises';
 
 const mockExistsSync = existsSync as any;
+const mockReadFileFn = mockReadFile as any;
 
 describe('cli/index', () => {
   let mockExit: ReturnType<typeof vi.fn>;
@@ -51,6 +63,9 @@ describe('cli/index', () => {
   beforeEach(() => {
     // Default: file exists
     mockExistsSync.mockReturnValue(true);
+
+    // Default: minimal valid backlog for the task/status handler
+    mockReadFileFn.mockResolvedValue(JSON.stringify({ backlog: [] }));
 
     // Clear mock logger calls
     mockLogger.info.mockClear();
@@ -559,6 +574,66 @@ describe('cli/index', () => {
         expect(typeof args.dryRun).toBe('boolean');
         expect(typeof args.verbose).toBe('boolean');
       });
+    });
+  });
+
+  describe('prd status alias (PRD §5.3)', () => {
+    /**
+     * Helper to set process.argv for testing (scoped to this block)
+     */
+    const setArgv = (args: string[] = []) => {
+      process.argv = ['node', '/path/to/script.js', ...args];
+    };
+
+    // For these alias-routing tests we only assert the SYNCHRONOUS return value
+    // of parseCLIArgs() (the detection-block normalization). The taskAction
+    // handler still fires asynchronously after parseCLIArgs() returns and would
+    // call process.exit(); override exit to a no-op so the async tail does not
+    // produce an unhandled rejection. readFile is mocked to a valid backlog so
+    // the handler's success path runs cleanly.
+    let aliasExit: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      mockReadFileFn.mockResolvedValue(JSON.stringify({ backlog: [] }));
+      aliasExit = vi.fn();
+      process.exit = aliasExit as any;
+    });
+
+    it('should route "status" to the same subcommand as "task"', async () => {
+      // The detection block normalizes 'status' → { subcommand: 'task' },
+      // mirroring the existing 'task' branch exactly (PRD §5.3 alias).
+      setArgv(['status']);
+      const statusResult = parseCLIArgs();
+      // Let the async taskAction tail finish while the no-op exit mock is active
+      await new Promise(resolve => setImmediate(resolve));
+
+      setArgv(['task']);
+      const taskResult = parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // Both invocations normalize to the 'task' subcommand → true alias parity
+      expect(statusResult).toEqual({ subcommand: 'task', options: {} });
+      expect(taskResult).toEqual({ subcommand: 'task', options: {} });
+    });
+
+    it('should normalize "status" to subcommand "task" in the detection block', async () => {
+      // Drive the new args[0] === 'status' branch for 100% branch coverage.
+      setArgv(['status']);
+      const result = parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+      expect(result).toEqual({ subcommand: 'task', options: {} });
+    });
+
+    it('should support the same actions as task (status next / status status)', async () => {
+      // status next → normalized to task subcommand
+      setArgv(['status', 'next']);
+      expect(parseCLIArgs()).toEqual({ subcommand: 'task', options: {} });
+      await new Promise(resolve => setImmediate(resolve));
+
+      // status status → normalized to task subcommand
+      setArgv(['status', 'status']);
+      expect(parseCLIArgs()).toEqual({ subcommand: 'task', options: {} });
+      await new Promise(resolve => setImmediate(resolve));
     });
   });
 });

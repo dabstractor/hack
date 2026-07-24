@@ -193,7 +193,7 @@
       "type": "Phase",
       "id": "P2",
       "title": "Model Roles, Reasoning Budget & Provider-Neutral Configuration",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Generalize to three model roles (research/reasoning/implementation), add maximum reasoning budget (xhigh) for decomposition, enforce single-PRP default with strict batching gates, rename provider-neutral config vars to PRP_* canonical names with legacy fallback, and alias prd status to prd task.",
       "milestones": [
         {
@@ -328,14 +328,14 @@
           "type": "Milestone",
           "id": "P2.M3",
           "title": "Single-PRP Default and prd status Alias",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Enforce single-PRP default with strict batching gates in the PRP Creation Prompt, and alias prd status to prd task for git muscle memory.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M3.T1",
               "title": "Single-PRP Prompt Update and CLI Alias",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Update the PRP blueprint prompt to enforce one-PRP-per-call with strict batching gates, and add the prd status CLI alias.",
               "subtasks": [
                 {
@@ -354,7 +354,7 @@
                   "type": "Subtask",
                   "id": "P2.M3.T1.S2",
                   "title": "Add prd status CLI alias to prd task",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/signatures.md documents the CLI structure. The 'task' subcommand is registered at cli/index.ts:484 with .command('task'), .argument('[action]'), and an .action() handler. It supports actions: (none)=list all, 'next', 'status'. PRD §5.3 mandates aliasing 'prd status' to 'prd task' for git muscle memory.\n2. INPUT: No prior subtask output consumed (CLI wiring change).\n3. LOGIC: In src/cli/index.ts, register a 'status' subcommand that delegates to the same handler as the 'task' subcommand. Use commander.js .command('status') with the same description, argument, and options as 'task', sharing the same action handler. Add 'status' to the subcommand union type at line 248. Add a case in the subcommand detection block (around line 589+) that returns { subcommand: 'task', options } for 'status' invocations (or maps it to the same logic).\n4. OUTPUT: `prd status` works identically to `prd task`. Completes P2.M3.\n5. DOCS: [Mode A] Update docs/CLI_REFERENCE.md to document the `status` alias. This rides WITH the work.",
@@ -393,7 +393,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Add RESEARCH_DEPTH and PARALLEL_RESEARCH config constants",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that DEFAULT_RESEARCH_TIMEOUT_SECONDS = 300 at constants.ts:198. No RESEARCH_DEPTH constant exists anywhere. PRD §4.2 specifies RESEARCH_DEPTH (default 2) and PARALLEL_RESEARCH (CLI -r/--parallel-research, default false).\n2. INPUT: No prior subtask output consumed (config constants are foundational).\n3. LOGIC: (a) Add DEFAULT_RESEARCH_DEPTH = 2 and getResearchDepth() to constants.ts (mirror getResearchTimeoutSeconds pattern). (b) Add PARALLEL_RESEARCH env var name and isParallelResearch() helper (default false). (c) Change DEFAULT_RESEARCH_TIMEOUT_SECONDS from 300 to 1800 in constants.ts:198. (d) Add CLI flags -r/--parallel-research (boolean, default false) and --research-depth <n> to cli/index.ts.\n4. OUTPUT: New constants and config helpers in constants.ts, updated CLI flags. Consumed by P3.M1.T1.S2, P3.M1.T1.S3, P3.M1.T1.S4.\n5. DOCS: [Mode A] Add PARALLEL_RESEARCH, RESEARCH_DEPTH to .env.example; update RESEARCH_TIMEOUT default note. Add to docs/CONFIGURATION.md research section. This rides WITH the work.",
@@ -406,7 +406,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S2",
                   "title": "Convert ResearchQueue to depth-chained supervisor",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T1.S1"
