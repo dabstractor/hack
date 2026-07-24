@@ -147,8 +147,8 @@ const PERSONA_TOKEN_LIMITS = {
  *
  * @remarks
  * Generates a Groundswell-compatible agent configuration optimized for
- * the specified persona. Personas default to the `sonnet` (balanced) model
- * tier (glm-5.2); the Coder overrides to the `haiku` (fast) tier per its
+ * the specified persona. Personas default to the balanced model tier
+ * (glm-5.2); the Coder overrides to the fast tier per its
  * IMPL_AGENT role (PRD §9.2.3).
  *
  * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)

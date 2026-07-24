@@ -85,7 +85,7 @@ describe('agents/agent-factory', () => {
       // EXECUTE
       const configs = personas.map(p => createBaseConfig(p));
 
-      // VERIFY: All personas use sonnet tier → zai/glm-5.2 (provider-qualified, lowercase id
+      // VERIFY: All personas use balanced tier → zai/glm-5.2 (provider-qualified, lowercase id
       // as registered in the Pi model registry — ModelRegistry.find() is case-sensitive)
       configs.forEach(config => {
         expect(config.model).toBe('zai/glm-5.2');

@@ -189,37 +189,37 @@ class ZAiValidator {
     log('----------------------------', 'gray');
 
     try {
-      const opusModel = getModel('high');
-      const sonnetModel = getModel('balanced');
-      const haikuModel = getModel('fast');
+      const highModel = getModel('high');
+      const balancedModel = getModel('balanced');
+      const fastModel = getModel('fast');
 
-      info(`Opus model:   ${opusModel}`);
-      info(`Sonnet model: ${sonnetModel}`);
-      info(`Haiku model:  ${haikuModel}`);
+      info(`Opus model:   ${highModel}`);
+      info(`Sonnet model: ${balancedModel}`);
+      info(`Haiku model:  ${fastModel}`);
 
       const checks: boolean[] = [];
 
-      if (opusModel === 'GLM-4.7') {
+      if (highModel === 'GLM-4.7') {
         success('Opus model is GLM-4.7');
         checks.push(true);
       } else {
-        warn(`Opus model is ${opusModel}, expected GLM-4.7`);
+        warn(`Opus model is ${highModel}, expected GLM-4.7`);
         checks.push(false);
       }
 
-      if (sonnetModel === 'GLM-4.7') {
+      if (balancedModel === 'GLM-4.7') {
         success('Sonnet model is GLM-4.7');
         checks.push(true);
       } else {
-        warn(`Sonnet model is ${sonnetModel}, expected GLM-4.7`);
+        warn(`Sonnet model is ${balancedModel}, expected GLM-4.7`);
         checks.push(false);
       }
 
-      if (haikuModel === 'glm-5-turbo') {
+      if (fastModel === 'glm-5-turbo') {
         success('Haiku model is glm-5-turbo');
         checks.push(true);
       } else {
-        warn(`Haiku model is ${haikuModel}, expected glm-5-turbo`);
+        warn(`Haiku model is ${fastModel}, expected glm-5-turbo`);
         checks.push(false);
       }
 
@@ -229,9 +229,9 @@ class ZAiValidator {
         passed: checks.every(c => c),
         duration: Date.now() - startTime,
         details: {
-          opus: opusModel,
-          sonnet: sonnetModel,
-          haiku: haikuModel,
+          high: highModel,
+          balanced: balancedModel,
+          fast: fastModel,
         },
       };
     } catch (error) {

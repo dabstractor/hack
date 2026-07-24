@@ -31,7 +31,7 @@ describe('Groundswell cache-key isolation — harness × provider/model (PRD §9
   afterEach(() => vi.unstubAllEnvs());
 
   // The pipeline's actual resolved config (P1.M1.T1.S2 / P1.M1.T2.S2):
-  const ZAI_GLM_47 = `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.sonnet}`; // 'zai/GLM-4.7'
+  const ZAI_BALANCED = `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.balanced}`; // 'zai/glm-5.2' (balanced tier)
   // The contrasting axis — claude-code's Anthropic-only world (PRD §9.4.3):
   const ANTHROPIC_CLAUDE = 'anthropic/claude-sonnet-4';
 
@@ -100,7 +100,7 @@ describe('Groundswell cache-key isolation — harness × provider/model (PRD §9
       // PRD §9.4.3 — the two configs the pipeline actually selects between.
       const pipelineKey = generateCacheKey({
         ...baseInputs,
-        model: ZAI_GLM_47,
+        model: ZAI_BALANCED,
         provider: DEFAULT_MODEL_PROVIDER,
         harness: DEFAULT_HARNESS,
       });
@@ -199,7 +199,7 @@ describe('Groundswell cache-key isolation — harness × provider/model (PRD §9
       const cache = new LLMCache();
       const zaiKey = generateCacheKey({
         ...baseInputs,
-        model: ZAI_GLM_47,
+        model: ZAI_BALANCED,
         provider: DEFAULT_MODEL_PROVIDER,
         harness: DEFAULT_HARNESS,
       });
@@ -221,7 +221,7 @@ describe('Groundswell cache-key isolation — harness × provider/model (PRD §9
       const cache = new LLMCache();
       const key = generateCacheKey({
         ...baseInputs,
-        model: ZAI_GLM_47,
+        model: ZAI_BALANCED,
         provider: DEFAULT_MODEL_PROVIDER,
         harness: DEFAULT_HARNESS,
       });

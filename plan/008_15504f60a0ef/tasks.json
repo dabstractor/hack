@@ -200,14 +200,14 @@
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Provider-Neutral Configuration Naming",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Rename tier names opus/sonnet/haiku to high/balanced/fast, add canonical PRP_* env var names with ANTHROPIC_* legacy fallback and deprecation warning, and update all getModel call sites.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "Tier Rename and Canonical Config Implementation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Rename ModelTier to high/balanced/fast, update MODEL_NAMES and MODEL_ENV_VARS to canonical PRP_* names, implement canonical-first-with-fallback loader with deprecation warning, and update all getModel call sites.",
               "subtasks": [
                 {
@@ -243,7 +243,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S3",
                   "title": "Update getModel and all call sites for new tier names",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S2"
