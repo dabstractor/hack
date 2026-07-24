@@ -372,6 +372,150 @@ export async function resolveIncludes(
   return out;
 }
 
+// Mirrors S1's module-private INCLUDE_TOKEN (re-declared here because S1's const is not exported).
+// The regex is a fixed one-line contract: group 1 = the bare path token (without the leading @).
+const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
+
+/**
+ * Recursively expand `@token` include directives in `content` (PRD §2.3).
+ *
+ * @remarks
+ * Internal worker for {@link resolvePRD}. Mirrors {@link resolveIncludes}'s scan loop + error
+ * handling (stat/isFile/ENOENT/`SessionFileError`/`m[0]`-fallback) but adds two things:
+ * 1. a `visited.has(abs)` **cycle check** — the back-edge `@token` is left literal (silent).
+ * 2. **recursive descent** at `depth + 1` instead of a verbatim substitution.
+ *
+ * The `visited` set is PATH-BASED (per-branch ancestry): it is COPIED on each descent
+ * (`new Set(visited).add(abs)`) so diamond includes (a→c and b→c) expand `c` in BOTH branches.
+ * A flat/global set would wrongly deduplicate diamonds.
+ *
+ * `baseDir` is the ENTRY PRD's directory, passed UNCHANGED on every descent (never re-derived
+ * from an included file's location) — this preserves the project-root-relative base invariant.
+ *
+ * The substitution site is a single `out += expanded ?? m[0];` line so S3 can wrap it with
+ * `<!-- @include -->` markers later. S2 emits NO markers and NO stale-include warnings.
+ *
+ * @param content - Raw string to scan for include directives.
+ * @param baseDir - Directory to resolve include paths against (the entry PRD's directory).
+ * @param maxDepth - Max nesting depth (the gate is `depth >= maxDepth` → stop expanding).
+ * @param depth - Current nesting depth (the entry file is depth 0).
+ * @param visited - Absolute ancestry paths (path-based / per-branch) for cycle detection.
+ * @returns The content with includes recursively expanded inline.
+ * @throws {SessionFileError} If an existing included file cannot be read (e.g. invalid UTF-8)
+ *         or a `stat` call fails with a non-ENOENT error (e.g. EACCES).
+ */
+async function expandIncludesRecursive(
+  content: string,
+  baseDir: string,
+  maxDepth: number,
+  depth: number,
+  visited: Set<string>
+): Promise<string> {
+  if (depth >= maxDepth) {
+    return content; // depth gate — remaining @tokens stay literal
+  }
+
+  const matches = [...content.matchAll(RESOLVE_TOKEN)];
+  let out = '';
+  let last = 0;
+  for (const m of matches) {
+    const idx = m.index!;
+    out += content.slice(last, idx); // gap before token (verbatim)
+    const token = m[1];
+    const abs = resolve(baseDir, token);
+
+    if (visited.has(abs)) {
+      out += m[0]; // CYCLE — leave back-edge literal, silent
+      last = idx + m[0].length;
+      continue;
+    }
+
+    let replacement: string | undefined;
+    try {
+      const st = await stat(abs);
+      if (st.isFile()) {
+        const child = await readUTF8FileStrict(abs, 'read include');
+        // PATH-BASED ancestry: copy the set so sibling branches (diamonds) each get their own chain.
+        const childVisited = new Set(visited).add(abs);
+        replacement = await expandIncludesRecursive(
+          child,
+          baseDir,
+          maxDepth,
+          depth + 1,
+          childVisited
+        );
+      }
+      // else: directory → not a file → replacement stays undefined (silent verbatim).
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') {
+        replacement = undefined; // missing → silent verbatim (S3 adds the .md-token stderr warning)
+      } else {
+        throw new SessionFileError(abs, 'stat include', e as Error);
+      }
+    }
+    out += replacement ?? m[0]; // substitute OR keep original bytes (S3 wraps this site with markers)
+    last = idx + m[0].length;
+  }
+  out += content.slice(last); // tail
+  return out;
+}
+
+/**
+ * Resolve a PRD entry file, recursively expanding `@path/to/file.md` includes (PRD §2.3).
+ *
+ * @remarks
+ * Reads the entry PRD, then recursively expands include directives to their full depth:
+ *  - **CYCLE DETECTION**: a path-based visited `Set` (absolute paths of the current ancestry)
+ *    prevents infinite recursion on self/mutual cycles; the back-edge `@token` is left literal.
+ *    Diamond includes (a→c and b→c) still expand `c` in both branches (the visited set is
+ *    per-branch, not flat).
+ *  - **MAX DEPTH**: expansion stops at {@link getPrdIncludeMaxDepth} (default 10) or the
+ *    provided `opts.maxDepth`; deeper `@token`s stay literal. The entry file is depth 0, so
+ *    `maxDepth = N` allows N nesting levels below the entry.
+ *  - **BASE INVARIANT**: all paths resolve project-root-relative — against the entry PRD's
+ *    directory, regardless of which file contains the directive (PRD §2.3).
+ *
+ * Missing files, directories, and cycle back-edges stay verbatim + silent (S3 adds warnings).
+ *
+ * @param prdPath - Path to the entry PRD file (relative or absolute).
+ * @param opts - Optional {@link ResolveOpts} (currently only `maxDepth`).
+ * @returns The fully include-expanded document.
+ * @throws {SessionFileError} If the entry file (or any included file) cannot be read / is
+ *         invalid UTF-8, or a `stat` fails with a non-ENOENT error.
+ *
+ * @example
+ * ```typescript
+ * import { resolvePRD } from './core/session-utils.js';
+ *
+ * // Given docs/a.md which itself contains '@docs/b.md', both expand inline recursively:
+ * const resolved = await resolvePRD('/path/to/PRD.md');
+ * ```
+ */
+export async function resolvePRD(
+  prdPath: string,
+  opts?: ResolveOpts
+): Promise<string> {
+  const absEntry = resolve(prdPath);
+  const baseDir = dirname(absEntry); // project-root-relative base invariant (PRD §2.3)
+  const maxDepth = opts?.maxDepth ?? getPrdIncludeMaxDepth();
+
+  logger().debug(
+    { prdPath: absEntry, baseDir, maxDepth },
+    'Resolving PRD includes'
+  );
+
+  const entryContent = await readUTF8FileStrict(absEntry, 'read PRD');
+  // Seed visited with the entry so an include pointing back at the entry is a cycle.
+  return expandIncludesRecursive(
+    entryContent,
+    baseDir,
+    maxDepth,
+    0,
+    new Set<string>([absEntry])
+  );
+}
+
 /**
  * Creates the complete session directory structure
  *

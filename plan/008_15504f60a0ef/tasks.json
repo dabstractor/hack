@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Core Include-Expansion Resolver Engine",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Implement the resolvePRD function that turns a multi-file PRD into one canonical document at load time, with include-directive parsing, boundary/existence rules, recursive expansion, cycle detection, max-depth enforcement, idempotency guarantee, and optional markers.",
               "subtasks": [
                 {
@@ -38,7 +38,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Recursive expansion engine with cycle detection and max depth",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -53,7 +53,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Idempotency guarantee, optional markers, and stale-include warnings",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"
