@@ -42,7 +42,9 @@ import {
 import { SessionManager as SessionManagerClass } from '../core/session-manager.js';
 import {
   resolvePRD,
+  hashPRD,
   hashPRDContent,
+  readTasksJSON,
   writePendingDeltaHash,
   clearPendingDeltaHash,
   refreshSnapshotToCurrentPRD,
@@ -563,6 +565,57 @@ export class PRPPipeline extends Workflow {
     this.logger.info('[PRPPipeline] Initializing session');
 
     try {
+      // PRP §4.3 step 2 ("Validate/bug-hunt re-runs reuse the completed session"):
+      // when invoked in validate-only (`--mode validate`) or bug-hunt-only
+      // (`--mode bug-hunt`) mode against an already-completed session that has a pending
+      // PRD change, reuse the latest completed session instead of letting
+      // SessionManager.initialize() create a new empty session (which has no tasks.json
+      // and would make the validate/bug-hunt gates bail). The pending change is
+      // intentionally left in place so the next normal run processes it into a proper
+      // delta session. See {@link PRPPipeline.tryReuseCompletedSessionForReRun}.
+      if (this.mode === 'validate' || this.mode === 'bug-hunt') {
+        const reused = await this.tryReuseCompletedSessionForReRun();
+        if (reused) {
+          const session = this.sessionManager.currentSession!;
+          this.logger.info(`[PRPPipeline] Session: ${session.metadata.id}`);
+          this.logger.info(`[PRPPipeline] Path: ${session.metadata.path}`);
+          this.logger.info(
+            `[PRPPipeline] Existing: ${session.taskRegistry.backlog.length > 0}`
+          );
+
+          // Build the TaskOrchestrator against the reused session, mirroring the normal
+          // path below. run()'s rebuildQueue() requires a non-null orchestrator.
+          const retryConfig: {
+            maxAttempts?: number;
+            baseDelay?: number;
+            enabled?: boolean;
+          } = {
+            maxAttempts: this.#taskRetry,
+            baseDelay: this.#retryBackoff,
+            enabled: !this.#noRetry,
+          };
+          this.taskOrchestrator = new TaskOrchestratorClass(
+            this.sessionManager,
+            this.#scope,
+            this.#noCache,
+            this.#researchQueueConcurrency,
+            this.#cacheTtl,
+            this.#prpCompression,
+            retryConfig
+          );
+
+          // No delta branch fires: loadSessionAsCurrent() cached the loaded
+          // session's hash as #prdHash, so hasSessionChanged() is false. (We also
+          // return before the :577 check regardless.) The pending change stays on disk.
+          this.currentPhase = 'session_initialized';
+          this.logger.info(
+            '[PRPPipeline] Session initialized successfully (reused)'
+          );
+          return;
+        }
+        // else: fall through to the normal initialize() path.
+      }
+
       // Initialize session manager (detects new vs existing)
       const session = await this.sessionManager.initialize();
 
@@ -2228,6 +2281,94 @@ Report Location: ${sessionPath}/RESOURCE_LIMIT_REPORT.md
         }
       }
     }
+    return true;
+  }
+
+  /**
+   * All-subtasks-Complete predicate over an arbitrary {@link Backlog}.
+   *
+   * @remarks
+   * Mirrors {@link PRPPipeline.#allTasksComplete} but operates on an externally
+   * supplied backlog (e.g. one loaded via {@link readTasksJSON} for the reuse
+   * completion probe) rather than the current session's task registry. An empty
+   * backlog (no subtasks) is considered vacuously complete.
+   *
+   * @param backlog - The backlog to inspect.
+   * @returns `true` if every subtask has status `'Complete'`.
+   */
+  #isBacklogComplete(backlog: Backlog): boolean {
+    for (const phase of backlog.backlog) {
+      for (const milestone of phase.milestones) {
+        for (const task of milestone.tasks) {
+          for (const subtask of task.subtasks) {
+            if (subtask.status !== 'Complete') {
+              return false;
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * PRD §4.3 step 2 ("Validate/bug-hunt re-runs reuse the completed session"):
+   * reuse detection for validate-only / bug-hunt-only re-runs.
+   *
+   * @remarks
+   * When the pipeline runs in `--mode validate` or `--mode bug-hunt` against an
+   * already-completed session that has a pending PRD change, this helper decides
+   * whether to reuse the latest completed session (returning `true`) instead of
+   * letting {@link SessionManager.initialize} create a new empty session.
+   *
+   * Detection (returns `false` — fall through to normal `initialize()` — on any
+   * non-reuse case):
+   * 1. No latest session exists → nothing to reuse.
+   * 2. The latest session's hash already matches the current PRD hash → no pending
+   *    change; normal `initialize()` will load it by hash anyway.
+   * 3. The latest session's tasks are NOT all `Complete` → do not reuse an
+   *    incomplete session (the contract is about completed sessions).
+   *
+   * On reuse, it loads the completed session as the current session via
+   * {@link SessionManager.loadSessionAsCurrent} (which caches the loaded session's
+   * hash as `#prdHash` in memory only — so `hasSessionChanged()` reports false —
+   * leaving the on-disk PRD change pending) and logs an explanatory message. The
+   * pending change is intentionally left in place so the next normal run processes
+   * it into a proper delta session.
+   *
+   * @returns `true` if a completed session with a pending change was reused;
+   *          `false` to fall through to the normal {@link SessionManager.initialize} path.
+   */
+  private async tryReuseCompletedSessionForReRun(): Promise<boolean> {
+    const planDir = this.sessionManager.planDir;
+    const latest = await SessionManagerClass.findLatestSession(planDir);
+    if (!latest) {
+      // No sessions at all — normal initialize() will create the first one.
+      return false;
+    }
+    // Current PRD hash (resolved + hashed, 12-char prefix to match dir-name hashes).
+    const currentHash = (await hashPRD(this.sessionManager.prdPath)).slice(
+      0,
+      12
+    );
+    if (latest.hash === currentHash) {
+      // No pending change on the latest session — normal initialize() loads it by hash.
+      return false;
+    }
+    // Pending change detected. Check whether the latest session is COMPLETED
+    // (completion is derived from tasks.json — there is no session-level status field).
+    const backlog = await readTasksJSON(latest.path);
+    if (!this.#isBacklogComplete(backlog)) {
+      // Latest session is incomplete — do not reuse; fall through to normal init.
+      return false;
+    }
+    // REUSE: load the completed session as current WITHOUT initialize()/
+    // createDeltaSession(), and WITHOUT refreshing prd_snapshot.md.
+    this.logger.info(
+      `[PRPPipeline] ${this.mode} mode: reusing completed session ${latest.id} ` +
+        'for re-run; pending PRD change left in place for the next normal run'
+    );
+    await this.sessionManager.loadSessionAsCurrent(latest.path);
     return true;
   }
 

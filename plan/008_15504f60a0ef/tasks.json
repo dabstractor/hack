@@ -785,7 +785,7 @@
           "type": "Milestone",
           "id": "P4.M1",
           "title": "Change Classification & Response Selection",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Add LLM-driven COSMETIC/SUBSTANTIVE and CLEAN/DIRTY classifiers with transient-API retry and protective default, implement response selection (--accept-prd-changes, integrate, validate reuse), and bind breakdown to delta_prd.md.",
           "tasks": [
             {
@@ -828,7 +828,7 @@
               "type": "Task",
               "id": "P4.M1.T2",
               "title": "Response Selection for Mid-Session Changes",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Implement the three response paths when a change is detected on an active session: delta session (default), integrate into current session, and --accept-prd-changes. Ensure validate/bug-hunt reuses the completed session.",
               "subtasks": [
                 {
@@ -849,7 +849,7 @@
                   "type": "Subtask",
                   "id": "P4.M1.T2.S2",
                   "title": "Validate/bug-hunt reuse completed session with pending change",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P4.M1.T2.S1"

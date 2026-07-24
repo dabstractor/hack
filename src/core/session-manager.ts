@@ -609,6 +609,47 @@ export class SessionManager {
   }
 
   /**
+   * Load an existing session and make it the current session WITHOUT running
+   * the hash-based {@link SessionManager.initialize} lookup and WITHOUT
+   * creating a new directory ({@link SessionManager.createDeltaSession}).
+   *
+   * @remarks
+   * Sets `#prdHash` to the loaded session's hash so {@link SessionManager.hasSessionChanged}
+   * returns `false` afterward — the in-memory reused session reports no change (mirrors
+   * {@link SessionManager.initialize}'s load branch, which caches the matched session's
+   * hash). This is deliberate: the on-disk session's `metadata.hash` may still differ
+   * from the current PRD (a pending change), but that pending difference is exactly what
+   * the *next* fresh process detects and processes into a proper delta session. `#prdHash`
+   * is in-memory/ephemeral, so masking the difference here does not lose it. The on-disk
+   * `prd_snapshot.md` is NOT refreshed.
+   *
+   * Used by PRD §4.3 step 2 ("Validate/bug-hunt re-runs reuse the completed session"):
+   * when the pipeline runs in `--mode validate` or `--mode bug-hunt` against an
+   * already-completed session that has a pending PRD change, the reuse path selects a
+   * chosen session as current and leaves the pending change in place for the next
+   * normal run.
+   *
+   * Mirrors what {@link SessionManager.initialize} does on its load branch (loadSession +
+   * assign `#currentSession`) and its hash caching (`#prdHash`), but for an
+   * externally-chosen path.
+   *
+   * @param sessionPath - Absolute path to an existing session directory.
+   * @returns The loaded SessionState (also assigned to `#currentSession`).
+   */
+  async loadSessionAsCurrent(sessionPath: string): Promise<SessionState> {
+    const session = await this.loadSession(sessionPath);
+    this.#currentSession = session;
+    // Cache the LOADED session's hash as #prdHash so hasSessionChanged() returns
+    // false afterward (mirrors initialize()'s load branch, which sets #prdHash to
+    // the matched session's hash). The on-disk session's metadata.hash may still
+    // differ from the current PRD (a pending change) — that difference is what the
+    // NEXT fresh process detects and processes into a proper delta session. #prdHash
+    // is in-memory/ephemeral, so masking the difference here does not lose it.
+    this.#prdHash = session.metadata.hash;
+    return session;
+  }
+
+  /**
    * Creates delta session for PRD changes
    *
    * @remarks
