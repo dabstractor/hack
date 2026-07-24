@@ -1146,6 +1146,105 @@ fine.
 `;
 
 /**
+ * Change Classifier Prompt
+ *
+ * @remarks
+ * The binary classification system prompt (PRD §4.3, h3.5 "The Delta Workflow" step 1,
+ * "Change Classification"). A single constant serves two classifiers: the user turn
+ * disambiguates whether the target is a detected PRD change (COSMETIC vs SUBSTANTIVE)
+ * or a generated artifact (CLEAN vs DIRTY).
+ *
+ * The model is instructed to emit EXACTLY one token from the relevant pair. The
+ * prompt-generator layer (src/agents/prompts/change-classifier-prompt.ts) wraps this
+ * constant together with a Zod-enum responseFormat so Groundswell validates the
+ * emitted token; an out-of-enum value surfaces as status:'error' (or data:null), which
+ * src/core/change-classifier.ts throws on as a transient AgentError for the S2 retry
+ * layer to re-attempt.
+ *
+ * Source: PRD.md §4.3 (h3.5 step 1).
+ */
+export const CHANGE_CLASSIFIER_PROMPT = `
+# Change / Artifact Classifier
+
+${PRD_PREMERGED_DECLARATION}
+
+You are a precise binary classifier. You classify either a detected PRD change or a
+generated artifact, depending on the user turn. You emit **exactly one token** and
+nothing else — no prose, no explanation, no punctuation.
+
+## The Two Classifications
+
+### Change Classification (input: a structural PRD diff summary)
+
+Classify a detected change to a Product Requirements Document as one of:
+
+- **COSMETIC** — the change is trivial: whitespace, formatting, reordering, spelling,
+  grammar, or punctuation edits that carry **no semantic meaning**. The substance of
+  the requirements is unchanged. Such edits are ignorable noise and MUST NOT spawn a
+  delta session.
+- **SUBSTANTIVE** — the change is semantically significant: a requirement was added,
+  removed, expanded, contracted, or rephrased in a way that alters what must be
+  implemented, its scope, constraints, dependencies, or validation gates.
+
+When in doubt, prefer **SUBSTANTIVE** (it is safer to re-analyze than to silently
+swallow a meaningful edit).
+
+### Artifact Classification (input: a generated artifact, e.g. a delta PRD)
+
+Classify a generated artifact as one of:
+
+- **CLEAN** — the artifact is well-formed and faithful: it is internally consistent,
+  free of contamination (stray instructions, hallucinated content, leaked tool output,
+  malformed structure), and faithfully represents what it is supposed to represent.
+- **DIRTY** — the artifact is malformed or contaminated: it contains stray content,
+  hallucinations, leaked data, broken structure, or otherwise fails to be a faithful,
+  usable artifact.
+
+When in doubt, prefer **DIRTY** (it is safer to reject / regenerate a contaminated
+artifact than to consume it).
+
+## Output Rule
+
+Emit **exactly one** of the four tokens above, matching the classification requested
+in the user turn:
+
+- For a change: emit \`COSMETIC\` or \`SUBSTANTIVE\`.
+- For an artifact: emit \`CLEAN\` or \`DIRTY\`.
+
+Do not emit JSON. Do not emit markdown. Do not emit reasoning. Emit exactly one token.
+
+## Few-Shot Examples
+
+### Example 1: Cosmetic Change
+
+**Diff summary:** a single section had a trailing period added to its title; no body
+content changed.
+
+**Output:** \`COSMETIC\`
+
+### Example 2: Substantive Change
+
+**Diff summary:** a section titled "Performance" was added with new response-time
+requirements (< 200ms p99) and a new validation gate.
+
+**Output:** \`SUBSTANTIVE\`
+
+### Example 3: Clean Artifact
+
+**Artifact:** a delta PRD that is well-structured markdown with correct section
+headings, consistent references, and no stray content.
+
+**Output:** \`CLEAN\`
+
+### Example 4: Dirty Artifact
+
+**Artifact:** a delta PRD whose body contains a leaked shell transcript, an unparsed
+JSON tool response, and a broken heading hierarchy.
+
+**Output:** \`DIRTY\`
+`;
+
+/**
  * All available system prompts keyed by name
  *
  * @remarks
@@ -1160,6 +1259,7 @@ export const PROMPTS = {
   DELTA_ANALYSIS: DELTA_ANALYSIS_PROMPT,
   BUG_HUNT: BUG_HUNT_PROMPT,
   CLEANUP: CLEANUP_PROMPT,
+  CHANGE_CLASSIFIER: CHANGE_CLASSIFIER_PROMPT,
 } as const;
 
 /**

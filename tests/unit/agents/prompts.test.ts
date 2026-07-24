@@ -17,6 +17,7 @@ import {
   DELTA_ANALYSIS_PROMPT,
   BUG_HUNT_PROMPT,
   CLEANUP_PROMPT,
+  CHANGE_CLASSIFIER_PROMPT,
   PRD_PREMERGED_DECLARATION,
   PROMPTS,
   type PromptKey,
@@ -58,6 +59,11 @@ describe('agents/prompts', () => {
       expect(typeof CLEANUP_PROMPT).toBe('string');
       expect(CLEANUP_PROMPT.length).toBeGreaterThan(100);
     });
+
+    it('should export CHANGE_CLASSIFIER_PROMPT as a string', () => {
+      expect(typeof CHANGE_CLASSIFIER_PROMPT).toBe('string');
+      expect(CHANGE_CLASSIFIER_PROMPT.length).toBeGreaterThan(100);
+    });
   });
 
   describe('prompt content validation', () => {
@@ -98,9 +104,9 @@ describe('agents/prompts', () => {
   });
 
   describe('PROMPTS lookup object', () => {
-    it('should contain all seven prompts', () => {
+    it('should contain all eight prompts', () => {
       const keys = Object.keys(PROMPTS) as PromptKey[];
-      expect(keys).toHaveLength(7);
+      expect(keys).toHaveLength(8);
       expect(keys).toContain('TASK_BREAKDOWN');
       expect(keys).toContain('PRP_BLUEPRINT');
       expect(keys).toContain('PRP_BUILDER');
@@ -108,6 +114,7 @@ describe('agents/prompts', () => {
       expect(keys).toContain('DELTA_ANALYSIS');
       expect(keys).toContain('BUG_HUNT');
       expect(keys).toContain('CLEANUP');
+      expect(keys).toContain('CHANGE_CLASSIFIER');
     });
 
     it('should provide type-safe access to prompts', () => {
@@ -118,6 +125,7 @@ describe('agents/prompts', () => {
       expect(PROMPTS.DELTA_ANALYSIS).toBe(DELTA_ANALYSIS_PROMPT);
       expect(PROMPTS.BUG_HUNT).toBe(BUG_HUNT_PROMPT);
       expect(PROMPTS.CLEANUP).toBe(CLEANUP_PROMPT);
+      expect(PROMPTS.CHANGE_CLASSIFIER).toBe(CHANGE_CLASSIFIER_PROMPT);
     });
 
     it('should use const assertion for literal types', () => {
