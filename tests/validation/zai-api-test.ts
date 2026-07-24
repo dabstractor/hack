@@ -189,9 +189,9 @@ class ZAiValidator {
     log('----------------------------', 'gray');
 
     try {
-      const opusModel = getModel('opus');
-      const sonnetModel = getModel('sonnet');
-      const haikuModel = getModel('haiku');
+      const opusModel = getModel('high');
+      const sonnetModel = getModel('balanced');
+      const haikuModel = getModel('fast');
 
       info(`Opus model:   ${opusModel}`);
       info(`Sonnet model: ${sonnetModel}`);

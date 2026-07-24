@@ -161,7 +161,7 @@ async function testEnvironmentConfig(): Promise<ValidationResult> {
     const maskedKey = apiKey.slice(0, 10) + '...';
     log.info(`API Key: ${maskedKey}`);
     log.info(`Base URL: ${baseURL}`);
-    log.info(`Model: ${getModel('sonnet')}`);
+    log.info(`Model: ${getModel('balanced')}`);
 
     return {
       name: 'Environment Configuration',
@@ -265,7 +265,7 @@ async function testAuthentication(): Promise<ValidationResult> {
 
   try {
     const url = `${baseURL}/v1/messages`;
-    const model = getModel('sonnet');
+    const model = getModel('balanced');
 
     const payload = {
       model,
@@ -332,7 +332,7 @@ async function testMessageCompletion(): Promise<ValidationResult> {
 
   try {
     const url = `${baseURL}/v1/messages`;
-    const model = getModel('sonnet');
+    const model = getModel('balanced');
 
     const payload = {
       model,

@@ -5,22 +5,25 @@
  */
 
 /**
- * Model tier identifier for selecting GLM models
+ * Model tier identifier for selecting models (PRD §9.2.8 — provider-neutral tiers).
  *
  * @remarks
- * Each tier corresponds to a specific GLM model with different capabilities:
- * - 'opus': Highest quality, glm-5.2 (complex reasoning, Architect agent)
- * - 'sonnet': Balanced, glm-5.2 (default for most agents)
- * - 'haiku': Fastest, glm-5-turbo (simple operations, quick tasks)
+ * Vendor-neutral QUALITY tiers (renamed from Anthropic model-family names):
+ * - 'high':     Highest quality, glm-5.2 (complex reasoning, Architect agent)
+ * - 'balanced': Balanced, glm-5.2 (default for most agents — planning/research)
+ * - 'fast':     Fastest, glm-5-turbo (codegen / implementation role)
+ *
+ * The role→tier mapping is unchanged from the legacy opus/sonnet/haiku names:
+ * opus→high, sonnet→balanced, haiku→fast.
  *
  * @example
  * ```ts
  * import type { ModelTier } from './config/types.js';
  *
- * const tier: ModelTier = 'sonnet';
+ * const tier: ModelTier = 'balanced';
  * ```
  */
-export type ModelTier = 'opus' | 'sonnet' | 'haiku';
+export type ModelTier = 'high' | 'balanced' | 'fast';
 
 /**
  * Environment configuration interface

@@ -19,7 +19,7 @@
  * validateEnvironment();
  *
  * // Get model name for agent creation
- * const model = getModel('sonnet'); // 'zai/glm-5.2'
+ * const model = getModel('balanced'); // 'zai/glm-5.2'
  * ```
  */
 
@@ -45,7 +45,7 @@ import { EnvironmentValidationError } from './types.js';
  * ```
  */
 export function getResolvedProvider(): string {
-  return getModel('sonnet').split('/')[0];
+  return getModel('balanced').split('/')[0];
 }
 
 /**
@@ -99,11 +99,11 @@ export function configureEnvironment(): void {
  * for overrides first, then falling back to default values.
  *
  * Model tier mappings:
- * - 'opus': glm-5.2 (highest quality, complex reasoning, Architect agent)
- * - 'sonnet': glm-5.2 (balanced, default for most agents)
- * - 'haiku': glm-5-turbo (fastest, simple operations, quick tasks)
+ * - 'high':     glm-5.2 (highest quality, complex reasoning, Architect agent)
+ * - 'balanced': glm-5.2 (balanced, default for most agents)
+ * - 'fast':     glm-5-turbo (fastest, simple operations, quick tasks)
  *
- * @param tier - The model tier identifier ('opus' | 'sonnet' | 'haiku')
+ * @param tier - The model tier identifier ('high' | 'balanced' | 'fast')
  * @returns The provider-qualified model string (e.g. 'zai/glm-5.2')
  *
  * @example
@@ -111,13 +111,13 @@ export function configureEnvironment(): void {
  * import { getModel } from './config/environment.js';
  * import type { ModelTier } from './config/types.js';
  *
- * const opusModel = getModel('opus'); // 'zai/glm-5.2'
- * const sonnetModel = getModel('sonnet'); // 'zai/glm-5.2'
- * const haikuModel = getModel('haiku'); // 'zai/glm-5-turbo'
+ * const highModel = getModel('high'); // 'zai/glm-5.2'
+ * const balancedModel = getModel('balanced'); // 'zai/glm-5.2'
+ * const fastModel = getModel('fast'); // 'zai/glm-5-turbo'
  *
  * // Can be overridden with environment variables
  * process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'glm-5.2';
- * const customHaiku = getModel('haiku'); // 'zai/glm-5.2'
+ * const customFast = getModel('fast'); // 'zai/glm-5.2'
  * ```
  */
 

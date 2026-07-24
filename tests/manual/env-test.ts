@@ -70,13 +70,13 @@ if (process.env.ANTHROPIC_BASE_URL === 'https://api.z.ai/api/anthropic') {
 
 // Test model selection
 console.log('\n--- Model Selection ---');
-const opusModel = getModel('opus');
-const sonnetModel = getModel('sonnet');
-const haikuModel = getModel('haiku');
+const opusModel = getModel('high');
+const sonnetModel = getModel('balanced');
+const haikuModel = getModel('fast');
 
-console.log(`getModel('opus'):   ${opusModel}`);
-console.log(`getModel('sonnet'): ${sonnetModel}`);
-console.log(`getModel('haiku'):  ${haikuModel}`);
+console.log(`getModel('high'):     ${opusModel}`);
+console.log(`getModel('balanced'): ${sonnetModel}`);
+console.log(`getModel('fast'):     ${haikuModel}`);
 
 if (opusModel === 'GLM-4.7') {
   console.log('✓ Opus model correct');
@@ -105,9 +105,9 @@ try {
 console.log('\n--- Model Override Test ---');
 const originalHaikuModel = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'GLM-4.7';
-const overrideModel = getModel('haiku');
+const overrideModel = getModel('fast');
 console.log(`After setting ANTHROPIC_DEFAULT_HAIKU_MODEL='GLM-4.7':`);
-console.log(`getModel('haiku'): ${overrideModel}`);
+console.log(`getModel('fast'): ${overrideModel}`);
 if (overrideModel === 'GLM-4.7') {
   console.log('✓ Model override works correctly');
 }

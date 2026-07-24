@@ -172,7 +172,7 @@ export function createBaseConfig(persona: AgentPersona): AgentConfig {
   // PATTERN: Use getModel() to resolve model tier to actual model name.
   // Default (balanced) tier for planning/research roles; the Coder overrides
   // to the fast tier for codegen (PRD §9.2.3).
-  const model = getModel('sonnet');
+  const model = getModel('balanced');
 
   // PATTERN: Persona-specific naming (PascalCase with "Agent" suffix)
   const name = `${persona.charAt(0).toUpperCase() + persona.slice(1)}Agent`;
@@ -285,9 +285,9 @@ export function createCoderAgent(): Agent {
   const config = {
     ...baseConfig,
     // IMPL_AGENT role → fast tier (PRD §9.2.3). The base config defaults to
-    // the balanced 'sonnet' tier (glm-5.2); the Coder overrides to 'haiku'
+    // the balanced tier (glm-5.2); the Coder overrides to 'fast'
     // (glm-5-turbo) for faster PRP execution + post-validation fixes.
-    model: getModel('haiku'),
+    model: getModel('fast'),
     system: PRP_BUILDER_PROMPT,
     mcps: MCP_TOOLS,
   };

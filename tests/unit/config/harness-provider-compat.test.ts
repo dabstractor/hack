@@ -136,7 +136,7 @@ describe('harness/provider compatibility', () => {
 
   it('(d) claude-code + anthropic provider is ALLOWED (no throw) — resolved-provider guard allow branch', () => {
     // SETUP: claude-code harness + an anthropic/* model override.
-    // getModel('sonnet') reads ANTHROPIC_DEFAULT_SONNET_MODEL FIRST → 'anthropic/claude-sonnet-4'
+    // getModel('balanced') reads ANTHROPIC_DEFAULT_SONNET_MODEL FIRST → 'anthropic/claude-sonnet-4'
     // (qualifyModel is idempotent on '/') → resolvedProvider = 'anthropic' → guard does NOT throw.
     vi.stubEnv('PRP_AGENT_HARNESS', 'claude-code');
     vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'anthropic/claude-sonnet-4');

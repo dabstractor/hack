@@ -22,50 +22,53 @@
 export const DEFAULT_BASE_URL = 'https://api.z.ai/api/anthropic' as const;
 
 /**
- * Default model names for each tier
+ * Default model names for each tier (PRD §9.2.8 — provider-neutral tier keys).
  *
  * @remarks
- * Maps each model tier to its corresponding GLM model name.
+ * Keys are the vendor-neutral QUALITY tiers (opus→high, sonnet→balanced,
+ * haiku→fast). VALUES are the model id strings (unchanged by the rename).
  * Uses const assertion to preserve literal types.
  *
- * - opus: glm-5.2 (highest quality, complex reasoning)
- * - sonnet: glm-5.2 (balanced, default for most agents)
- * - haiku: glm-5-turbo (fastest, simple operations)
+ * - high:     glm-5.2 (highest quality, complex reasoning)
+ * - balanced: glm-5.2 (balanced, default for most agents)
+ * - fast:     glm-5-turbo (fastest, simple operations / codegen)
  *
  * @example
  * ```ts
  * import { MODEL_NAMES } from './config/constants.js';
  *
- * const opusModel = MODEL_NAMES.opus; // 'glm-5.2'
- * const haikuModel = MODEL_NAMES.haiku; // 'glm-5-turbo'
+ * const highModel = MODEL_NAMES.high; // 'glm-5.2'
+ * const fastModel = MODEL_NAMES.fast; // 'glm-5-turbo'
  * ```
  */
 export const MODEL_NAMES = {
   /** Highest quality model for complex reasoning tasks */
-  opus: 'glm-5.2',
+  high: 'glm-5.2',
   /** Balanced model, default for most agents */
-  sonnet: 'glm-5.2',
-  /** Fast model for simple operations */
-  haiku: 'glm-5-turbo',
+  balanced: 'glm-5.2',
+  /** Fast model for simple operations / codegen */
+  fast: 'glm-5-turbo',
 } as const;
 
 /**
- * Environment variable names used for model overrides
+ * Environment variable names used for model overrides (PRD §9.2.8).
  *
  * @remarks
- * These environment variables can be set to override the default model names.
- * If not set, the values from MODEL_NAMES will be used.
+ * KEYS are the vendor-neutral tiers (renamed); VALUES are the (still-legacy)
+ * ANTHROPIC_DEFAULT_* env-var name strings. The canonical PRP_MODEL_HIGH /
+ * PRP_MODEL_BALANCED / PRP_MODEL_FAST names + canonical-first-with-fallback
+ * loader + deprecation warning land in P2.M1.T1.S2.
  *
  * @example
  * ```ts
- * // In shell:
+ * // In shell (legacy alias — still readable until S2):
  * export ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.2"
  * ```
  */
 export const MODEL_ENV_VARS = {
-  opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
-  sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
-  haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  high: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  balanced: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  fast: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 } as const;
 
 /**

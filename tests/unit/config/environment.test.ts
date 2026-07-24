@@ -151,8 +151,8 @@ describe('config/environment', () => {
       delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
 
       // EXECUTE & VERIFY
-      expect(getModel('opus')).toBe(
-        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.opus}`
+      expect(getModel('high')).toBe(
+        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.high}`
       ); // 'zai/GLM-4.7'
     });
 
@@ -161,8 +161,8 @@ describe('config/environment', () => {
       delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
 
       // EXECUTE & VERIFY
-      expect(getModel('sonnet')).toBe(
-        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.sonnet}`
+      expect(getModel('balanced')).toBe(
+        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.balanced}`
       );
     });
 
@@ -171,8 +171,8 @@ describe('config/environment', () => {
       delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
       // EXECUTE & VERIFY
-      expect(getModel('haiku')).toBe(
-        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.haiku}`
+      expect(getModel('fast')).toBe(
+        `${DEFAULT_MODEL_PROVIDER}/${MODEL_NAMES.fast}`
       ); // 'zai/glm-5-turbo'
     });
 
@@ -181,7 +181,7 @@ describe('config/environment', () => {
       vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'custom-opus-model');
 
       // EXECUTE & VERIFY
-      expect(getModel('opus')).toBe('zai/custom-opus-model');
+      expect(getModel('high')).toBe('zai/custom-opus-model');
     });
 
     it('should qualify environment override for sonnet tier', () => {
@@ -189,7 +189,7 @@ describe('config/environment', () => {
       vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'custom-sonnet-model');
 
       // EXECUTE & VERIFY
-      expect(getModel('sonnet')).toBe('zai/custom-sonnet-model');
+      expect(getModel('balanced')).toBe('zai/custom-sonnet-model');
     });
 
     it('should qualify environment override for haiku tier', () => {
@@ -197,7 +197,7 @@ describe('config/environment', () => {
       vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', 'custom-haiku-model');
 
       // EXECUTE & VERIFY
-      expect(getModel('haiku')).toBe('zai/custom-haiku-model');
+      expect(getModel('fast')).toBe('zai/custom-haiku-model');
     });
   });
 
@@ -223,7 +223,7 @@ describe('config/environment', () => {
       vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'custom-opus');
 
       // EXECUTE & VERIFY
-      expect(getModel('opus')).toBe('zai/custom-opus');
+      expect(getModel('high')).toBe('zai/custom-opus');
     });
 
     it('does not double-prefix an already-qualified env override', () => {
@@ -231,7 +231,7 @@ describe('config/environment', () => {
       vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'anthropic/foo');
 
       // EXECUTE & VERIFY
-      expect(getModel('opus')).toBe('anthropic/foo');
+      expect(getModel('high')).toBe('anthropic/foo');
     });
   });
 

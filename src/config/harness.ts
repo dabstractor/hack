@@ -226,7 +226,7 @@ export async function ensureHarnessInitialized(): Promise<void> {
  */
 export async function runAuthPreflight(): Promise<void> {
   const harness = process.env[PRP_AGENT_HARNESS] ?? DEFAULT_HARNESS;
-  const model = getModel('sonnet');
+  const model = getModel('balanced');
   const provider =
     harness === 'claude-code' ? 'anthropic' : getResolvedProvider();
 
