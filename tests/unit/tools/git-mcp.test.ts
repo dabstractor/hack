@@ -47,6 +47,9 @@ import {
   gitFileHistory,
   gitReadFileAtCommit,
   gitRestoreFile,
+  gitListStagedDeletions,
+  gitRestoreFileFromHead,
+  gitUnstagePath,
   gitStatusTool,
   gitDiffTool,
   gitAddTool,
@@ -70,6 +73,9 @@ const mockGitInstance = {
   commit: vi.fn(),
   log: vi.fn(),
   show: vi.fn(),
+  checkout: vi.fn(),
+  reset: vi.fn(),
+  raw: vi.fn(),
 };
 
 describe('tools/git-mcp', () => {
@@ -1051,6 +1057,214 @@ describe('tools/git-mcp', () => {
       await expect(gitRestoreFile('tasks.json', 'deadbeef')).rejects.toThrow(
         'fatal: bad revision'
       );
+    });
+  });
+
+  // ===========================================================================
+  // CRITICAL-FILE DELETION PROTECTION HELPERS (PRD §5.1, mechanical layer)
+  // gitListStagedDeletions / gitRestoreFileFromHead / gitUnstagePath —
+  // the three wrapped git operations smartCommit uses to undo staged
+  // deletions of PRD.md / PRP.md before commit.
+  // ===========================================================================
+  describe('gitListStagedDeletions', () => {
+    it('should return parsed paths from raw diff output', async () => {
+      // SETUP — raw git diff output is UNTRIMMED (trailing newline typical)
+      mockGitInstance.diff.mockResolvedValue(
+        'PRD.md\nplan/008_x/P3M2T4S2/PRP.md\nsrc/foo.ts\n'
+      );
+
+      // EXECUTE
+      const result = await gitListStagedDeletions('./repo');
+
+      // VERIFY — split + trim + filter empties
+      expect(result.success).toBe(true);
+      expect(result.files).toEqual([
+        'PRD.md',
+        'plan/008_x/P3M2T4S2/PRP.md',
+        'src/foo.ts',
+      ]);
+    });
+
+    it('should handle trailing newline and empty lines', async () => {
+      // SETUP — 'PRD.md\n\n' has a trailing empty line
+      mockGitInstance.diff.mockResolvedValue('PRD.md\n\n');
+
+      // EXECUTE
+      const result = await gitListStagedDeletions();
+
+      // VERIFY — empties filtered out
+      expect(result.success).toBe(true);
+      expect(result.files).toEqual(['PRD.md']);
+    });
+
+    it('should return an empty array when no deletions are staged', async () => {
+      // SETUP — empty diff output
+      mockGitInstance.diff.mockResolvedValue('');
+
+      // EXECUTE
+      const result = await gitListStagedDeletions();
+
+      // VERIFY
+      expect(result.success).toBe(true);
+      expect(result.files).toEqual([]);
+    });
+
+    it('should pass ARRAY form to git.diff (not a single string)', async () => {
+      // SETUP
+      mockGitInstance.diff.mockResolvedValue('');
+
+      // EXECUTE
+      await gitListStagedDeletions('./repo');
+
+      // VERIFY — ARRAY form is MANDATORY (a single STRING throws
+      // TaskConfigurationError — research/01 Q1)
+      expect(mockGitInstance.diff).toHaveBeenCalledWith([
+        '--cached',
+        '--diff-filter=D',
+        '--name-only',
+      ]);
+    });
+
+    it('should return {success:false, error} on a git error', async () => {
+      // SETUP
+      mockGitInstance.diff.mockRejectedValue(new Error('diff boom'));
+
+      // EXECUTE
+      const result = await gitListStagedDeletions();
+
+      // VERIFY
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('diff boom');
+    });
+
+    it('should return {success:false, error} for non-Error throws', async () => {
+      // SETUP
+      mockGitInstance.diff.mockRejectedValue('string error');
+
+      // EXECUTE
+      const result = await gitListStagedDeletions();
+
+      // VERIFY
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('string error');
+    });
+  });
+
+  describe('gitRestoreFileFromHead', () => {
+    it('should call git.checkout with ARRAY ["HEAD","--",path]', async () => {
+      // SETUP
+      mockGitInstance.checkout.mockResolvedValue(undefined);
+
+      // EXECUTE
+      const result = await gitRestoreFileFromHead('PRD.md', './repo');
+
+      // VERIFY — ARRAY form (varargs form is silently lossy — research/01 Q2a)
+      expect(result.success).toBe(true);
+      expect(mockGitInstance.checkout).toHaveBeenCalledWith([
+        'HEAD',
+        '--',
+        'PRD.md',
+      ]);
+    });
+
+    it('should default repoPath to process.cwd()', async () => {
+      // SETUP
+      mockGitInstance.checkout.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await gitRestoreFileFromHead('PRD.md');
+
+      // VERIFY — simpleGit was called (path validation passed)
+      expect(mockSimpleGit).toHaveBeenCalled();
+      expect(mockGitInstance.checkout).toHaveBeenCalledWith([
+        'HEAD',
+        '--',
+        'PRD.md',
+      ]);
+    });
+
+    it('should return {success:false, error} on a git error', async () => {
+      // SETUP — git.checkout fails (e.g. path absent from HEAD)
+      mockGitInstance.checkout.mockRejectedValue(
+        new Error("fatal: pathspec 'PRP.md' did not match")
+      );
+
+      // EXECUTE
+      const result = await gitRestoreFileFromHead('plan/x/PRP.md');
+
+      // VERIFY
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('pathspec');
+    });
+
+    it('should return {success:false, error} for non-Error throws', async () => {
+      // SETUP
+      mockGitInstance.checkout.mockRejectedValue('boom');
+
+      // EXECUTE
+      const result = await gitRestoreFileFromHead('PRD.md');
+
+      // VERIFY
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('boom');
+    });
+  });
+
+  describe('gitUnstagePath', () => {
+    it('should call git.reset with ARRAY ["HEAD","--",path]', async () => {
+      // SETUP
+      mockGitInstance.reset.mockResolvedValue(undefined);
+
+      // EXECUTE
+      const result = await gitUnstagePath('plan/x/PRP.md', './repo');
+
+      // VERIFY — ARRAY form; git.reset([path]) without HEAD/-- is ambiguous
+      expect(result.success).toBe(true);
+      expect(mockGitInstance.reset).toHaveBeenCalledWith([
+        'HEAD',
+        '--',
+        'plan/x/PRP.md',
+      ]);
+    });
+
+    it('should default repoPath to process.cwd()', async () => {
+      // SETUP
+      mockGitInstance.reset.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await gitUnstagePath('PRP.md');
+
+      // VERIFY
+      expect(mockSimpleGit).toHaveBeenCalled();
+      expect(mockGitInstance.reset).toHaveBeenCalledWith([
+        'HEAD',
+        '--',
+        'PRP.md',
+      ]);
+    });
+
+    it('should return {success:false, error} on a git error', async () => {
+      // SETUP
+      mockGitInstance.reset.mockRejectedValue(new Error('reset boom'));
+
+      // EXECUTE
+      const result = await gitUnstagePath('PRP.md');
+
+      // VERIFY
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('reset boom');
+    });
+
+    it('should return {success:false, error} for non-Error throws', async () => {
+      // SETUP
+      mockGitInstance.reset.mockRejectedValue('oops');
+
+      // EXECUTE
+      const result = await gitUnstagePath('PRP.md');
+
+      // VERIFY
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('oops');
     });
   });
 });

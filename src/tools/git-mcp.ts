@@ -155,6 +155,37 @@ interface GitCommitResult {
   error?: string;
 }
 
+/**
+ * Result from {@link gitListStagedDeletions}.
+ *
+ * @remarks
+ * Lists paths currently staged as DELETIONS in the index (the `D` status
+ * code) via `git diff --cached --diff-filter=D --name-only`. Used by the
+ * mechanical critical-file deletion protection in smartCommit (PRD §5.1).
+ */
+interface GitListDeletionsResult {
+  /** True if the diff succeeded. */
+  success: boolean;
+  /** Repo-relative paths staged as deletions (index `D`). */
+  files?: string[];
+  /** Error message if the diff failed. */
+  error?: string;
+}
+
+/**
+ * Result from {@link gitRestoreFileFromHead} and {@link gitUnstagePath}.
+ *
+ * @remarks
+ * Shared result shape for the two staged-deletion-undo helpers used by the
+ * mechanical critical-file deletion protection (PRD §5.1).
+ */
+interface GitRestoreFromHeadResult {
+  /** True if the operation succeeded. */
+  success: boolean;
+  /** Error message if the operation failed. */
+  error?: string;
+}
+
 // ===== HELPER FUNCTIONS =====
 
 /**
@@ -594,6 +625,143 @@ async function gitRestoreFile(
   await atomicWrite(resolve(safePath, filePath), content);
 }
 
+/**
+ * List the paths currently staged as DELETIONS in the index.
+ *
+ * @remarks
+ * Runs `git diff --cached --diff-filter=D --name-only` via simple-git's
+ * `.diff([...])` (ARRAY form — a single STRING throws
+ * `TaskConfigurationError`). Output is split on newlines, trimmed, and
+ * empty lines filtered. Returns an empty array when nothing is staged-as-
+ * deleted.
+ *
+ * Used by the mechanical critical-file deletion protection
+ * (`restore_critical_files` in `utils/git-commit.ts`, PRD §5.1) to find
+ * staged deletions of `PRD.md` and any nested `PRP.md` and undo them before commit.
+ *
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns A {@link GitListDeletionsResult}: `{ success, files }` on success,
+ * `{ success: false, error }` on a git failure.
+ *
+ * @example
+ * ```ts
+ * const { files } = await gitListStagedDeletions('/repo');
+ * // files: ['PRD.md', 'plan/008_x/P3M2T4S2/PRP.md']
+ * ```
+ */
+async function gitListStagedDeletions(
+  repoPath?: string
+): Promise<GitListDeletionsResult> {
+  try {
+    const safePath = await validateRepositoryPath(repoPath);
+    const git = simpleGit(safePath);
+    // CRITICAL: ARRAY form — a single STRING throws TaskConfigurationError.
+    const raw = await git.diff(['--cached', '--diff-filter=D', '--name-only']);
+    // raw is UNTRIMMED by default → split + trim + filter empties.
+    const files = raw
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean);
+    return { success: true, files };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Restore a HEAD-tracked deleted file from HEAD (clears the staged deletion
+ * in the index AND restores the working tree in ONE call).
+ *
+ * @remarks
+ * Runs `git checkout HEAD -- <path>` via simple-git's `.checkout([...])`
+ * (ARRAY form — the varargs form `git.checkout('HEAD','--',path)` is SILENTLY
+ * LOSSY: `getTrailingOptions` keeps only the first primitive, dropping
+ * `'--'`/`path` and running `git checkout HEAD` instead). Unlike
+ * {@link gitRestoreFile} (which is `git.show`+`atomicWrite` and writes the
+ * working tree ONLY, leaving the file still staged-as-deleted), this helper
+ * clears the index entry AND restores the worktree in a single call — the
+ * correct way to undo a staged deletion of a HEAD-tracked file.
+ *
+ * Used by the mechanical critical-file deletion protection (PRD §5.1) for
+ * the "existed in HEAD" branch (a tracked `PRD.md` and any nested `PRP.md` that an
+ * agent deleted + staged).
+ *
+ * @param filePath - Repository-relative path of the file to restore.
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns A {@link GitRestoreFromHeadResult}: `{ success: true }` on success,
+ * `{ success: false, error }` if the path is absent from HEAD or git fails.
+ *
+ * @example
+ * ```ts
+ * const { success } = await gitRestoreFileFromHead('PRD.md', '/repo');
+ * ```
+ */
+async function gitRestoreFileFromHead(
+  filePath: string,
+  repoPath?: string
+): Promise<GitRestoreFromHeadResult> {
+  try {
+    const safePath = await validateRepositoryPath(repoPath);
+    const git = simpleGit(safePath);
+    // CRITICAL: ARRAY form. The varargs git.checkout('HEAD','--',path) drops
+    // '--'/path and runs `git checkout HEAD` (silently lossy).
+    await git.checkout(['HEAD', '--', filePath]);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Unstage a path from the index (`git reset HEAD -- <path>`).
+ *
+ * @remarks
+ * Runs `git reset HEAD -- <path>` via simple-git's `.reset([...])` (ARRAY
+ * form — `git.reset([path])` without `'HEAD'`/`'--'` is ambiguous). Git
+ * exits 0 with no error even when the path is absent from HEAD, so this is
+ * the safe way to undo a staged deletion of a file that was created-and-
+ * deleted in the same run (never committed → not in HEAD).
+ *
+ * Used by the mechanical critical-file deletion protection (PRD §5.1) for
+ * the "not in HEAD" branch: when {@link gitRestoreFileFromHead} fails because
+ * the path was never committed, this helper unstages the deletion so the
+ * commit proceeds without it.
+ *
+ * @param filePath - Repository-relative path of the file to unstage.
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns A {@link GitRestoreFromHeadResult}: `{ success: true }` on success,
+ * `{ success: false, error }` on a git failure.
+ *
+ * @example
+ * ```ts
+ * const { success } = await gitUnstagePath('plan/x/PRP.md', '/repo');
+ * ```
+ */
+async function gitUnstagePath(
+  filePath: string,
+  repoPath?: string
+): Promise<GitRestoreFromHeadResult> {
+  try {
+    const safePath = await validateRepositoryPath(repoPath);
+    const git = simpleGit(safePath);
+    // `git reset HEAD -- <path>`: exit 0, no error even if path absent from HEAD.
+    // ARRAY form; do NOT use git.reset([path]) (ambiguous).
+    await git.reset(['HEAD', '--', filePath]);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 // ===== MCP SERVER =====
 
 /**
@@ -656,6 +824,8 @@ export type {
   GitAddResult,
   GitCommitResult,
   GitFileHistoryEntry,
+  GitListDeletionsResult,
+  GitRestoreFromHeadResult,
 };
 export {
   gitStatusTool,
@@ -669,4 +839,7 @@ export {
   gitFileHistory,
   gitReadFileAtCommit,
   gitRestoreFile,
+  gitListStagedDeletions,
+  gitRestoreFileFromHead,
+  gitUnstagePath,
 };

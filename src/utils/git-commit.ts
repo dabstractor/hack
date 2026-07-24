@@ -20,7 +20,15 @@
  * ```
  */
 
-import { gitStatus, gitAdd, gitCommit, gitDiff } from '../tools/git-mcp.js';
+import {
+  gitStatus,
+  gitAdd,
+  gitCommit,
+  gitDiff,
+  gitListStagedDeletions,
+  gitRestoreFileFromHead,
+  gitUnstagePath,
+} from '../tools/git-mcp.js';
 import { basename } from 'node:path';
 import { getLogger, type Logger } from './logger.js';
 import { AgentError, isAgentError, toErrorMessage } from './errors.js';
@@ -245,6 +253,81 @@ export function buildFallbackCommitMessage(error: unknown): string {
   return `chore: commit-gen failed (exit ${exitCode}); fallback commit`;
 }
 
+// ===== CRITICAL-FILE DELETION PROTECTION (PRD §5.1, mechanical layer) =====
+
+/**
+ * Mechanical critical-file deletion protection (PRD §5.1).
+ *
+ * @remarks
+ * Invoked from {@link smartCommit} immediately AFTER staging (`gitAdd`) and
+ * BEFORE commit-message resolution / `gitCommit`. Detects any paths staged as
+ * DELETIONS (`git diff --cached --diff-filter=D`) whose basename is `PRD.md`
+ * or `PRP.md` (covers root `PRD.md` and every nested `PRP.md` via a basename
+ * match — no fast-glob needed, no `node_modules` false positives) and undoes
+ * the deletion so the commit cannot wipe a protected document:
+ *
+ *   - if the file exists in HEAD → `git checkout HEAD -- <path>` restores the
+ *     working tree AND clears the staged deletion from the index in one call;
+ *   - if it was created-and-deleted in the same run (not in HEAD) →
+ *     `git reset HEAD -- <path>` unstages the deletion.
+ *
+ * This is the MECHANICAL backstop to the prompt layer (P3.M2.T4.S1): the
+ * prompt layer prohibits agents from deleting `PRD.md` / `PRP.md`; this layer
+ * catches the residual cases where an agent deletes despite the prompt.
+ * Together they guarantee `PRD.md` and every `PRP.md` survive every commit.
+ *
+ * **Non-fatal / best-effort** (honors smartCommit's never-fail-on-commit
+ * contract): per-path failures are logged via `logger().warn` and the loop
+ * continues. A thrown error never escapes — even if every restore attempt
+ * fails, `smartCommit` still proceeds to commit the (unchanged) staged set.
+ *
+ * @param repoRoot - Repository root path (process.cwd() at the smartCommit
+ * call site).
+ */
+export async function restore_critical_files(repoRoot: string): Promise<void> {
+  try {
+    const del = await gitListStagedDeletions(repoRoot);
+    if (!del.success || !del.files?.length) return;
+    for (const path of del.files) {
+      const name = basename(path);
+      // Basename match: covers root PRD.md and every nested PRP.md without
+      // fast-glob and without node_modules false positives.
+      if (name !== 'PRD.md' && name !== 'PRP.md') continue; // non-critical: leave staged
+      try {
+        const restore = await gitRestoreFileFromHead(path, repoRoot);
+        if (restore.success) {
+          logger().warn(
+            `Restored critical file from HEAD (staged deletion undone): ${path}`
+          );
+          continue;
+        }
+        // restore failed → likely not in HEAD (created-and-deleted same run) →
+        // unstage the deletion instead. gitRestoreFileFromHead returns
+        // {success:false} when the path is absent from HEAD (git.checkout
+        // fails), which we treat as the signal to unstage. This two-strategy
+        // approach avoids a separate `git ls-tree` round-trip and handles the
+        // rare phantom-entry case defensively (research/01 Q3).
+        const unstage = await gitUnstagePath(path, repoRoot);
+        if (unstage.success) {
+          logger().warn(
+            `Unstaged critical file deletion (not in HEAD): ${path}`
+          );
+        } else {
+          logger().warn(
+            `Could not restore/unstage critical file ${path}: ${unstage.error ?? restore.error}`
+          );
+        }
+      } catch (perPath) {
+        logger().warn(
+          `restore_critical_files: per-path error for ${path}: ${toErrorMessage(perPath)}`
+        );
+      }
+    }
+  } catch (error) {
+    logger().warn(`restore_critical_files: aborted: ${toErrorMessage(error)}`);
+  }
+}
+
 // ===== MAIN FUNCTION =====
 
 /**
@@ -376,6 +459,13 @@ export async function smartCommit(
       logger().error(`Git add failed: ${addResult.error}`);
       return null;
     }
+
+    // ── Critical-File Deletion Protection (PRD §5.1, mechanical layer) ──
+    // Detect staged deletions of PRD.md / nested PRP.md and undo them, so the
+    // stagecoach gitDiff({staged:true}) + gitCommit below see a deletion-free
+    // staged set. Must run AFTER gitAdd and BEFORE commit-message resolution.
+    // Best-effort/non-fatal: restore_critical_files swallows its own errors.
+    await restore_critical_files(repoRoot);
 
     // Resolve the commit message. The DEFAULT path (option omitted / false)
     // is byte-identical to the pre-stagecoach behavior: formatCommitMessage(

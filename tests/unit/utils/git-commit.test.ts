@@ -12,11 +12,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the GitMCP functions that smartCommit uses (gitDiff added for the
 // stagecoach generateMessage path — default-path tests never trigger it).
+// The three restore_* helpers are stubbed for the restore_critical_files
+// mechanical protection layer (PRD §5.1, P3.M2.T4.S2).
 vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitStatus: vi.fn(),
   gitAdd: vi.fn(),
   gitCommit: vi.fn(),
   gitDiff: vi.fn(),
+  gitListStagedDeletions: vi.fn(),
+  gitRestoreFileFromHead: vi.fn(),
+  gitUnstagePath: vi.fn(),
 }));
 
 // Mock the stagecoach commit-message agent factory so default-path tests
@@ -51,6 +56,9 @@ import {
   gitAdd,
   gitCommit,
   gitDiff,
+  gitListStagedDeletions,
+  gitRestoreFileFromHead,
+  gitUnstagePath,
 } from '../../../src/tools/git-mcp.js';
 import { createPrompt } from 'groundswell';
 import { createCommitMessageAgent } from '../../../src/agents/commit-message-agent.js';
@@ -59,6 +67,7 @@ import {
   filterProtectedFiles,
   formatCommitMessage,
   generateCommitMessage,
+  restore_critical_files,
   smartCommit,
 } from '../../../src/utils/git-commit.js';
 import { AgentError } from '../../../src/utils/errors.js';
@@ -68,6 +77,9 @@ const mockGitStatus = vi.mocked(gitStatus);
 const mockGitAdd = vi.mocked(gitAdd);
 const mockGitCommit = vi.mocked(gitCommit);
 const mockGitDiff = vi.mocked(gitDiff);
+const mockGitListStagedDeletions = vi.mocked(gitListStagedDeletions);
+const mockGitRestoreFileFromHead = vi.mocked(gitRestoreFileFromHead);
+const mockGitUnstagePath = vi.mocked(gitUnstagePath);
 const mockCreateCommitMessageAgent = vi.mocked(createCommitMessageAgent);
 const mockCreatePrompt = vi.mocked(createPrompt);
 
@@ -91,6 +103,13 @@ describe('utils/git-commit', () => {
     mockLogger.debug.mockClear();
     // Mock process.cwd() so git operations use '/project' as repo root
     vi.spyOn(process, 'cwd').mockReturnValue('/project');
+    // DEFAULT: restore_critical_files (now invoked from smartCommit) is a
+    // no-op for every pre-existing smartCommit test — gitListStagedDeletions
+    // returns success with no staged deletions, so restore/unstage are never
+    // called. Individual restore_critical_files tests override these mocks.
+    mockGitListStagedDeletions.mockResolvedValue({ success: true, files: [] });
+    mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
+    mockGitUnstagePath.mockResolvedValue({ success: true });
   });
 
   describe('filterProtectedFiles', () => {
@@ -1317,6 +1336,337 @@ describe('utils/git-commit', () => {
       // VERIFY — non-numeric exitCode is ignored, sentinel 0 used.
       expect(message).toBe(
         'chore: commit-gen failed (exit 0); fallback commit'
+      );
+    });
+  });
+
+  // ===========================================================================
+  // CRITICAL-FILE DELETION PROTECTION (PRD §5.1, mechanical layer —
+  // P3.M2.T4.S2): restore_critical_files + smartCommit invocation wiring.
+  // ===========================================================================
+  describe('restore_critical_files', () => {
+    it('no-ops when gitListStagedDeletions returns no files', async () => {
+      // SETUP — no staged deletions
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [],
+      });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY — neither restore nor unstage is called
+      expect(mockGitListStagedDeletions).toHaveBeenCalledWith('/project');
+      expect(mockGitRestoreFileFromHead).not.toHaveBeenCalled();
+      expect(mockGitUnstagePath).not.toHaveBeenCalled();
+    });
+
+    it('no-ops when gitListStagedDeletions fails (non-fatal)', async () => {
+      // SETUP — list failed; function must not throw and must not call helpers
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: false,
+        error: 'git diff failed',
+      });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY
+      expect(mockGitRestoreFileFromHead).not.toHaveBeenCalled();
+      expect(mockGitUnstagePath).not.toHaveBeenCalled();
+    });
+
+    it('restores a staged PRD.md deletion from HEAD via checkout', async () => {
+      // SETUP — root PRD.md staged as deletion, exists in HEAD → restore
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: ['PRD.md'],
+      });
+      mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY — restored via checkout, unstage NOT attempted
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        'PRD.md',
+        '/project'
+      );
+      expect(mockGitUnstagePath).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Restored critical file from HEAD.*PRD\.md/)
+      );
+    });
+
+    it('restores a nested PRP.md deletion from HEAD via checkout', async () => {
+      // SETUP — a plan/.../PRP.md staged as deletion, exists in HEAD
+      const prpPath = 'plan/008_x/P3M2T4S2/PRP.md';
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [prpPath],
+      });
+      mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY — basename match catches the nested PRP.md
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        prpPath,
+        '/project'
+      );
+      expect(mockGitUnstagePath).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Restored critical file from HEAD.*PRP\.md/)
+      );
+    });
+
+    it('unstages a PRP.md deletion not in HEAD (created-and-deleted)', async () => {
+      // SETUP — restore-from-HEAD FAILS (path absent from HEAD → git.checkout
+      // fails), so the function falls back to unstaging via reset.
+      const prpPath = 'plan/x/PRP.md';
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [prpPath],
+      });
+      mockGitRestoreFileFromHead.mockResolvedValue({
+        success: false,
+        error: 'pathspec did not match',
+      });
+      mockGitUnstagePath.mockResolvedValue({ success: true });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY — unstage via reset called; restore was attempted first
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        prpPath,
+        '/project'
+      );
+      expect(mockGitUnstagePath).toHaveBeenCalledWith(prpPath, '/project');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Unstaged critical file deletion.*not in HEAD/)
+      );
+    });
+
+    it('leaves non-critical deletions staged (neither restore nor unstage)', async () => {
+      // SETUP — src/foo.ts is staged-as-deleted but is NOT a critical file
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: ['src/foo.ts', 'lib/bar.ts'],
+      });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY — basename match skips non-critical files
+      expect(mockGitRestoreFileFromHead).not.toHaveBeenCalled();
+      expect(mockGitUnstagePath).not.toHaveBeenCalled();
+    });
+
+    it('logs but does not throw when both restore and unstage fail', async () => {
+      // SETUP — restore fails AND unstage fails → must log, not throw
+      const prpPath = 'plan/x/PRP.md';
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [prpPath],
+      });
+      mockGitRestoreFileFromHead.mockResolvedValue({
+        success: false,
+        error: 'restore failed',
+      });
+      mockGitUnstagePath.mockResolvedValue({
+        success: false,
+        error: 'reset failed',
+      });
+
+      // EXECUTE — must NOT throw (never-fail-on-commit contract)
+      await expect(restore_critical_files('/project')).resolves.toBeUndefined();
+
+      // VERIFY — both attempted, failure logged
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        prpPath,
+        '/project'
+      );
+      expect(mockGitUnstagePath).toHaveBeenCalledWith(prpPath, '/project');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Could not restore\/unstage critical file/)
+      );
+    });
+
+    it('catches a thrown helper error (non-fatal, logged)', async () => {
+      // SETUP — gitRestoreFileFromHead THROWS (not just returns {success:false}).
+      // The per-path try/catch must swallow it and continue.
+      const prpPath = 'plan/x/PRP.md';
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [prpPath],
+      });
+      mockGitRestoreFileFromHead.mockRejectedValue(new Error('unexpected'));
+
+      // EXECUTE — must NOT throw
+      await expect(restore_critical_files('/project')).resolves.toBeUndefined();
+
+      // VERIFY — per-path error logged
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/per-path error.*unexpected/)
+      );
+    });
+
+    it('catches a thrown gitListStagedDeletions error (non-fatal, logged)', async () => {
+      // SETUP — the outer try/catch covers a throw from gitListStagedDeletions
+      mockGitListStagedDeletions.mockRejectedValue(new Error('list threw'));
+
+      // EXECUTE — must NOT throw
+      await expect(restore_critical_files('/project')).resolves.toBeUndefined();
+
+      // VERIFY — aborted, logged
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/restore_critical_files: aborted/)
+      );
+    });
+
+    it('processes a mix of critical and non-critical deletions', async () => {
+      // SETUP — mix: PRD.md (critical), src/foo.ts (non-critical), PRP.md (critical)
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: ['PRD.md', 'src/foo.ts', 'plan/x/PRP.md'],
+      });
+      mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
+
+      // EXECUTE
+      await restore_critical_files('/project');
+
+      // VERIFY — only the two critical files restored; foo.ts left alone
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledTimes(2);
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        'PRD.md',
+        '/project'
+      );
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        'plan/x/PRP.md',
+        '/project'
+      );
+    });
+  });
+
+  // ===========================================================================
+  // smartCommit × restore_critical_files wiring — proves the invocation lands
+  // AFTER gitAdd and BEFORE gitDiff/gitCommit (PRD §5.1 ordering).
+  // ===========================================================================
+  describe('smartCommit restore_critical_files wiring', () => {
+    it('invokes restore_critical_files after gitAdd and before gitCommit', async () => {
+      // SETUP — default path (no generateMessage). smartCommit stages, then
+      // restore_critical_files runs (no-op here), then gitCommit.
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [],
+      });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE
+      await smartCommit('/project', 'Test commit');
+
+      // VERIFY — ordering via mock.invocationCallOrder: gitAdd → restore
+      // (gitListStagedDeletions) → gitCommit. invocationCallOrder[i] is a
+      // monotonically increasing sequence number assigned each time a mock
+      // is invoked, so a lower number means an earlier call.
+      const addOrder = mockGitAdd.mock.invocationCallOrder[0];
+      const restoreOrder =
+        mockGitListStagedDeletions.mock.invocationCallOrder[0];
+      const commitOrder = mockGitCommit.mock.invocationCallOrder[0];
+      expect(addOrder).toBeDefined();
+      expect(restoreOrder).toBeDefined();
+      expect(commitOrder).toBeDefined();
+      expect(addOrder).toBeLessThan(restoreOrder);
+      expect(restoreOrder).toBeLessThan(commitOrder);
+    });
+
+    it('restore runs BEFORE stagecoach gitDiff on the generateMessage path', async () => {
+      // SETUP — stagecoach path: gitDiff({staged:true}) feeds the agent. The
+      // restore MUST run before gitDiff so the staged diff reflects the
+      // post-restore (deletion-free) staged set.
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: [],
+      });
+      mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'success',
+          data: 'feat: x',
+          error: null,
+        })
+      );
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE
+      await smartCommit('/project', 'fallback', { generateMessage: true });
+
+      // VERIFY — restore (gitListStagedDeletions) runs AFTER gitAdd and
+      // BEFORE gitDiff, so stagecoach sees the corrected staged set. Uses
+      // mock.invocationCallOrder (monotonic sequence numbers) since this
+      // vitest version has no toHaveBeenCalledBefore matcher.
+      const addOrder = mockGitAdd.mock.invocationCallOrder[0];
+      const restoreOrder =
+        mockGitListStagedDeletions.mock.invocationCallOrder[0];
+      const diffOrder = mockGitDiff.mock.invocationCallOrder[0];
+      const commitOrder = mockGitCommit.mock.invocationCallOrder[0];
+      expect(addOrder).toBeLessThan(restoreOrder);
+      expect(restoreOrder).toBeLessThan(diffOrder);
+      expect(diffOrder).toBeLessThan(commitOrder);
+    });
+
+    it('undoes a staged PRP.md deletion during a real smartCommit run', async () => {
+      // SETUP — simulate an agent that staged a deletion of a tracked PRP.md.
+      // smartCommit must restore it before committing (the deletion is NOT
+      // committed). gitStatus reports the PRP.md as modified (the deletion);
+      // filterProtectedFiles lets PRP.md through (PRP.md is NOT in
+      // PROTECTED_FILES — only the basename match in restore_critical_files
+      // catches it). After staging, gitListStagedDeletions reports it, and
+      // restore_critical_files restores it from HEAD.
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts', 'plan/x/PRP.md'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 2 });
+      mockGitListStagedDeletions.mockResolvedValue({
+        success: true,
+        files: ['plan/x/PRP.md'],
+      });
+      mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'Test commit');
+
+      // VERIFY — commit succeeds, and the PRP.md deletion was restored
+      expect(result).toBe('abc123');
+      expect(mockGitRestoreFileFromHead).toHaveBeenCalledWith(
+        'plan/x/PRP.md',
+        '/project'
+      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Restored critical file from HEAD.*PRP\.md/)
       );
     });
   });

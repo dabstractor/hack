@@ -681,7 +681,7 @@
               "type": "Task",
               "id": "P3.M2.T4",
               "title": "Critical-File Deletion Protection",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add prompt-layer deletion prohibitions to deletion-capable agent prompts, and a mechanical restore_critical_files layer invoked from smartCommit that detects and undoes staged deletions of PRD.md/PRP.md.",
               "subtasks": [
                 {
@@ -700,7 +700,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T4.S2",
                   "title": "Mechanical layer — restore_critical_files in smartCommit",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M2.T4.S1"
@@ -716,14 +716,14 @@
               "type": "Task",
               "id": "P3.M2.T5",
               "title": "Orphaned-plan/ Recovery",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add skip-recovery that checks the item's status in HEAD's tasks.json (not working tree) and persists stranded plan/ dirs immediately, complemented by the pre-cleanup commit guard from P3.M1.T3.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T5.S1",
                   "title": "Skip-recovery checks HEAD's tasks.json for Completed status",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T3.S2"
@@ -746,7 +746,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T6.S1",
                   "title": "Audit agent invocations for argv prompt delivery",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents that the pi harness uses session.prompt(request.prompt) programmatically. PRD §9.3.3 specifies prompts embedding the full PRD can exceed 128 KB and MUST be delivered as a programmatic message body (stdin/stream), never as an argv string (capped by MAX_ARG_STRLEN = 131,072 bytes, fails with E2BIG). This is a defensive guard + audit.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Audit all agent invocation code paths in src/agents/ (prp-executor.ts, prp-generator.ts, prp-runtime.ts) and src/tools/ (bash-mcp.ts) for any pattern that passes a prompt as a command-line argument. (b) Verify the main path uses session.prompt(request.prompt) programmatically (not argv). (c) If any code path shells out with a prompt as an argument, refactor it to use stdin/stream. (d) Add a test asserting no agent prompt exceeds argv limits via argv delivery.\n4. OUTPUT: Verified no argv prompt delivery. Consumed by P3.M2.T6.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
