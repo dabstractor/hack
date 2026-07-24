@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Distributed PRD Resolution & Selective Section Extraction",
-      "status": "Researching",
+      "status": "Ready",
       "description": "Add an include-expansion resolver that turns multi-file PRDs into one canonical document at load time, wire it through all downstream consumers (hash, snapshot, diff, agent prompts), and implement selective PRD section extraction via prd_selectors so the Researcher receives only referenced sections.",
       "milestones": [
         {
@@ -130,14 +130,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Selective PRD Section Extraction",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Add the prd_selectors field to the Subtask model, build a section index generator over the resolved document, and implement selector extraction at PRP-generation time so the Researcher receives only referenced PRD sections with full-PRD fallback.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Section Index Generation and prd_selectors Extraction",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Add the prd_selectors field to the Subtask model and Zod schema, build a section index generator that maps selector strings to PRD section content over the resolved document, and wire selector extraction into the Researcher prompt generation with full-PRD fallback.",
               "subtasks": [
                 {
@@ -172,7 +172,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "Selector extraction at PRP-generation time with full-PRD fallback",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",
