@@ -355,13 +355,15 @@ describe('createCoderAgent', () => {
     // EXECUTE
     const agent = createCoderAgent();
 
-    // VERIFY: createAgent was called with correct config
+    // VERIFY: createAgent was called with correct config.
+    // The Coder uses the 'implementation' role → fast tier → 'zai/glm-5-turbo'
+    // (PRD §9.2.3); ROLE_CONFIG.implementation.tier drives it (no manual override).
     expect(createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'CoderAgent',
         system: PRP_BUILDER_PROMPT,
         maxTokens: 4096,
-        model: 'zai/glm-5.2',
+        model: 'zai/glm-5-turbo',
         enableCache: true,
         enableReflection: true,
       })

@@ -214,8 +214,9 @@ export const ROLE_CONFIG: Readonly<
  * Generates a Groundswell-compatible agent configuration optimized for
  * the specified persona. The `role` parameter selects the model tier and reasoning budget
  * via {@link ROLE_CONFIG} (PRD §9.2.3 / §6.1); it defaults to 'research' (balanced tier,
- * normal budget) to preserve the behavior of existing one-arg call sites. The Coder still
- * overrides the balanced tier to the fast tier per its IMPL_AGENT role (PRD §9.2.3).
+ * normal budget) to preserve the behavior of existing one-arg call sites. Each factory
+ * passes its PRD-mandated role explicitly — e.g. the Coder passes 'implementation',
+ * which resolves to the fast tier via ROLE_CONFIG (no manual model override).
  *
  * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)
  * to SDK expectations (ANTHROPIC_API_KEY) via configureEnvironment().
@@ -241,7 +242,8 @@ export function createBaseConfig(
 ): AgentConfig {
   // PATTERN: Use getModel() to resolve model tier to actual model name.
   // Tier + reasoning budget are driven by ROLE_CONFIG[role] (PRD §9.2.3 / §6.1).
-  // Default role 'research' → balanced tier (glm-5.2); the Coder overrides to fast.
+  // Default role 'research' → balanced tier (glm-5.2); the Coder requests the
+  // 'implementation' role → fast tier (glm-5-turbo) via ROLE_CONFIG.
   const { tier, thinking } = ROLE_CONFIG[role];
   const model = getModel(tier);
 
@@ -277,8 +279,9 @@ export function createBaseConfig(
  * Create an Architect agent for PRD analysis and task breakdown
  *
  * @remarks
- * Uses the TASK_BREAKDOWN_PROMPT system prompt for analyzing PRDs
- * and generating structured task hierarchies.
+ * Uses the **Reasoning** model role (balanced tier, `xhigh` reasoning budget per PRD §6.1 —
+ * decomposition is the most reasoning-intensive step). Uses the TASK_BREAKDOWN_PROMPT
+ * system prompt for analyzing PRDs and generating structured task hierarchies.
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -291,7 +294,7 @@ export function createBaseConfig(
  * ```
  */
 export function createArchitectAgent(): Agent {
-  const baseConfig = createBaseConfig('architect');
+  const baseConfig = createBaseConfig('architect', 'reasoning');
   const config = {
     ...baseConfig,
     system: TASK_BREAKDOWN_PROMPT,
@@ -308,8 +311,9 @@ export function createArchitectAgent(): Agent {
  * Create a Researcher agent for PRP generation and research
  *
  * @remarks
- * Uses the PRP_BLUEPRINT_PROMPT system prompt for researching codebase
- * patterns and generating comprehensive Product Requirement Prompts.
+ * Uses the **Research** model role (balanced tier, normal reasoning budget per PRD §9.2.3).
+ * Uses the PRP_BLUEPRINT_PROMPT system prompt for researching codebase patterns
+ * and generating comprehensive Product Requirement Prompts.
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -322,7 +326,7 @@ export function createArchitectAgent(): Agent {
  * ```
  */
 export function createResearcherAgent(): Agent {
-  const baseConfig = createBaseConfig('researcher');
+  const baseConfig = createBaseConfig('researcher', 'research');
   const config = {
     ...baseConfig,
     system: PRP_BLUEPRINT_PROMPT,
@@ -339,8 +343,10 @@ export function createResearcherAgent(): Agent {
  * Create a Coder agent for code implementation from PRPs
  *
  * @remarks
- * Uses the PRP_BUILDER_PROMPT system prompt for implementing
- * features based on Product Requirement Prompt specifications.
+ * Uses the **Implementation** model role (fast tier, normal reasoning budget per PRD §9.2.3).
+ * Uses the PRP_BUILDER_PROMPT system prompt for implementing features based on Product
+ * Requirement Prompt specifications. The fast tier is driven solely by
+ * ROLE_CONFIG.implementation (no manual model override).
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -353,13 +359,9 @@ export function createResearcherAgent(): Agent {
  * ```
  */
 export function createCoderAgent(): Agent {
-  const baseConfig = createBaseConfig('coder');
+  const baseConfig = createBaseConfig('coder', 'implementation');
   const config = {
     ...baseConfig,
-    // IMPL_AGENT role → fast tier (PRD §9.2.3). The base config defaults to
-    // the balanced tier (glm-5.2); the Coder overrides to 'fast'
-    // (glm-5-turbo) for faster PRP execution + post-validation fixes.
-    model: getModel('fast'),
     system: PRP_BUILDER_PROMPT,
     mcps: MCP_TOOLS,
   };
@@ -371,8 +373,9 @@ export function createCoderAgent(): Agent {
  * Create a QA agent for validation and bug hunting
  *
  * @remarks
- * Uses the BUG_HUNT_PROMPT system prompt for comprehensive
- * end-to-end validation and creative bug finding.
+ * Uses the **Reasoning** model role (balanced tier, `xhigh` reasoning budget per PRD §6.5 —
+ * bug-finding is a reasoning-tier activity). Uses the BUG_HUNT_PROMPT system prompt for
+ * comprehensive end-to-end validation and creative bug finding.
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -385,7 +388,7 @@ export function createCoderAgent(): Agent {
  * ```
  */
 export function createQAAgent(): Agent {
-  const baseConfig = createBaseConfig('qa');
+  const baseConfig = createBaseConfig('qa', 'reasoning');
   const config = {
     ...baseConfig,
     system: BUG_HUNT_PROMPT,
