@@ -2241,4 +2241,58 @@ describe('ResearchQueue', () => {
       );
     });
   });
+
+  describe('depth getter (PRD §4.2)', () => {
+    it('returns DEFAULT_RESEARCH_DEPTH (2) when env unset', () => {
+      const currentSession = {
+        metadata: { id: 's', hash: 'h', path: '/p', createdAt: new Date() },
+      };
+      const queue = new ResearchQueue(
+        createMockSessionManager(currentSession),
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+
+      // VERIFY: default depth is 2 (DEFAULT_RESEARCH_DEPTH)
+      expect(queue.depth).toBe(2);
+    });
+
+    it('respects RESEARCH_DEPTH env (live read)', () => {
+      vi.stubEnv('RESEARCH_DEPTH', '5');
+      const currentSession = {
+        metadata: { id: 's', hash: 'h', path: '/p', createdAt: new Date() },
+      };
+      const queue = new ResearchQueue(
+        createMockSessionManager(currentSession),
+        DEFAULT_MAX_SIZE,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+
+      // VERIFY: getter reads env live
+      expect(queue.depth).toBe(5);
+
+      vi.unstubAllEnvs();
+    });
+
+    it('is orthogonal to maxSize (depth=live env, maxSize=constructor)', () => {
+      vi.stubEnv('RESEARCH_DEPTH', '4');
+      const currentSession = {
+        metadata: { id: 's', hash: 'h', path: '/p', createdAt: new Date() },
+      };
+      // maxSize=10 (concurrency) is distinct from depth=4 (how far ahead)
+      const queue = new ResearchQueue(
+        createMockSessionManager(currentSession),
+        10,
+        DEFAULT_NO_CACHE,
+        DEFAULT_CACHE_TTL_MS
+      );
+
+      expect(queue.maxSize).toBe(10);
+      expect(queue.depth).toBe(4);
+
+      vi.unstubAllEnvs();
+    });
+  });
 });

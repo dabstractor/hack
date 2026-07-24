@@ -2248,7 +2248,13 @@ describe('TaskOrchestrator', () => {
           'P1.M1.T1.S2',
           'Researching'
         );
-        expect(mockManager.updateItemStatus).toHaveBeenCalledTimes(1); // Only Researching, no further execution
+        // VERIFY: then reset to Planned (retry on next pass) — blocked path resets
+        // the mid-flight Researching status so the incomplete task is retried.
+        expect(mockManager.updateItemStatus).toHaveBeenCalledWith(
+          'P1.M1.T1.S2',
+          'Planned'
+        );
+        expect(mockManager.updateItemStatus).toHaveBeenCalledTimes(2); // Researching + Planned reset
         expect(mockLogger.info).toHaveBeenCalledWith(
           {
             subtaskId: 'P1.M1.T1.S2',
@@ -2500,8 +2506,12 @@ describe('TaskOrchestrator', () => {
         expect(mockManager.updateItemStatus).toHaveBeenCalledWith(
           'P1.M1.T1.S2',
           'Researching'
-        ); // Only Researching for blocked subtask (NEW behavior)
-        expect(mockManager.updateItemStatus).toHaveBeenCalledTimes(1);
+        ); // Researching for blocked subtask (NEW behavior)
+        expect(mockManager.updateItemStatus).toHaveBeenCalledWith(
+          'P1.M1.T1.S2',
+          'Planned'
+        ); // then reset to Planned (retry on next pass)
+        expect(mockManager.updateItemStatus).toHaveBeenCalledTimes(2); // Researching + Planned reset for blocked S2
 
         // S1 should execute normally
         await orchestrator.executeSubtask(
@@ -4168,6 +4178,307 @@ describe('TaskOrchestrator', () => {
       expect(currentSession.taskRegistry).toBe(recoveredBacklog);
       // VERIFY: the orchestrator's #backlog reflects the recovered registry (refreshBacklog ran)
       expect(orchestrator.backlog).toBe(recoveredBacklog);
+    });
+  });
+
+  // PRP P3.M1.T1.S2: depth-chained research supervisor (PRD §4.2).
+  // Exercises #prefetchResearchAhead (private) via its observable effect on
+  // researchQueue.enqueue, through the public executeSubtask call site.
+  describe('TaskOrchestrator: depth-chained research supervisor', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    /** Helper: build an orchestrator with a pre-populated #executionQueue. */
+    const buildOrchestratorWithQueue = (
+      queueItems: HierarchyItem[],
+      backlog = createTestBacklog([])
+    ) => {
+      mockResolveScope.mockReturnValue(queueItems);
+      const currentSession = {
+        metadata: {
+          id: '001_14b9dc2a33c7',
+          hash: '14b9dc2a33c7',
+          path: '/plan/001_14b9dc2a33c7',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD',
+        taskRegistry: backlog,
+        currentItemId: null,
+      };
+      const mockManager = createMockSessionManager(currentSession);
+      return new TaskOrchestrator(mockManager);
+    };
+
+    it('prefetches exactly RESEARCH_DEPTH upcoming subtasks when PARALLEL_RESEARCH=true', async () => {
+      // SETUP: parallel ON, depth=2. Queue holds the upcoming items (after
+      // processNextItem shifted the current one); #prefetchResearchAhead filters
+      // the first depth Subtasks.
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '2');
+
+      const upcoming: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+        createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+        createTestSubtask('P1.M1.T1.S4', 'S4', 'Planned'),
+        createTestSubtask('P1.M1.T1.S5', 'S5', 'Planned'),
+      ];
+      const orchestrator = buildOrchestratorWithQueue(upcoming);
+
+      // Fresh enqueue spy (clear module-level mock history)
+      const queue = orchestrator.researchQueue as any;
+      queue.enqueue = vi.fn().mockResolvedValue(undefined);
+      const current = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(current);
+
+      // VERIFY: supervisor enqueued exactly depth (2) upcoming subtasks: S2, S3
+      const enqueuedIds = queue.enqueue.mock.calls.map((c: [any]) => c[0]?.id);
+      expect(queue.enqueue).toHaveBeenCalledTimes(2);
+      expect(enqueuedIds).toEqual(['P1.M1.T1.S2', 'P1.M1.T1.S3']);
+    });
+
+    it('is a no-op when PARALLEL_RESEARCH is unset (legacy path)', async () => {
+      // SETUP: parallel OFF (unset). Supervisor must not enqueue anything.
+      vi.stubEnv('PARALLEL_RESEARCH', '');
+      vi.stubEnv('RESEARCH_DEPTH', '2');
+
+      const upcoming: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+        createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+      ];
+      const orchestrator = buildOrchestratorWithQueue(upcoming);
+      const queue = orchestrator.researchQueue as any;
+      queue.enqueue = vi.fn().mockResolvedValue(undefined);
+      const current = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(current);
+
+      // VERIFY: supervisor made ZERO enqueue calls (the only enqueue source in
+      // executeSubtask is #prefetchResearchAhead)
+      expect(queue.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('skips non-Subtask items in the upcoming slice (type filter)', async () => {
+      // SETUP: parallel ON, depth=2. Slice has a Task item in the middle.
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '2');
+
+      const upcoming: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+        // A Task (non-leaf) must be SKIPPED — only leaf subtasks are researchable
+        createTestTask('P1.M1.T2', 'T2', 'Planned', [
+          createTestSubtask('P1.M1.T2.S1', 'nested', 'Planned'),
+        ]) as HierarchyItem,
+        createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+      ];
+      const orchestrator = buildOrchestratorWithQueue(upcoming);
+      const queue = orchestrator.researchQueue as any;
+      queue.enqueue = vi.fn().mockResolvedValue(undefined);
+      const current = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(current);
+
+      // VERIFY: only the 2 Subtask items enqueued (Task skipped); depth counts
+      // only Subtasks, so S2 + S3 (the Task doesn't consume a depth slot).
+      const enqueuedIds = queue.enqueue.mock.calls.map((c: [any]) => c[0]?.id);
+      expect(queue.enqueue).toHaveBeenCalledTimes(2);
+      expect(enqueuedIds).toEqual(['P1.M1.T1.S2', 'P1.M1.T1.S3']);
+    });
+
+    it('early-breaks at the depth cap (depth=2, 5 upcoming subtasks → only 2 enqueued)', async () => {
+      // SETUP: parallel ON, depth=2, 5 upcoming subtasks.
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '2');
+
+      const upcoming: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+        createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+        createTestSubtask('P1.M1.T1.S4', 'S4', 'Planned'),
+        createTestSubtask('P1.M1.T1.S5', 'S5', 'Planned'),
+        createTestSubtask('P1.M1.T1.S6', 'S6', 'Planned'),
+      ];
+      const orchestrator = buildOrchestratorWithQueue(upcoming);
+      const queue = orchestrator.researchQueue as any;
+      queue.enqueue = vi.fn().mockResolvedValue(undefined);
+      const current = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(current);
+
+      // VERIFY: exactly 2 enqueued (depth cap), NOT all 5
+      expect(queue.enqueue).toHaveBeenCalledTimes(2);
+    });
+
+    it('respects a larger RESEARCH_DEPTH (depth=4 → 4 enqueued)', async () => {
+      // SETUP: parallel ON, depth=4.
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '4');
+
+      const upcoming: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+        createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+        createTestSubtask('P1.M1.T1.S4', 'S4', 'Planned'),
+        createTestSubtask('P1.M1.T1.S5', 'S5', 'Planned'),
+        createTestSubtask('P1.M1.T1.S6', 'S6', 'Planned'),
+      ];
+      const orchestrator = buildOrchestratorWithQueue(upcoming);
+      const queue = orchestrator.researchQueue as any;
+      queue.enqueue = vi.fn().mockResolvedValue(undefined);
+      const current = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+
+      // EXECUTE
+      await orchestrator.executeSubtask(current);
+
+      // VERIFY: 4 enqueued (depth=4)
+      expect(queue.enqueue).toHaveBeenCalledTimes(4);
+    });
+
+    it('chain advances as the queue shrinks (3 sequential consume steps)', async () => {
+      // SETUP: parallel ON, depth=2. Simulate the consume loop by slicing the
+      // queue before each executeSubtask (mirrors processNextItem's shift()).
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '2');
+
+      const allSubtasks: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned'),
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+        createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+        createTestSubtask('P1.M1.T1.S4', 'S4', 'Planned'),
+        createTestSubtask('P1.M1.T1.S5', 'S5', 'Planned'),
+      ];
+
+      // Step 1: S1 is current, upcoming = [S2, S3, S4, S5]
+      const orchestrator1 = buildOrchestratorWithQueue(allSubtasks.slice(1));
+      const queue1 = orchestrator1.researchQueue as any;
+      queue1.enqueue = vi.fn().mockResolvedValue(undefined);
+      await orchestrator1.executeSubtask(allSubtasks[0] as any);
+      expect(queue1.enqueue).toHaveBeenCalledTimes(2);
+      const step1Ids = queue1.enqueue.mock.calls.map((c: [any]) => c[0]?.id);
+      expect(step1Ids).toEqual(['P1.M1.T1.S2', 'P1.M1.T1.S3']);
+
+      // Step 2: S2 is current, upcoming = [S3, S4, S5] (chain advanced)
+      const orchestrator2 = buildOrchestratorWithQueue(allSubtasks.slice(2));
+      const queue2 = orchestrator2.researchQueue as any;
+      queue2.enqueue = vi.fn().mockResolvedValue(undefined);
+      await orchestrator2.executeSubtask(allSubtasks[1] as any);
+      expect(queue2.enqueue).toHaveBeenCalledTimes(2);
+      const step2Ids = queue2.enqueue.mock.calls.map((c: [any]) => c[0]?.id);
+      expect(step2Ids).toEqual(['P1.M1.T1.S3', 'P1.M1.T1.S4']);
+
+      // Step 3: S3 is current, upcoming = [S4, S5] (only 2 left → both)
+      const orchestrator3 = buildOrchestratorWithQueue(allSubtasks.slice(3));
+      const queue3 = orchestrator3.researchQueue as any;
+      queue3.enqueue = vi.fn().mockResolvedValue(undefined);
+      await orchestrator3.executeSubtask(allSubtasks[2] as any);
+      expect(queue3.enqueue).toHaveBeenCalledTimes(2);
+      const step3Ids = queue3.enqueue.mock.calls.map((c: [any]) => c[0]?.id);
+      expect(step3Ids).toEqual(['P1.M1.T1.S4', 'P1.M1.T1.S5']);
+    });
+
+    it('logs a warn on prefetch enqueue rejection (non-critical .catch)', async () => {
+      // SETUP: parallel ON, depth=2. enqueue rejects to exercise the .catch.
+      vi.stubEnv('PARALLEL_RESEARCH', 'true');
+      vi.stubEnv('RESEARCH_DEPTH', '2');
+
+      const upcoming: HierarchyItem[] = [
+        createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+      ];
+      const orchestrator = buildOrchestratorWithQueue(upcoming);
+      const queue = orchestrator.researchQueue as any;
+      queue.enqueue = vi.fn().mockRejectedValue(new Error('backlog shape bad'));
+      const current = createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned');
+
+      // EXECUTE: must NOT throw (the .catch swallows + logs)
+      await orchestrator.executeSubtask(current);
+
+      // VERIFY: warn logged with the rejection message (non-critical)
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { subtaskId: 'P1.M1.T1.S2', error: 'backlog shape bad' },
+        'Depth-chain prefetch enqueue failed (non-critical)'
+      );
+    });
+
+    describe('executeTask gated bulk-enqueue', () => {
+      it('enqueues only the first subtask when PARALLEL_RESEARCH=true', async () => {
+        // SETUP: parallel ON. executeTask must enqueue only subtasks[0].
+        vi.stubEnv('PARALLEL_RESEARCH', 'true');
+        vi.stubEnv('RESEARCH_DEPTH', '2');
+
+        const orchestrator = buildOrchestratorWithQueue([]);
+        const queue = orchestrator.researchQueue as any;
+        queue.enqueue = vi.fn().mockResolvedValue(undefined);
+        const task = createTestTask('P1.M1.T1', 'Task 1', 'Planned', [
+          createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned'),
+          createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+          createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+        ]);
+
+        // EXECUTE
+        await orchestrator.executeTask(task);
+
+        // VERIFY: only subtasks[0] enqueued
+        expect(queue.enqueue).toHaveBeenCalledTimes(1);
+        expect(queue.enqueue).toHaveBeenCalledWith(
+          task.subtasks[0],
+          expect.anything()
+        );
+      });
+
+      it('bulk-enqueues ALL subtasks when PARALLEL_RESEARCH=false (legacy)', async () => {
+        // SETUP: parallel OFF. executeTask must bulk-enqueue all subtasks.
+        vi.stubEnv('PARALLEL_RESEARCH', 'false');
+        vi.stubEnv('RESEARCH_DEPTH', '2');
+
+        const orchestrator = buildOrchestratorWithQueue([]);
+        const queue = orchestrator.researchQueue as any;
+        queue.enqueue = vi.fn().mockResolvedValue(undefined);
+        const subtasks = [
+          createTestSubtask('P1.M1.T1.S1', 'S1', 'Planned'),
+          createTestSubtask('P1.M1.T1.S2', 'S2', 'Planned'),
+          createTestSubtask('P1.M1.T1.S3', 'S3', 'Planned'),
+        ];
+        const task = createTestTask('P1.M1.T1', 'Task 1', 'Planned', subtasks);
+
+        // EXECUTE
+        await orchestrator.executeTask(task);
+
+        // VERIFY: all 3 subtasks bulk-enqueued (legacy verbatim)
+        expect(queue.enqueue).toHaveBeenCalledTimes(3);
+        const enqueuedIds = queue.enqueue.mock.calls.map(
+          (c: [any]) => c[0]?.id
+        );
+        expect(enqueuedIds).toEqual([
+          'P1.M1.T1.S1',
+          'P1.M1.T1.S2',
+          'P1.M1.T1.S3',
+        ]);
+        // VERIFY: legacy debug log preserved
+        expect(mockLogger.debug).toHaveBeenCalledWith(
+          { taskId: 'P1.M1.T1', subtaskId: 'P1.M1.T1.S1' },
+          'Enqueued for parallel research'
+        );
+      });
+
+      it('handles empty subtasks array when parallel ON (no enqueue)', async () => {
+        // SETUP: parallel ON, task with no subtasks.
+        vi.stubEnv('PARALLEL_RESEARCH', 'true');
+
+        const orchestrator = buildOrchestratorWithQueue([]);
+        const queue = orchestrator.researchQueue as any;
+        queue.enqueue = vi.fn().mockResolvedValue(undefined);
+        const task = createTestTask('P1.M1.T1', 'Task 1', 'Planned', []);
+
+        // EXECUTE
+        await orchestrator.executeTask(task);
+
+        // VERIFY: no enqueue (subtasks.length === 0 branch)
+        expect(queue.enqueue).not.toHaveBeenCalled();
+      });
     });
   });
 });

@@ -46,7 +46,11 @@ import { recoverTasksJson } from './tasks-json-recovery.js';
 import { join } from 'node:path';
 import { ResearchQueue, ResearchTimeoutError } from './research-queue.js';
 import { PRPRuntime } from '../agents/prp-runtime.js';
-import { getIssueRetryMax } from '../config/constants.js';
+import {
+  getIssueRetryMax,
+  isParallelResearch,
+  getResearchDepth,
+} from '../config/constants.js';
 import {
   ConcurrentTaskExecutor,
   type ParallelismConfig,
@@ -220,6 +224,56 @@ export class TaskOrchestrator {
     );
 
     return items;
+  }
+
+  /**
+   * Depth-chained research supervisor (PRD §4.2).
+   *
+   * @remarks
+   * When `PARALLEL_RESEARCH` is enabled, enqueues up to
+   * {@link getResearchDepth} UPCOMING subtasks (ahead of the current
+   * implementation cursor) into the {@link ResearchQueue}.
+   * `enqueue()`'s dedup (`researching.has` / `results.has`) makes this
+   * idempotent and safe to call repeatedly. When disabled, this is a no-op
+   * and the legacy flat-pool / synchronous-`researchNow` path is used
+   * (backward compatibility).
+   *
+   * The `enqueue` call is intentionally fire-and-forget: dedup +
+   * `processNext` cap concurrency, and {@link ResearchQueue.waitForPRP}
+   * surfaces real research errors at consume time. The `.catch` is
+   * MANDATORY to avoid an unhandled promise rejection.
+   *
+   * Only `Subtask`-type items are enqueued (leaf subtasks are the
+   * researchable chain ahead per PRD §4.2); non-subtask items are skipped.
+   *
+   * `depth` (how far ahead) and `maxSize` (how many `generate()` at once)
+   * are ORTHOGONAL — this method bounds the former; the pool caps the latter.
+   *
+   * @param upcomingSubtasks - the subtasks ahead of the current item, in
+   *   execution order (caller passes the already-shifted `#executionQueue`).
+   */
+  #prefetchResearchAhead(upcomingSubtasks: HierarchyItem[]): void {
+    if (!isParallelResearch()) {
+      return; // legacy path — no behavior change
+    }
+    const depth = getResearchDepth();
+    let enqueued = 0;
+    for (const item of upcomingSubtasks) {
+      if (enqueued >= depth) break;
+      if (item.type !== 'Subtask') continue; // only leaf subtasks are researchable
+      // enqueue is async but we intentionally fire-and-forget here: dedup +
+      // processNext cap concurrency; waitForPRP surfaces errors at consume time.
+      this.researchQueue
+        .enqueue(item as Subtask, this.#backlog)
+        .catch(error => {
+          const msg = error instanceof Error ? error.message : String(error);
+          this.#logger.warn(
+            { subtaskId: item.id, error: msg },
+            'Depth-chain prefetch enqueue failed (non-critical)'
+          );
+        });
+      enqueued++;
+    }
   }
 
   /**
@@ -634,18 +688,30 @@ export class TaskOrchestrator {
     await this.#updateStatus(task.id, 'Implementing');
     this.#logger.info({ taskId: task.id, title: task.title }, 'Executing Task');
 
-    // Enqueue all subtasks for parallel PRP generation
+    // Enqueue subtasks for parallel PRP generation. Under the depth-chain
+    // model (PRD §4.2), enqueue ONLY the first subtask now so it starts
+    // immediately; #prefetchResearchAhead drives the chain as items are
+    // consumed. Under the legacy flat-pool model, bulk-enqueue all subtasks.
     this.#logger.info(
       { taskId: task.id, subtaskCount: task.subtasks.length },
       'Enqueuing subtasks for parallel PRP generation'
     );
 
-    for (const subtask of task.subtasks) {
-      await this.researchQueue.enqueue(subtask, this.#backlog);
-      this.#logger.debug(
-        { taskId: task.id, subtaskId: subtask.id },
-        'Enqueued for parallel research'
-      );
+    if (isParallelResearch()) {
+      // Depth-chain model (PRD §4.2): enqueue only the first subtask now;
+      // #prefetchResearchAhead drives the chain as items are consumed.
+      if (task.subtasks.length > 0) {
+        await this.researchQueue.enqueue(task.subtasks[0], this.#backlog);
+      }
+    } else {
+      // Legacy flat-pool model: bulk-enqueue all subtasks (unchanged behavior).
+      for (const subtask of task.subtasks) {
+        await this.researchQueue.enqueue(subtask, this.#backlog);
+        this.#logger.debug(
+          { taskId: task.id, subtaskId: subtask.id },
+          'Enqueued for parallel research'
+        );
+      }
     }
 
     // Log queue statistics after enqueueing
@@ -723,6 +789,12 @@ export class TaskOrchestrator {
 
     // Log cache metrics
     this.#logCacheMetrics();
+
+    // PRD §4.2: depth-chained supervisor prefetches RESEARCH_DEPTH items ahead.
+    // (Fire-and-forget enqueue; dedup + waitForPRP handle completion/errors.)
+    // #executionQueue is already-shifted by processNextItem(), so it holds the
+    // upcoming items. The method is a no-op when PARALLEL_RESEARCH is disabled.
+    this.#prefetchResearchAhead(this.#executionQueue);
 
     // NEW: Check if dependencies are satisfied
     if (!this.canExecute(subtask)) {

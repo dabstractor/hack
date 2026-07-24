@@ -24,7 +24,10 @@ import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import type { PRPDocument, Task, Subtask, Backlog } from './models.js';
 import type { SessionManager } from './session-manager.js';
-import { getResearchTimeoutSeconds } from '../config/constants.js';
+import {
+  getResearchTimeoutSeconds,
+  getResearchDepth,
+} from '../config/constants.js';
 import { unlink } from 'node:fs/promises';
 
 /**
@@ -473,6 +476,23 @@ export class ResearchQueue {
       researching: this.researching.size,
       cached: this.results.size,
     };
+  }
+
+  /**
+   * The configured depth-chain prefetch depth (PRD §4.2).
+   *
+   * @remarks
+   * Orthogonal to {@link maxSize} (which caps concurrent `generate()`
+   * calls). `depth` governs how many items the depth-chained supervisor
+   * researches AHEAD of the current implementation cursor in
+   * {@link TaskOrchestrator}. Read live from the `RESEARCH_DEPTH` env var
+   * via {@link getResearchDepth} so environment changes take effect without
+   * reconstruction.
+   *
+   * @returns The number of items to prefetch ahead (default 2).
+   */
+  get depth(): number {
+    return getResearchDepth();
   }
 
   /**

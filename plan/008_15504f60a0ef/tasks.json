@@ -386,7 +386,7 @@
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "Depth-Chained Parallel Research",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add RESEARCH_DEPTH and PARALLEL_RESEARCH config, convert ResearchQueue from flat maxSize pool to depth-chained supervisor that prefetches a chain of items ahead, update RESEARCH_TIMEOUT default to 1800s, and forward settings to bugfix children.",
               "subtasks": [
                 {
@@ -406,7 +406,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S2",
                   "title": "Convert ResearchQueue to depth-chained supervisor",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T1.S1"
@@ -421,7 +421,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S3",
                   "title": "Update RESEARCH_TIMEOUT default and documentation",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S1"
@@ -436,7 +436,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S4",
                   "title": "Forward PARALLEL_RESEARCH and RESEARCH_DEPTH to bugfix child",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S2"
