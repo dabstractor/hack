@@ -25,7 +25,8 @@
 
 import { Workflow, Step } from 'groundswell';
 import { resolve, join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import type { Task, TestResults } from '../core/models.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
@@ -35,6 +36,11 @@ import { retryAgentPrompt } from '../utils/retry.js';
 import { toErrorMessage } from '../utils/errors.js';
 import { atomicWrite } from '../core/session-utils.js';
 import { TestResultsSchema } from '../core/models.js';
+import { getBugFinderAgent } from '../config/constants.js';
+import { smartCommit } from '../utils/git-commit.js';
+
+/** Marker file written when a bug hunt finds no actionable bugs (PRD §4.4). */
+const NO_ISSUES_FOUND_FILE = 'NO_ISSUES_FOUND.md';
 
 /**
  * Bug Hunt workflow class
@@ -465,6 +471,160 @@ export class BugHuntWorkflow extends Workflow {
   }
 
   // ========================================================================
+  // No-issues marker (PRD §4.4)
+  // ========================================================================
+
+  /**
+   * Records the latest QA result in the directory (PRD §4.4 No-issues marker).
+   *
+   * - Clean (no critical/major/minor bugs): write `NO_ISSUES_FOUND.md` and commit
+   *   it via {@link smartCommit} (a clean result is persisted like a real bug report).
+   * - Bugs found (any critical/major/minor): remove a stale `NO_ISSUES_FOUND.md`
+   *   if present (`TEST_RESULTS.md` is handled separately by {@link writeBugReport}).
+   *
+   * Called from {@link run} inside the `if (sessionPath)` block, after
+   * {@link writeBugReport}.
+   *
+   * @param sessionPath - Absolute path to session/bugfix directory.
+   * @param testResults - The TestResults produced by the bug hunt.
+   */
+  public async recordQAMarker(
+    sessionPath: string,
+    testResults: TestResults
+  ): Promise<void> {
+    const isClean = !testResults.bugs.some(
+      b =>
+        b.severity === 'critical' ||
+        b.severity === 'major' ||
+        b.severity === 'minor'
+    );
+    if (isClean) {
+      await this.writeNoIssuesMarker(sessionPath, testResults);
+      const commitHash = await smartCommit(
+        sessionPath,
+        'chore(qa): bug hunt clean — no issues found (NO_ISSUES_FOUND.md)'
+      );
+      this.correlationLogger.info(
+        '[BugHuntWorkflow] Committed clean-hunt marker',
+        { commitHash }
+      );
+    } else {
+      await this.removeNoIssuesMarker(sessionPath);
+    }
+  }
+
+  /**
+   * Writes `NO_ISSUES_FOUND.md` (real Markdown) recording a clean bug hunt
+   * (PRD §4.4). Content: ISO timestamp, session path tested, SHA-256 of the
+   * current `tasks.json` (sentinel if missing), and the bug-finder agent.
+   *
+   * @param sessionPath - Absolute path to session/bugfix directory.
+   * @param testResults - The clean TestResults (no critical/major/minor bugs).
+   * @throws {Error} If `sessionPath` is invalid or the write fails.
+   */
+  public async writeNoIssuesMarker(
+    sessionPath: string,
+    testResults: TestResults
+  ): Promise<void> {
+    // PATTERN: Input validation for sessionPath (mirrors writeBugReport)
+    if (typeof sessionPath !== 'string' || sessionPath.trim() === '') {
+      throw new Error('sessionPath must be a non-empty string');
+    }
+
+    const timestamp = new Date().toISOString();
+
+    // tasks.json hash — sentinel on missing so the marker is still written.
+    const tasksJsonPath = resolve(sessionPath, 'tasks.json');
+    let tasksHash: string;
+    try {
+      const raw = await readFile(tasksJsonPath, 'utf-8');
+      tasksHash = createHash('sha256').update(raw).digest('hex');
+    } catch {
+      tasksHash = 'tasks.json-not-found';
+    }
+
+    const bugFinderAgent = getBugFinderAgent();
+
+    const content = [
+      '# No Issues Found',
+      '',
+      'This directory was hunted clean by the QA bug-finder: no critical, major, or minor bugs.',
+      '',
+      `- **Timestamp:** ${timestamp}`,
+      `- **Session path tested:** ${sessionPath}`,
+      `- **tasks.json hash (SHA-256):** ${tasksHash}`,
+      `- **Bug-finder agent:** ${bugFinderAgent}`,
+      '',
+      'PRD §4.4 — distinguishes "already hunted clean" from "never hunted." ' +
+        'Removed automatically if a later hunt finds bugs.',
+      '',
+    ].join('\n');
+
+    const markerPath = resolve(sessionPath, NO_ISSUES_FOUND_FILE);
+
+    // PATTERN: Atomic write with error handling (mirrors writeBugReport)
+    try {
+      this.correlationLogger.info(
+        '[BugHuntWorkflow] Writing NO_ISSUES_FOUND.md',
+        {
+          markerPath,
+          tasksHash,
+          bugFinderAgent,
+          bugCount: testResults.bugs.length,
+        }
+      );
+      await atomicWrite(markerPath, content);
+      this.correlationLogger.info(
+        '[BugHuntWorkflow] NO_ISSUES_FOUND.md written successfully',
+        { markerPath }
+      );
+    } catch (error) {
+      const errorMessage = toErrorMessage(error);
+      this.correlationLogger.error(
+        '[BugHuntWorkflow] Failed to write NO_ISSUES_FOUND.md',
+        { markerPath, error: errorMessage }
+      );
+      throw new Error(
+        `Failed to write marker to ${markerPath}: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Removes a stale `NO_ISSUES_FOUND.md` marker (PRD §4.4).
+   *
+   * Tolerant of a missing file (ENOENT) — a clean marker from a prior hunt is
+   * removed when the current hunt finds bugs, so the directory always reflects
+   * the latest result. A missing marker is the common case and is not an error.
+   *
+   * @param sessionPath - Absolute path to session/bugfix directory.
+   * @throws {Error} If the unlink fails for a reason other than ENOENT.
+   */
+  public async removeNoIssuesMarker(sessionPath: string): Promise<void> {
+    const markerPath = resolve(sessionPath, NO_ISSUES_FOUND_FILE);
+    try {
+      await unlink(markerPath);
+      this.correlationLogger.info(
+        '[BugHuntWorkflow] Removed stale NO_ISSUES_FOUND.md marker',
+        { markerPath }
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOENT') {
+        // No prior marker — nothing to remove. Not an error.
+        return;
+      }
+      // Real failure to delete — log + rethrow (matches writeBugReport's throw style).
+      const errorMessage = toErrorMessage(error);
+      this.correlationLogger.error(
+        '[BugHuntWorkflow] Failed to remove NO_ISSUES_FOUND.md marker',
+        { markerPath, error: errorMessage }
+      );
+      throw new Error(`Failed to remove marker ${markerPath}: ${errorMessage}`);
+    }
+  }
+
+  // ========================================================================
   // Main Entry Point
   // ========================================================================
 
@@ -509,6 +669,7 @@ export class BugHuntWorkflow extends Workflow {
           `[BugHuntWorkflow] Writing TEST_RESULTS.md to ${sessionPath}`
         );
         await this.writeBugReport(sessionPath, results);
+        await this.recordQAMarker(sessionPath, results);
       }
 
       this.setStatus('completed');

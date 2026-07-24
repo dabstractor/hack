@@ -30,23 +30,34 @@ vi.mock('../../../src/core/session-utils.js', () => ({
 }));
 
 // Mock node:fs/promises for file-as-contract pattern in generateReport
-const { mockReadFile } = vi.hoisted(() => ({
+// and for removeNoIssuesMarker's tolerant unlink (PRD §4.4 marker).
+const { mockReadFile, mockUnlink } = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
+  mockUnlink: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
   readFile: mockReadFile,
+  unlink: mockUnlink,
+}));
+
+// Mock git-commit's smartCommit so the clean-hunt marker path (PRD §4.4)
+// never runs real git ops in unit tests.
+vi.mock('../../../src/utils/git-commit.js', () => ({
+  smartCommit: vi.fn(),
 }));
 
 // Import mocked modules
 import { createQAAgent } from '../../../src/agents/agent-factory.js';
 import { createBugHuntPrompt } from '../../../src/agents/prompts/bug-hunt-prompt.js';
 import { atomicWrite } from '../../../src/core/session-utils.js';
+import { smartCommit } from '../../../src/utils/git-commit.js';
 
 // Cast mocked functions
 const mockCreateQAAgent = createQAAgent as any;
 const mockCreateBugHuntPrompt = createBugHuntPrompt as any;
 const mockAtomicWrite = atomicWrite as any;
+const mockSmartCommit = smartCommit as any;
 
 // Factory functions for test data
 const createTestTask = (
@@ -100,6 +111,13 @@ describe('BugHuntWorkflow', () => {
     // By default, readFile throws (file not found) — simulates
     // the QA agent not having written the file yet.
     mockReadFile.mockRejectedValue(new Error('ENOENT'));
+    // PRD §4.4 marker defaults: a prior clean marker is usually absent, so
+    // removeNoIssuesMarker's unlink resolves to ENOENT (swallowed). The
+    // clean path's smartCommit succeeds with a fake hash.
+    mockUnlink.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    );
+    mockSmartCommit.mockResolvedValue('deadbeef');
   });
 
   describe('constructor', () => {
@@ -2029,6 +2047,266 @@ describe('BugHuntWorkflow', () => {
         expect(content).toContain('npm run test:auth');
         expect(content).toContain('https://docs.example.com/auth');
       });
+    });
+  });
+
+  // ========================================================================
+  // PRD §4.4 — NO_ISSUES_FOUND.md marker (recordQAMarker orchestrator)
+  // ========================================================================
+  describe('recordQAMarker / NO_ISSUES_FOUND marker', () => {
+    it('CLEAN (empty bugs): writes marker + commits it', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(false, [], 'No bugs found', []);
+      const sessionPath = '/path/to/session';
+      // tasks.json present → real sha256
+      mockReadFile.mockResolvedValue('{"tasks":[]}');
+
+      // EXECUTE
+      await workflow.recordQAMarker(sessionPath, testResults);
+
+      // VERIFY — marker written via atomicWrite
+      expect(mockAtomicWrite).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md',
+        expect.stringContaining('# No Issues Found')
+      );
+      const content = mockAtomicWrite.mock.calls[0][1];
+      expect(content).toMatch(/\*\*Timestamp:\*\* \d{4}-\d{2}-\d{2}T/); // ISO
+      expect(content).toContain('**Session path tested:** /path/to/session');
+      // 64-char hex sha256 from the tasks.json content above
+      expect(content).toMatch(
+        /\*\*tasks\.json hash \(SHA-256\):\*\* [0-9a-f]{64}/
+      );
+      expect(content).toContain('**Bug-finder agent:** pizr'); // getBugFinderAgent default
+
+      // VERIFY — committed via smartCommit (fixed message)
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      expect(mockSmartCommit).toHaveBeenCalledWith(
+        sessionPath,
+        'chore(qa): bug hunt clean — no issues found (NO_ISSUES_FOUND.md)'
+      );
+
+      // VERIFY — remove path NOT taken (unlink not called)
+      expect(mockUnlink).not.toHaveBeenCalled();
+    });
+
+    it('CLEAN (cosmetic-only): still clean per CONTRACT → marker written', async () => {
+      // SETUP — cosmetic bugs are NOT critical/major/minor → clean
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(
+        false,
+        [
+          createTestBug('BUG-001', 'cosmetic', 'C1', 'D1', 'R1'),
+          createTestBug('BUG-002', 'cosmetic', 'C2', 'D2', 'R2'),
+        ],
+        'Cosmetic only',
+        ['Polish']
+      );
+      mockReadFile.mockResolvedValue('{"tasks":[]}');
+
+      // EXECUTE
+      await workflow.recordQAMarker('/path/to/session', testResults);
+
+      // VERIFY — marker written + committed despite cosmetic bugs
+      expect(mockAtomicWrite).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md',
+        expect.any(String)
+      );
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+      expect(mockUnlink).not.toHaveBeenCalled();
+    });
+
+    it('BUGS (critical): NOT clean → removes stale marker, no commit', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(
+        true,
+        [createTestBug('BUG-001', 'critical', 'Bug', 'Desc', 'Rep')],
+        'Found bugs',
+        ['Fix']
+      );
+      // A prior marker exists → unlink succeeds
+      mockUnlink.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await workflow.recordQAMarker('/path/to/session', testResults);
+
+      // VERIFY — stale marker removed
+      expect(mockUnlink).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md'
+      );
+      // VERIFY — no clean-marker write / no commit
+      expect(mockAtomicWrite).not.toHaveBeenCalled();
+      expect(mockSmartCommit).not.toHaveBeenCalled();
+    });
+
+    it('BUGS (minor): NOT clean → removes stale marker, no commit', async () => {
+      // SETUP — minor counts as actionable per CONTRACT → not clean
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(
+        false,
+        [createTestBug('BUG-001', 'minor', 'Bug', 'Desc', 'Rep')],
+        'Minor bug',
+        ['Fix']
+      );
+      mockUnlink.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await workflow.recordQAMarker('/path/to/session', testResults);
+
+      // VERIFY
+      expect(mockUnlink).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md'
+      );
+      expect(mockSmartCommit).not.toHaveBeenCalled();
+      expect(mockAtomicWrite).not.toHaveBeenCalled();
+    });
+
+    it('tasks.json MISSING: marker still written with sentinel hash', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(false, [], 'No bugs found', []);
+      // tasks.json read rejects → sentinel hash path
+      mockReadFile.mockRejectedValue(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      );
+
+      // EXECUTE
+      await workflow.recordQAMarker('/path/to/session', testResults);
+
+      // VERIFY — marker written with sentinel hash
+      expect(mockAtomicWrite).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md',
+        expect.stringContaining(
+          '**tasks.json hash (SHA-256):** tasks.json-not-found'
+        )
+      );
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+    });
+
+    it('removeNoIssuesMarker: ENOENT-tolerant (no throw, no error log)', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      mockUnlink.mockRejectedValue(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      );
+      const errorSpy = vi.spyOn((workflow as any).correlationLogger, 'error');
+
+      // EXECUTE & VERIFY — resolves without throwing
+      await expect(
+        workflow.removeNoIssuesMarker('/path/to/session')
+      ).resolves.toBeUndefined();
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('removeNoIssuesMarker: real failure (EACCES) → throws + logs', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      mockUnlink.mockRejectedValue(
+        Object.assign(new Error('EACCES: denied'), { code: 'EACCES' })
+      );
+      const errorSpy = vi.spyOn((workflow as any).correlationLogger, 'error');
+
+      // EXECUTE & VERIFY
+      await expect(
+        workflow.removeNoIssuesMarker('/path/to/session')
+      ).rejects.toThrow(
+        'Failed to remove marker /path/to/session/NO_ISSUES_FOUND.md: EACCES: denied'
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[BugHuntWorkflow] Failed to remove NO_ISSUES_FOUND.md marker',
+        {
+          markerPath: '/path/to/session/NO_ISSUES_FOUND.md',
+          error: 'EACCES: denied',
+        }
+      );
+    });
+
+    it('smartCommit returns null: recordQAMarker still resolves (non-fatal)', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(false, [], 'No bugs found', []);
+      mockReadFile.mockResolvedValue('{"tasks":[]}');
+      mockSmartCommit.mockResolvedValue(null);
+      const logSpy = vi.spyOn((workflow as any).correlationLogger, 'info');
+
+      // EXECUTE & VERIFY — resolves; null is logged, not treated as error
+      await expect(
+        workflow.recordQAMarker('/path/to/session', testResults)
+      ).resolves.toBeUndefined();
+      expect(logSpy).toHaveBeenCalledWith(
+        '[BugHuntWorkflow] Committed clean-hunt marker',
+        { commitHash: null }
+      );
+    });
+
+    it('writeNoIssuesMarker: empty sessionPath → throws', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(false, [], 'No bugs found', []);
+
+      // EXECUTE & VERIFY
+      await expect(
+        workflow.writeNoIssuesMarker('', testResults)
+      ).rejects.toThrow('sessionPath must be a non-empty string');
+      expect(mockAtomicWrite).not.toHaveBeenCalled();
+    });
+
+    it('writeNoIssuesMarker: atomicWrite failure → throws descriptive error', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      const testResults = createTestResults(false, [], 'No bugs found', []);
+      mockReadFile.mockResolvedValue('{"tasks":[]}');
+      mockAtomicWrite.mockRejectedValue(new Error('ENOSPC: no space'));
+      const errorSpy = vi.spyOn((workflow as any).correlationLogger, 'error');
+
+      // EXECUTE & VERIFY
+      await expect(
+        workflow.writeNoIssuesMarker('/path/to/session', testResults)
+      ).rejects.toThrow(
+        'Failed to write marker to /path/to/session/NO_ISSUES_FOUND.md: ENOSPC: no space'
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[BugHuntWorkflow] Failed to write NO_ISSUES_FOUND.md',
+        {
+          markerPath: '/path/to/session/NO_ISSUES_FOUND.md',
+          error: 'ENOSPC: no space',
+        }
+      );
+    });
+
+    it('round-trip: clean hunt writes marker, then buggy hunt removes it', async () => {
+      // SETUP
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      mockReadFile.mockResolvedValue('{"tasks":[]}');
+
+      // (1) clean hunt → marker written + committed
+      await workflow.recordQAMarker(
+        '/path/to/session',
+        createTestResults(false, [], 'clean', [])
+      );
+      expect(mockAtomicWrite).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md',
+        expect.any(String)
+      );
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
+
+      // (2) buggy hunt → marker removed, no new commit
+      mockUnlink.mockResolvedValue(undefined);
+      await workflow.recordQAMarker(
+        '/path/to/session',
+        createTestResults(
+          true,
+          [createTestBug('BUG-001', 'critical', 'Bug', 'Desc', 'Rep')],
+          'buggy',
+          ['Fix']
+        )
+      );
+      expect(mockUnlink).toHaveBeenCalledWith(
+        '/path/to/session/NO_ISSUES_FOUND.md'
+      );
+      // commit count unchanged from the clean hunt (no commit on buggy path)
+      expect(mockSmartCommit).toHaveBeenCalledTimes(1);
     });
   });
 });
