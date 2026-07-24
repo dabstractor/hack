@@ -23,7 +23,7 @@
 import { gitStatus, gitAdd, gitCommit, gitDiff } from '../tools/git-mcp.js';
 import { basename } from 'node:path';
 import { getLogger, type Logger } from './logger.js';
-import { AgentError } from './errors.js';
+import { AgentError, isAgentError, toErrorMessage } from './errors.js';
 import { createPrompt } from 'groundswell';
 import { z } from 'zod';
 import { createCommitMessageAgent } from '../agents/commit-message-agent.js';
@@ -199,6 +199,52 @@ export async function generateCommitMessage(diff: string): Promise<string> {
   return message;
 }
 
+// ===== LAST-RESORT FALLBACK (PRD §5.1) =====
+
+/**
+ * Sentinel "exit code" used in the fallback placeholder commit message when
+ * commit-message generation fails after all retries (PRD §5.1).
+ *
+ * @remarks
+ * The stagecoach generation boundary is a pure LLM-API call (Groundswell
+ * agent.prompt), NOT a subprocess. A transient LLM-API failure
+ * (429/504/timeout) has NO OS exit code, and {@link AgentError} carries no
+ * `exitCode` field. So the PRD §5.1 placeholder label
+ * `chore: commit-gen failed (exit N); fallback commit` cannot be populated
+ * with a real exit code — `0` is the sentinel meaning "no subprocess exit code
+ * (LLM-API failure)". If a future error type (e.g. an exit-124 watchdog error
+ * from P3.M2.T2) carries `context.exitCode`, that value is used instead (see
+ * {@link buildFallbackCommitMessage}).
+ */
+const COMMIT_GEN_FALLBACK_EXIT_SENTINEL = 0;
+
+/**
+ * Build the last-resort fallback placeholder commit message (PRD §5.1).
+ *
+ * @param error - The error thrown by the exhausted retry loop (the original
+ * {@link AgentError} rethrown by `retry()` — NOT a wrapper).
+ * @returns The placeholder subject line, e.g.
+ * `'chore: commit-gen failed (exit 0); fallback commit'`. The caller wraps it
+ * via {@link formatCommitMessage} (adds `[PRP Auto]` prefix + `Co-Authored-By`).
+ *
+ * @remarks
+ * PRD §5.1 mandates a "clearly-labeled placeholder message … so the substance
+ * is preserved and can be reworded later." The `exit N` segment reflects the
+ * last exit code when one is available (read from a {@link PipelineError}
+ * `context.exitCode`); otherwise the {@link COMMIT_GEN_FALLBACK_EXIT_SENTINEL}
+ * (`0`) is used, because LLM-API failures have no subprocess exit code.
+ */
+export function buildFallbackCommitMessage(error: unknown): string {
+  let exitCode: number = COMMIT_GEN_FALLBACK_EXIT_SENTINEL;
+  if (isAgentError(error)) {
+    const ctx = error.context as Record<string, unknown> | undefined;
+    if (ctx && typeof ctx.exitCode === 'number') {
+      exitCode = ctx.exitCode;
+    }
+  }
+  return `chore: commit-gen failed (exit ${exitCode}); fallback commit`;
+}
+
 // ===== MAIN FUNCTION =====
 
 /**
@@ -238,13 +284,12 @@ export async function generateCommitMessage(diff: string): Promise<string> {
  * - Git operation failures are logged but don't throw.
  * - `generateCommitMessage` (the stagecoach boundary) DOES throw
  *   {@link AgentError} on failure (transient — classified by
- *   `isTransientError`), but `smartCommit`'s outer `try/catch` converts that
- *   throw to a `null` return + `error` log. The retry layer (P3.M1.T4.S1)
- *   wraps the INNER `generateCommitMessage` boundary with a bounded `retry()`
- *   loop using the `COMMIT_RETRY_*` constants (PRD §5.1), NOT `smartCommit`.
- *   When all retry attempts are exhausted, the last `AgentError` propagates to
- *   this outer `try/catch` → `null` return. P3.M1.T4.S2 will layer the
- *   last-resort fallback placeholder commit on top of that `null` return.
+ *   `isTransientError`). The retry layer (P3.M1.T4.S1) wraps the INNER
+ *   `generateCommitMessage` boundary with a bounded `retry()` loop using the
+ *   `COMMIT_RETRY_*` constants (PRD §5.1), NOT `smartCommit`. When all retry
+ *   attempts are exhausted, `retry()` rethrows the last `AgentError`, which an
+ *   INNER `try/catch` (PRD §5.1, P3.M1.T4.S2) catches and converts into a
+ *   **last-resort fallback placeholder commit** via {@link buildFallbackCommitMessage} + a direct `gitCommit` — the staged substance is NEVER stranded. The outer `try/catch` only catches truly unexpected throws (e.g. a git operation throwing) → `null` return.
  * - Returns `null` on any failure to allow the pipeline to continue.
  *
  * **Protected Files**:
@@ -355,20 +400,36 @@ export async function smartCommit(
       // (PRD §5.1 contract item 3c). generateCommitMessage throws AgentError
       // (PIPELINE_AGENT_LLM_FAILED) which isTransientError classifies
       // transient. Permanent errors (none today) would not retry.
-      const generated = await retry(
-        () => generateCommitMessage(diffResult.diff ?? ''),
-        {
-          maxAttempts: getCommitRetryMax(),
-          baseDelay: getCommitRetryDelayMs(),
-          maxDelay: getCommitRetryDelayCapMs(),
-          backoffFactor: 2, // doubling (PRD §5.1)
-          onRetry: createDefaultOnRetry(
-            'stagecoach.generateCommitMessage',
-            getCommitRetryMax()
-          ),
-        }
-      );
-      formattedMessage = formatCommitMessage(generated);
+      try {
+        const generated = await retry(
+          () => generateCommitMessage(diffResult.diff ?? ''),
+          {
+            maxAttempts: getCommitRetryMax(),
+            baseDelay: getCommitRetryDelayMs(),
+            maxDelay: getCommitRetryDelayCapMs(),
+            backoffFactor: 2, // doubling (PRD §5.1)
+            onRetry: createDefaultOnRetry(
+              'stagecoach.generateCommitMessage',
+              getCommitRetryMax()
+            ),
+          }
+        );
+        formattedMessage = formatCommitMessage(generated);
+      } catch (genError) {
+        // PRD §5.1 last-resort fallback: generation failed after all retries.
+        // The index is still staged (gitAdd ran before generation), so commit
+        // the substance with a labeled placeholder so it's never stranded.
+        // LLM-API failures have no subprocess exit code → sentinel 0 (see
+        // buildFallbackCommitMessage). Flow CONTINUES (no rethrow) to the
+        // shared gitCommit call below, which handles both the happy path and
+        // this fallback path.
+        logger().warn(
+          `Commit-message generation failed after retries; falling back to placeholder commit: ${toErrorMessage(genError)}`
+        );
+        formattedMessage = formatCommitMessage(
+          buildFallbackCommitMessage(genError)
+        );
+      }
     } else {
       formattedMessage = formatCommitMessage(message);
     }

@@ -379,7 +379,7 @@
           "type": "Milestone",
           "id": "P3.M1",
           "title": "Inner-Loop Concurrency & Commit Integrity",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Convert ResearchQueue to depth-chained supervisor, add tasks.json write concurrency (flock + atomic), implement two-phase commit via stagecoach with cleanup agent, and add smart commit resilience with bounded retry and fallback.",
           "tasks": [
             {
@@ -541,7 +541,7 @@
               "type": "Task",
               "id": "P3.M1.T4",
               "title": "Smart Commit Resilience",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add bounded retry with exponential backoff for stagecoach commit-message generation, and a last-resort fallback placeholder commit so staged work is never stranded.",
               "subtasks": [
                 {
@@ -562,7 +562,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T4.S2",
                   "title": "Last-resort fallback placeholder commit",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T4.S1"

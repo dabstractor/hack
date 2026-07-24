@@ -8,7 +8,7 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the GitMCP functions that smartCommit uses (gitDiff added for the
 // stagecoach generateMessage path — default-path tests never trigger it).
@@ -55,6 +55,7 @@ import {
 import { createPrompt } from 'groundswell';
 import { createCommitMessageAgent } from '../../../src/agents/commit-message-agent.js';
 import {
+  buildFallbackCommitMessage,
   filterProtectedFiles,
   formatCommitMessage,
   generateCommitMessage,
@@ -487,6 +488,23 @@ describe('utils/git-commit', () => {
         // VERIFY
         expect(result).toBeNull();
       });
+
+      it('should return null when gitCommit succeeds but returns no commitHash', async () => {
+        // SETUP — gitCommit reports success:true but omits commitHash. Covers
+        // the `commitResult.commitHash ?? null` null arm.
+        mockGitStatus.mockResolvedValue({
+          success: true,
+          modified: ['src/index.ts'],
+        });
+        mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+        mockGitCommit.mockResolvedValue({ success: true }); // no commitHash
+
+        // EXECUTE
+        const result = await smartCommit('/project', 'Test commit');
+
+        // VERIFY — commitHash ?? null → null returned.
+        expect(result).toBeNull();
+      });
     });
 
     describe('logging behavior', () => {
@@ -912,13 +930,15 @@ describe('utils/git-commit', () => {
       );
     });
 
-    it('generateCommitMessage throws → returns null (outer catch), error logged, gitCommit never called', async () => {
+    it('generateCommitMessage throws after retries → FALLBACK placeholder commit made (PRD §5.1)', async () => {
       // SETUP — agent status error → generateCommitMessage throws AgentError.
       // Disable the retry loop (1 attempt = no retries) so the boundary is
       // called once and the test stays fast (no 10s backoff sleeps). P3.M1.T4.S1
       // wraps generateCommitMessage in a bounded retry; with COMMIT_RETRY_MAX=1
-      // the exhausted-retry throw still propagates to the outer catch → null.
+      // the exhausted-retry throw propagates to the INNER catch (P3.M1.T4.S2),
+      // which now makes a FALLBACK placeholder commit instead of returning null.
       vi.stubEnv('COMMIT_RETRY_MAX', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       mockGitStatus.mockResolvedValue({
         success: true,
         modified: ['src/index.ts'],
@@ -932,17 +952,36 @@ describe('utils/git-commit', () => {
           error: { message: 'model overloaded' },
         })
       );
+      // The fallback gitCommit succeeds → returns the fallback hash.
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'fb000',
+      });
 
-      // EXECUTE — smartCommit never throws; outer catch → null return
+      // EXECUTE — smartCommit now makes a fallback commit (not null).
       const result = await smartCommit('/project', 'fallback', {
         generateMessage: true,
       });
 
-      // VERIFY
-      expect(result).toBeNull();
-      expect(mockGitCommit).not.toHaveBeenCalled();
-      // The AgentError is caught by the outer catch → 'Unexpected error: ...'
-      expect(mockLogger.error).toHaveBeenCalledWith(
+      // VERIFY — fallback commit made with the labeled placeholder. The
+      // staged substance is preserved (never stranded). The placeholder is
+      // wrapped in [PRP Auto] prefix + Co-Authored-By trailer (same wrapper
+      // as the happy path). 'exit N' uses the sentinel 0 (LLM-API failures
+      // have no subprocess exit code).
+      expect(result).toBe('fb000');
+      expect(mockGitCommit).toHaveBeenCalledTimes(1);
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message: expect.stringMatching(
+          /\[PRP Auto\] chore: commit-gen failed \(exit \d+\); fallback commit[\s\S]*Co-Authored-By: Claude/
+        ),
+      });
+      // A warn log is emitted naming the fallback (NOT the outer 'Unexpected
+      // error' log — the fallback path never reaches the outer catch).
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/falling back to placeholder commit/i)
+      );
+      expect(mockLogger.error).not.toHaveBeenCalledWith(
         expect.stringMatching(/Unexpected error/)
       );
     });
@@ -996,29 +1035,42 @@ describe('utils/git-commit', () => {
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
     });
 
-    it('gitDiff success but missing diff field → generateCommitMessage throws empty-diff → returns null', async () => {
+    it('gitDiff success but missing diff field → empty-diff throws → FALLBACK placeholder commit (PRD §5.1)', async () => {
       // SETUP — gitDiff returns success:true but no `diff` string. smartCommit
       // passes `diffResult.diff ?? ''` to generateCommitMessage, which throws
-      // AgentError on the empty diff → outer catch → null return.
+      // AgentError on the empty diff. With S2, that throw propagates through
+      // the retry (exhausted at 1 attempt) to the INNER catch → fallback
+      // placeholder commit (the staged substance is preserved).
       // Disable the retry loop so the boundary is called once and the test
       // stays fast (no backoff sleeps).
       vi.stubEnv('COMMIT_RETRY_MAX', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       mockGitStatus.mockResolvedValue({
         success: true,
         modified: ['src/index.ts'],
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true }); // no diff field
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'fb-empty',
+      });
 
       // EXECUTE
       const result = await smartCommit('/project', 'fallback', {
         generateMessage: true,
       });
 
-      // VERIFY — the empty-diff AgentError is caught by the outer catch.
-      expect(result).toBeNull();
-      expect(mockGitCommit).not.toHaveBeenCalled();
+      // VERIFY — the empty-diff AgentError propagates through retry → INNER
+      // catch → fallback placeholder commit (NOT null).
+      expect(result).toBe('fb-empty');
+      expect(mockGitCommit).toHaveBeenCalledTimes(1);
+      // The agent factory is never called (generateCommitMessage throws on the
+      // empty diff BEFORE instantiating the agent).
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/falling back to placeholder commit/i)
+      );
     });
 
     it('PRD §5.1 retry: transient error retried, succeeds on 3rd attempt → commit created, gitDiff called once', async () => {
@@ -1094,10 +1146,11 @@ describe('utils/git-commit', () => {
       });
     });
 
-    it('PRD §5.1 retry: exhausted attempts → returns null (P3.M1.T4.S2 layers fallback on this null)', async () => {
+    it('PRD §5.1 retry: exhausted attempts → FALLBACK placeholder commit (P3.M1.T4.S2)', async () => {
       // SETUP — the agent always throws a transient AgentError. With
       // COMMIT_RETRY_MAX=2 the boundary is attempted twice then the last error
-      // propagates → outer catch → null return. Lower the delays for speed.
+      // propagates → INNER catch (P3.M1.T4.S2) → fallback placeholder commit.
+      // Lower the delays for speed.
       vi.stubEnv('COMMIT_RETRY_MAX', '2');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY_CAP', '1');
@@ -1120,6 +1173,11 @@ describe('utils/git-commit', () => {
         )
       );
       mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
+      // The fallback gitCommit succeeds → returns the fallback hash.
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'fallback-hash',
+      });
 
       // EXECUTE
       const result = await smartCommit('/project', 'fallback', {
@@ -1127,14 +1185,63 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — retry exhausted both attempts, then the last AgentError
-      // propagated to smartCommit's outer catch → null. P3.M1.T4.S2 will layer
-      // the last-resort fallback placeholder commit on this null return.
-      expect(result).toBeNull();
+      // propagated to smartCommit's INNER catch → fallback placeholder commit
+      // (the staged substance is preserved, never stranded — PRD §5.1).
+      expect(result).toBe('fallback-hash');
       expect(mockPrompt).toHaveBeenCalledTimes(2);
-      expect(mockGitCommit).not.toHaveBeenCalled();
+      expect(mockGitCommit).toHaveBeenCalledTimes(1);
       expect(mockGitDiff).toHaveBeenCalledTimes(1); // read once outside retry
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message: expect.stringMatching(
+          /chore: commit-gen failed \(exit \d+\); fallback commit/
+        ),
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/falling back to placeholder commit/i)
+      );
+    });
+
+    it('fallback commit: gitCommit ALSO fails → returns null (never-fail-on-commit)', async () => {
+      // SETUP — agent status error → retry exhausts (1 attempt) → INNER catch
+      // → fallback placeholder commit attempted, BUT gitCommit itself fails
+      // (e.g. disk full). smartCommit must return null (never-fail-on-commit).
+      vi.stubEnv('COMMIT_RETRY_MAX', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'error',
+          data: null,
+          error: { message: 'model overloaded' },
+        })
+      );
+      // The fallback gitCommit FAILS → smartCommit returns null.
+      mockGitCommit.mockResolvedValue({
+        success: false,
+        error: 'disk full',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY — the fallback gitCommit was attempted (once) but failed → null.
+      // The never-fail-on-commit contract is preserved.
+      expect(result).toBeNull();
+      expect(mockGitCommit).toHaveBeenCalledTimes(1); // the fallback attempt
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/falling back/i)
+      );
+      // The existing commitResult.success-check logs 'Git commit failed: ...'.
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringMatching(/Unexpected error/)
+        expect.stringMatching(/Git commit failed/i)
       );
     });
 
@@ -1149,5 +1256,68 @@ describe('utils/git-commit', () => {
     // classification is therefore owned + tested by retry.ts's own
     // isTransientError unit tests (unchanged by this task). This test would
     // belong here only if generateCommitMessage gained a permanent failure mode.
+  });
+
+  // ===========================================================================
+  // LAST-RESORT FALLBACK PLACEHOLDER BUILDER: buildFallbackCommitMessage
+  // (PRP P3.M1.T4.S2) — the pure string builder for the PRD §5.1 placeholder.
+  // ===========================================================================
+  describe('buildFallbackCommitMessage', () => {
+    it('uses the sentinel 0 exit code for an AgentError without context.exitCode', () => {
+      // SETUP — a typical AgentError thrown by generateCommitMessage (no
+      // exitCode; LLM-API failures have no subprocess exit code).
+      const error = new AgentError('model overloaded');
+
+      // EXECUTE
+      const message = buildFallbackCommitMessage(error);
+
+      // VERIFY — PRD §5.1 placeholder shape with the sentinel 0.
+      expect(message).toBe(
+        'chore: commit-gen failed (exit 0); fallback commit'
+      );
+    });
+
+    it('uses context.exitCode when the AgentError carries one (future-proofing)', () => {
+      // SETUP — a future error type (e.g. an exit-124 watchdog error from
+      // P3.M2.T2) may carry context.exitCode. The helper reads it.
+      const error = new AgentError('watchdog killed process', {
+        exitCode: 124,
+      });
+
+      // EXECUTE
+      const message = buildFallbackCommitMessage(error);
+
+      // VERIFY — the context.exitCode is used instead of the sentinel.
+      expect(message).toBe(
+        'chore: commit-gen failed (exit 124); fallback commit'
+      );
+    });
+
+    it('uses the sentinel 0 for a non-AgentError thrown value', () => {
+      // SETUP — retry() rethrows the bare underlying error. If a non-Agent
+      // value is ever thrown, the helper falls back to the sentinel.
+      const error: unknown = new Error('something else');
+
+      // EXECUTE
+      const message = buildFallbackCommitMessage(error);
+
+      // VERIFY
+      expect(message).toBe(
+        'chore: commit-gen failed (exit 0); fallback commit'
+      );
+    });
+
+    it('ignores a non-numeric context.exitCode (sentinel fallback)', () => {
+      // SETUP — context.exitCode present but not a number → sentinel used.
+      const error = new AgentError('bad context', { exitCode: 'oops' });
+
+      // EXECUTE
+      const message = buildFallbackCommitMessage(error);
+
+      // VERIFY — non-numeric exitCode is ignored, sentinel 0 used.
+      expect(message).toBe(
+        'chore: commit-gen failed (exit 0); fallback commit'
+      );
+    });
   });
 });
