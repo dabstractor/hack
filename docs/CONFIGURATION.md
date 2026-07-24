@@ -266,6 +266,25 @@ The PRP Pipeline uses three model tiers, each optimized for different tasks.
 - Lower cost, faster response times
 - Currently unused, reserved for future enhancements
 
+### Model Roles
+
+In addition to the model **tiers** above, the pipeline assigns each agent a model **role**
+(PRD §9.2.3) that selects both the tier and the reasoning (extended-thinking) budget. The
+role→{tier, budget} mapping lives in `ROLE_CONFIG` (in
+`src/agents/agent-factory.ts`) and is the single source of truth.
+
+| Role               | Tier     | Reasoning Budget | Pipeline agents                                   |
+| ------------------ | -------- | ---------------- | ------------------------------------------------- |
+| **Research**       | balanced | normal           | Researcher (PRP creation, architecture research)  |
+| **Reasoning**      | balanced | `xhigh`          | Architect (decomposition), Bug-finder, Validation |
+| **Implementation** | fast     | normal           | Coder (PRP execution, post-validation fix)        |
+
+> **Maximum reasoning budget:** Decomposition, creative bug-finding, and validation run at
+> the **maximum** reasoning budget (extended-thinking `xhigh`) per PRD §6.1 / §9.2.3, because
+> synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy is the most
+> reasoning-intensive step. Research and Implementation roles run at their model's normal
+> budget (the `thinking` field is omitted → `undefined`).
+
 ### Model Override
 
 Override default models using the canonical environment variables (PRD §9.2.8):

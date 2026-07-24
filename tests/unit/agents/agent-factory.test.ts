@@ -16,7 +16,9 @@ import {
   createCoderAgent,
   createQAAgent,
   MCP_TOOLS,
+  ROLE_CONFIG,
   type AgentPersona,
+  type ModelRole,
 } from '../../../src/agents/agent-factory.js';
 
 describe('agents/agent-factory', () => {
@@ -156,6 +158,58 @@ describe('agents/agent-factory', () => {
       // VERIFY: Fallback to empty strings when env vars are not set
       expect(config.env.ANTHROPIC_API_KEY).toBe('');
       expect(config.env.ANTHROPIC_BASE_URL).toBe('');
+    });
+  });
+
+  describe('model roles & reasoning budget', () => {
+    // SETUP: Ensure environment is configured before tests
+    beforeEach(() => {
+      vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'test-token');
+      vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.z.ai/api/anthropic');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-token');
+    });
+
+    // Each role → resolved { model, thinking } (driven by ROLE_CONFIG → getModel tier).
+    // research/reasoning use the balanced tier (glm-5.2); implementation uses fast (glm-5-turbo).
+    const roleExpectations: Array<{
+      role: ModelRole;
+      model: string;
+      thinking: string | undefined;
+    }> = [
+      { role: 'research', model: 'zai/glm-5.2', thinking: undefined },
+      { role: 'reasoning', model: 'zai/glm-5.2', thinking: 'xhigh' },
+      { role: 'implementation', model: 'zai/glm-5-turbo', thinking: undefined },
+    ];
+
+    it.each(roleExpectations)(
+      'should resolve the correct model and reasoning budget for the $role role',
+      ({ role, model, thinking }) => {
+        // EXECUTE
+        const config = createBaseConfig('architect', role);
+
+        // VERIFY: tier-derived model + role-derived thinking budget (PRD §9.2.3 / §6.1)
+        expect(config.model).toBe(model);
+        expect(config.thinking).toBe(thinking);
+      }
+    );
+
+    it('should default role to research when omitted', () => {
+      // EXECUTE: one-arg call exercises the default-param path
+      const config = createBaseConfig('architect');
+
+      // VERIFY: default 'research' → balanced tier, normal budget (backward compat)
+      expect(config.model).toBe('zai/glm-5.2');
+      expect(config.thinking).toBeUndefined();
+    });
+
+    it('should map each role to the correct tier and budget in ROLE_CONFIG', () => {
+      // VERIFY: ROLE_CONFIG literal shape (single source of truth for tier + budget)
+      expect(ROLE_CONFIG.research).toEqual({ tier: 'balanced' });
+      expect(ROLE_CONFIG.reasoning).toEqual({
+        tier: 'balanced',
+        thinking: 'xhigh',
+      });
+      expect(ROLE_CONFIG.implementation).toEqual({ tier: 'fast' });
     });
   });
 

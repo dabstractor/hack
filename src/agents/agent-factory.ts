@@ -30,7 +30,7 @@ import {
   configureHarness,
   resolveApiKeyForProvider,
 } from '../config/harness.js';
-import type { AgentHarness } from '../config/types.js';
+import type { AgentHarness, ModelTier } from '../config/types.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
 import {
@@ -98,6 +98,34 @@ const MCP_TOOLS: MCPServer[] = [BASH_MCP, FILESYSTEM_MCP, GIT_MCP];
 export type AgentPersona = 'architect' | 'researcher' | 'coder' | 'qa';
 
 /**
+ * Extended-thinking (reasoning) budget for an agent (PRD §6.1, §9.2.3).
+ *
+ * @remarks
+ * The Reasoning role (task decomposition, creative bug-finding, validation) runs at the
+ * MAXIMUM budget ('xhigh'); Research and Implementation roles run at their model's normal
+ * budget (field omitted → undefined). This is a pipeline-internal budget marker: Groundswell's
+ * AgentConfig does not model thinking, so the field rides on the config object for downstream
+ * harness wiring; it is NOT consumed by Groundswell createAgent.
+ *
+ * NOTE: the pi SDK (`@earendil-works/pi-agent-core`) defines a `ThinkingLevel` that also
+ * includes 'minimal'. This pipeline type intentionally EXCLUDES 'minimal' per the P2.M2.T1.S1
+ * contract — only the six levels below are selectable.
+ */
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Model role selecting tier + reasoning budget for a pipeline agent (PRD §9.2.3).
+ *
+ * @remarks
+ * - 'research'       → balanced tier, normal budget (architecture research, PRP creation)
+ * - 'reasoning'      → balanced tier, 'xhigh' budget (decomposition, bug-finding, validation)
+ * - 'implementation' → fast tier, normal budget (PRP execution, post-validation fix)
+ *
+ * @see {@link ROLE_CONFIG} for the role → {tier, thinking} mapping.
+ */
+export type ModelRole = 'research' | 'reasoning' | 'implementation';
+
+/**
  * Agent configuration interface matching Groundswell's createAgent() options
  *
  * @remarks
@@ -121,6 +149,13 @@ export interface AgentConfig {
   readonly enableReflection: boolean;
   /** Maximum tokens in response */
   readonly maxTokens: number;
+  /** Extended-thinking (reasoning) budget for this agent (PRD §6.1, §9.2.3).
+   *
+   * Set to 'xhigh' for the Reasoning role (decomposition/bug-finding/validation);
+   * undefined for Research/Implementation roles. Pipeline-internal budget marker —
+   * Groundswell's AgentConfig does not model thinking; harness wiring is downstream.
+   */
+  readonly thinking?: ThinkingLevel;
   /** Environment variable overrides for SDK configuration */
   readonly env: {
     readonly ANTHROPIC_API_KEY: string;
@@ -143,18 +178,50 @@ const PERSONA_TOKEN_LIMITS = {
 } as const;
 
 /**
+ * Role → { tier, thinking } mapping (PRD §9.2.3 / §6.1).
+ *
+ * @remarks
+ * Single source of truth for the role→tier and role→budget decisions. `thinking` is OMITTED
+ * on research/implementation (normal budget → field undefined); the Reasoning role carries
+ * 'xhigh' (the maximum reasoning budget mandated by PRD §6.1 for decomposition/validation).
+ *
+ * Omission (rather than `thinking: undefined`) keeps the literal branch-free so the 100%
+ * coverage thresholds in vitest.config.ts are preserved.
+ *
+ * @example
+ * ```ts
+ * ROLE_CONFIG.reasoning.tier;       // 'balanced'
+ * ROLE_CONFIG.reasoning.thinking;   // 'xhigh'
+ * ROLE_CONFIG.implementation.tier;  // 'fast'
+ * ROLE_CONFIG.implementation.thinking; // undefined (omitted)
+ * ```
+ */
+export const ROLE_CONFIG: Readonly<
+  Record<
+    ModelRole,
+    { readonly tier: ModelTier; readonly thinking?: ThinkingLevel }
+  >
+> = {
+  research: { tier: 'balanced' },
+  reasoning: { tier: 'balanced', thinking: 'xhigh' },
+  implementation: { tier: 'fast' },
+} as const;
+
+/**
  * Create base agent configuration for a specific persona
  *
  * @remarks
  * Generates a Groundswell-compatible agent configuration optimized for
- * the specified persona. Personas default to the balanced model tier
- * (glm-5.2); the Coder overrides to the fast tier per its
- * IMPL_AGENT role (PRD §9.2.3).
+ * the specified persona. The `role` parameter selects the model tier and reasoning budget
+ * via {@link ROLE_CONFIG} (PRD §9.2.3 / §6.1); it defaults to 'research' (balanced tier,
+ * normal budget) to preserve the behavior of existing one-arg call sites. The Coder still
+ * overrides the balanced tier to the fast tier per its IMPL_AGENT role (PRD §9.2.3).
  *
  * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)
  * to SDK expectations (ANTHROPIC_API_KEY) via configureEnvironment().
  *
  * @param persona - The agent persona to create configuration for
+ * @param role - The model role ('research' | 'reasoning' | 'implementation'); defaults to 'research'
  * @returns Groundswell-compatible agent configuration object
  *
  * @example
@@ -164,15 +231,19 @@ const PERSONA_TOKEN_LIMITS = {
  * const architectConfig = createBaseConfig('architect');
  * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', harness: 'pi', maxTokens: 8192, ... }
  *
- * const coderConfig = createBaseConfig('coder');
- * // { name: 'CoderAgent', model: 'zai/glm-5.2', harness: 'pi', maxTokens: 4096, ... }
+ * const reasoningConfig = createBaseConfig('architect', 'reasoning');
+ * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', thinking: 'xhigh', ... }
  * ```
  */
-export function createBaseConfig(persona: AgentPersona): AgentConfig {
+export function createBaseConfig(
+  persona: AgentPersona,
+  role: ModelRole = 'research'
+): AgentConfig {
   // PATTERN: Use getModel() to resolve model tier to actual model name.
-  // Default (balanced) tier for planning/research roles; the Coder overrides
-  // to the fast tier for codegen (PRD §9.2.3).
-  const model = getModel('balanced');
+  // Tier + reasoning budget are driven by ROLE_CONFIG[role] (PRD §9.2.3 / §6.1).
+  // Default role 'research' → balanced tier (glm-5.2); the Coder overrides to fast.
+  const { tier, thinking } = ROLE_CONFIG[role];
+  const model = getModel(tier);
 
   // PATTERN: Persona-specific naming (PascalCase with "Agent" suffix)
   const name = `${persona.charAt(0).toUpperCase() + persona.slice(1)}Agent`;
@@ -186,6 +257,7 @@ export function createBaseConfig(persona: AgentPersona): AgentConfig {
     name,
     system,
     model,
+    thinking,
     harness: resolvedHarness(),
     enableCache: true,
     enableReflection: true,

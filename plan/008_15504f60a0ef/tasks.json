@@ -277,7 +277,7 @@
                   "type": "Subtask",
                   "id": "P2.M2.T1.S1",
                   "title": "Add reasoning budget config and role parameter to agent-factory",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S3"
@@ -293,7 +293,7 @@
                   "type": "Subtask",
                   "id": "P2.M2.T1.S2",
                   "title": "Map personas to three roles with correct budgets",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S1"
