@@ -26,6 +26,14 @@ vi.mock('../../src/tools/git-mcp.js', () => ({
   gitCommit: vi.fn(),
 }));
 
+// Mock the stagecoach commit-message agent factory so the default-path
+// smartCommit (no options) never instantiates a real agent via the static
+// import chain (git-commit.ts → commit-message-agent.ts → agent-factory.ts,
+// which constructs `new GitMCP()` at module eval).
+vi.mock('../../src/agents/commit-message-agent.js', () => ({
+  createCommitMessageAgent: vi.fn(),
+}));
+
 // Mock node:fs/promises for filesystem operations
 const { mockFsPromises } = vi.hoisted(() => ({
   mockFsPromises: {

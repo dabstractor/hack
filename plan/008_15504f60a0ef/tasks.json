@@ -495,7 +495,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T3.S1",
                   "title": "Add stagecoach LLM commit-message generation to smartCommit",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 3 documents: smartCommit (git-commit.ts:131) is single-phase and takes a pre-formatted message. It does gitAdd(modified+untracked) → gitCommit(message) with [PRP Auto] prefix. No stagecoach LLM commit-message generation exists. PROTECTED_FILES includes PRD.md, prd_snapshot.md, delta_prd.md, TEST_RESULTS.md — but NOT PRP.md.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) Add a stagecoach commit-message generation path to smartCommit: when invoked with a flag/option to generate the message, it delegates commit-message generation to an LLM tool call. (b) The LLM generates a descriptive commit message from the staged diff. (c) smartCommit gains an optional parameter or config to enable stagecoach generation vs. using a pre-formatted message (backward compatible). (d) The generation call is transient-API-sensitive — a timeout is LLM-API slowness, not a stuck subprocess (relevant for P3.M1.T4 retry logic).\n4. OUTPUT: Updated smartCommit with optional stagecoach generation. Consumed by P3.M1.T3.S2, P3.M1.T4.S1.\n5. DOCS: [Mode A] JSDoc on smartCommit documenting the stagecoach generation path and two-phase commit support. This rides WITH the work.",

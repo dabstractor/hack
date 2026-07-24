@@ -10,11 +10,26 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock the GitMCP functions that smartCommit uses
+// Mock the GitMCP functions that smartCommit uses (gitDiff added for the
+// stagecoach generateMessage path — default-path tests never trigger it).
 vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitStatus: vi.fn(),
   gitAdd: vi.fn(),
   gitCommit: vi.fn(),
+  gitDiff: vi.fn(),
+}));
+
+// Mock the stagecoach commit-message agent factory so default-path tests
+// (options absent) NEVER instantiate a real agent. Only the generateMessage
+// tests wire this mock to return a fake agent.
+vi.mock('../../../src/agents/commit-message-agent.js', () => ({
+  createCommitMessageAgent: vi.fn(),
+}));
+
+// Mock groundswell's createPrompt: passthrough the options object so the test
+// can assert the prompt was built, without needing the real Prompt type.
+vi.mock('groundswell', () => ({
+  createPrompt: vi.fn((opts: unknown) => opts),
 }));
 
 // Mock the logger with hoisted variables
@@ -31,16 +46,38 @@ vi.mock('../../../src/utils/logger.js', () => ({
   getLogger: vi.fn(() => mockLogger),
 }));
 
-import { gitStatus, gitAdd, gitCommit } from '../../../src/tools/git-mcp.js';
+import {
+  gitStatus,
+  gitAdd,
+  gitCommit,
+  gitDiff,
+} from '../../../src/tools/git-mcp.js';
+import { createPrompt } from 'groundswell';
+import { createCommitMessageAgent } from '../../../src/agents/commit-message-agent.js';
 import {
   filterProtectedFiles,
   formatCommitMessage,
+  generateCommitMessage,
   smartCommit,
 } from '../../../src/utils/git-commit.js';
+import { AgentError } from '../../../src/utils/errors.js';
+import { isTransientError } from '../../../src/utils/retry.js';
 
 const mockGitStatus = vi.mocked(gitStatus);
 const mockGitAdd = vi.mocked(gitAdd);
 const mockGitCommit = vi.mocked(gitCommit);
+const mockGitDiff = vi.mocked(gitDiff);
+const mockCreateCommitMessageAgent = vi.mocked(createCommitMessageAgent);
+const mockCreatePrompt = vi.mocked(createPrompt);
+
+// Helper to build a fake agent whose .prompt() resolves a controlled response.
+function makeFakeAgent(response: {
+  status: 'success' | 'error' | 'partial';
+  data?: unknown;
+  error?: { message?: string } | null;
+}) {
+  return { prompt: vi.fn().mockResolvedValue(response) };
+}
 
 describe('utils/git-commit', () => {
   beforeEach(() => {
@@ -621,6 +658,355 @@ describe('utils/git-commit', () => {
         path: '/project',
         files: ['src/index.ts', 'plan/session/tasks.json', 'src/utils.ts'],
       });
+    });
+  });
+
+  // ===========================================================================
+  // STAGECOACH GENERATION BOUNDARY: generateCommitMessage
+  // (PRP P3.M1.T3.S1) — the transient-API-sensitive boundary P3.M1.T4.S1 wraps
+  // with retryAgentPrompt. Throws AgentError on every failure mode.
+  // ===========================================================================
+  describe('generateCommitMessage', () => {
+    it('should return the trimmed message on agent success', async () => {
+      // SETUP
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'success',
+          data: 'feat(api): add endpoint',
+          error: null,
+        })
+      );
+
+      // EXECUTE
+      const result = await generateCommitMessage('diff --git ...');
+
+      // VERIFY
+      expect(result).toBe('feat(api): add endpoint');
+      expect(mockCreatePrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ responseFormat: expect.anything() })
+      );
+    });
+
+    it('should trim whitespace from the agent output', async () => {
+      // SETUP
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({ status: 'success', data: '  feat: x  \n', error: null })
+      );
+
+      // EXECUTE
+      const result = await generateCommitMessage('diff text');
+
+      // VERIFY
+      expect(result).toBe('feat: x');
+    });
+
+    it('should throw AgentError on empty diff', async () => {
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('')).rejects.toThrow(AgentError);
+      await expect(generateCommitMessage('')).rejects.toThrow(
+        /empty staged diff/
+      );
+    });
+
+    it('should throw AgentError on whitespace-only diff', async () => {
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('   \n\t  ')).rejects.toThrow(
+        /empty staged diff/
+      );
+    });
+
+    it('should throw AgentError on agent status error', async () => {
+      // SETUP
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'error',
+          data: null,
+          error: { message: 'model overloaded' },
+        })
+      );
+
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        AgentError
+      );
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        /model overloaded/
+      );
+    });
+
+    it('should throw AgentError on empty/whitespace agent output', async () => {
+      // SETUP
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({ status: 'success', data: '   ', error: null })
+      );
+
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        /empty agent output/
+      );
+    });
+
+    it('should throw AgentError when agent outputs the "skip" sentinel', async () => {
+      // SETUP
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({ status: 'success', data: 'skip', error: null })
+      );
+
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        /empty agent output/
+      );
+    });
+
+    it('should throw a TRANSIENT AgentError (the P3.M1.T4 retry contract)', async () => {
+      // SETUP — agent status error throws AgentError
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'error',
+          data: null,
+          error: { message: 'timeout' },
+        })
+      );
+
+      // EXECUTE
+      let thrown: unknown;
+      try {
+        await generateCommitMessage('diff text');
+      } catch (e) {
+        thrown = e;
+      }
+
+      // VERIFY — the AgentError must be classified transient so
+      // retryAgentPrompt (P3.M1.T4.S1) re-attempts the boundary.
+      expect(thrown).toBeInstanceOf(AgentError);
+      expect(isTransientError(thrown)).toBe(true);
+    });
+
+    it('should classify the empty-diff AgentError as transient', async () => {
+      // EXECUTE
+      let thrown: unknown;
+      try {
+        await generateCommitMessage('');
+      } catch (e) {
+        thrown = e;
+      }
+
+      // VERIFY — every AgentError (hardcoded PIPELINE_AGENT_LLM_FAILED) is
+      // transient per isTransientError.
+      expect(isTransientError(thrown)).toBe(true);
+    });
+
+    it('should handle agent error with missing error.message (fallback msg)', async () => {
+      // SETUP — error object present but no `message` field → exercises the
+      // `?? 'unknown agent error'` fallback branch.
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({ status: 'error', data: null, error: {} })
+      );
+
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        /unknown agent error/
+      );
+    });
+
+    it('should handle agent error with null error object', async () => {
+      // SETUP — error is null → exercises the `r.error?.message` optional chain.
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({ status: 'error', data: null, error: null })
+      );
+
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        /unknown agent error/
+      );
+    });
+
+    it('should handle partial status with undefined data (fallback to empty)', async () => {
+      // SETUP — partial response carries no `data` → `(r.data ?? '')` falls
+      // back to empty → empty-output AgentError.
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({ status: 'partial', data: undefined, error: null })
+      );
+
+      // EXECUTE + VERIFY
+      await expect(generateCommitMessage('diff text')).rejects.toThrow(
+        /empty agent output/
+      );
+    });
+  });
+
+  // ===========================================================================
+  // STAGECOACH GENERATION PATH: smartCommit({ generateMessage: true })
+  // (PRP P3.M1.T3.S1) — opt-in 3rd param. Default path stays byte-identical.
+  // ===========================================================================
+  describe('smartCommit generateMessage option', () => {
+    it('happy path: generates message, wraps via formatCommitMessage, commits', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({
+        success: true,
+        diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
+      });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'success',
+          data: 'feat(api): add endpoint',
+          error: null,
+        })
+      );
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback msg', {
+        generateMessage: true,
+      });
+
+      // VERIFY — commit hash returned + gitDiff called after gitAdd + message
+      // wrapped in [PRP Auto] prefix + Co-Authored-By trailer.
+      expect(result).toBe('abc123');
+      expect(mockGitDiff).toHaveBeenCalledWith({
+        path: '/project',
+        staged: true,
+      });
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message:
+          '[PRP Auto] feat(api): add endpoint\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+      });
+    });
+
+    it('gitDiff failure → returns null, agent never called, error logged', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({
+        success: false,
+        error: 'not a git repo',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY
+      expect(result).toBeNull();
+      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockGitCommit).not.toHaveBeenCalled();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Git diff (staged) failed: not a git repo'
+      );
+    });
+
+    it('generateCommitMessage throws → returns null (outer catch), error logged, gitCommit never called', async () => {
+      // SETUP — agent status error → generateCommitMessage throws AgentError
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'error',
+          data: null,
+          error: { message: 'model overloaded' },
+        })
+      );
+
+      // EXECUTE — smartCommit never throws; outer catch → null return
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY
+      expect(result).toBeNull();
+      expect(mockGitCommit).not.toHaveBeenCalled();
+      // The AgentError is caught by the outer catch → 'Unexpected error: ...'
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/Unexpected error/)
+      );
+    });
+
+    it('BACKWARD COMPAT: no options → gitDiff never called, agent never instantiated, gitCommit uses formatCommitMessage(msg)', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE — no options (the default path)
+      const result = await smartCommit('/project', 'Pre-formatted message');
+
+      // VERIFY — default path is byte-identical to pre-stagecoach behavior
+      expect(result).toBe('abc123');
+      expect(mockGitDiff).not.toHaveBeenCalled();
+      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message:
+          '[PRP Auto] Pre-formatted message\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+      });
+    });
+
+    it('BACKWARD COMPAT: { generateMessage: false } → default path (agent never called)', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE — generateMessage explicitly false
+      const result = await smartCommit('/project', 'msg', {
+        generateMessage: false,
+      });
+
+      // VERIFY
+      expect(result).toBe('abc123');
+      expect(mockGitDiff).not.toHaveBeenCalled();
+      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+    });
+
+    it('gitDiff success but missing diff field → generateCommitMessage throws empty-diff → returns null', async () => {
+      // SETUP — gitDiff returns success:true but no `diff` string. smartCommit
+      // passes `diffResult.diff ?? ''` to generateCommitMessage, which throws
+      // AgentError on the empty diff → outer catch → null return.
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({ success: true }); // no diff field
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY — the empty-diff AgentError is caught by the outer catch.
+      expect(result).toBeNull();
+      expect(mockGitCommit).not.toHaveBeenCalled();
+      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
     });
   });
 });
