@@ -25,6 +25,17 @@ The system creates an immutable audit trail of development.
 - **Session:** A directory containing the state of a specific run (tasks, architecture notes, code).
 - **Delta Logic:** If the master PRD changes, the system does not overwrite the current session. It creates a linked **Delta Session** that focuses only on the differences (new/modified features) while preserving completed work.
 
+### 2.3 Distributed (Multi-File) PRDs
+
+A PRD of any real size may be authored across multiple files (architecture, API, data model, companion docs) and assembled into one canonical document at load time. A split PRD MUST behave identically to a monolithic one everywhere downstream.
+
+- **Include directive:** An `@path/to/file.md` token is an *include directive* — it is replaced inline by the referenced file's contents. A line of the form `@path/to/file.md` (optional leading whitespace, nothing else) is always expanded; the `@path` token is also honored inline anywhere on a line (e.g. inside a markdown table cell or in prose).
+- **Expansion rules:** A token expands only when *both* (1) **boundary** — the `@` is at the start of the line or preceded by a non-path character (so `foo@bar.com` and mid-word `@` are left literal), and (2) **existence** — the path resolves to an existing file. Ordinary prose `@mentions` that don't resolve stay verbatim and silent. Includes resolve **project-root-relative** (relative to the entry PRD's directory, regardless of which file contains the directive) and are expanded **recursively with cycle detection** up to `PRD_INCLUDE_MAX_DEPTH` (default 10).
+- **Idempotency:** Re-resolving already-resolved content MUST yield identical bytes. This is the property that guarantees hash/snapshot consistency.
+- **Single canonical document downstream:** Hashing (§4.1 step 2; §4.3 delta detection), `prd_snapshot.md` writes, delta-PRD inputs, integration/validation/bug-finder prompts, and `prd_selectors`/mdsel section indexing (§4.2) all operate over the **fully-resolved, include-expanded document**, never the raw entry file. mdsel runs over a materialized resolved copy so selectors reference the merged document.
+- **Agent guidance:** Agent prompts that embed PRD content MUST state that the text they receive is already the complete merged document (agents must not chase includes themselves).
+- **Markers (optional):** When `PRD_INCLUDE_MARKERS` is set, resolved output emits `<!-- @include: path -->` / `<!-- @end-include -->` comment markers. A `.md` token that fails to resolve (stale include) MUST emit a stderr warning.
+
 ## 3. System Architecture
 
 The new system must implement four distinct processing engines:
@@ -39,7 +50,7 @@ The new system must implement four distinct processing engines:
 ### 4.1 Initialization & Breakdown
 
 1.  **Input:** User provides a `PRD.md`.
-2.  **State Check:** System hashes the PRD. Checks for existing sessions.
+2.  **State Check:** System hashes the PRD — computed over the **fully-resolved, include-expanded document** (§2.3), not the raw entry file — and checks for existing sessions.
 3.  **Architecture Research:** Before planning, an agent explores the codebase to validate feasibility and store findings in `architecture/`.
 4.  **Decomposition:** The **Architect Agent** breaks the PRD down into a strict hierarchy (Phase > Milestone > Task > Subtask) stored in a structured format (e.g., JSON).
 
@@ -48,7 +59,7 @@ The new system must implement four distinct processing engines:
 For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
 
 1.  **Parallel Research (Optional):** While Task $N$ is implementing, a background supervisor researches a **chain** of up to `RESEARCH_DEPTH` (default 2) items ahead, rather than a single item. This collapses both failure modes of a single-slot prefetch: "fast implementer → stall waiting for $N+1$" and "slow implementer → wasted idle capacity." The supervisor keeps prefetching the next item in the chain while the orchestrator consumes completed PRPs one at a time.
-    - **Deadline & Fallback:** Each background research is guarded by a configurable deadline (`RESEARCH_TIMEOUT`, default 5 minutes; see §9.2.2). The orchestrator polls for completion — checking process liveness and the presence of the PRP artifact — rather than blocking indefinitely. If the deadline is exceeded (typically because the agent crashed or stopped responding), the background work is abandoned and the item is re-researched synchronously, inline. This prevents a single hung agent from stalling the whole pipeline.
+    - **Deadline & Fallback:** Each background research is guarded by a configurable deadline (`RESEARCH_TIMEOUT`, default 30 minutes / 1800s; see §9.2.2). The orchestrator polls for completion — checking process liveness and the presence of the PRP artifact — rather than blocking indefinitely, and tolerates legitimately long research (a heartbeat surfaces only after a grace period, so normal research isn't spammed) while still failing fast on a genuinely stuck supervisor. If the deadline is exceeded (typically because the agent crashed or stopped responding), the background work is abandoned and the item is re-researched synchronously, inline. This prevents a single hung agent from stalling the whole pipeline.
     - **Propagation to Bugfix Sub-Pipeline:** When bug hunting finds bugs and spawns a bugfix sub-pipeline (§4.4), the parallel-research settings (`PARALLEL_RESEARCH` and `RESEARCH_DEPTH`) MUST be forwarded to the child. The main session's items are already Complete by then, so all real item execution — and therefore all prefetching — happens inside the bugfix child; without forwarding, prefetch is silently disabled for the entire phase that needs it.
 2.  **PRP Generation:**
     - The **Researcher Agent** analyzes the task, the codebase, and external docs.
@@ -58,11 +69,11 @@ For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
     - The **Coder Agent** reads the `PRP.md`.
     - Executes the plan.
     - Must pass 4 levels of "Progressive Validation" defined in the PRP.
-4.  **Cleanup & Commit:**
-    - Temporary artifacts are removed.
-    - Documentation is moved to `docs/`.
-    - State is saved (`tasks.json` updated).
-    - Git commit is triggered (aliased as `commit-claude`).
+4.  **Cleanup & Commit (two-phase commit):**
+    - **Pre-cleanup commit (survival):** Before the (long, interruptible) cleanup agent runs, the orchestrator commits the item's substance — source changes, its `plan/` work directory, and its `Complete` status — via the **Smart Commit** tool (`stagecoach`). Committing before cleanup guarantees a force-interrupt here can no longer leave an item "Complete on disk but uncommitted," the state that orphans `plan/` directories forever (the cleanup agent is forbidden from touching `plan/`; see §5.1).
+    - **Cleanup:** Temporary artifacts are removed; documentation is moved to `docs/`.
+    - **State is saved:** `tasks.json` updated.
+    - **Post-cleanup commit:** The cleanup agent's documentation reorganization is committed in a second `stagecoach` call.
 
 ### 4.3 The "Delta" Workflow (Change Management)
 
@@ -70,38 +81,47 @@ If the user modifies `PRD.md` mid-project:
 
 1.  **Detection:** System detects hash mismatch (computed from `prd_snapshot.md` content).
     - **Change Classification:** Detected changes are classified by an LLM-driven binary classifier as **COSMETIC** (trivial: whitespace/formatting) or **SUBSTANTIVE** (semantically significant). A parallel **CLEAN/DIRTY** classifier guards generated artifacts (e.g., the delta PRD). These classifiers MUST distinguish **transient API failures** (empty output, connection errors, rate limits, overloaded) from invalid model responses, retrying up to a bounded count (default 4) before giving up. On exhaustion they MUST fail to the **protective/conservative default** (treat as SUBSTANTIVE / DIRTY) — never silently fall through to "could not classify" and proceed unprotected through a SUBSTANTIVE change.
-2.  **Delta Session:** Creates a new session directory linked to the previous one via `delta_from.txt`.
-3.  **Delta Analysis:** An agent compares Old PRD vs. New PRD.
-4.  **Delta PRD Generation (with retry logic):**
+2.  **Response Selection (mid-session changes):** When a change is detected on an active session, the user selects how to handle it:
+    - **Delta session** (default path, steps 3–7 below): spawn a linked session scoped to the diffs.
+    - **Integrate into current session:** fold the new requirements into the running session's task hierarchy. **The original `prd_snapshot.md` MUST be preserved until _after_ integration succeeds** — the integration agent diffs the original snapshot against the current PRD, and PRD-change detection itself hashes `prd_snapshot.md` as its baseline. Refreshing the snapshot at integration time erases the very diff the agent needs (and silently swallows unapplied changes); the snapshot is refreshed only once integration has applied.
+    - **`--accept-prd-changes`:** accept PRD edits as the new baseline _without_ generating a delta session. Use when `PRD.md` was edited (docs/refinements reflecting already-finished work) but the work is complete and validated, so the next run should stay idempotent instead of spawning a delta. Across all `PRD_CHANGED_*` session states it cancels any queued `.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD, and exits/resumes idempotently.
+    - **Validate/bug-hunt re-runs reuse the completed session:** When invoked in validate-only (`--validate`) or bug-hunt-only (`--bug-hunt`) mode against an already-completed session that has a pending PRD change, the system MUST **reuse the latest completed session** instead of forking an empty delta session — an empty delta has no `tasks.json` and would make the validate/bug-hunt gates bail with "no tasks to act on." The PRD change is intentionally left pending (not actioned) so the _next normal_ run (without `--validate`) still processes it into a proper delta session. This keeps one-off re-runs idempotent while preserving the queued change.
+3.  **Delta Session:** Creates a new session directory linked to the previous one via `delta_from.txt`.
+4.  **Delta Analysis:** An agent compares Old PRD vs. New PRD.
+5.  **Delta PRD Generation (with retry logic):**
     - Agent generates `delta_prd.md` focusing only on differences.
     - If delta PRD not created on first attempt, system demands agent retry.
     - Session fails fast if delta PRD cannot be generated after retry.
     - Incomplete delta sessions detect and regenerate missing delta PRDs on resume.
-5.  **Task Patching:**
+    - **Breakdown MUST consume the delta PRD:** The task breakdown/decomposition for a delta session MUST run over `delta_prd.md` (the diffs), _not_ the full PRD. Implementations that build the breakdown prompt once at load time risk embedding the full PRD and silently ignoring the delta; the breakdown input MUST be (re)bound to the delta content _after_ `delta_prd.md` is generated.
+6.  **Task Patching:**
     - Identifies new requirements -> Adds new tasks.
     - Identifies modified requirements -> Marks affected existing tasks for "Update/Re-implementation".
     - Identifies removed requirements -> Marks tasks as "Obsolete".
     - Phase indexing searches for matching IDs (handles non-sequential phase IDs in delta sessions).
-6.  **Resume:** The pipeline continues execution using the updated backlog.
+7.  **Resume:** The pipeline continues execution using the updated backlog.
 
 ### 4.4 The QA & Bug Hunt Loop
 
 Once all tasks are complete, or if run in `bug-hunt` mode:
 
-1.  **Validation Scripting:** An agent generates a custom `validate.sh` based on the PRD requirements and codebase tools.
-2.  **Creative Bug Hunt:** The **QA Agent** (Adversarial Persona) creates a `TEST_RESULTS.md` report. It looks for logic gaps, not just failing tests.
+1.  **Validation Scripting:** An agent generates a custom `validate.sh` based on the PRD requirements and codebase tools, then runs it. Validation runs on a dedicated **`VALIDATION_AGENT`** (a reasoning-tier agent, default `pizr`; see §9.2.3) under its own watchdog budget **`VALIDATION_TIMEOUT`** (default 7200s / 2h — validation legitimately runs full test suites), overriding the generic agent timeout for this call only.
+    - **Abort-on-failure:** If validation does not finish (non-zero exit), the run MUST abort _before_ cleanup, commit, and bug-hunt. Proceeding on a half-validated build is forbidden. (A watchdog-killed validation is a hard failure, never retried — see §9.3.2.)
+2.  **Creative Bug Hunt:** The **QA Agent** (Adversarial Persona, reasoning-tier `pizr`) creates a `TEST_RESULTS.md` report. It looks for logic gaps, not just failing tests.
+    - **No-issues marker:** When the bug finder reports _no_ bugs, the bugfix directory MUST record a `NO_ISSUES_FOUND.md` marker (timestamp, session tested, a `tasks.json` hash so a stale marker is obvious once the task set changes, and the bug-finder agent). This distinguishes "already hunted clean" from "never hunted." The marker is removed if a later hunt _does_ find bugs, so the directory always reflects the latest result; a clean result is persisted (committed) just like a real bug report.
 3.  **The Fix Cycle (Self-Contained Sessions):**
     - If critical/major bugs are found, a self-contained "Bug Fix" sub-pipeline starts.
     - Each bug hunt iteration creates a new numbered session: `bugfix/001_hash/`, `bugfix/002_hash/`, etc.
     - Bug reports (`TEST_RESULTS.md`) and tasks are stored within the bugfix session directory.
-    - It treats the `TEST_RESULTS.md` as a mini-PRD with simplified task breakdown (one task per bug, 1-3 subtasks max).
+    - It treats the `TEST_RESULTS.md` as a mini-PRD and runs the **standard full task breakdown** (the same Phase→Milestone→Task→Subtask decomposition as a main session) — there is no separate "simplified" bug-fix breakdown mode; cleanup runs for bug-fix sessions just as for main sessions.
     - It loops (Fix -> Re-test) until the QA Agent reports no issues.
+    - **Resume interrupted breakdowns:** If a recursive bug-fix run is killed _between_ committing the bug report and finishing task breakdown, the bugfix session is left with a `TEST_RESULTS.md` but no `tasks.json`. The pipeline MUST auto-detect this (report present, `tasks.json` missing/empty/corrupt) and re-enter on the same path the bug-hunt stage uses when it first finds bugs, so PHASE 0 regenerates the missing `tasks.json`. This check is skipped in `--validate`/`--skip-bug-finding` and suppressed inside bug-fix children (no re-entry loop).
 4.  **Interactive Prompts:**
     - User is prompted before starting a new bug hunt on a completed session.
     - User is prompted before resuming an incomplete bug fix cycle, with option to archive and start fresh.
 5.  **Artifact Preservation:**
     - Bug fix artifacts are archived (not deleted) for audit trail and debugging history.
-    - Session structure: `plan/NNN_hash/bugfix/NNN_hash/` contains `tasks.json` and `TEST_RESULTS.md`.
+    - Session structure: `plan/NNN_hash/bugfix/NNN_hash/` contains `tasks.json`, `TEST_RESULTS.md`, and (on a clean hunt) `NO_ISSUES_FOUND.md`.
 
 ### 4.5 The Issue-Driven Re-planning Loop
 
@@ -118,6 +138,22 @@ When an agent reports `issue`:
 **Rationale:** Without this channel, every PRP gap becomes a permanent dead item that forces human intervention. The `issue` result turns planning gaps into self-correcting retries, while real implementation failures stay on the fix-and-retry path.
 
 **Status interaction:** An item undergoing re-planning keeps its original ID and dependency links; only its PRP and status are reset. Background research on its dependents is not cancelled, but those dependents cannot proceed until the re-planned item completes.
+
+### 4.6 Adopt Mode (`--adopt-prd`): Legacy Codebase Adoption
+
+To integrate the pipeline into an _already-implemented_ project after writing the PRD — without wasting a full breakdown + implementation pass "building" code that already exists — `--adopt-prd` declares the PRD the source of truth for an already-shipped codebase. On a **fresh project** (no `plan/` sessions yet) it:
+
+1. Creates a baseline session and stamps it with an `.adopted` marker.
+2. Seeds a single completed `tasks.json` (one Phase → Milestone → Task → "Adopt existing codebase" Subtask, all `Complete`) **with no breakdown and no agent tokens**, so `is_session_complete` is true and this session becomes the idempotent baseline that future deltas diff against.
+3. Sets `SKIP_EXECUTION_LOOP=true`: implementation is skipped, but **validation + bug hunt still run** against the real codebase + PRD.
+
+The next `PRD.md` edit produces a normal delta session, so deltas drive ongoing development from the adopted baseline.
+
+**Guard rails:**
+
+- `--adopt-prd` **requires** the PRD to exist; a missing PRD MUST exit loudly rather than scribbling session files near the filesystem root.
+- It applies **only to fresh projects**; if sessions already exist the flag is a no-op misuse (warn and proceed with normal session resolution).
+- A hard guard MUST reject an empty `SESSION_DIR` before breakdown/validation so collapsed root paths can never be written, and session creation MUST `mkdir -p "$PLAN_DIR"` first so the session path is always nested under it.
 
 ## 5. Functional Requirements
 
@@ -150,6 +186,35 @@ Agents routinely corrupt `tasks.json` despite the forbidden-operations rules (§
 - **Recover from corruption:** If `tasks.json` fails to parse or validate, the system walks git commit history (prior versions of the file) to locate the last valid JSON, restores it, then re-applies any in-flight status changes on top.
 - **Preserve background-research status (snapshot before revert):** Items marked `Researching` or `Ready` by the background research queue must survive a restore. To do this reliably, the restore logic snapshots the live `Researching`/`Ready` item IDs from the **working-tree `tasks.json` before** the git revert (the authoritative copy of what the research supervisor actually wrote), then re-applies them afterward gated on **filesystem evidence**: an item is set back to `Ready` only if its `PRP.md` exists, and to `Researching` only if its `research/` directory exists. This must not depend on an in-memory index that can drift out of sync with the supervisor.
 - **Non-fatal:** A single corrupting agent must never terminate the session. Restore is automatic and logged.
+
+**Critical-File Deletion Protection (`PRD.md` / `PRP.md`):**
+
+The autonomous bug finder, the validation fixer, and especially the cleanup agent sometimes delete `PRD.md` and `**/PRP.md`. Because Smart Commit stages with `git add -A`, any such deletion would otherwise be committed permanently — silently wiping the real PRD and every PRP on every bug-fix run. Two layers protect them, mirroring the `tasks.json` recovery:
+
+- **Prompt layer:** every deletion-capable agent prompt (cleanup, bug hunter, bug-fix breakdown, post-validation fix) forbids `rm` / `git rm` / `git clean` / `mv` against `PRD.md`, any `PRP.md`, or anything under `plan/`, and forbids treating pipeline-state files as "temporary."
+- **Mechanical layer (`restore_critical_files`):** invoked from Smart Commit right after staging, it detects staged _deletions_ of `PRD.md`/`PRP.md` (`git diff --cached --diff-filter=D`) and undoes them — restoring the file from `HEAD` when it existed there, or unstaging the deletion when the file was created and deleted in the same run. `PRD.md` and `PRP.md` are thus guaranteed to survive every commit.
+
+**Orphaned-`plan/` Recovery (interrupted-run survival):**
+
+A force-interrupted prior run can leave an item "Complete" in the working tree but never committed — stranding its `plan/` work directory and the status change as untracked/unstaged. Because the cleanup agent is forbidden from touching `plan/` and no later commit would reach this item, a blind skip ("already Completed → return") would orphan that work forever. Two guards close this:
+
+- **Skip-recovery:** on the Completed-skip path, the orchestrator checks the item's status in _HEAD's_ `tasks.json` (not the working tree). If HEAD does not also record it Complete, it runs Smart Commit immediately to persist the stranded `plan/` directory + status.
+- **Pre-cleanup commit:** see §4.2 step 4 — the item's substance is committed _before_ the cleanup agent runs, so an interrupt during cleanup can no longer produce the orphaning state.
+
+**Smart Commit Resilience (commit-gen retry + fallback):**
+
+Smart Commit delegates commit-message generation to an LLM tool (`stagecoach`). That call is one-shot and transient-API-sensitive — a generation timeout here is LLM-API slowness, not a stuck subprocess, and the index is left untouched with the lock released on the rescue exit — so it _should_ be retried. This is the opposite situation from an agent-subprocess hang (see below).
+
+- **Bounded retry with backoff:** commit-generation is retried up to `COMMIT_RETRY_MAX` (default 5) attempts with exponential backoff (`COMMIT_RETRY_DELAY`, default 10s, doubling, capped at 120s).
+- **Last-resort fallback:** if generation is still failing after all retries, the staged work MUST NOT be stranded uncommitted — the system falls back to a plain `git commit` with a clearly-labeled placeholder message (e.g. `chore: commit-gen failed (exit N); fallback commit`) so the substance is preserved and can be reworded later.
+- **Distinct from agent-subprocess timeouts:** a watchdog timeout (exit 124) on a _research/implementation/validation_ call MUST NOT be retried (a hung subprocess would just re-hang), whereas a generation-timeout on the _commit_ call MUST be retried. The two timeout sources are treated differently by design.
+
+**`tasks.json` Write Concurrency (lost-update prevention):**
+
+`tasks.json` is an unlocked read-modify-write resource, and two callers write it concurrently in this pipeline: the **foreground executor** (`Implementing`/`Complete`) and the **background research supervisor** (`Researching`/`Ready` for depth-chained items). Their read-modify-write cycles can interleave, and the losing interleave clobbers a status back (e.g. the supervisor reverts `N:Implementing` → `N:Ready` because it read the file before the executor's write landed). The same window affects the restore/recovery path. This MUST be prevented:
+
+- **Process-level mutual exclusion:** every read-modify-write of `tasks.json` MUST be serialized under an exclusive lock (e.g. `flock` on a sibling lockfile), scoped so it is safe under recursion and the backgrounded supervisor. Both the orchestrator's status writes and the restore/recovery path go through the same locked accessor.
+- **Atomic writes:** `tasks.json` MUST be written atomically — write to a temp file then `rename` onto the target (atomic on the same filesystem) — so concurrent readers never see a half-written file and a crash mid-write cannot corrupt it. (Atomic writes alone do not prevent lost updates — process-level mutual exclusion does — but they make every writer crash-safe.)
 
 ### 5.2 Agent Capabilities
 
@@ -197,6 +262,8 @@ prd task status       # Show status
 prd task -f <file>    # Override with specific file
 ```
 
+`prd status` is aliased to `prd task` for git muscle memory (`git status` / `prd status`).
+
 **Task File Discovery Priority:**
 
 1. Incomplete bugfix session tasks (`SESSION_DIR/bugfix/NNN_hash/tasks.json`)
@@ -226,6 +293,7 @@ The system relies on specific, highly-engineered prompts. These must be preserve
   2.  Internal/External Research.
   3.  Template Filling (Context, Implementation Steps, Validation Gates).
 - **Output:** A markdown file adhering to a strict template.
+- **Single-PRP default with strict batching gates:** A PRP call writes exactly **ONE** PRP — the one it was asked for — not several batched into one session. Batching is permitted _only_ as an optimization for tightly-coupled items, at a _higher_ bar (not a lower one): before any second PRP is written, the agent must hold the full task-tree and full-PRD context, run 3–5 subagent research calls _per item_ (the research budget is per PRP, so an N-PRP batch needs ~N× the research), pass a per-item "No Prior Knowledge" check, and declare the batch explicitly. **When in doubt, write one.** This prevents the thin, under-researched PRPs that batching produced in the past.
 
 ### 6.3 PRP Execution Prompt ("The Builder")
 
@@ -330,23 +398,28 @@ Configuration is loaded in the following order (later sources override earlier o
   - `PARALLEL_RESEARCH`: Enable background (parallel) PRP research (`true`/`false`, default `false`; CLI `-r`/`--parallel-research`). MUST be forwarded — along with `RESEARCH_DEPTH` — into the bugfix sub-pipeline (§4.2, §4.4), where all real item execution occurs.
 
 - **Resilience Tuning**:
-  - `RESEARCH_TIMEOUT`: Deadline in seconds for background (parallel) research before falling back to synchronous re-research (default 300; see §4.2).
+  - `RESEARCH_TIMEOUT`: Deadline in seconds for background (parallel) research before falling back to synchronous re-research (default 1800 / 30 min; see §4.2). A grace period precedes the heartbeat so legitimately long research is not flagged as stuck.
   - `RESEARCH_DEPTH`: How many items ahead the background research supervisor prefetches as a chain (default 2; see §4.2).
   - `ISSUE_RETRY_MAX`: Maximum number of issue-driven re-planning attempts per item before it hard-fails (default 3; see §4.5).
 
 - **Bug Hunt Configuration**:
-  - `BUG_FINDER_AGENT`: Agent used for bug discovery (default: `glp`)
+  - `BUG_FINDER_AGENT`: Agent used for bug discovery (default: `pizr`, reasoning-tier; see §9.2.3)
   - `BUG_RESULTS_FILE`: Bug report output file (default: `TEST_RESULTS.md`)
   - `BUGFIX_SCOPE`: Granularity for bug fix tasks (default: `subtask`)
+
+- **Validation Control**:
+  - `VALIDATION_AGENT`: Agent that generates and runs `validate.sh` (default: `pizr`, reasoning-tier; see §9.2.3). Overrides the generic `$AGENT` for the validation call only.
+  - `VALIDATION_TIMEOUT`: Watchdog budget in seconds for the validation call (default: 7200 / 2h — validation legitimately runs full test suites). Overrides the generic agent timeout for the validation call only.
 
 #### 9.2.3 Model Selection
 
 Models are specified as provider-qualified strings (`provider/model`), independent of the harness (see §9.4). The pipeline reads model names from the environment at runtime and qualifies them with the `zai` provider.
 
-The pipeline uses **separate model roles** so cost and speed can be tuned per phase. Previously a single model did everything; now heavy reasoning and fast codegen are independently configurable:
+The pipeline uses **separate model roles** so cost, speed, and reasoning depth can be tuned per phase. Heavy reasoning and fast codegen are independently configurable, and the reasoning-intensive steps pin the maximum thinking budget:
 
-- **Planning/Research role (`AGENT`)** — task breakdown, architecture research, PRP creation, and bug discovery. Heavy reasoning. Backed by `ANTHROPIC_DEFAULT_SONNET_MODEL` (default: `glm-5.2` → resolved as `zai/glm-5.2`).
-- **Implementation role (`IMPL_AGENT`)** — code-writing steps: PRP execution and post-validation fix. Faster codegen. Backed by `ANTHROPIC_DEFAULT_HAIKU_MODEL` (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`).
+- **Research role (`AGENT`)** — architecture research and PRP creation. Balanced model, normal reasoning budget. Backed by `ANTHROPIC_DEFAULT_SONNET_MODEL` (default: `glm-5.2` → resolved as `zai/glm-5.2`).
+- **Reasoning role (`BREAKDOWN_AGENT` / `BUG_FINDER_AGENT` / `VALIDATION_AGENT`)** — task decomposition, creative bug discovery, and validation. These run on the balanced model but at the **maximum reasoning budget** (extended-thinking `xhigh`), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy, adversarial bug-finding, and validating against the full PRD are the most reasoning-intensive steps. (In the bash pipeline these are the `pizr` agent — `pi` with `--thinking xhigh`.)
+- **Implementation role (`IMPL_AGENT`)** — code-writing steps: PRP execution and post-validation fix. Faster codegen. Backed by `ANTHROPIC_DEFAULT_HAIKU_MODEL` (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`; bash identifier `piznt`).
 
 These values should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/glm-5.2` is invalid). Model ids are **lowercase** as registered in the Pi model registry (run `pi --list-models zai` to verify available ids).
 
@@ -485,6 +558,8 @@ Leverage Groundswell's hierarchical `@Task` feature.
 - **Depth-Chained Research Queue**: The background supervisor researches a chain of up to `RESEARCH_DEPTH` items ahead while the current item executes, prefetching the next as each completes (§4.2). Each generation is wrapped in a deadline (`RESEARCH_TIMEOUT`); on expiry the queue abandons the in-flight research and the orchestrator re-researches the item synchronously.
 - **Issue-Driven Re-planning**: The orchestrator treats a Coder Agent `issue` result as a signal to delete the stale PRP, reset the item to `Planned`, and re-research with the captured feedback injected, bounded by `ISSUE_RETRY_MAX` (§4.5).
 - **`tasks.json` Restore**: After every agent run the orchestrator re-applies only the legitimate status delta and, on parse/validation failure, restores the last valid version from git history before re-applying (§5.1). Research statuses (`Researching`/`Ready`) are snapshotted from the working tree _before_ the revert and re-applied afterward using filesystem evidence (PRP.md/research/ existence), so they survive without depending on an in-memory supervisor index.
+- **Watchdog kills are terminal:** Retry loops (the bash `run_with_retry` / `run_with_retry_stdin` and their Groundswell equivalents) MUST treat a watchdog kill (exit 124) as a hard failure — a hung process will simply re-hang, so churning retries is wrong. This applies to validation under `VALIDATION_TIMEOUT` (§4.4): a watchdog-killed validation aborts the run and is not retried.
+- **Stateless single-shot invocations:** Agent calls that are stateless by nature (cleanup, mid-session task update, validation, post-validation fix, bug-finder, per-item PRP execution) MUST NOT create or resume sessions. They are single-shot or operate on freshly-built prompts, so enabling session persistence only creates orphaned sessions that serve no purpose (the bash equivalent is the `--no-session` flag).
 
 #### 9.3.3 Agent Runtime & Personas
 
@@ -494,7 +569,7 @@ Agents are instantiated using Groundswell's `createAgent` factory or by extendin
   - `BashTool`: For executing validation scripts and git commands.
   - `FileTool`: For reading/writing PRPs and code.
   - `WebSearchTool`: For external documentation.
-- **Prompt Delivery (no argv-size limit):** Prompts frequently embed the full PRD and can exceed 128 KB. They MUST be delivered to the agent as a programmatic message body (stdin/stream), never as an argv string — argv strings are capped by the kernel's `MAX_ARG_STRLEN` (131,072 bytes) and fail with a hard `E2BIG` that no wrapper can recover from. Any temp files backing these prompts MUST be cleaned up on both graceful and hard-killed (SIGTERM/SIGKILL/power-loss) exits.
+- **Prompt Delivery (no argv-size limit):** Prompts frequently embed the full PRD and can exceed 128 KB. They MUST be delivered to the agent as a programmatic message body (stdin/stream), never as an argv string — argv strings are capped by the kernel's `MAX_ARG_STRLEN` (131,072 bytes) and fail with a hard `E2BIG` that no wrapper can recover from. Any temp files backing these prompts MUST be cleaned up on both graceful and hard-killed (SIGTERM/SIGKILL/power-loss) exits. When a temp file backs a retry loop, it MUST be (re-)written on _every_ attempt: if the agent or the system cleans `/tmp` mid-run, a write-once temp file fails forever on every later retry, whereas re-writing is cheap and makes retries resilient.
 
 #### 9.3.4 Prompt Engineering (From PROMPTS.md)
 
