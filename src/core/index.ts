@@ -35,6 +35,10 @@ export {
   normalizeMarkdown,
 } from './prd-differ.js';
 
+// PRD section-index generator
+export { generateSectionIndex } from './prd-selector.js';
+export type { SectionIndex, SelectorType } from './prd-selector.js';
+
 // Task patching
 export { patchBacklog } from './task-patcher.js';
 
