@@ -223,23 +223,50 @@ export async function readUTF8FileStrict(
 }
 
 /**
- * Computes SHA-256 hash of a PRD file
+ * Hash the fully-resolved PRD document (PRD §2.3 / §4.1 step 2).
  *
  * @remarks
- * Reads the file content and computes the SHA-256 hash using Node.js crypto.
- * Returns the full 64-character hexadecimal hash string. The session hash
- * (first 12 characters) is extracted from this value by createSessionDirectory.
+ * Pure: no filesystem I/O. This is the canonical "hash a resolved document" primitive.
+ * Callers that already hold resolved content (e.g. {@link SessionManager.initialize}, which resolves
+ * once and feeds the SAME string to the hash AND the snapshot) use this directly to avoid a second
+ * resolution. Callers with only a path use {@link hashPRD}, which resolves then delegates here.
+ *
+ * Hashing the RESOLVED (include-expanded) document — never the raw entry file — is what guarantees
+ * hash/snapshot/delta consistency for distributed (multi-file) PRDs (PRD §2.3 "Single canonical
+ * document downstream"). Idempotency of {@link resolvePRD} (S3) makes a single resolution safe.
+ *
+ * @param resolved - The fully include-expanded PRD document.
+ * @returns 64-character lowercase-hex SHA-256 digest.
+ */
+export function hashPRDContent(resolved: string): string {
+  const fullHash = createHash('sha256').update(resolved).digest('hex');
+  logger().debug(
+    { hash: fullHash.slice(0, 12), fullHashLength: fullHash.length },
+    'Resolved PRD hash computed'
+  );
+  return fullHash;
+}
+
+/**
+ * Computes SHA-256 hash of a PRD file (over the resolved document).
+ *
+ * @remarks
+ * Resolves the PRD entry file via {@link resolvePRD} (expanding `@`-includes, PRD §2.3), then
+ * delegates to {@link hashPRDContent}. The hash is therefore computed over the FULLY-RESOLVED,
+ * include-expanded document — never the raw entry file. This guarantees hash/snapshot/delta
+ * consistency for distributed (multi-file) PRDs (PRD §2.3 / §4.1 step 2).
  *
  * Used for PRD delta detection - if the hash changes, a delta session is needed.
  *
  * @param prdPath - Absolute or relative path to the PRD markdown file
  * @returns Promise resolving to 64-character hexadecimal hash string
- * @throws {SessionFileError} If file cannot be read
+ * @throws {SessionFileError} If the entry file (or any included file) cannot be read / is
+ *         invalid UTF-8, or a `stat` fails with a non-ENOENT error.
  *
  * @example
  * ```typescript
  * const hash = await hashPRD('/path/to/PRD.md');
- * // Returns: '14b9dc2a33c7a1234567890abcdef...'
+ * // Returns: '14b9dc2a33c7a1234567890abcdef...' (64 hex chars)
  * console.log(hash.length); // 64
  * ```
  */
@@ -247,15 +274,10 @@ export async function hashPRD(prdPath: string): Promise<string> {
   try {
     logger().debug(
       { prdPath, operation: 'hashPRD' },
-      'Reading PRD for hash computation'
+      'Resolving + hashing PRD'
     );
-    const content = await readFile(prdPath, 'utf-8');
-    const fullHash = createHash('sha256').update(content).digest('hex');
-    logger().debug(
-      { prdPath, hash: fullHash.slice(0, 12), fullHashLength: fullHash.length },
-      'PRD hash computed'
-    );
-    return fullHash;
+    const resolved = await resolvePRD(prdPath); // PRD §2.3: hash the resolved document
+    return hashPRDContent(resolved);
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     logger().error(
@@ -265,9 +287,11 @@ export async function hashPRD(prdPath: string): Promise<string> {
         errorMessage: err?.message,
         operation: 'hashPRD',
       },
-      'Failed to read PRD for hashing'
+      'Failed to resolve/hash PRD'
     );
-    throw new SessionFileError(prdPath, 'read PRD', error as Error);
+    // resolvePRD/readUTF8FileStrict already wrap in SessionFileError(prdPath, 'read PRD', …),
+    // preserving the pre-refactor error envelope (operation 'read PRD'). Re-throw as-is.
+    throw error;
   }
 }
 
@@ -582,6 +606,10 @@ export async function resolvePRD(
  * @param prdPath - Path to PRD file for hash computation
  * @param sequence - Session sequence number (will be zero-padded to 3 digits)
  * @param planDir - Directory to create sessions in (defaults to resolve('plan'))
+ * @param precomputedHash - Optional full (64-char) PRD hash. When supplied, skips the internal
+ *        `hashPRD` call (and thus a second resolution). Used by callers that already resolved +
+ *        hashed the PRD (e.g. {@link SessionManager.initialize}, which resolves once). When
+ *        omitted, the hash is recomputed via {@link hashPRD} (which resolves).
  * @returns Promise resolving to absolute path of created session directory
  * @throws {SessionFileError} If directory creation fails
  *
@@ -594,11 +622,22 @@ export async function resolvePRD(
 export async function createSessionDirectory(
   prdPath: string,
   sequence: number,
-  planDir: string = resolve('plan')
+  planDir: string = resolve('plan'),
+  precomputedHash?: string
 ): Promise<string> {
   try {
-    // Compute PRD hash
-    const fullHash = await hashPRD(prdPath);
+    // Compute PRD hash. When a precomputed hash is supplied, use it directly (the
+    // caller — e.g. SessionManager.initialize — already resolved + hashed, so this
+    // avoids a second resolution). Otherwise recompute via hashPRD (which resolves).
+    // Written as an explicit if/else rather than `??`/`?:` with an awaited operand:
+    // v8's coverage instrumentation mis-attributes statements following
+    // `x ?? (await f())` / `x ? x : await f()`.
+    let fullHash: string;
+    if (precomputedHash) {
+      fullHash = precomputedHash;
+    } else {
+      fullHash = await hashPRD(prdPath);
+    }
     const sessionHash = fullHash.slice(0, 12);
 
     logger().debug({ prdPath, sessionHash, sequence }, 'Session hash computed');
@@ -975,15 +1014,19 @@ export async function writePRP(
  * Creates a PRD snapshot in the session directory
  *
  * @remarks
- * Reads the PRD file content with strict UTF-8 validation and writes it to
- * `prd_snapshot.md` in the session directory. This snapshot preserves a frozen
- * copy of the PRD for reference during implementation.
+ * Writes the PRD content to `prd_snapshot.md` in the session directory. When `resolvedContent`
+ * is supplied it is written directly (used by {@link SessionManager.initialize}, which resolves
+ * once and feeds the SAME resolved string to both the hash and the snapshot). When omitted, the
+ * entry file is resolved via {@link resolvePRD} (expanding `@`-includes, PRD §2.3) before writing.
  *
- * The snapshot is created with mode 0o644 (owner read/write, group/others read-only).
+ * This snapshot preserves a frozen copy of the FULLY-RESOLVED PRD for reference during
+ * implementation. It is created with mode 0o644 (owner read/write, group/others read-only).
  *
  * @param sessionPath - Path to session directory
  * @param prdPath - Path to PRD markdown file
- * @throws {SessionFileError} If PRD cannot be read, has invalid UTF-8, or snapshot cannot be written
+ * @param resolvedContent - Optional pre-resolved PRD document to write directly. When supplied,
+ *        skips re-resolution. When omitted, the entry file is resolved via {@link resolvePRD}.
+ * @throws {SessionFileError} If PRD cannot be read/resolved, has invalid UTF-8, or snapshot cannot be written
  *
  * @example
  * ```typescript
@@ -993,7 +1036,8 @@ export async function writePRP(
  */
 export async function snapshotPRD(
   sessionPath: string,
-  prdPath: string
+  prdPath: string,
+  resolvedContent?: string
 ): Promise<void> {
   try {
     logger().debug(
@@ -1009,8 +1053,16 @@ export async function snapshotPRD(
     const absSessionPath = resolve(sessionPath);
     const absPRDPath = resolve(prdPath);
 
-    // Read PRD with strict UTF-8 validation
-    const content = await readUTF8FileStrict(absPRDPath, 'read PRD');
+    // Resolve the PRD (expand @-includes) unless pre-resolved content was supplied (PRD §2.3).
+    // Written as an explicit if/else rather than `??`/`?:` with an awaited operand:
+    // v8's coverage instrumentation mis-attributes statements following
+    // `x ?? (await f())` / `x ? x : await f()`.
+    let content: string;
+    if (resolvedContent) {
+      content = resolvedContent;
+    } else {
+      content = await resolvePRD(absPRDPath);
+    }
 
     logger().debug(
       {

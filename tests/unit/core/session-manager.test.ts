@@ -14,7 +14,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SessionManager } from '../../../src/core/session-manager.js';
 import {
   hashPRD,
+  resolvePRD,
+  hashPRDContent,
   createSessionDirectory,
+  snapshotPRD,
   readTasksJSON,
   writeTasksJSON,
   SessionFileError,
@@ -45,7 +48,10 @@ vi.mock('node:fs', () => ({
 // Mock the session-utils module
 vi.mock('../../../src/core/session-utils.js', () => ({
   hashPRD: vi.fn(),
+  resolvePRD: vi.fn(),
+  hashPRDContent: vi.fn(),
   createSessionDirectory: vi.fn(),
+  snapshotPRD: vi.fn(),
   readTasksJSON: vi.fn(),
   writeTasksJSON: vi.fn(),
   SessionFileError: class extends Error {
@@ -91,7 +97,10 @@ const mockReaddir = readdir as any;
 const mockStatSync = statSync as any;
 
 const mockHashPRD = hashPRD as any;
+const mockResolvePRD = resolvePRD as any;
+const mockHashPRDContent = hashPRDContent as any;
 const mockCreateSessionDirectory = createSessionDirectory as any;
+const mockSnapshotPRD = snapshotPRD as any;
 const mockReadTasksJSON = readTasksJSON as any;
 const mockWriteTasksJSON = writeTasksJSON as any;
 const mockUpdateItemStatusUtil = updateItemStatusUtil as any;
@@ -181,6 +190,12 @@ const DEFAULT_FLUSH_RETRIES = 3;
 describe('SessionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Defaults for the session-utils mocks consumed by initialize() (resolve once,
+    // hash the resolved doc, write the snapshot). Individual tests override as
+    // needed (e.g. delta tests that want a specific oldPRD value).
+    mockResolvePRD.mockResolvedValue('# Test PRD');
+    mockHashPRDContent.mockReturnValue(MOCK_FULL_HASH);
+    mockSnapshotPRD.mockResolvedValue(undefined);
   });
 
   describe('constructor', () => {
@@ -433,7 +448,7 @@ describe('SessionManager', () => {
       }
     });
 
-    it('should hash PRD using hashPRD()', async () => {
+    it('should resolve PRD once and hash the resolved doc', async () => {
       // SETUP: No existing sessions
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
@@ -442,8 +457,13 @@ describe('SessionManager', () => {
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // VERIFY
-      expect(mockHashPRD).toHaveBeenCalledWith('/test/PRD.md');
+      // VERIFY: resolvePRD is called exactly once with the PRD path; the hash is
+      // computed by hashPRDContent over the resolved bytes; hashPRD is NOT called
+      // (initialize resolves once itself and delegates the pure hash to hashPRDContent).
+      expect(mockResolvePRD).toHaveBeenCalledWith('/test/PRD.md');
+      expect(mockResolvePRD).toHaveBeenCalledTimes(1);
+      expect(mockHashPRDContent).toHaveBeenCalledWith('# Test PRD');
+      expect(mockHashPRD).not.toHaveBeenCalled();
     });
 
     it('should search plan/ directory for matching hash', async () => {
@@ -474,28 +494,29 @@ describe('SessionManager', () => {
       expect(mockCreateSessionDirectory).toHaveBeenCalledWith(
         '/test/PRD.md',
         1,
-        resolve('plan')
+        resolve('plan'),
+        MOCK_FULL_HASH
       );
       expect(session.metadata.id).toBe('001_14b9dc2a33c7');
       expect(session.taskRegistry.backlog).toEqual([]);
     });
 
-    it('should write PRD snapshot to prd_snapshot.md', async () => {
+    it('should write PRD snapshot via snapshotPRD with the resolved doc', async () => {
       // SETUP
       const prdContent = '# Test PRD\n\nThis is content.';
       mockReaddir.mockResolvedValue([]);
-      mockReadFile.mockResolvedValue(prdContent);
+      mockResolvePRD.mockResolvedValue(prdContent);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
 
       // EXECUTE
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // VERIFY
-      expect(mockWriteFile).toHaveBeenCalledWith(
-        expect.stringMatching(/\/prd_snapshot\.md$/),
-        prdContent,
-        { mode: 0o644 }
+      // VERIFY: snapshotPRD writes the SAME resolved bytes (PRD §2.3).
+      expect(mockSnapshotPRD).toHaveBeenCalledWith(
+        '/plan/001_14b9dc2a33c7',
+        '/test/PRD.md',
+        prdContent
       );
     });
 
@@ -555,11 +576,12 @@ describe('SessionManager', () => {
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       const session = await manager.initialize();
 
-      // VERIFY: Should create session 002
+      // VERIFY
       expect(mockCreateSessionDirectory).toHaveBeenCalledWith(
         '/test/PRD.md',
         2,
-        resolve('plan')
+        resolve('plan'),
+        MOCK_FULL_HASH
       );
       expect(session.metadata.id).toBe('002_14b9dc2a33c7');
     });
@@ -577,7 +599,8 @@ describe('SessionManager', () => {
       expect(mockCreateSessionDirectory).toHaveBeenCalledWith(
         '/test/PRD.md',
         1,
-        resolve('plan')
+        resolve('plan'),
+        MOCK_FULL_HASH
       );
     });
 
@@ -625,10 +648,10 @@ describe('SessionManager', () => {
       expect(session.metadata.id).toBe('001_14b9dc2a33c7');
     });
 
-    it('should propagate SessionFileError from hashPRD()', async () => {
-      // SETUP: hashPRD throws error
-      const hashError = new SessionFileError('/test/PRD.md', 'read PRD');
-      mockHashPRD.mockRejectedValue(hashError);
+    it('should propagate SessionFileError from resolvePRD()', async () => {
+      // SETUP: resolvePRD throws error (initialize resolves via resolvePRD now)
+      const resolveError = new SessionFileError('/test/PRD.md', 'read PRD');
+      mockResolvePRD.mockRejectedValue(resolveError);
 
       // EXECUTE & VERIFY
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
@@ -923,6 +946,7 @@ describe('SessionManager', () => {
       // SETUP
       const oldPRD = '# Old PRD Content';
       mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockResolvePRD.mockResolvedValue(oldPRD);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
       mockReadFile.mockResolvedValue(oldPRD);
@@ -1091,6 +1115,7 @@ describe('SessionManager', () => {
       const oldPRD = '# Old PRD';
       const newPRD = '# New PRD\n\nAdditional content';
       mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockResolvePRD.mockResolvedValue(oldPRD);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
       mockReadFile.mockResolvedValue(oldPRD);
@@ -1178,6 +1203,7 @@ describe('SessionManager', () => {
       // SETUP: Initial session creation
       mockStatSync.mockReturnValue({ isFile: () => true });
       mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockResolvePRD.mockResolvedValue('# Original PRD');
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
       mockReadFile.mockResolvedValue('# Original PRD');
@@ -1265,7 +1291,8 @@ describe('SessionManager', () => {
         1,
         '/test/PRD.md',
         1,
-        resolve('plan')
+        resolve('plan'),
+        MOCK_FULL_HASH
       );
       expect(mockCreateSessionDirectory).toHaveBeenNthCalledWith(
         2,
@@ -1345,11 +1372,12 @@ describe('SessionManager', () => {
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       const session = await manager.initialize();
 
-      // VERIFY: Should create session 1000
+      // VERIFY: Should create session 1000 (initialize passes the precomputed hash)
       expect(mockCreateSessionDirectory).toHaveBeenCalledWith(
         '/test/PRD.md',
         1000,
-        resolve('plan')
+        resolve('plan'),
+        MOCK_FULL_HASH
       );
       expect(session.metadata.id).toBe('1000_14b9dc2a33c7');
     });
@@ -1379,6 +1407,7 @@ describe('SessionManager', () => {
         '# PRD\n\n```typescript\nconst code = "test";\n```\n\n* List item\n\n> Quote';
       mockStatSync.mockReturnValue({ isFile: () => true });
       mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockResolvePRD.mockResolvedValue(specialPRD);
       mockReaddir.mockResolvedValue([]);
       mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
       mockReadFile.mockResolvedValue(specialPRD);
@@ -2320,7 +2349,7 @@ describe('SessionManager', () => {
     });
 
     it('should use cached PRD hash from initialize()', async () => {
-      // SETUP: Initialize caches the PRD hash
+      // SETUP: Initialize caches the PRD hash (resolvePRD + hashPRDContent, once)
       mockStatSync.mockReturnValue({ isFile: () => true });
       mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
       mockReaddir.mockResolvedValue([]);
@@ -2331,14 +2360,16 @@ describe('SessionManager', () => {
       const manager = new SessionManager('/test/PRD.md', resolve('plan'));
       await manager.initialize();
 
-      // Verify hashPRD was called exactly once during initialize
-      expect(mockHashPRD).toHaveBeenCalledTimes(1);
+      // Verify resolvePRD/hashPRDContent were each called exactly once during initialize
+      expect(mockResolvePRD).toHaveBeenCalledTimes(1);
+      expect(mockHashPRDContent).toHaveBeenCalledTimes(1);
 
-      // EXECUTE: hasSessionChanged should use cached hash, not call hashPRD again
+      // EXECUTE: hasSessionChanged should use cached hash, not re-resolve/re-hash
       manager.hasSessionChanged();
 
-      // VERIFY: hashPRD was not called again
-      expect(mockHashPRD).toHaveBeenCalledTimes(1);
+      // VERIFY: no additional resolution/hashing occurred
+      expect(mockResolvePRD).toHaveBeenCalledTimes(1);
+      expect(mockHashPRDContent).toHaveBeenCalledTimes(1);
     });
 
     it('defensive check for null prdHash is unreachable in normal operation', () => {

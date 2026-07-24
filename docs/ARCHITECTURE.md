@@ -96,6 +96,10 @@ The Session Manager provides centralized state management, PRD hash-based initia
 - **Delta Sessions**: Creates linked sessions when PRDs are modified
 - **Atomic Persistence**: Batch writes with dirty flag for efficient state updates
 
+##### Resolved-document invariant
+
+The session hash (PRD §4.1 step 2) and `prd_snapshot.md` are computed over the **fully-resolved**, include-expanded PRD (PRD §2.3), never the raw entry file. `initialize()` resolves once via `resolvePRD` and feeds that single string to both `hashPRDContent` (the pure hashing primitive) and `snapshotPRD`, guaranteeing `hash === snapshot` bytes. (Full multi-file-PRD capability framing: P6.)
+
 #### Key Methods
 
 ```typescript

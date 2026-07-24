@@ -29,7 +29,10 @@ import { tmpdir } from 'node:os';
 
 // Import SessionManager and types
 import { SessionManager } from '../../../src/core/session-manager.js';
-import { hashPRD } from '../../../src/core/session-utils.js';
+import {
+  hashPRD,
+  createSessionDirectory,
+} from '../../../src/core/session-utils.js';
 
 // Import test fixtures
 import { mockSimplePRD } from '../../fixtures/simple-prd.js';
@@ -633,6 +636,35 @@ This is the second unique PRD document for testing hash uniqueness.
 
       // VERIFY: Different content produces different hashes
       expect(hash1).not.toBe(hash2);
+    });
+  });
+
+  describe('createSessionDirectory hash path (no precomputedHash)', () => {
+    // REAL tmpdir: exercises createSessionDirectory's else branch — the internal
+    // hashPRD(prdPath) call (which resolves via resolvePRD) — so its successful
+    // resolution is covered. The mock-based session-utils.test.ts cannot cover this
+    // path (its file-level TextDecoder mock is incompatible with resolvePRD).
+    it('computes the session id from hashPRD when precomputedHash is omitted', async () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'csd-'));
+      const planDir = join(tmp, 'plan');
+      const prdPath = join(tmp, 'PRD.md');
+      writeFileSync(
+        prdPath,
+        `# PRD
+
+Real-tmpdir PRD for createSessionDirectory's no-precomputedHash path.\n`
+      );
+
+      try {
+        const expectedHash = (await hashPRD(prdPath)).slice(0, 12);
+        const sessionPath = await createSessionDirectory(prdPath, 1, planDir);
+
+        // VERIFY: the session id embeds the hash computed by the internal hashPRD call.
+        expect(sessionPath).toContain(`001_${expectedHash}`);
+        expect(sessionPath.startsWith(planDir)).toBe(true);
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
     });
   });
 });

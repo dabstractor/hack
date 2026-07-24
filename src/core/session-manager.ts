@@ -35,7 +35,10 @@ import type {
 import type { HierarchyItem } from '../utils/task-utils.js';
 import {
   hashPRD,
+  resolvePRD,
+  hashPRDContent,
   createSessionDirectory,
+  snapshotPRD,
   readTasksJSON,
   writeTasksJSON,
   SessionFileError,
@@ -285,17 +288,23 @@ export class SessionManager {
       '[SessionManager] Starting session initialization'
     );
 
-    // 1. Hash the PRD
+    // 1. Resolve the PRD once and hash the resolved document (PRD §2.3)
     this.#logger.debug(
-      { prdPath: this.prdPath, operation: 'hashPRD' },
-      '[SessionManager] Computing PRD hash'
+      { prdPath: this.prdPath, operation: 'resolvePRD' },
+      '[SessionManager] Resolving + hashing PRD'
     );
 
-    const fullHash = await hashPRD(this.prdPath);
+    const resolved = await resolvePRD(this.prdPath); // resolve ONCE (PRD §2.3)
+    const fullHash = hashPRDContent(resolved); // pure hash of the resolved bytes
     const sessionHash = fullHash.slice(0, 12);
 
     this.#logger.debug(
-      { prdPath: this.prdPath, sessionHash, fullHashLength: fullHash.length },
+      {
+        prdPath: this.prdPath,
+        sessionHash,
+        fullHashLength: fullHash.length,
+        resolvedLength: resolved.length,
+      },
       '[SessionManager] PRD hash computed'
     );
 
@@ -441,7 +450,8 @@ export class SessionManager {
     const sessionPath = await createSessionDirectory(
       this.prdPath,
       sequence,
-      this.planDir
+      this.planDir,
+      fullHash // pass the precomputed hash ⇒ no re-resolution (single resolve)
     );
 
     const sessionId = `${String(sequence).padStart(3, '0')}_${sessionHash}`;
@@ -451,31 +461,20 @@ export class SessionManager {
       '[SessionManager] Session directory created'
     );
 
-    // 6. Write PRD snapshot
-    this.#logger.debug(
-      { prdPath: this.prdPath, operation: 'readPRD' },
-      '[SessionManager] Reading PRD for snapshot'
-    );
-
-    const prdContent = await readFile(this.prdPath, 'utf-8');
-
-    const snapshotPath = resolve(sessionPath, 'prd_snapshot.md');
+    // 6. Write PRD snapshot (the SAME resolved bytes fed to the hash — PRD §2.3)
     this.#logger.debug(
       {
-        sessionPath,
-        snapshotPath,
-        prdSize: prdContent.length,
-        operation: 'writeSnapshot',
+        prdPath: this.prdPath,
+        resolvedLength: resolved.length,
+        operation: 'snapshotPRD',
       },
       '[SessionManager] Writing PRD snapshot'
     );
 
-    await writeFile(snapshotPath, prdContent, {
-      mode: 0o644,
-    });
+    await snapshotPRD(sessionPath, this.prdPath, resolved);
 
     this.#logger.info(
-      { sessionId, snapshotPath, size: prdContent.length },
+      { sessionId, size: resolved.length },
       '[SessionManager] PRD snapshot created'
     );
 
@@ -490,7 +489,7 @@ export class SessionManager {
 
     this.#currentSession = {
       metadata,
-      prdSnapshot: prdContent,
+      prdSnapshot: resolved,
       taskRegistry: { backlog: [] }, // Empty until Architect Agent generates
       currentItemId: null,
     };

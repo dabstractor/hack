@@ -13,6 +13,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   hashPRD,
+  hashPRDContent,
   createSessionDirectory,
   writeTasksJSON,
   readTasksJSON,
@@ -227,25 +228,48 @@ describe('core/session-utils', () => {
     });
   });
 
-  describe('hashPRD', () => {
-    it('should compute SHA-256 hash of PRD file', async () => {
-      // SETUP: Mock file read and hash computation
-      mockReadFile.mockResolvedValue('# Test PRD\n\nThis is a test PRD.');
+  describe('hashPRDContent', () => {
+    // PURE primitive: hashes a resolved string directly with no filesystem I/O.
+    // End-to-end happy-path coverage for hashPRD (resolve-then-hash) lives in
+    // session-hash-detection.test.ts (real tmpdir + real crypto + real TextDecoder);
+    // here only the pure primitive + its callers' error envelopes are covered.
+    it('should hash a resolved string with SHA-256 (64 hex)', () => {
+      // SETUP: Mock hash computation only (no fs).
       const hashInstance = new MockHash();
       mockCreateHash.mockReturnValue(hashInstance);
 
       // EXECUTE
-      const hash = await hashPRD('/test/path/PRD.md');
+      const hash = hashPRDContent('resolved-doc');
 
       // VERIFY
-      expect(mockReadFile).toHaveBeenCalledWith('/test/path/PRD.md', 'utf-8');
       expect(mockCreateHash).toHaveBeenCalledWith('sha256');
+      expect(hashInstance['data']).toBe('resolved-doc'); // update() captured the input
       expect(hash).toBe(
         '14b9dc2a33c7a1234567890abcdef1234567890abcdef1234567890abcdef123'
       );
       expect(hash.length).toBe(64);
     });
 
+    it('should be pure (no filesystem I/O) and deterministic', () => {
+      // SETUP
+      const hashInstance = new MockHash();
+      mockCreateHash.mockReturnValue(hashInstance);
+
+      // EXECUTE
+      const hash1 = hashPRDContent('resolved-doc');
+      const hash2 = hashPRDContent('resolved-doc');
+
+      // VERIFY: deterministic + readFile never touched
+      expect(hash1).toBe(hash2);
+      expect(mockReadFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('hashPRD', () => {
+    // End-to-end happy-path coverage lives in session-hash-detection.test.ts (real tmpdir).
+    // The mock-based happy path is removed because hashPRD now routes through
+    // resolvePRD → readUTF8FileStrict (Buffer + fatal TextDecoder), which the
+    // file-level mocks (TextDecoder → undefined) cannot satisfy.
     it('should throw SessionFileError on file read failure (ENOENT)', async () => {
       // SETUP: Mock file read error
       const error = new Error('ENOENT: no such file');
@@ -305,8 +329,15 @@ describe('core/session-utils', () => {
   });
 
   describe('createSessionDirectory', () => {
+    // A 64-char hex precomputed hash whose first 12 chars match MockHash.digest()
+    // ('14b9dc2a33c7...'). Passing it as the 4th arg skips the internal hashPRD
+    // call entirely (which would otherwise crash through the mocked TextDecoder).
+    const PRECOMPUTED_HASH =
+      '14b9dc2a33c7a1234567890abcdef1234567890abcdef1234567890abcdef123';
+
     beforeEach(() => {
-      // Setup hashPRD mock
+      // Mocks retained for the hashPRD-via-resolvePRD error path; happy paths pass
+      // precomputedHash and never touch these.
       mockReadFile.mockResolvedValue('# Test PRD');
       const hashInstance = new MockHash();
       mockCreateHash.mockReturnValue(hashInstance);
@@ -317,7 +348,12 @@ describe('core/session-utils', () => {
       mockMkdir.mockResolvedValue(undefined);
 
       // EXECUTE
-      const sessionPath = await createSessionDirectory('/test/PRD.md', 1);
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        PRECOMPUTED_HASH
+      );
 
       // VERIFY
       expect(sessionPath).toContain('plan');
@@ -341,9 +377,24 @@ describe('core/session-utils', () => {
       mockMkdir.mockResolvedValue(undefined);
 
       // EXECUTE
-      const sessionPath1 = await createSessionDirectory('/test/PRD.md', 1);
-      const sessionPath2 = await createSessionDirectory('/test/PRD.md', 42);
-      const sessionPath3 = await createSessionDirectory('/test/PRD.md', 999);
+      const sessionPath1 = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        PRECOMPUTED_HASH
+      );
+      const sessionPath2 = await createSessionDirectory(
+        '/test/PRD.md',
+        42,
+        undefined,
+        PRECOMPUTED_HASH
+      );
+      const sessionPath3 = await createSessionDirectory(
+        '/test/PRD.md',
+        999,
+        undefined,
+        PRECOMPUTED_HASH
+      );
 
       // VERIFY
       expect(sessionPath1).toContain('001_');
@@ -356,7 +407,12 @@ describe('core/session-utils', () => {
       mockMkdir.mockResolvedValue(undefined);
 
       // EXECUTE
-      const sessionPath = await createSessionDirectory('/test/PRD.md', 1);
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        PRECOMPUTED_HASH
+      );
 
       // VERIFY
       expect(sessionPath).toContain('14b9dc2a33c7');
@@ -370,7 +426,12 @@ describe('core/session-utils', () => {
       mockMkdir.mockRejectedValue(existError);
 
       // EXECUTE - should not throw
-      const sessionPath = await createSessionDirectory('/test/PRD.md', 1);
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        PRECOMPUTED_HASH
+      );
 
       // VERIFY
       expect(sessionPath).toBeDefined();
@@ -384,13 +445,37 @@ describe('core/session-utils', () => {
       mockMkdir.mockRejectedValue(error);
 
       // EXECUTE & VERIFY
-      await expect(createSessionDirectory('/test/PRD.md', 1)).rejects.toThrow(
-        SessionFileError
+      await expect(
+        createSessionDirectory('/test/PRD.md', 1, undefined, PRECOMPUTED_HASH)
+      ).rejects.toThrow(SessionFileError);
+    });
+
+    it('should use precomputedHash when supplied (skips hashPRD)', async () => {
+      // SETUP
+      mockMkdir.mockResolvedValue(undefined);
+      mockReadFile.mockClear();
+      const customHash =
+        'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
+
+      // EXECUTE
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        customHash
       );
+
+      // VERIFY: hashPRD was skipped (readFile never touched) AND the session id
+      // embeds the supplied hash's first 12 chars (NOT MockHash's).
+      expect(mockReadFile).not.toHaveBeenCalled();
+      expect(mockCreateHash).not.toHaveBeenCalled();
+      expect(sessionPath).toContain('001_a3f8e9d12b4a');
+      expect(sessionPath).not.toContain('14b9dc2a33c7');
     });
 
     it('should propagate SessionFileError from hashPRD', async () => {
-      // SETUP: Mock hashPRD failure
+      // SETUP: Mock hashPRD failure (omit precomputedHash so the internal hashPRD
+      // path runs → resolvePRD → readUTF8FileStrict → readFile rejects ENOENT).
       const error = new Error('ENOENT: file not found');
       (error as NodeJS.ErrnoException).code = 'ENOENT';
       mockReadFile.mockRejectedValue(error);
@@ -414,7 +499,12 @@ describe('core/session-utils', () => {
       mockMkdir.mockResolvedValue(undefined);
 
       // EXECUTE
-      const sessionPath = await createSessionDirectory('/test/PRD.md', 1);
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        PRECOMPUTED_HASH
+      );
 
       // VERIFY: Should be absolute path (starts with /)
       expect(sessionPath.startsWith('/')).toBe(true);
@@ -874,8 +964,9 @@ describe('core/session-utils', () => {
 
   describe('integration scenarios', () => {
     it('should support typical session creation workflow', async () => {
-      // SETUP: Mock all operations
-      mockReadFile.mockResolvedValue('# Test PRD');
+      // SETUP: Mock all operations. Pass precomputedHash so createSessionDirectory
+      // skips hashPRD (whose resolvePRD path is incompatible with the file-level
+      // TextDecoder mock).
       const hashInstance = new MockHash();
       mockCreateHash.mockReturnValue(hashInstance);
       mockMkdir.mockResolvedValue(undefined);
@@ -884,7 +975,12 @@ describe('core/session-utils', () => {
       mockRandomBytes.mockReturnValue({ toString: () => 'tmp123' });
 
       // EXECUTE: Create session directory and write tasks
-      const sessionPath = await createSessionDirectory('/test/PRD.md', 1);
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        undefined,
+        '14b9dc2a33c7a1234567890abcdef1234567890abcdef1234567890abcdef123'
+      );
       const backlog = createTestBacklog([
         createTestPhase('P1', 'Phase 1', 'Planned'),
       ]);
@@ -1060,14 +1156,17 @@ describe('core/session-utils', () => {
     });
 
     it('should handle session sequence 999', async () => {
-      // SETUP: Test maximum sequence number
-      mockReadFile.mockResolvedValue('# Test PRD');
-      const hashInstance = new MockHash();
-      mockCreateHash.mockReturnValue(hashInstance);
+      // SETUP: Test maximum sequence number. Pass precomputedHash so createSessionDirectory
+      // skips hashPRD (whose resolvePRD path is incompatible with the file-level TextDecoder mock).
       mockMkdir.mockResolvedValue(undefined);
 
       // EXECUTE
-      const sessionPath = await createSessionDirectory('/test/PRD.md', 999);
+      const sessionPath = await createSessionDirectory(
+        '/test/PRD.md',
+        999,
+        undefined,
+        '14b9dc2a33c7a1234567890abcdef1234567890abcdef1234567890abcdef123'
+      );
 
       // VERIFY: Should pad correctly (999 is already 3 digits)
       expect(sessionPath).toContain('999_');
@@ -1175,6 +1274,25 @@ describe('core/session-utils', () => {
       expect(mockWriteFile).toHaveBeenCalledWith(
         expect.stringMatching(/\/prd_snapshot\.md$/),
         '# Test PRD\n\nContent', // Decoded string, not buffer
+        { mode: 0o644 }
+      );
+    });
+
+    it('should write resolvedContent directly when supplied (skips resolvePRD)', async () => {
+      // SETUP: Pre-resolved content supplied — no fs read / no resolvePRD needed.
+      const resolved = '# Resolved PRD\n\nExpanded include body';
+      mockReadFile.mockClear();
+      mockWriteFile.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await snapshotPRD('/test/session', '/test/PRD.md', resolved);
+
+      // VERIFY: the supplied resolved bytes are written verbatim; readFile is
+      // NOT touched (resolvePRD was skipped).
+      expect(mockReadFile).not.toHaveBeenCalled();
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringMatching(/\/prd_snapshot\.md$/),
+        resolved,
         { mode: 0o644 }
       );
     });
