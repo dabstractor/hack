@@ -28,9 +28,74 @@ import {
   DEFAULT_MODEL_PROVIDER,
   MODEL_NAMES,
   MODEL_ENV_VARS,
+  LEGACY_MODEL_ENV_VARS,
+  PRP_API_BASE_URL,
 } from './constants.js';
 import type { ModelTier } from './types.js';
 import { EnvironmentValidationError } from './types.js';
+
+/**
+ * Module-private one-time deprecation-warning dedup (PRD §9.2.8).
+ *
+ * @remarks
+ * Keyed by `'model:${tier}'` | `'baseURL'`. `getModel()` runs per agent creation
+ * (many times) and `configureEnvironment()` runs at startup, so without dedup a
+ * legacy `.env` would spam warnings. Mirrors the `clearLoggerCache()` underscore-
+ * prefixed test-reset-hook pattern in logger.ts.
+ */
+const _deprecatedWarned = new Set<string>();
+
+/**
+ * Reset the one-time deprecation-warning guards.
+ *
+ * @remarks
+ * Production code never calls this. Test-only hook (mirrors logger.ts
+ * `clearLoggerCache`) so individual `it()` blocks can re-arm the dedup `Set`,
+ * since vitest does NOT reset module state between tests in a file.
+ *
+ * @internal
+ */
+export function _resetDeprecationWarnings(): void {
+  _deprecatedWarned.clear();
+}
+
+/**
+ * Emit a one-time deprecation warning for a legacy model-override env var (PRD §9.2.8).
+ *
+ * @remarks
+ * Synchronous `console.warn` (stderr, PRD §9.6-compliant) because the pino logger
+ * is configured AFTER `configureEnvironment()` (it needs CLI `--verbose` /
+ * `--machine-readable` flags) and cannot carry startup deprecations reliably.
+ * Matches the `console.error` precedent for actionable startup messages in index.ts.
+ */
+function warnLegacyModelVar(tier: ModelTier): void {
+  const key = `model:${tier}`;
+  if (_deprecatedWarned.has(key)) return;
+  _deprecatedWarned.add(key);
+  console.warn(
+    `[PRP] Deprecation: environment variable ${LEGACY_MODEL_ENV_VARS[tier]} is deprecated; ` +
+      `use the canonical ${MODEL_ENV_VARS[tier]} instead (PRD §9.2.8). ` +
+      `The legacy alias will be removed in a future major version.`
+  );
+}
+
+/**
+ * Emit a one-time deprecation warning for the legacy `ANTHROPIC_BASE_URL` env var (PRD §9.2.8).
+ *
+ * @remarks
+ * Synchronous `console.warn` (stderr, PRD §9.6-compliant); see
+ * {@link warnLegacyModelVar} for the logger-timing rationale.
+ */
+function warnLegacyBaseUrl(): void {
+  const key = 'baseURL';
+  if (_deprecatedWarned.has(key)) return;
+  _deprecatedWarned.add(key);
+  console.warn(
+    `[PRP] Deprecation: environment variable ANTHROPIC_BASE_URL is deprecated for the ` +
+      `pipeline endpoint; use the canonical ${PRP_API_BASE_URL} instead (PRD §9.2.8). ` +
+      `The legacy alias will be removed in a future major version.`
+  );
+}
 
 /**
  * Resolve the selected LLM provider id from the resolved model string (PRD §9.2.3 / §9.4.3).
@@ -41,7 +106,7 @@ import { EnvironmentValidationError } from './types.js';
  * ```ts
  * import { getResolvedProvider } from './config/environment.js';
  *
- * console.log(getResolvedProvider()); // 'zai' (when ANTHROPIC_DEFAULT_SONNET_MODEL unset)
+ * console.log(getResolvedProvider()); // 'zai' (when PRP_MODEL_BALANCED unset)
  * ```
  */
 export function getResolvedProvider(): string {
@@ -49,15 +114,18 @@ export function getResolvedProvider(): string {
 }
 
 /**
- * Configure environment variables for API compatibility (PRD §9.2.6).
+ * Configure environment variables for API compatibility (PRD §9.2.6 / §9.2.8).
  *
  * @remarks
  * Provider-conditional configuration:
  * - **AUTH_TOKEN alias**: `ANTHROPIC_AUTH_TOKEN` is mapped to `ANTHROPIC_API_KEY` ONLY when
  *   the resolved provider is `anthropic` (backward-compat alias). For the default `zai` path,
  *   AUTH_TOKEN is NOT consulted.
- * - **Base URL**: `ANTHROPIC_BASE_URL` defaults to the z.ai endpoint ONLY when the provider
- *   is `zai`. For `anthropic`, the user/SDK default is left intact.
+ * - **Base URL**: read canonical-first (`PRP_API_BASE_URL`) → legacy `ANTHROPIC_BASE_URL`
+ *   (one-time deprecation warning, PRD §9.2.8) → z.ai default ONLY when the provider is `zai`.
+ *   The resolved endpoint is always mirrored into `process.env.ANTHROPIC_BASE_URL` — the SDK
+ *   contract consumed downstream by endpoint-guard / agent-factory / runtime-api-validator /
+ *   validate-api / `validateEnvironment`.
  *
  * This function modifies `process.env` in place as an intentional side effect.
  * Must be called before `configureHarness()` and `ensureHarnessInitialized()`.
@@ -85,20 +153,39 @@ export function configureEnvironment(): void {
     process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
   }
 
-  // Provider-aware base URL: z.ai default ONLY for zai.
-  if (!process.env.ANTHROPIC_BASE_URL && provider === 'zai') {
-    process.env.ANTHROPIC_BASE_URL = DEFAULT_BASE_URL;
+  // PRP_API_BASE_URL canonical-first; ANTHROPIC_BASE_URL legacy fallback (PRD §9.2.8).
+  // The resolved endpoint is written into process.env.ANTHROPIC_BASE_URL — the SDK contract
+  // consumed downstream by endpoint-guard / agent-factory / runtime-api-validator / validate-api.
+  const canonicalBaseUrl = process.env[PRP_API_BASE_URL];
+  const legacyBaseUrl = process.env.ANTHROPIC_BASE_URL;
+  let resolvedBaseUrl: string | undefined;
+  if (canonicalBaseUrl) {
+    resolvedBaseUrl = canonicalBaseUrl;
+  } else if (legacyBaseUrl) {
+    warnLegacyBaseUrl();
+    resolvedBaseUrl = legacyBaseUrl;
+  } else if (provider === 'zai') {
+    resolvedBaseUrl = DEFAULT_BASE_URL;
+  }
+  if (resolvedBaseUrl && process.env.ANTHROPIC_BASE_URL !== resolvedBaseUrl) {
+    process.env.ANTHROPIC_BASE_URL = resolvedBaseUrl;
   }
 }
 
 /**
- * Get the model name for a given model tier
+ * Get the model name for a given model tier (PRD §9.2.3 / §9.2.8).
  *
  * @remarks
- * Returns the model name for the specified tier, checking environment variables
- * for overrides first, then falling back to default values.
+ * Resolves the model for the specified tier **canonical-first with legacy fallback**:
+ * 1. canonical env var (`PRP_MODEL_HIGH` / `PRP_MODEL_BALANCED` / `PRP_MODEL_FAST`);
+ * 2. legacy env var (`ANTHROPIC_DEFAULT_OPUS_MODEL` / `..._SONNET_MODEL` /
+ *    `..._HAIKU_MODEL`) — emits a one-time deprecation warning naming the canonical
+ *    replacement (PRD §9.2.8);
+ * 3. the baked-in {@link MODEL_NAMES} default.
  *
- * Model tier mappings:
+ * The resolved bare name is provider-qualified via {@link qualifyModel}.
+ *
+ * Model tier mappings (defaults):
  * - 'high':     glm-5.2 (highest quality, complex reasoning, Architect agent)
  * - 'balanced': glm-5.2 (balanced, default for most agents)
  * - 'fast':     glm-5-turbo (fastest, simple operations, quick tasks)
@@ -115,8 +202,8 @@ export function configureEnvironment(): void {
  * const balancedModel = getModel('balanced'); // 'zai/glm-5.2'
  * const fastModel = getModel('fast'); // 'zai/glm-5-turbo'
  *
- * // Can be overridden with environment variables
- * process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'glm-5.2';
+ * // Canonical override (no warning):
+ * process.env.PRP_MODEL_FAST = 'glm-5.2';
  * const customFast = getModel('fast'); // 'zai/glm-5.2'
  * ```
  */
@@ -148,8 +235,14 @@ export function qualifyModel(
 }
 
 export function getModel(tier: ModelTier): string {
-  const envVar = MODEL_ENV_VARS[tier];
-  return qualifyModel(process.env[envVar] ?? MODEL_NAMES[tier]);
+  const canonical = process.env[MODEL_ENV_VARS[tier]];
+  if (canonical) return qualifyModel(canonical);
+  const legacy = process.env[LEGACY_MODEL_ENV_VARS[tier]];
+  if (legacy) {
+    warnLegacyModelVar(tier);
+    return qualifyModel(legacy);
+  }
+  return qualifyModel(MODEL_NAMES[tier]);
 }
 
 /**

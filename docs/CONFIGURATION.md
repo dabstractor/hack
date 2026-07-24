@@ -35,11 +35,11 @@
 
 Primary environment variable for the default `pi` + `zai` path:
 
-| Variable             | Required | Default                          | Description                                                               |
-| -------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------- |
-| `ZAI_API_KEY`        | Yes\*    | None                             | z.ai API key (the default-path credential).                               |
-| `ANTHROPIC_BASE_URL` | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint (default for `zai` provider only).                      |
-| `PRP_AGENT_HARNESS`  | No       | `pi`                             | Agent runtime/SDK (`pi` or `claude-code`); orthogonal to the LLM provider |
+| Variable            | Required | Default                          | Description                                                                              |
+| ------------------- | -------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ZAI_API_KEY`       | Yes\*    | None                             | z.ai API key (the default-path credential).                                              |
+| `PRP_API_BASE_URL`  | No       | `https://api.z.ai/api/anthropic` | z.ai API endpoint (default for `zai` provider only). Legacy alias: `ANTHROPIC_BASE_URL`. |
+| `PRP_AGENT_HARNESS` | No       | `pi`                             | Agent runtime/SDK (`pi` or `claude-code`); orthogonal to the LLM provider                |
 
 \*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`), or `PRP_API_KEY` must be set for the default path. Anthropic credentials (`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`) are **optional** and only used when the provider is `anthropic`. The pure-local modes `--validate-prd` and `--dry-run` make no API calls and run without any credential.
 
@@ -53,13 +53,13 @@ For complete configuration, see [Environment Variables](#environment-variables) 
 
 The PRP Pipeline authenticates based on the **resolved LLM provider** (default `zai`).
 
-| Variable               | Required | Default                          | Description                                                                                                    |
-| ---------------------- | -------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `ZAI_API_KEY`          | Yes\*    | None                             | z.ai API key. The default-path credential when provider is `zai`.                                              |
-| `PRP_API_KEY`          | No       | None                             | Explicit API-key override (highest precedence, any provider).                                                  |
-| `ANTHROPIC_AUTH_TOKEN` | No\*\*   | None                             | Anthropic auth token. **Only** consulted when provider is `anthropic`. Mapped to `ANTHROPIC_API_KEY` if unset. |
-| `ANTHROPIC_API_KEY`    | No\*\*   | None                             | Anthropic API key. **Only** consulted when provider is `anthropic`.                                            |
-| `ANTHROPIC_BASE_URL`   | No       | `https://api.z.ai/api/anthropic` | API endpoint. Defaults to z.ai **only** for the `zai` provider.                                                |
+| Variable               | Required | Default                          | Description                                                                                                                 |
+| ---------------------- | -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `ZAI_API_KEY`          | Yes\*    | None                             | z.ai API key. The default-path credential when provider is `zai`.                                                           |
+| `PRP_API_KEY`          | No       | None                             | Explicit API-key override (highest precedence, any provider).                                                               |
+| `ANTHROPIC_AUTH_TOKEN` | No\*\*   | None                             | Anthropic auth token. **Only** consulted when provider is `anthropic`. Mapped to `ANTHROPIC_API_KEY` if unset.              |
+| `ANTHROPIC_API_KEY`    | No\*\*   | None                             | Anthropic API key. **Only** consulted when provider is `anthropic`.                                                         |
+| `PRP_API_BASE_URL`     | No       | `https://api.z.ai/api/anthropic` | API endpoint (canonical, PRD §9.2.8). Defaults to z.ai **only** for the `zai` provider. Legacy alias: `ANTHROPIC_BASE_URL`. |
 
 \*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`, auto-detected), or `PRP_API_KEY` for the default `zai` path.
 \*\*Optional: Anthropic credentials are only used when the resolved provider is `anthropic` (via an `anthropic/*` model override). They are **ignored** for the default `zai` provider.
@@ -91,15 +91,15 @@ if (
 
 Configure which models each agent tier uses.
 
-| Variable                         | Required | Default       | Description                                                    |
-| -------------------------------- | -------- | ------------- | -------------------------------------------------------------- |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `GLM-4.7`     | Model for Architect agent (highest quality, complex reasoning) |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `GLM-4.7`     | Model for Researcher/Coder agents (balanced, default)          |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `GLM-4.5-Air` | Model for simple operations (fastest)                          |
+| Variable             | Required | Default       | Description                                                                                                   |
+| -------------------- | -------- | ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `PRP_MODEL_HIGH`     | No       | `glm-5.2`     | Model for Architect agent (highest quality, complex reasoning). Legacy alias: `ANTHROPIC_DEFAULT_OPUS_MODEL`. |
+| `PRP_MODEL_BALANCED` | No       | `glm-5.2`     | Model for Researcher/Coder agents (balanced, default). Legacy alias: `ANTHROPIC_DEFAULT_SONNET_MODEL`.        |
+| `PRP_MODEL_FAST`     | No       | `glm-5-turbo` | Model for simple operations (fastest). Legacy alias: `ANTHROPIC_DEFAULT_HAIKU_MODEL`.                         |
 
-> Models are **provider-qualified** at runtime. A bare model name (e.g. `GLM-4.7`)
-> resolves to `zai/GLM-4.7` (provider `zai`, the default); an already-qualified
-> `provider/model` (e.g. `zai/GLM-4.7`) passes through unchanged. Values are read
+> Models are **provider-qualified** at runtime. A bare model name (e.g. `glm-5.2`)
+> resolves to `zai/glm-5.2` (provider `zai`, the default); an already-qualified
+> `provider/model` (e.g. `zai/glm-5.2`) passes through unchanged. Values are read
 > from the environment at runtime — never hardcoded. The model string is always
 > `provider/model`; it is never harness-qualified (see
 > [Agent Runtime (Harness)](#agent-runtime-harness)).
@@ -118,8 +118,8 @@ The agent runtime (harness) drives prompting, tool execution, and streaming. It 
 
 - The **harness** (`PRP_AGENT_HARNESS`) and the **provider/model** (see
   [Model Selection](#model-selection-1)) are selected independently.
-- The harness **never** appears in the model string. `pi/zai/GLM-4.7` is **invalid**;
-  always use `provider/model` (e.g. `zai/GLM-4.7`).
+- The harness **never** appears in the model string. `pi/zai/glm-5.2` is **invalid**;
+  always use `provider/model` (e.g. `zai/glm-5.2`).
 - **`claude-code` is Anthropic-only** and is **incompatible with the z.ai provider**
   used by default. Selecting it requires switching to `anthropic/*` models and
   disabling the z.ai endpoint safeguard (see
@@ -240,27 +240,27 @@ The PRP Pipeline uses three model tiers, each optimized for different tasks.
 
 ### Model Tiers
 
-| Model Tier | Default Model | Max Tokens | Use Case                                     | Agents                |
-| ---------- | ------------- | ---------- | -------------------------------------------- | --------------------- |
-| **Opus**   | GLM-4.7       | 8192       | Complex reasoning, architectural planning    | Architect             |
-| **Sonnet** | GLM-4.7       | 4096       | Balanced performance, default for most tasks | Researcher, Coder, QA |
-| **Haiku**  | GLM-4.5-Air   | 4096       | Fast, simple operations                      | Future: quick lookups |
+| Model Tier   | Default Model | Max Tokens | Use Case                                     | Agents                |
+| ------------ | ------------- | ---------- | -------------------------------------------- | --------------------- |
+| **high**     | glm-5.2       | 8192       | Complex reasoning, architectural planning    | Architect             |
+| **balanced** | glm-5.2       | 4096       | Balanced performance, default for most tasks | Researcher, Coder, QA |
+| **fast**     | glm-5-turbo   | 4096       | Fast, simple operations                      | Future: quick lookups |
 
 ### When to Use Each Tier
 
-**Opus (GLM-4.7):**
+**high (glm-5.2):**
 
 - Use for the Architect Agent where complex reasoning is required
 - Higher cost, but higher quality output for breaking down PRDs
 - Best for: PRD analysis, task decomposition, architectural decisions
 
-**Sonnet (GLM-4.7):**
+**balanced (glm-5.2):**
 
 - Use for Researcher, Coder, and QA agents by default
 - Balanced cost and performance
 - Best for: Code implementation, research, testing, documentation
 
-**Haiku (GLM-4.5-Air):**
+**fast (glm-5-turbo):**
 
 - Use for simple operations where speed is more important than quality
 - Lower cost, faster response times
@@ -268,17 +268,36 @@ The PRP Pipeline uses three model tiers, each optimized for different tasks.
 
 ### Model Override
 
-Override default models using environment variables:
+Override default models using the canonical environment variables (PRD §9.2.8):
 
 ```bash
 # Override specific agent tier (bare names resolve to zai/* at runtime)
-export ANTHROPIC_DEFAULT_OPUS_MODEL="GLM-4.7"       # resolves to zai/GLM-4.7
-export ANTHROPIC_DEFAULT_SONNET_MODEL="GLM-4.7"     # resolves to zai/GLM-4.7
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="GLM-4.5-Air"  # resolves to zai/GLM-4.5-Air
+export PRP_MODEL_HIGH="glm-5.2"       # resolves to zai/glm-5.2
+export PRP_MODEL_BALANCED="glm-5.2"   # resolves to zai/glm-5.2
+export PRP_MODEL_FAST="glm-5-turbo"   # resolves to zai/glm-5-turbo
 
 # Or set a fully-qualified provider/model directly:
-# export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
+# export PRP_MODEL_BALANCED="zai/glm-5.2"
 ```
+
+### Deprecation (legacy `ANTHROPIC_*` aliases)
+
+The legacy `ANTHROPIC_*`-prefixed pipeline-global env vars are **deprecated**
+(PRD §9.2.8) but remain **readable** for backward compatibility. When a canonical
+var is unset, the loader falls back to the legacy alias and emits a **one-time**
+deprecation warning (per legacy var per process) naming the canonical replacement.
+The legacy aliases are slated for removal in a future major version.
+
+| Canonical (provider-neutral) | Legacy alias (deprecated)        |
+| ---------------------------- | -------------------------------- |
+| `PRP_API_BASE_URL`           | `ANTHROPIC_BASE_URL`             |
+| `PRP_MODEL_HIGH`             | `ANTHROPIC_DEFAULT_OPUS_MODEL`   |
+| `PRP_MODEL_BALANCED`         | `ANTHROPIC_DEFAULT_SONNET_MODEL` |
+| `PRP_MODEL_FAST`             | `ANTHROPIC_DEFAULT_HAIKU_MODEL`  |
+
+> **Note:** Provider-native credentials `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`
+> are **not** renamed (PRD §9.2.8 exception) — they are the `anthropic` provider's
+> own native credentials, consulted only when the resolved provider is `anthropic`.
 
 ---
 
@@ -293,14 +312,14 @@ Configuration is loaded from multiple sources in the following priority order (h
 
 ### Example: Priority in Action
 
-If `ANTHROPIC_BASE_URL` is set in multiple sources:
+If `PRP_API_BASE_URL` is set in multiple sources:
 
 ```bash
 # In .env file
-ANTHROPIC_BASE_URL=https://api.example.com
+PRP_API_BASE_URL=https://api.example.com
 
 # In shell (higher priority)
-export ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+export PRP_API_BASE_URL=https://api.z.ai/api/anthropic
 ```
 
 The shell environment value (`https://api.z.ai/api/anthropic`) takes precedence.
@@ -380,8 +399,12 @@ ZAI_API_KEY=your-zai-key-here
 # API ENDPOINT
 # =============================================================================
 
-# API endpoint (defaults to z.ai proxy for the default zai provider)
+# Canonical provider-neutral endpoint (PRD §9.2.8). Defaults to z.ai for the
+# default `zai` provider.
 # WARNING: Do NOT use https://api.anthropic.com (blocked by safeguards)
+# PRP_API_BASE_URL=https://api.z.ai/api/anthropic
+#
+# DEPRECATED legacy alias (still readable, emits a one-time warning; PRD §9.2.8):
 # ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
 
 # =============================================================================
@@ -389,13 +412,13 @@ ZAI_API_KEY=your-zai-key-here
 # =============================================================================
 
 # Model for Architect agent (highest quality, complex reasoning)
-# ANTHROPIC_DEFAULT_OPUS_MODEL=GLM-4.7
+# PRP_MODEL_HIGH=glm-5.2
 
 # Model for Researcher/Coder agents (balanced, default)
-# ANTHROPIC_DEFAULT_SONNET_MODEL=GLM-4.7
+# PRP_MODEL_BALANCED=glm-5.2
 
 # Model for simple operations (fastest)
-# ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.5-Air
+# PRP_MODEL_FAST=glm-5-turbo
 
 # =============================================================================
 # AGENT RUNTIME (HARNESS) — OPTIONAL
@@ -460,7 +483,7 @@ export ZAI_API_KEY=zk-xxxxx
 # Or: pi /login (writes ~/.pi/agent/auth.json)
 
 # For Anthropic-only models
-export ANTHROPIC_DEFAULT_SONNET_MODEL="anthropic/claude-sonnet-4"
+export PRP_MODEL_BALANCED="anthropic/claude-sonnet-4"
 export ANTHROPIC_API_KEY=sk-ant-xxxxx
 ```
 
@@ -478,7 +501,7 @@ You're using `https://api.anthropic.com` instead of the z.ai proxy endpoint.
 **How to fix:**
 
 ```bash
-export ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+export PRP_API_BASE_URL=https://api.z.ai/api/anthropic
 ```
 
 ### "Scope format rejected"
@@ -509,19 +532,19 @@ npm run dev -- --scope p1.m1.t1.s1  # Will fail
 Higher than expected API usage costs.
 
 **Why it happens:**
-Using GLM-4.7 (opus/sonnet) for all operations when GLM-4.5-Air (haiku) would suffice.
+Using glm-5.2 (high/balanced) for all operations when glm-5-turbo (fast) would suffice.
 
 **How to fix:**
 
 ```bash
 # Use faster, cheaper model for simple operations
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="GLM-4.5-Air"
+export PRP_MODEL_FAST="glm-5-turbo"
 ```
 
 ### "Harness appearing in the model string is invalid"
 
 **What you see:**
-A model string like `pi/zai/GLM-4.7` is rejected or mis-resolved.
+A model string like `pi/zai/glm-5.2` is rejected or mis-resolved.
 
 **Why it happens:**
 The harness never appears in the model string (PRD §9.4.3). Models are
@@ -531,10 +554,10 @@ The harness never appears in the model string (PRD §9.4.3). Models are
 
 ```bash
 # Invalid — harness prefix in the model string
-# export ANTHROPIC_DEFAULT_SONNET_MODEL="pi/zai/GLM-4.7"
+# export PRP_MODEL_BALANCED="pi/zai/glm-5.2"
 
 # Correct — provider/model only
-export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
+export PRP_MODEL_BALANCED="zai/glm-5.2"
 
 # Select the harness separately
 # export PRP_AGENT_HARNESS=pi
@@ -554,11 +577,11 @@ provider (PRD §9.2.4 / §9.4.3).
 ```bash
 # Option A: keep the default pi harness (works with z.ai)
 export PRP_AGENT_HARNESS=pi
-export ANTHROPIC_DEFAULT_SONNET_MODEL="zai/GLM-4.7"
+export PRP_MODEL_BALANCED="zai/glm-5.2"
 
 # Option B: use claude-code with Anthropic models (not z.ai)
 # export PRP_AGENT_HARNESS=claude-code
-# export ANTHROPIC_DEFAULT_SONNET_MODEL="anthropic/claude-sonnet-4-20250514"
+# export PRP_MODEL_BALANCED="anthropic/claude-sonnet-4-20250514"
 # — also requires disabling the z.ai endpoint safeguard (PRD §9.2.4)
 ```
 

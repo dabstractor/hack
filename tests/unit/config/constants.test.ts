@@ -6,17 +6,24 @@
  * and their byte-identical VALUES. Pure & deterministic — no environment mutation — so it
  * stays stable under the project's 100%-coverage gate.
  *
- * Contract locked here (P2.M1.T1.S1):
+ * Contract locked here (P2.M1.T1.S2 — canonical-first-with-fallback):
  * - `type ModelTier = 'high' | 'balanced' | 'fast'`
  * - `MODEL_NAMES`: keys high/balanced/fast; values `glm-5.2`/`glm-5.2`/`glm-5-turbo` (UNCHANGED)
- * - `MODEL_ENV_VARS`: keys high/balanced/fast; values = legacy `ANTHROPIC_DEFAULT_*` name
- *   strings (UNCHANGED — canonical `PRP_MODEL_*` names land in P2.M1.T1.S2)
+ * - `MODEL_ENV_VARS`: keys high/balanced/fast; values = CANONICAL `PRP_MODEL_*` name strings
+ * - `LEGACY_MODEL_ENV_VARS`: keys high/balanced/fast; values = deprecated `ANTHROPIC_DEFAULT_*`
+ *   name strings (read ONLY when the canonical var is unset; one-time deprecation warning)
  *
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
 import { describe, expect, it } from 'vitest';
-import { MODEL_ENV_VARS, MODEL_NAMES } from '../../../src/config/constants.js';
+import {
+  LEGACY_MODEL_ENV_VARS,
+  MODEL_ENV_VARS,
+  MODEL_NAMES,
+  PRP_API_BASE_URL,
+  REQUIRED_ENV_VARS,
+} from '../../../src/config/constants.js';
 import type { ModelTier } from '../../../src/config/types.js';
 
 describe('config/constants: MODEL_NAMES', () => {
@@ -44,11 +51,11 @@ describe('config/constants: MODEL_NAMES', () => {
 });
 
 describe('config/constants: MODEL_ENV_VARS', () => {
-  it('SHOULD map vendor-neutral tier keys to the legacy ANTHROPIC_DEFAULT_* env-var names', () => {
-    // EXECUTE & VERIFY — VALUES unchanged (canonical PRP_MODEL_* names are P2.M1.T1.S2)
-    expect(MODEL_ENV_VARS.high).toBe('ANTHROPIC_DEFAULT_OPUS_MODEL');
-    expect(MODEL_ENV_VARS.balanced).toBe('ANTHROPIC_DEFAULT_SONNET_MODEL');
-    expect(MODEL_ENV_VARS.fast).toBe('ANTHROPIC_DEFAULT_HAIKU_MODEL');
+  it('SHOULD map vendor-neutral tier keys to the canonical PRP_MODEL_* env-var names', () => {
+    // EXECUTE & VERIFY — VALUES are the canonical PRP_* names (PRD §9.2.8)
+    expect(MODEL_ENV_VARS.high).toBe('PRP_MODEL_HIGH');
+    expect(MODEL_ENV_VARS.balanced).toBe('PRP_MODEL_BALANCED');
+    expect(MODEL_ENV_VARS.fast).toBe('PRP_MODEL_FAST');
   });
 
   it('SHOULD NOT expose legacy opus/sonnet/haiku keys', () => {
@@ -65,6 +72,65 @@ describe('config/constants: MODEL_ENV_VARS', () => {
       ['high', 'balanced', 'fast'].sort()
     );
   });
+
+  it('SHOULD NOT leak legacy ANTHROPIC_DEFAULT_* values into MODEL_ENV_VARS', () => {
+    // VERIFY: only canonical PRP_MODEL_* values are present
+    const values = Object.values(MODEL_ENV_VARS);
+    expect(values).not.toContain('ANTHROPIC_DEFAULT_OPUS_MODEL');
+    expect(values).not.toContain('ANTHROPIC_DEFAULT_SONNET_MODEL');
+    expect(values).not.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL');
+  });
+});
+
+describe('config/constants: LEGACY_MODEL_ENV_VARS', () => {
+  it('SHOULD map vendor-neutral tier keys to the deprecated ANTHROPIC_DEFAULT_* env-var names', () => {
+    // EXECUTE & VERIFY — VALUES are the deprecated legacy aliases (PRD §9.2.8 backward-compat)
+    expect(LEGACY_MODEL_ENV_VARS.high).toBe('ANTHROPIC_DEFAULT_OPUS_MODEL');
+    expect(LEGACY_MODEL_ENV_VARS.balanced).toBe(
+      'ANTHROPIC_DEFAULT_SONNET_MODEL'
+    );
+    expect(LEGACY_MODEL_ENV_VARS.fast).toBe('ANTHROPIC_DEFAULT_HAIKU_MODEL');
+  });
+
+  it('SHOULD NOT expose legacy opus/sonnet/haiku keys', () => {
+    // VERIFY: only the vendor-neutral keys exist
+    const legacy = LEGACY_MODEL_ENV_VARS as Record<string, unknown>;
+    expect(legacy.opus).toBeUndefined();
+    expect(legacy.sonnet).toBeUndefined();
+    expect(legacy.haiku).toBeUndefined();
+  });
+
+  it('SHOULD expose exactly the high/balanced/fast keys (matches ModelTier)', () => {
+    // VERIFY: keys match the ModelTier union
+    expect(Object.keys(LEGACY_MODEL_ENV_VARS).sort()).toEqual(
+      ['high', 'balanced', 'fast'].sort()
+    );
+  });
+
+  it('SHOULD NOT leak canonical PRP_MODEL_* values into LEGACY_MODEL_ENV_VARS', () => {
+    // VERIFY: only legacy ANTHROPIC_DEFAULT_* values are present
+    const values = Object.values(LEGACY_MODEL_ENV_VARS);
+    expect(values).not.toContain('PRP_MODEL_HIGH');
+    expect(values).not.toContain('PRP_MODEL_BALANCED');
+    expect(values).not.toContain('PRP_MODEL_FAST');
+  });
+});
+
+describe('config/constants: PRP_API_BASE_URL + REQUIRED_ENV_VARS', () => {
+  it('SHOULD expose the canonical PRP_API_BASE_URL env-var name constant', () => {
+    // EXECUTE & VERIFY — the canonical endpoint env-var name (PRD §9.2.8)
+    expect(PRP_API_BASE_URL).toBe('PRP_API_BASE_URL');
+  });
+
+  it('SHOULD point REQUIRED_ENV_VARS.baseURL at the canonical endpoint name', () => {
+    // EXECUTE & VERIFY — canonical pipeline-global endpoint (legacy alias ANTHROPIC_BASE_URL)
+    expect(REQUIRED_ENV_VARS.baseURL).toBe('PRP_API_BASE_URL');
+  });
+
+  it('SHOULD keep REQUIRED_ENV_VARS.apiKey as the provider-native ANTHROPIC_API_KEY (§9.2.8 exception)', () => {
+    // EXECUTE & VERIFY — provider-native credential NOT renamed
+    expect(REQUIRED_ENV_VARS.apiKey).toBe('ANTHROPIC_API_KEY');
+  });
 });
 
 describe('config/types: ModelTier', () => {
@@ -78,10 +144,13 @@ describe('config/types: ModelTier', () => {
     expect([high, balanced, fast]).toEqual(['high', 'balanced', 'fast']);
   });
 
-  it('SHOULD align with MODEL_NAMES / MODEL_ENV_VARS keys', () => {
-    // VERIFY: the ModelTier-typed set equals the keys of both constant maps
+  it('SHOULD align with MODEL_NAMES / MODEL_ENV_VARS / LEGACY_MODEL_ENV_VARS keys', () => {
+    // VERIFY: the ModelTier-typed set equals the keys of all three constant maps
     const tiers: ModelTier[] = ['high', 'balanced', 'fast'];
     expect(Object.keys(MODEL_NAMES).sort()).toEqual([...tiers].sort());
     expect(Object.keys(MODEL_ENV_VARS).sort()).toEqual([...tiers].sort());
+    expect(Object.keys(LEGACY_MODEL_ENV_VARS).sort()).toEqual(
+      [...tiers].sort()
+    );
   });
 });

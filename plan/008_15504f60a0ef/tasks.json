@@ -200,14 +200,14 @@
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Provider-Neutral Configuration Naming",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Rename tier names opus/sonnet/haiku to high/balanced/fast, add canonical PRP_* env var names with ANTHROPIC_* legacy fallback and deprecation warning, and update all getModel call sites.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "Tier Rename and Canonical Config Implementation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Rename ModelTier to high/balanced/fast, update MODEL_NAMES and MODEL_ENV_VARS to canonical PRP_* names, implement canonical-first-with-fallback loader with deprecation warning, and update all getModel call sites.",
               "subtasks": [
                 {
@@ -227,7 +227,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Canonical-first-with-fallback env loader and deprecation warning",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1"
@@ -243,7 +243,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S3",
                   "title": "Update getModel and all call sites for new tier names",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S2"
@@ -277,7 +277,7 @@
                   "type": "Subtask",
                   "id": "P2.M2.T1.S1",
                   "title": "Add reasoning budget config and role parameter to agent-factory",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S3"

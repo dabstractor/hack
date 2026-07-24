@@ -51,36 +51,64 @@ export const MODEL_NAMES = {
 } as const;
 
 /**
- * Environment variable names used for model overrides (PRD §9.2.8).
+ * Canonical provider-neutral model-override env-var names (PRD §9.2.8).
  *
  * @remarks
- * KEYS are the vendor-neutral tiers (renamed); VALUES are the (still-legacy)
- * ANTHROPIC_DEFAULT_* env-var name strings. The canonical PRP_MODEL_HIGH /
- * PRP_MODEL_BALANCED / PRP_MODEL_FAST names + canonical-first-with-fallback
- * loader + deprecation warning land in P2.M1.T1.S2.
+ * KEYS are the vendor-neutral tiers (S1). VALUES are the CANONICAL PRP_* names.
+ * The loader (environment.ts `getModel`) reads canonical-first and falls back to
+ * the deprecated {@link LEGACY_MODEL_ENV_VARS} aliases, emitting a one-time
+ * deprecation warning naming the canonical replacement.
+ *
+ * Uses `as const` to preserve the literal key types ↔ {@link ModelTier}.
  *
  * @example
  * ```ts
- * // In shell (legacy alias — still readable until S2):
- * export ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.2"
+ * // In shell (canonical, no deprecation warning):
+ * export PRP_MODEL_HIGH="glm-5.2"
  * ```
  */
 export const MODEL_ENV_VARS = {
+  high: 'PRP_MODEL_HIGH',
+  balanced: 'PRP_MODEL_BALANCED',
+  fast: 'PRP_MODEL_FAST',
+} as const;
+
+/**
+ * Deprecated legacy model-override env-var names (PRD §9.2.8 backward-compat).
+ *
+ * @remarks
+ * Read ONLY when the canonical {@link MODEL_ENV_VARS} var is unset; triggers a
+ * one-time deprecation warning naming the canonical replacement. Slated for
+ * removal in a future major version.
+ *
+ * Uses `as const` to preserve the literal key types ↔ {@link ModelTier}.
+ *
+ * @example
+ * ```ts
+ * // Legacy alias — still readable, but emits a one-time deprecation warning:
+ * export ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.2"  // → use PRP_MODEL_HIGH
+ * ```
+ */
+export const LEGACY_MODEL_ENV_VARS = {
   high: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
   balanced: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   fast: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 } as const;
 
 /**
- * Required environment variable names for SDK configuration
+ * Required environment variable names for SDK configuration (PRD §9.2.8).
  *
  * @remarks
  * These variables must be set after configureEnvironment() is called.
- * ANTHROPIC_API_KEY is mapped from ANTHROPIC_AUTH_TOKEN if needed.
+ * `ANTHROPIC_API_KEY` is provider-native (§9.2.8 exception — NOT renamed) and is
+ * mapped from `ANTHROPIC_AUTH_TOKEN` if needed. `baseURL` points at the canonical
+ * pipeline-global endpoint {@link PRP_API_BASE_URL} (legacy alias
+ * `ANTHROPIC_BASE_URL`); configureEnvironment() mirrors the resolved value into
+ * `process.env.ANTHROPIC_BASE_URL` (the SDK contract).
  */
 export const REQUIRED_ENV_VARS = {
   apiKey: 'ANTHROPIC_API_KEY',
-  baseURL: 'ANTHROPIC_BASE_URL',
+  baseURL: 'PRP_API_BASE_URL',
 } as const;
 
 /**
@@ -163,6 +191,26 @@ export const SUPPORTED_HARNESSES = ['pi', 'claude-code'] as const;
  * ```
  */
 export const PRP_API_KEY = 'PRP_API_KEY';
+
+/**
+ * Environment variable name: canonical LLM provider endpoint (PRD §9.2.8).
+ *
+ * @remarks
+ * Provider-neutral pipeline-global endpoint. The loader (configureEnvironment)
+ * reads this canonical-first, falling back to the deprecated `ANTHROPIC_BASE_URL`
+ * alias (one-time deprecation warning), and writes the resolved value into
+ * `process.env.ANTHROPIC_BASE_URL` — the SDK contract consumed downstream by
+ * endpoint-guard / agent-factory / runtime-api-validator / validate-api.
+ *
+ * @example
+ * ```ts
+ * import { PRP_API_BASE_URL } from './config/constants.js';
+ *
+ * console.log(PRP_API_BASE_URL); // 'PRP_API_BASE_URL'
+ * console.log(process.env[PRP_API_BASE_URL]); // e.g. 'https://api.z.ai/api/anthropic'
+ * ```
+ */
+export const PRP_API_BASE_URL = 'PRP_API_BASE_URL';
 
 // ---------------------------------------------------------------------------
 // Resilience Tuning (PRD §4.2, §4.5, §9.2.2)
