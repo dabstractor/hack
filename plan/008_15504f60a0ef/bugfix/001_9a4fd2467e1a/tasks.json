@@ -268,7 +268,7 @@
                   "type": "Subtask",
                   "id": "P2.M3.T1.S1",
                   "title": "Fix PRP-generator tests to mock the file-contract return path",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M2.T1.S2"
