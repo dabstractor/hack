@@ -336,7 +336,7 @@
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "Implement numbered bugfix/NNN_hash/ directories and update detection",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Replace the flat bugfix/ directory with numbered bugfix/NNN_hash/ iterations. Update both creation (runQACycle) and detection (#detectInterruptedBugfix) paths to maintain mutual consistency.",
               "subtasks": [
                 {
@@ -373,7 +373,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S3",
                   "title": "Update #detectInterruptedBugfix() to scan numbered bugfix/ children",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T1.S1"
@@ -389,7 +389,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S4",
                   "title": "Tests for numbered bugfix iteration lifecycle",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M1.T1.S3"

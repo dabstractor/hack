@@ -33,7 +33,7 @@ import type {
   Task,
   TestResults,
 } from '../core/models.js';
-import { BacklogSchema } from '../core/models.js';
+import { BacklogReadSchema } from '../core/models.js';
 import type { Scope } from '../core/scope-resolver.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
@@ -2039,65 +2039,118 @@ export class PRPPipeline extends Workflow {
   }
 
   /**
-   * Detect a bugfix dir left in an interrupted state (PRD §4.4 step 3).
+   * Detect the most recent numbered bugfix child left in an interrupted state
+   * (PRD §4.4 step 3, §5.1).
    *
-   * "Interrupted" = the QA bug report (TEST_RESULTS.md) was committed but
-   * task breakdown (tasks.json) did not finish — the file is missing, empty,
-   * or fails JSON parse / BacklogSchema validation. Returns the bugfix dir
-   * path so the caller can resume the breakdown; returns null when there is
-   * nothing to resume (never hunted, or a healthy completed breakdown).
+   * @remarks
+   * Scans ALL numbered children (`NNN_hash/`) of `sessionPath/bugfix/` and returns
+   * the MOST RECENT one whose breakdown did not finish. "Interrupted" = the child
+   * has a bug report (`TEST_RESULTS.md`) but its `tasks.json` is missing, empty,
+   * unreadable, fails JSON parse, or fails `BacklogReadSchema` (lenient read-time)
+   * validation. Children with a valid `tasks.json` (healthy/completed) are SKIPPED,
+   * so resume works across multiple iterations (prior completed iterations are
+   * preserved, not re-run). Children without `TEST_RESULTS.md` are skipped (never
+   * properly hunted). Returns `null` when there is nothing to resume (no `bugfix/`
+   * dir, no numbered children, or all children healthy).
+   *
+   * Mutual consistency with S2: `runQACycle` CREATES numbered `bugfix/NNN_hash/`
+   * children; this method DETECTS them. The returned path still contains `'bugfix'`,
+   * so `FixCycleWorkflow`'s path validation passes unchanged.
    *
    * @param sessionPath - The MAIN session dir (plan/NNN_hash).
-   * @returns The interrupted bugfix dir path, or null.
+   * @returns The most recent interrupted numbered bugfix child dir, or null.
    * @private
    */
   async #detectInterruptedBugfix(sessionPath: string): Promise<string | null> {
     const { resolve } = await import('node:path');
-    const { stat, readFile } = await import('node:fs/promises');
-    const bugfixDir = resolve(sessionPath, 'bugfix');
-    const testResultsPath = resolve(bugfixDir, 'TEST_RESULTS.md');
-    const tasksPath = resolve(bugfixDir, 'tasks.json');
+    const { readdir } = await import('node:fs/promises');
 
-    // 1. No bug report → never hunted (or not interrupted) → nothing to resume.
+    const BUGFIX_CHILD_PATTERN = /^\d{3}_/;
+    const bugfixDir = resolve(sessionPath, 'bugfix');
+
+    // (a) Read sessionPath/bugfix/ — ENOENT means never hunted.
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await readdir(bugfixDir, { withFileTypes: true });
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        return null; // no bugfix/ dir → never hunted
+      }
+      throw error; // non-ENOENT → propagate (unexpected)
+    }
+
+    // (b)+(c) Filter to numbered NNN_* child DIRS, sort by sequence DESC (most recent first).
+    const numberedChildren = entries
+      .filter(e => e.isDirectory() && BUGFIX_CHILD_PATTERN.test(e.name))
+      .map(e => {
+        const seq = parseInt(e.name.slice(0, 3), 10);
+        return { dir: resolve(bugfixDir, e.name), seq };
+      })
+      .sort((a, b) => b.seq - a.seq);
+
+    // (d)+(e)+(f) Find the first (most recent) interrupted child.
+    for (const child of numberedChildren) {
+      const interrupted = await this.#isBugfixChildInterrupted(child.dir);
+      if (interrupted) {
+        return child.dir; // most recent interrupted
+      }
+      // healthy (or never-hunted) → skip, continue to older children
+    }
+    return null; // no interrupted child
+  }
+
+  /**
+   * Check a single numbered bugfix child dir for an interrupted-breakdown state.
+   *
+   * @remarks
+   * "Interrupted" = `TEST_RESULTS.md` exists (a bug report was committed) but
+   * `tasks.json` is missing, empty, unreadable, fails JSON parse, or fails
+   * `BacklogReadSchema` (lenient read-time) validation. A child WITHOUT
+   * `TEST_RESULTS.md` returns `false` (never properly hunted → skip).
+   *
+   * @param childDir - A numbered bugfix/NNN_hash/ child dir.
+   * @returns true if this child is interrupted (should be resumed).
+   * @private
+   */
+  async #isBugfixChildInterrupted(childDir: string): Promise<boolean> {
+    const { resolve } = await import('node:path');
+    const { stat, readFile } = await import('node:fs/promises');
+    const testResultsPath = resolve(childDir, 'TEST_RESULTS.md');
+    const tasksPath = resolve(childDir, 'tasks.json');
+
+    // No bug report → never hunted in this child → not interrupted (skip).
     try {
       await stat(testResultsPath);
     } catch {
-      return null;
+      return false;
     }
 
-    // 2. tasks.json missing → interrupted.
+    // Bug report present → tasks.json must be valid; anything else = interrupted.
     try {
       await stat(tasksPath);
     } catch {
-      return bugfixDir;
+      return true; // missing
     }
-
-    // 3. tasks.json empty → interrupted.
     let content: string;
     try {
       content = await readFile(tasksPath, 'utf-8');
     } catch {
-      return bugfixDir; // unreadable → treat as interrupted
+      return true; // unreadable
     }
     if (content.trim() === '') {
-      return bugfixDir;
+      return true; // empty
     }
-
-    // 4. tasks.json corrupt (invalid JSON) → interrupted.
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
-      return bugfixDir;
+      return true; // corrupt JSON
     }
-
-    // 5. tasks.json corrupt (valid JSON, invalid Backlog) → interrupted.
-    if (!BacklogSchema.safeParse(parsed).success) {
-      return bugfixDir;
+    if (!BacklogReadSchema.safeParse(parsed).success) {
+      return true; // invalid Backlog (lenient read-time schema)
     }
-
-    // 6. Healthy → not interrupted.
-    return null;
+    return false; // healthy
   }
 
   /**

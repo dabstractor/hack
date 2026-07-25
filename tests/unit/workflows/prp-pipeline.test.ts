@@ -157,7 +157,7 @@ vi.mock('../../../src/utils/validation/execution-guard.js', () => ({
 }));
 
 // Import mocked modules
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { createArchitectAgent } from '../../../src/agents/agent-factory.js';
 import { AgentError } from '../../../src/utils/errors.js';
 import { SessionManager as SessionManagerClass } from '../../../src/core/session-manager.js';
@@ -175,6 +175,7 @@ import {
 // Cast mocked functions
 const mockReadFile = readFile as any;
 const mockStat = stat as any;
+const mockReaddir = readdir as any;
 const mockResolvePRD = resolvePRD as any;
 const mockCreateArchitectAgent = createArchitectAgent as any;
 const MockDeltaAnalysisWorkflow = DeltaAnalysisWorkflow as any;
@@ -928,10 +929,24 @@ describe('PRPPipeline', () => {
 
       // OVERRIDE readdir: simulate a prior bugfix/001_<hash>/ iteration
       // already existing → nextBugfixDir must return sequence 2 (max+1).
-      const { readdir } = await import('node:fs/promises');
-      vi.mocked(readdir).mockResolvedValueOnce([
+      // PERSISTENT (not once): #detectInterruptedBugfix calls readdir FIRST
+      // (must see 001_ as healthy → return null → fresh hunt), then
+      // nextBugfixDir calls readdir AGAIN (sees 001_ → sequence 2).
+      const { readdir, stat, readFile } = await import('node:fs/promises');
+      vi.mocked(readdir).mockResolvedValue([
         { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
       ] as any);
+      // 001_ is healthy (valid TEST_RESULTS.md + tasks.json) so detection
+      // skips it → returns null → fresh hunt proceeds.
+      vi.mocked(stat).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s.includes('001_') && s.endsWith('TEST_RESULTS.md')) return {};
+        if (s.includes('001_') && s.endsWith('tasks.json')) return {};
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      });
+      vi.mocked(readFile).mockResolvedValue(JSON.stringify({ backlog: [] }));
 
       // EXECUTE
       await pipeline.runQACycle();
@@ -994,8 +1009,16 @@ describe('PRPPipeline', () => {
       return pipeline;
     };
 
+    /** Stub readdir to return a single numbered bugfix/NNN_hash/ child dir. */
+    const stubNumberedChild = (seq = '001') => {
+      mockReaddir.mockResolvedValue([
+        { name: `${seq}_aaaaaaaaaaaa`, isDirectory: () => true },
+      ] as any);
+    };
+
     /** Stub mockStat/mockReadFile so bugfix/TEST_RESULTS.md exists but tasks.json is missing. */
     const stubMissingTasks = () => {
+      stubNumberedChild();
       mockStat.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s.endsWith('TEST_RESULTS.md')) return {}; // present
@@ -1015,6 +1038,11 @@ describe('PRPPipeline', () => {
       MockFixCycleWorkflow.mockImplementation(() => ({
         run: vi.fn().mockResolvedValue(CLEAN_RESULTS),
       }));
+      // Reset readdir to default ENOENT (never hunted) so each test is
+      // deterministic; tests that need a numbered child call stubNumberedChild().
+      mockReaddir.mockRejectedValue(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      );
     });
 
     it('resumes when tasks.json is MISSING (skips fresh hunt, reuses existing dir)', async () => {
@@ -1038,6 +1066,7 @@ describe('PRPPipeline', () => {
 
     it('resumes when tasks.json is EMPTY', async () => {
       const pipeline = buildBugHuntPipeline();
+      stubNumberedChild();
       mockStat.mockResolvedValue({}); // both files exist
       mockReadFile.mockResolvedValue(''); // empty tasks.json
 
@@ -1049,6 +1078,7 @@ describe('PRPPipeline', () => {
 
     it('resumes when tasks.json is CORRUPT (invalid JSON)', async () => {
       const pipeline = buildBugHuntPipeline();
+      stubNumberedChild();
       mockStat.mockResolvedValue({});
       mockReadFile.mockResolvedValue('{not valid json');
 
@@ -1060,8 +1090,9 @@ describe('PRPPipeline', () => {
 
     it('resumes when tasks.json is CORRUPT (valid JSON, invalid Backlog)', async () => {
       const pipeline = buildBugHuntPipeline();
+      stubNumberedChild();
       mockStat.mockResolvedValue({});
-      // Valid JSON but not a valid Backlog shape.
+      // Valid JSON but not a valid Backlog shape (fails even lenient BacklogReadSchema).
       mockReadFile.mockResolvedValue(JSON.stringify({ foo: 1 }));
 
       await pipeline.runQACycle();
@@ -1072,6 +1103,7 @@ describe('PRPPipeline', () => {
 
     it('resumes when tasks.json is UNREADABLE (readFile throws)', async () => {
       const pipeline = buildBugHuntPipeline();
+      stubNumberedChild();
       // Both files exist (stat succeeds), but reading tasks.json fails
       // (e.g. permissions) → treated as interrupted.
       mockStat.mockResolvedValue({});
@@ -1085,6 +1117,7 @@ describe('PRPPipeline', () => {
 
     it('runs a fresh hunt when the dir is HEALTHY (valid tasks.json)', async () => {
       const pipeline = buildBugHuntPipeline();
+      stubNumberedChild();
       mockStat.mockResolvedValue({}); // both files exist
       mockReadFile.mockResolvedValue(VALID_BACKLOG_JSON); // valid tasks.json
 
@@ -1099,7 +1132,8 @@ describe('PRPPipeline', () => {
 
     it('runs a fresh hunt when there is NO TEST_RESULTS.md', async () => {
       const pipeline = buildBugHuntPipeline();
-      // No TEST_RESULTS.md → never hunted → not interrupted.
+      stubNumberedChild(); // numbered child exists but has no TEST_RESULTS.md
+      // No TEST_RESULTS.md → never hunted in this child → not interrupted (skip).
       mockStat.mockImplementation(async () => {
         const err = new Error('ENOENT') as NodeJS.ErrnoException;
         err.code = 'ENOENT';
@@ -1169,6 +1203,185 @@ describe('PRPPipeline', () => {
       // The key assertion: pipeline did NOT throw and reached qa_complete.
       expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
       expect(pipeline.currentPhase).toBe('qa_complete');
+    });
+
+    describe('multi-child scan (numbered bugfix/NNN_hash/ detection)', () => {
+      /** Stub two numbered children; per-child health set via mockStat/mockReadFile. */
+      const stubTwoChildren = (younger: string, older: string) => {
+        mockReaddir.mockResolvedValue([
+          { name: `${younger}_bbbbbbbbbbbb`, isDirectory: () => true },
+          { name: `${older}_aaaaaaaaaaaa`, isDirectory: () => true },
+        ] as any);
+      };
+      /** ENOENT error factory. */
+      const enoent = () =>
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
+      it('returns the MOST RECENT interrupted child when both interrupted', async () => {
+        const pipeline = buildBugHuntPipeline();
+        // 002 + 001 both have TEST_RESULTS.md + missing tasks.json (interrupted).
+        stubTwoChildren('002', '001');
+        mockStat.mockImplementation(async (p: string) => {
+          if (String(p).endsWith('TEST_RESULTS.md')) return {};
+          throw enoent(); // both tasks.json missing
+        });
+
+        await pipeline.runQACycle();
+
+        // 002 is most recent → resumed; no fresh hunt.
+        expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+        expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+        expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+          expect.stringContaining('002_bbbbbbbbbbbb'),
+          expect.any(String),
+          expect.anything(),
+          expect.anything(),
+          expect.anything()
+        );
+      });
+
+      it('skips healthy most-recent child, resumes OLDER interrupted child', async () => {
+        const pipeline = buildBugHuntPipeline();
+        // 002 healthy (valid tasks.json); 001 interrupted (tasks.json missing).
+        stubTwoChildren('002', '001');
+        mockStat.mockImplementation(async (p: string) => {
+          const s = String(p);
+          if (s.endsWith('TEST_RESULTS.md')) return {}; // both have reports
+          if (s.includes('002_')) return {}; // 002 tasks.json present
+          throw enoent(); // 001 tasks.json missing
+        });
+        mockReadFile.mockImplementation(async (p: string) => {
+          if (String(p).includes('002_')) return VALID_BACKLOG_JSON;
+          return ''; // not reached (001 stat ENOENT first)
+        });
+
+        await pipeline.runQACycle();
+
+        // 002 skipped (healthy); 001 resumed.
+        expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+        expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+          expect.stringContaining('001_aaaaaaaaaaaa'),
+          expect.any(String),
+          expect.anything(),
+          expect.anything(),
+          expect.anything()
+        );
+      });
+
+      it('returns null when ALL numbered children are healthy (fresh hunt)', async () => {
+        const pipeline = buildBugHuntPipeline();
+        stubTwoChildren('002', '001');
+        mockStat.mockResolvedValue({}); // all files present
+        mockReadFile.mockResolvedValue(VALID_BACKLOG_JSON); // all valid
+
+        await pipeline.runQACycle();
+
+        // Nothing interrupted → fresh hunt.
+        expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+        expect(MockFixCycleWorkflow).not.toHaveBeenCalled();
+      });
+
+      it('returns null when no bugfix/ dir exists (ENOENT → never hunted)', async () => {
+        const pipeline = buildBugHuntPipeline();
+        // Default readdir (ENOENT) is set in beforeEach; ensure it.
+        mockReaddir.mockRejectedValue(enoent());
+
+        await pipeline.runQACycle();
+
+        expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+      });
+
+      it('PROPAGATES non-ENOENT readdir errors (surfaces unexpected failures)', async () => {
+        const pipeline = buildBugHuntPipeline();
+        const eacces = Object.assign(new Error('EACCES'), {
+          code: 'EACCES',
+        });
+        mockReaddir.mockRejectedValue(eacces);
+        // Spy on the logger to observe the tracked non-fatal failure
+        // (runQACycle catches non-fatal errors and tracks them; the EACCES
+        // must propagate OUT of #detectInterruptedBugfix to be tracked here —
+        // if it were swallowed, detection would return null and a fresh
+        // hunt would run instead).
+        const warnSpy = vi.fn();
+        (pipeline as any).logger = {
+          ...(pipeline as any).logger,
+          warn: warnSpy,
+          info: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        };
+
+        await pipeline.runQACycle();
+
+        // The propagated EACCES was tracked as a non-fatal QA failure.
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('EACCES'));
+        expect(pipeline.currentPhase).toBe('qa_failed');
+      });
+
+      it('ignores non-NNN_ entries and non-directory entries', async () => {
+        const pipeline = buildBugHuntPipeline();
+        // architecture/ (non-NNN), a stray file, and one real numbered child.
+        mockReaddir.mockResolvedValue([
+          { name: 'architecture', isDirectory: () => true },
+          { name: 'README.md', isDirectory: () => false },
+          { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+        ] as any);
+        mockStat.mockImplementation(async (p: string) => {
+          if (String(p).endsWith('TEST_RESULTS.md')) return {};
+          throw enoent(); // 001 tasks.json missing → interrupted
+        });
+
+        await pipeline.runQACycle();
+
+        // Only 001 is a numbered dir; it is interrupted → resume.
+        expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+        expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+          expect.stringContaining('001_aaaaaaaaaaaa'),
+          expect.any(String),
+          expect.anything(),
+          expect.anything(),
+          expect.anything()
+        );
+      });
+
+      it('skips a child without TEST_RESULTS.md (never hunted) and continues', async () => {
+        const pipeline = buildBugHuntPipeline();
+        // 002 has NO TEST_RESULTS.md (skip); 001 has report + missing tasks (interrupted).
+        stubTwoChildren('002', '001');
+        mockStat.mockImplementation(async (p: string) => {
+          const s = String(p);
+          // 002 has neither file → skip (no report).
+          if (s.includes('002_')) throw enoent();
+          // 001 has TEST_RESULTS.md, missing tasks.json → interrupted.
+          if (s.endsWith('TEST_RESULTS.md')) return {};
+          throw enoent();
+        });
+
+        await pipeline.runQACycle();
+
+        // 002 skipped (no report); 001 resumed.
+        expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+        expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+          expect.stringContaining('001_aaaaaaaaaaaa'),
+          expect.any(String),
+          expect.anything(),
+          expect.anything(),
+          expect.anything()
+        );
+      });
+
+      it('returns null when bugfix/ has no numbered children (empty / all non-NNN_)', async () => {
+        const pipeline = buildBugHuntPipeline();
+        mockReaddir.mockResolvedValue([
+          { name: 'architecture', isDirectory: () => true },
+          { name: 'notes.md', isDirectory: () => false },
+        ] as any);
+
+        await pipeline.runQACycle();
+
+        // No numbered child → nothing to resume → fresh hunt.
+        expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
