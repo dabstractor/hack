@@ -1640,6 +1640,131 @@ describe('PRPPipeline', () => {
       });
     });
 
+    // Shared fixture: a mock SessionManager whose currentSession holds the
+    // adopted (all-Complete) baseline — 1 Phase → Milestone → Task → Subtask,
+    // all 'Complete' (mirrors createAdoptedBaseline() from P5.M1.T1.S2 / PRD §4.6).
+    // NOTE: returned mock must be injected onto the pipeline instance via
+    // `(pipeline as any).sessionManager = mock` because runQACycle/executeBacklog
+    // are called directly (run() is the only place that constructs SessionManager).
+    function mockSessionWithAdoptedBaseline() {
+      const baseline = createTestBacklog([
+        createTestPhase('P1', 'Adopt Existing Codebase', 'Complete', [
+          createTestMilestone('P1.M1', 'Adopt Existing Codebase', 'Complete', [
+            createTestTask('P1.M1.T1', 'Adopt Existing Codebase', 'Complete', [
+              createTestSubtask(
+                'P1.M1.T1.S1',
+                'Adopt existing codebase',
+                'Complete'
+              ),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(baseline, '# PRD', '/plan/008_abc');
+      return {
+        currentSession: mockSession,
+        initialize: vi.fn().mockResolvedValue(mockSession),
+        saveBacklog: vi.fn().mockResolvedValue(undefined),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        createDeltaSession: vi.fn().mockResolvedValue(mockSession),
+        prdPath: '/test/prd.md',
+        planDir: '/plan',
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    describe('adopt mode: validation + bug-hunt still run (PRD §4.6)', () => {
+      it('executeBacklog recomputes totalTasks/completedTasks when skipExecutionLoop (adopt mode)', async () => {
+        // SETUP: a session whose registry is the all-Complete adopted baseline.
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockSessionWithAdoptedBaseline();
+        (pipeline as any).skipExecutionLoop = true; // S2 field (set on adoptFresh)
+
+        // SANITY: counts start at 0 before executeBacklog runs.
+        expect(pipeline.totalTasks).toBe(0);
+        expect(pipeline.completedTasks).toBe(0);
+
+        // EXECUTE
+        await pipeline.executeBacklog();
+
+        // VERIFY: the skip guard recomputes BOTH counts from the seeded registry
+        // so the session reports complete (PRD §4.6). Without the recompute,
+        // completedTasks would stay 0 even though the baseline is 100% Complete.
+        expect(pipeline.totalTasks).toBe(1);
+        expect(pipeline.completedTasks).toBe(1);
+        expect(pipeline.currentPhase).toBe('backlog_complete');
+      });
+
+      it('runQACycle runs the bug hunt for the adopted (all-Complete) baseline (PRD §4.6)', async () => {
+        // SETUP: same adopted-baseline session. The skip guard / decomposePRD
+        // would have produced totalTasks=1, completedTasks=1.
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockSessionWithAdoptedBaseline();
+        (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+        pipeline.totalTasks = 1;
+        pipeline.completedTasks = 1;
+        // mode defaults to 'normal'
+        // BugHuntWorkflow default mock (no bugs) is fine — assert it was called.
+
+        // EXECUTE
+        await pipeline.runQACycle();
+
+        // VERIFY: QA must NOT have been skipped — the gate is #allTasksComplete()
+        // which reads the all-Complete in-memory registry. The bug hunt ran.
+        expect(pipeline.currentPhase).not.toBe('qa_skipped');
+        expect(MockBugHuntWorkflow).toHaveBeenCalled();
+      });
+
+      it('run() still runs validation + bug-hunt in adopt mode and reports the session complete (PRD §4.6)', async () => {
+        // SETUP: run() constructs SessionManager internally, so wire the mock
+        // constructor to return the adopted-baseline manager.
+        const adoptedManager = mockSessionWithAdoptedBaseline();
+        MockSessionManagerClass.mockImplementation(() => adoptedManager);
+        // Validation passes (fresh passing impl) so #runValidation does not abort.
+        MockValidationWorkflow.mockImplementation(() => ({
+          run: vi.fn().mockResolvedValue({
+            success: true,
+            exitCode: 0,
+            timedOut: false,
+            stdout: '',
+            stderr: '',
+            scriptPath: '/plan/008_abc/validate.sh',
+            durationMs: 0,
+          }),
+        }));
+        // run()'s nested-execution guard must not throw.
+        mockValidateNestedExecution.mockImplementation(() => {});
+        mockIsNestedExecutionError.mockReturnValue(false);
+        // BugHuntWorkflow reports no bugs — we only assert it was called.
+        MockBugHuntWorkflow.mockImplementation(() => ({
+          run: vi.fn().mockResolvedValue({
+            hasBugs: false,
+            bugs: [],
+            summary: 'No bugs found',
+            recommendations: [],
+          }),
+        }));
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+        (pipeline as any).skipExecutionLoop = true; // adopt mode (S2 sets this on adoptFresh)
+
+        // EXECUTE
+        const result = await pipeline.run();
+
+        // VERIFY
+        expect(result.success).toBe(true);
+        // VALIDATION ran (PRD §4.6 — validation is NOT gated by skipExecutionLoop):
+        expect(MockValidationWorkflow).toHaveBeenCalled();
+        // BUG HUNT ran (not skipped):
+        expect(MockBugHuntWorkflow).toHaveBeenCalled();
+        // Session reported COMPLETE (the S3 recompute in the skip guard):
+        expect(result.totalTasks).toBe(1);
+        expect(result.completedTasks).toBe(1);
+      });
+    });
+
     describe('handleDelta', () => {
       beforeEach(() => {
         // Setup default mocks for handleDelta tests (new PRD is resolved via resolvePRD)

@@ -1026,21 +1026,21 @@
       "type": "Phase",
       "id": "P5",
       "title": "Adopt Mode (--adopt-prd)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Add the --adopt-prd CLI flag that declares the PRD the source of truth for an already-shipped codebase without wasting a breakdown + implementation pass. Seeds a completed baseline session, skips execution, and still runs validation + bug hunt.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P5.M1",
           "title": "Adopt Mode Implementation",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Implement the --adopt-prd CLI flag with guard rails, baseline session seeding, .adopted marker, SKIP_EXECUTION_LOOP, and validation/bug-hunt execution.",
           "tasks": [
             {
               "type": "Task",
               "id": "P5.M1.T1",
               "title": "--adopt-prd CLI Flag, Guard Rails, and Baseline Session Seeding",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add the --adopt-prd CLI flag, implement guard rails (require PRD, no-op on existing sessions, reject empty SESSION_DIR, mkdir PLAN_DIR first), seed a completed baseline tasks.json with .adopted marker, set SKIP_EXECUTION_LOOP, and run validation + bug hunt.",
               "subtasks": [
                 {
@@ -1075,7 +1075,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T1.S3",
                   "title": "Validation and bug-hunt still run in adopt mode",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P5.M1.T1.S2"

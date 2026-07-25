@@ -1257,8 +1257,14 @@ export class PRPPipeline extends Workflow {
     // and is the signal S3 (validation/bug-hunt-still-run) keys off.
     if (this.skipExecutionLoop) {
       this.logger.info(
-        '[PRPPipeline] Skipping execution loop (adopt mode / SKIP_EXECUTION_LOOP)'
+        '[PRPPipeline] Skipping execution loop (adopt mode / SKIP_EXECUTION_LOOP); validation + bug-hunt still run (PRD §4.6)'
       );
+      // PRD §4.6: the adopted baseline is all-Complete. executeBacklog()'s body
+      // (which sets completedTasks) is skipped, so recompute BOTH counts from
+      // the seeded registry here. This makes the session report as complete and
+      // ensures runQACycle() treats it as a normal completed session.
+      this.totalTasks = this.#countTasks();
+      this.completedTasks = this.#countCompletedTasks();
       this.currentPhase = 'backlog_complete';
       return;
     }
