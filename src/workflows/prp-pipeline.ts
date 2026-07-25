@@ -80,6 +80,27 @@ import { ResourceMonitor } from '../utils/resource-monitor.js';
 import { MetricsCollector } from '../utils/metrics-collector.js';
 
 /**
+ * Sentinel thrown by the executeBacklog max-iterations safety guard. Tagged
+ * with a unique marker so the inner task-error catch can rethrow it (instead
+ * of the default break-and-halt) and let it propagate out of executeBacklog.
+ * PRD bugfix Issue 5: the guard was previously a plain `Error` swallowed by
+ * the inner catch, making the safety net dead.
+ */
+class MaxIterationsError extends Error {
+  readonly isMaxIterationsError = true;
+}
+
+/**
+ * Sentinel wrapping a `taskOrchestrator.processNextItem` rejection. Tagged so
+ * the outer executeBacklog catch can rethrow it instead of tracking it as a
+ * non-fatal failure (PRD bugfix Issue 5): a processNextItem throw indicates an
+ * orchestrator-level failure, not an individual subtask failure.
+ */
+class OrchestratorError extends Error {
+  readonly isOrchestratorError = true;
+}
+
+/**
  * Result returned by PRPPipeline.run()
  */
 export interface PipelineResult {
@@ -788,6 +809,14 @@ export class PRPPipeline extends Workflow {
         `[PRPPipeline] Non-fatal session initialization error, continuing: ${errorMessage}`
       );
       this.currentPhase = 'session_failed';
+
+      // If the session never loaded (no currentSession), continuing is
+      // pointless — downstream stages would fail with a misleading error
+      // (e.g. executeBacklog's "no backlog found" hard-abort) that masks the
+      // REAL init failure. Re-throw so run() surfaces the original error.
+      if (!this.sessionManager.currentSession) {
+        throw error;
+      }
     }
   }
 
@@ -1448,15 +1477,28 @@ export class PRPPipeline extends Workflow {
       let taskCounter = 0; // Track tasks for interval-based monitoring
       const maxIterations = 10000; // Safety limit
 
-      // Process items until queue is empty or shutdown requested
-      while (await this.taskOrchestrator.processNextItem()) {
+      // Process items until queue is empty or shutdown requested. A
+      // processNextItem rejection is wrapped as OrchestratorError so the outer
+      // catch rethrows it (PRD bugfix Issue 5) rather than swallowing it.
+      let hasMore: boolean;
+      try {
+        hasMore = await this.taskOrchestrator.processNextItem();
+      } catch (e) {
+        throw new OrchestratorError(e instanceof Error ? e.message : String(e));
+      }
+      while (hasMore) {
         // WRAP: Loop body in try-catch to continue on individual task failures
         try {
           iterations++;
 
-          // Safety check
+          // Safety check. Rethrown out of the inner catch below (tagged via
+          // isMaxIterationsError) so it propagates OUT of executeBacklog (PRD
+          // bugfix Issue 5): an earlier version threw a plain Error here that
+          // the inner catch swallowed (break → reported "success").
           if (iterations > maxIterations) {
-            throw new Error(`Execution exceeded ${maxIterations} iterations`);
+            throw new MaxIterationsError(
+              `Execution exceeded ${maxIterations} iterations`
+            );
           }
 
           // Update completed tasks count
@@ -1555,6 +1597,16 @@ export class PRPPipeline extends Workflow {
         } catch (taskError) {
           // CATCH: Individual task failure.
           //
+          // A MaxIterationsError is the executeBacklog safety guard (PRD
+          // bugfix Issue 5): rethrow it so it propagates instead of being
+          // swallowed by the default break-and-halt below.
+          if (
+            taskError instanceof Error &&
+            (taskError as MaxIterationsError).isMaxIterationsError
+          ) {
+            throw taskError;
+          }
+          //
           // A TaskError thrown by executeSubtask means a subtask hard-failed
           // (validation exhausted after retries). By DEFAULT we HALT the
           // pipeline — the prior always-continue behavior committed broken
@@ -1590,6 +1642,17 @@ export class PRPPipeline extends Workflow {
           this.currentPhase = 'backlog_halted';
           break;
         }
+
+        // Re-evaluate the loop condition for the next iteration. Wrapped as
+        // OrchestratorError on rejection (see the priming read above) so a
+        // processNextItem throw propagates (PRD bugfix Issue 5).
+        try {
+          hasMore = await this.taskOrchestrator.processNextItem();
+        } catch (e) {
+          throw new OrchestratorError(
+            e instanceof Error ? e.message : String(e)
+          );
+        }
       }
 
       // Only log "complete" if not interrupted
@@ -1619,6 +1682,24 @@ export class PRPPipeline extends Workflow {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
+
+      // PRD bugfix Issue 5: the max-iterations safety guard and a
+      // processNextItem orchestrator failure must propagate out of
+      // executeBacklog (they were previously swallowed here because
+      // isFatalError treats unknown Error types as non-fatal). These are
+      // tagged sentinels (MaxIterationsError / OrchestratorError); rethrow
+      // them unconditionally — even under --continue-on-error, since both
+      // indicate the execution loop itself is broken, not a single subtask.
+      if (
+        error instanceof Error &&
+        ((error as MaxIterationsError).isMaxIterationsError ||
+          (error as OrchestratorError).isOrchestratorError)
+      ) {
+        this.logger.error(
+          `[PRPPipeline] Fatal backlog execution error: ${errorMessage}`
+        );
+        throw error;
+      }
 
       // Check if error is fatal
       if (isFatalError(error, this.#continueOnError)) {

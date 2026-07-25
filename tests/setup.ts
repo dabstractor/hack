@@ -109,6 +109,14 @@ beforeEach(() => {
   // This prevents mock calls from bleeding between tests
   vi.clearAllMocks();
 
+  // HERMETIC ENV: Reset pipeline-gating env vars to a known clean default
+  // so the suite does NOT depend on the ambient shell environment. Several
+  // pipeline behaviors key off these (e.g. SKIP_BUG_FINDING disables bugfix
+  // resume detection); an exported shell var (SKIP_BUG_FINDING=true) would
+  // silently flip them and break tests that assume the default. Tests that
+  // need a specific value use vi.stubEnv(...) (restored by afterEach).
+  delete process.env.SKIP_BUG_FINDING;
+
   // SAFEGUARD: Validate API endpoint before each test
   // This catches any environment changes during test runs
   validateApiEndpoint();
