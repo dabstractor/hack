@@ -1,0 +1,13 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+  h3.0 Issue 1: Delta-session breakdown is unreachable — delta_prd.md is written but never consumed; new requirements are silently dropped
+ h2.2 Major Issues (Should Fix)
+  h3.1 Issue 2: patchBacklog 'added' case is unimplemented — new requirements silently dropped
+  h3.2 Issue 3: Test suite is red (297 failing tests / 38 files); ContextScopeSchema over-strict on READ risks session lockout
+ h2.3 Minor Issues (Nice to Fix)
+  h3.3 Issue 4: Bugfix sessions use a flat bugfix/ directory instead of numbered iterations
+  h3.4 Issue 5: executeBacklog swallows "no backlog found" instead of aborting
+ h2.4 Testing Summary
+---
+code:3 para:37 list:7
