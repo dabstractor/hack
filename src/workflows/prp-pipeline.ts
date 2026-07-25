@@ -70,6 +70,7 @@ import {
 import { FixCycleWorkflow } from './fix-cycle-workflow.js';
 import { isParallelResearch, getResearchDepth } from '../config/constants.js';
 import { patchBacklog } from '../core/task-patcher.js';
+import { mergeBacklogs } from '../core/backlog-merger.js';
 import { filterByStatus } from '../utils/task-utils.js';
 import { progressTracker, type ProgressTracker } from '../utils/progress.js';
 import { ProgressDisplay } from '../utils/progress-display.js';
@@ -1212,21 +1213,23 @@ export class PRPPipeline extends Workflow {
       const tasksContent = await readFile(tasksPath, 'utf-8');
       const parsedBacklog = JSON.parse(tasksContent) as Backlog;
 
-      // S2 SEAM (P1.M1.T1.S2): for delta sessions, MERGE parsedBacklog (added
-      // tasks produced by the architect over delta_prd.md) with the in-memory
-      // patched backlog (currentSession.taskRegistry — modified→Planned,
-      // removed→Obsolete) BEFORE saving. The architect's write above clobbers
-      // tasks.json on disk, but currentSession.taskRegistry (in-memory) is
-      // untouched and available for the merge. S1 saves the architect output
-      // directly; S2 replaces this line with the merged save.
-      // Save backlog to disk
-      await this.sessionManager.saveBacklog(parsedBacklog);
+      // P1.M1.T1.S2: MERGE the architect's added-requirement output (parsedBacklog, just read
+      // from the architect's disk write) with the in-memory patched backlog
+      // (currentSession.taskRegistry — modified→Planned, removed→Obsolete already applied by
+      // patchBacklog). The architect's write above clobbered tasks.json on disk, but
+      // SessionManager.saveBacklog synced currentSession.taskRegistry in memory at
+      // spawnDeltaSession, so it still holds the patched backlog. mergeBacklogs is a pure
+      // transform; mergeBacklogs(empty, x) ≡ x, so the non-delta-no-backlog path (empty
+      // patched registry) is byte-equivalent to saving the architect output directly.
+      const patchedBacklog = this.sessionManager.currentSession!.taskRegistry;
+      const mergedBacklog = mergeBacklogs(patchedBacklog, parsedBacklog);
+      await this.sessionManager.saveBacklog(mergedBacklog);
 
-      // Update task counts
+      // Update task counts (reads the merged result via currentSession, which saveBacklog syncs).
       this.totalTasks = this.#countTasks();
 
       // Log summary
-      const phaseCount = parsedBacklog.backlog.length;
+      const phaseCount = mergedBacklog.backlog.length;
       this.logger.info(`[PRPPipeline] Generated ${phaseCount} phases`);
       this.logger.info(`[PRPPipeline] Total tasks: ${this.totalTasks}`);
 
