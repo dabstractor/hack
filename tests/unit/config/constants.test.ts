@@ -217,8 +217,19 @@ describe('config/constants: PARALLEL_RESEARCH', () => {
   });
 
   it('SHOULD return false when PARALLEL_RESEARCH is unset', () => {
-    // EXECUTE & VERIFY — unset env path: the !== 'true' branch (default false)
-    expect(isParallelResearch()).toBe(false);
+    // SETUP — ensure the var is truly absent (the host env may set it, e.g.
+    // PARALLEL_RESEARCH=true loaded via .env in tests/setup.ts). Remove it for
+    // this assertion, then restore the original value afterwards.
+    const saved = process.env.PARALLEL_RESEARCH;
+    delete process.env.PARALLEL_RESEARCH;
+    try {
+      // EXECUTE & VERIFY — unset env path: the !== 'true' branch (default false)
+      expect(isParallelResearch()).toBe(false);
+    } finally {
+      if (saved !== undefined) {
+        process.env.PARALLEL_RESEARCH = saved;
+      }
+    }
   });
 
   it('SHOULD return true ONLY for the literal "true" (case-sensitive)', () => {

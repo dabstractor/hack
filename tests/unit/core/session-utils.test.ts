@@ -15,6 +15,8 @@ import {
   hashPRD,
   hashPRDContent,
   createSessionDirectory,
+  nextBugfixDir,
+  generateBugfixHash,
   writeTasksJSON,
   readTasksJSON,
   writePRP,
@@ -37,6 +39,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
   mkdir: vi.fn(),
+  readdir: vi.fn(),
   rename: vi.fn(),
   unlink: vi.fn(),
 }));
@@ -48,7 +51,14 @@ vi.mock('node:util', () => ({
 
 // Import mocked modules
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  readdir,
+  rename,
+  unlink,
+} from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
 
 // Cast mocked functions
@@ -57,6 +67,7 @@ const mockRandomBytes = randomBytes as any;
 const mockReadFile = readFile as any;
 const mockWriteFile = writeFile as any;
 const mockMkdir = mkdir as any;
+const mockReaddir = readdir as any;
 const mockRename = rename as any;
 const mockUnlink = unlink as any;
 const mockTextDecoder = TextDecoder as any;
@@ -1536,6 +1547,231 @@ describe('core/session-utils', () => {
       expect(mockReadFile).toHaveBeenCalledWith(
         expect.stringMatching(/\/test\/session\/prd_snapshot\.md$/)
       );
+    });
+  });
+
+  describe('nextBugfixDir', () => {
+    // Helper: wire the createHash mock chain so hashPRDContent(seed) returns a
+    // predictable 64-hex digest (whose slice(0,12) is '14b9dc2a33c7').
+    const setupHashMock = (digestHex = TEST_DIGEST) => {
+      mockCreateHash.mockReturnValue({
+        update: vi.fn(() => ({
+          digest: vi.fn(() => digestHex),
+        })),
+      });
+    };
+    const TEST_SEED = 'bug-report-content';
+    const TEST_DIGEST =
+      '14b9dc2a33c7a1234567890abcdef1234567890abcdef1234567890abcdef123';
+    const TEST_HASH12 = TEST_DIGEST.slice(0, 12); // '14b9dc2a33c7'
+    const SESSION_PATH = '/plan/001_14b9dc2a33c7';
+
+    it('returns sequence 1 and a bugfix/001_<hash> dir when bugfix/ is absent (ENOENT)', async () => {
+      // SETUP — ENOENT means "first iteration"
+      setupHashMock();
+      mockReaddir.mockRejectedValue(
+        Object.assign(new Error('ENOENT: no such directory'), {
+          code: 'ENOENT',
+        })
+      );
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY — first iteration: NNN=001, hash = first 12 hex chars
+      expect(result.sequence).toBe(1);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/001_${TEST_HASH12}`);
+      // read-only: no mkdir inside the helper
+      expect(mockMkdir).not.toHaveBeenCalled();
+    });
+
+    it('returns sequence 1 when bugfix/ exists but is empty', async () => {
+      // SETUP — empty listing
+      setupHashMock();
+      mockReaddir.mockResolvedValue([]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY
+      expect(result.sequence).toBe(1);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/001_${TEST_HASH12}`);
+    });
+
+    it('returns sequence 1 when no children match the NNN_ pattern', async () => {
+      // SETUP — non-matching entries (architecture/, stray file) must NOT parse
+      setupHashMock();
+      mockReaddir.mockResolvedValue([
+        { name: 'architecture', isDirectory: () => true },
+        { name: 'README.md', isDirectory: () => false },
+        { name: 'foo_bar', isDirectory: () => true }, // no leading NNN_
+      ]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY
+      expect(result.sequence).toBe(1);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/001_${TEST_HASH12}`);
+    });
+
+    it('returns sequence 2 when one NNN_ child exists', async () => {
+      // SETUP — one numbered child
+      setupHashMock();
+      mockReaddir.mockResolvedValue([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+      ]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY — max(1)+1 = 2
+      expect(result.sequence).toBe(2);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/002_${TEST_HASH12}`);
+    });
+
+    it('returns sequence 3 when two NNN_ children exist (max+1)', async () => {
+      // SETUP — two numbered children (not necessarily contiguous)
+      setupHashMock();
+      mockReaddir.mockResolvedValue([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+        { name: '002_bbbbbbbbbbbb', isDirectory: () => true },
+      ]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY — max(1,2)+1 = 3
+      expect(result.sequence).toBe(3);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/003_${TEST_HASH12}`);
+    });
+
+    it('returns sequence based on the MAX found sequence (gap-tolerant)', async () => {
+      // SETUP — 001 and 003 exist (002 missing) → next is 004
+      setupHashMock();
+      mockReaddir.mockResolvedValue([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+        { name: '003_cccccccccccc', isDirectory: () => true },
+      ]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY — max(1,3)+1 = 4
+      expect(result.sequence).toBe(4);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/004_${TEST_HASH12}`);
+    });
+
+    it('ignores non-directory entries (files) when computing the sequence', async () => {
+      // SETUP — a FILE named '001_zzz' must NOT count (isDirectory() false)
+      setupHashMock();
+      mockReaddir.mockResolvedValue([
+        { name: '001_zzzzzzzzzzzz', isDirectory: () => false },
+        { name: 'notes.txt', isDirectory: () => false },
+      ]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY — no matching DIRECTORIES → sequence 1
+      expect(result.sequence).toBe(1);
+      expect(result.dir).toBe(`${SESSION_PATH}/bugfix/001_${TEST_HASH12}`);
+    });
+
+    it('re-throws non-ENOENT readdir errors', async () => {
+      // SETUP — EACCES (permission denied) is NOT ENOENT → must propagate
+      setupHashMock();
+      const eacces = Object.assign(new Error('EACCES: permission denied'), {
+        code: 'EACCES',
+      });
+      mockReaddir.mockRejectedValue(eacces);
+
+      // EXECUTE & VERIFY
+      await expect(nextBugfixDir(SESSION_PATH, TEST_SEED)).rejects.toBe(eacces);
+    });
+
+    it('hashes the hashSeed via hashPRDContent and embeds the 12-char slice in the dir name', async () => {
+      // SETUP — a distinct digest so we can assert the exact slice is used
+      const distinctDigest =
+        'deadbeefcafe951753a8d34b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d';
+      const expectedHash12 = distinctDigest.slice(0, 12); // 'deadbeefcafe'
+      setupHashMock(distinctDigest);
+      mockReaddir.mockResolvedValue([]);
+
+      // EXECUTE
+      const result = await nextBugfixDir(SESSION_PATH, TEST_SEED);
+
+      // VERIFY — createHash('sha256') was driven with the seed's bytes
+      expect(mockCreateHash).toHaveBeenCalledWith('sha256');
+      // VERIFY — the dir name carries the 12-char hash slice
+      expect(result.dir).toContain(`001_${expectedHash12}`);
+    });
+  });
+
+  describe('generateBugfixHash', () => {
+    it('returns the deterministic 12-char hash slice when a seed is provided', () => {
+      // SETUP — hashPRDContent(seed) chain → known 64-hex digest
+      const digestHex =
+        'a1b2c3d4e5f6789abcdef1234567890abcdef1234567890abcdef1234567890a';
+      mockCreateHash.mockReturnValue({
+        update: vi.fn(() => ({
+          digest: vi.fn(() => digestHex),
+        })),
+      });
+
+      // EXECUTE
+      const hash = generateBugfixHash('any-seed-content');
+
+      // VERIFY — seed-defined branch: slice(0,12) of the sha256 digest
+      expect(hash).toBe('a1b2c3d4e5f6');
+      expect(mockCreateHash).toHaveBeenCalledWith('sha256');
+      // VERIFY — did NOT fall through to the random path
+      expect(mockRandomBytes).not.toHaveBeenCalled();
+    });
+
+    it('is deterministic: the same seed yields the same hash', () => {
+      // SETUP
+      const digestHex = '0123456789abcdef'.repeat(4);
+      mockCreateHash.mockReturnValue({
+        update: vi.fn(() => ({
+          digest: vi.fn(() => digestHex),
+        })),
+      });
+
+      // EXECUTE & VERIFY — identical inputs → identical outputs
+      expect(generateBugfixHash('same-seed')).toBe('0123456789ab');
+      expect(generateBugfixHash('same-seed')).toBe('0123456789ab');
+    });
+
+    it('returns a random 12-char hex string when no seed is provided', () => {
+      // SETUP — random fallback: randomBytes(6).toString('hex')
+      const randomHex = 'deadbeefcafe';
+      mockRandomBytes.mockReturnValue({
+        toString: (encoding?: string) => (encoding === 'hex' ? randomHex : ''),
+      });
+
+      // EXECUTE
+      const hash = generateBugfixHash();
+
+      // VERIFY — seed-undefined branch: 12 random hex chars from randomBytes(6)
+      expect(hash).toBe('deadbeefcafe');
+      expect(hash).toHaveLength(12);
+      expect(mockRandomBytes).toHaveBeenCalledWith(6);
+      // VERIFY — did NOT consult the hash path
+      expect(mockCreateHash).not.toHaveBeenCalled();
+    });
+
+    it('passes the byte length 6 to randomBytes for the no-seed branch', () => {
+      // SETUP
+      mockRandomBytes.mockReturnValue({
+        toString: () => 'f00dface1234',
+      });
+
+      // EXECUTE
+      generateBugfixHash();
+
+      // VERIFY — 6 bytes → 12 hex chars
+      expect(mockRandomBytes).toHaveBeenCalledWith(6);
     });
   });
 });

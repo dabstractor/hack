@@ -27,6 +27,7 @@ import {
   readFile,
   writeFile,
   mkdir,
+  readdir,
   rename,
   unlink,
   stat,
@@ -763,6 +764,127 @@ export async function createSessionDirectory(
  * // Creates: /path/to/session/tasks.json
  * ```
  */
+
+/**
+ * Matches the `NNN_` prefix of a numbered bugfix directory (PRD §4.4 step 3, §5.1).
+ *
+ * @remarks
+ * Mirrors the leading-digits portion of {@link SESSION_DIR_PATTERN}
+ * (`/^(
+{3})_([a-f0-9]{12})$/`) for the main session convention. Only the
+ * `NNN_` prefix is needed when sequencing existing bugfix children — the
+ * 12-hex hash half is irrelevant for finding the max sequence number and is
+ * applied separately when constructing a new directory name (see
+ * {@link nextBugfixDir}). Using the disciplined regex (rather than a loose
+ * `split('_')`) rejects malformed entries such as stray files or
+ * non-`NNN_hash` subdirectories (e.g. `architecture/`).
+ */
+const BUGFIX_DIR_PATTERN = /^(\d{3})_/;
+
+/**
+ * Generates a 12-character lowercase-hex hash for a bugfix directory name
+ * (PRD §4.4 step 3).
+ *
+ * @remarks
+ * When `seed` is provided, hashes it via {@link hashPRDContent} (sha256) and
+ * slices to 12 chars — matching {@link createSessionDirectory}'s
+ * `fullHash.slice(0, 12)` rule, so a given bug report yields a deterministic
+ * directory-name component. When `seed` is omitted, returns a random 12-char
+ * hex string (`randomBytes(6)`) for pure uniqueness — the
+ * "timestamp/random-based hash for uniqueness" fallback noted in the work-item
+ * contract. Decoupling hashing from numbering lets callers pass either the
+ * bug-report content OR nothing.
+ *
+ * @param seed - Optional content to hash (e.g. bug-report bytes). If omitted, a
+ *               random 12-hex string is returned.
+ * @returns 12-character lowercase-hex string.
+ *
+ * @example
+ * ```ts
+ * generateBugfixHash(bugReportContent); // 'a1b2c3d4e5f6' (deterministic)
+ * generateBugfixHash();                 // '7f3e...' (random, unique)
+ * ```
+ */
+export function generateBugfixHash(seed?: string): string {
+  if (seed !== undefined) {
+    return hashPRDContent(seed).slice(0, 12);
+  }
+  return randomBytes(6).toString('hex'); // 12 random hex chars
+}
+
+/**
+ * Returns the next numbered bugfix directory for a session (PRD §4.4 step 3, §5.1).
+ *
+ * @remarks
+ * Mirrors the main-session `NNN_hash` convention ({@link SESSION_DIR_PATTERN})
+ * under the `bugfix/` subdirectory: each bug-hunt iteration that finds bugs gets
+ * a unique `bugfix/NNN_<12hexhash>/` child, archiving (not overwriting) prior
+ * iterations. Scans `sessionPath/bugfix/` for existing `NNN_*` children and
+ * returns the next sequence number (`max(found)+1`, or `1` if none). A missing
+ * `bugfix/` directory (ENOENT) means "first iteration" → sequence `1`; the
+ * helper is **read-only** (it does NOT create the directory — the caller owns
+ * `mkdir`).
+ *
+ * The 12-char hash component is derived from `hashSeed` via
+ * {@link hashPRDContent} (sha256, first 12 hex chars), matching
+ * {@link createSessionDirectory}'s `fullHash.slice(0, 12)` rule. Pass the bug
+ * report content as the seed so each distinct report yields a distinct hash;
+ * pass any unique string if you only need uniqueness.
+ *
+ * @param sessionPath - The main session directory (e.g. `plan/001_14b9dc2a33c7/`).
+ * @param hashSeed    - Seed content hashed (sha256, first 12 hex) for the dir name.
+ * @returns `{ dir, sequence }` where `dir = resolve(sessionPath,'bugfix','NNN_<12hex>')`.
+ * @throws {Error} Rethrows non-ENOENT `readdir` errors.
+ *
+ * @example
+ * ```ts
+ * const { dir, sequence } = await nextBugfixDir(sessionPath, bugReportContent);
+ * await mkdir(dir, { recursive: true }); // caller owns creation
+ * // dir      = '/.../plan/001_14b9dc2a33c7/bugfix/001_a1b2c3d4e5f6'
+ * // sequence = 1
+ * ```
+ */
+export async function nextBugfixDir(
+  sessionPath: string,
+  hashSeed: string
+): Promise<{ dir: string; sequence: number }> {
+  const bugfixDir = resolve(sessionPath, 'bugfix');
+  const hash12 = hashPRDContent(hashSeed).slice(0, 12); // mirror createSessionDirectory
+
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await readdir(bugfixDir, { withFileTypes: true });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      // First iteration: no bugfix/ dir yet.
+      const sequence = 1;
+      return {
+        dir: resolve(
+          bugfixDir,
+          `${String(sequence).padStart(3, '0')}_${hash12}`
+        ),
+        sequence,
+      };
+    }
+    throw error;
+  }
+
+  const sequences = entries
+    .filter(e => e.isDirectory())
+    .map(e => {
+      const m = e.name.match(BUGFIX_DIR_PATTERN);
+      return m ? parseInt(m[1], 10) : NaN;
+    })
+    .filter(n => !Number.isNaN(n));
+
+  const sequence = sequences.length > 0 ? Math.max(...sequences) + 1 : 1;
+  return {
+    dir: resolve(bugfixDir, `${String(sequence).padStart(3, '0')}_${hash12}`),
+    sequence,
+  };
+}
+
 export async function writeTasksJSON(
   sessionPath: string,
   backlog: Backlog
