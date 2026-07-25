@@ -18,6 +18,12 @@ import {
   MilestoneSchema,
   PhaseSchema,
   BacklogSchema,
+  ContextScopeReadSchema,
+  SubtaskReadSchema,
+  TaskReadSchema,
+  MilestoneReadSchema,
+  PhaseReadSchema,
+  BacklogReadSchema,
   ValidationGateSchema,
   SuccessCriterionSchema,
   PRPDocumentSchema,
@@ -1291,6 +1297,198 @@ describe('core/models Zod Schemas', () => {
 
       // VERIFY
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('Read schemas (lenient)', () => {
+    // SETUP: A backlog with ONE nested subtask whose context_scope is a PLAIN
+    // (non-contract) string — the PRD Issue 3 repro. The strict BacklogSchema
+    // must REJECT this; the lenient BacklogReadSchema must ACCEPT it.
+    const plainScopeBacklog: Backlog = {
+      backlog: [
+        {
+          id: 'P1',
+          type: 'Phase',
+          title: 'Phase 1',
+          status: 'Planned',
+          description: 'First phase',
+          milestones: [
+            {
+              id: 'P1.M1',
+              type: 'Milestone',
+              title: 'Milestone 1',
+              status: 'Planned',
+              description: 'First milestone',
+              tasks: [
+                {
+                  id: 'P1.M1.T1',
+                  type: 'Task',
+                  title: 'Task 1',
+                  status: 'Planned',
+                  description: 'First task',
+                  subtasks: [
+                    {
+                      id: 'P1.M1.T1.S1',
+                      type: 'Subtask',
+                      title: 'Subtask 1',
+                      status: 'Planned',
+                      story_points: 1,
+                      dependencies: [],
+                      // PLAIN scope (no CONTRACT DEFINITION prefix) — accepted on READ only.
+                      context_scope: 'Implement feature X in src/foo.ts',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    it('BacklogReadSchema accepts a plain (non-contract) context_scope that BacklogSchema rejects', () => {
+      // EXECUTE: parse the SAME plain-scope backlog through both schemas
+      const lenientResult = BacklogReadSchema.safeParse(plainScopeBacklog);
+      const strictResult = BacklogSchema.safeParse(plainScopeBacklog);
+
+      // VERIFY: asymmetric acceptance — the core proof of the write-strict/read-lenient split
+      expect(lenientResult.success).toBe(true);
+      expect(strictResult.success).toBe(false);
+    });
+
+    it('ContextScopeReadSchema accepts plain non-empty strings and rejects empty', () => {
+      // EXECUTE & VERIFY: any non-empty string is valid; empty is still malformed
+      expect(ContextScopeReadSchema.safeParse('Test scope').success).toBe(true);
+      expect(
+        ContextScopeReadSchema.safeParse('Implement feature X in src/foo.ts')
+          .success
+      ).toBe(true);
+      expect(ContextScopeReadSchema.safeParse('').success).toBe(false);
+    });
+
+    // SETUP: minimal nested fixtures, each exercising one intermediate Read schema.
+    const validSubtask = {
+      id: 'P1.M1.T1.S1',
+      type: 'Subtask' as const,
+      title: 'Subtask 1',
+      status: 'Planned',
+      story_points: 1,
+      dependencies: [],
+      context_scope: 'Implement feature X in src/foo.ts',
+    };
+    const validTask = {
+      id: 'P1.M1.T1',
+      type: 'Task' as const,
+      title: 'Task 1',
+      status: 'Planned',
+      description: 'First task',
+      subtasks: [validSubtask],
+    };
+    const validMilestone = {
+      id: 'P1.M1',
+      type: 'Milestone' as const,
+      title: 'Milestone 1',
+      status: 'Planned',
+      description: 'First milestone',
+      tasks: [validTask],
+    };
+    const validPhase = {
+      id: 'P1',
+      type: 'Phase' as const,
+      title: 'Phase 1',
+      status: 'Planned',
+      description: 'First phase',
+      milestones: [validMilestone],
+    };
+
+    it.each([
+      ['SubtaskReadSchema', SubtaskReadSchema, validSubtask],
+      ['TaskReadSchema', TaskReadSchema, validTask],
+      ['MilestoneReadSchema', MilestoneReadSchema, validMilestone],
+      ['PhaseReadSchema', PhaseReadSchema, validPhase],
+    ] as const)(
+      '%s accepts a plain-scope nested object (leniency propagates through the hierarchy)',
+      (_name, schema, fixture) => {
+        // EXECUTE & VERIFY: each intermediate schema accepts its own plain-scope fixture
+        expect(schema.safeParse(fixture).success).toBe(true);
+      }
+    );
+
+    it('BacklogReadSchema still rejects STRUCTURAL errors (leniency is FORMAT-only)', () => {
+      // SETUP: a valid base phase to clone per-case
+      const basePhase = () => ({
+        id: 'P1',
+        type: 'Phase' as const,
+        title: 'Phase 1',
+        status: 'Planned',
+        description: 'First phase',
+        milestones: [
+          {
+            id: 'P1.M1',
+            type: 'Milestone' as const,
+            title: 'Milestone 1',
+            status: 'Planned',
+            description: 'First milestone',
+            tasks: [
+              {
+                id: 'P1.M1.T1',
+                type: 'Task' as const,
+                title: 'Task 1',
+                status: 'Planned',
+                description: 'First task',
+                subtasks: [
+                  {
+                    id: 'P1.M1.T1.S1',
+                    type: 'Subtask' as const,
+                    title: 'Subtask 1',
+                    status: 'Planned',
+                    story_points: 1,
+                    dependencies: [],
+                    context_scope: 'Implement feature X in src/foo.ts',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      // EXECUTE & VERIFY: bad subtask ID, bad status, wrong type discriminator each rejected
+      const badId = structuredClone(basePhase());
+      badId.milestones[0].tasks[0].subtasks[0].id = 'P1.M1.T1.X';
+      expect(BacklogReadSchema.safeParse({ backlog: [badId] }).success).toBe(
+        false
+      );
+
+      const badStatus = structuredClone(basePhase());
+      badStatus.milestones[0].tasks[0].subtasks[0].status = 'planned';
+      expect(
+        BacklogReadSchema.safeParse({ backlog: [badStatus] }).success
+      ).toBe(false);
+
+      const badType = structuredClone(basePhase());
+      badType.milestones[0].tasks[0].subtasks[0].type = 'Task';
+      expect(BacklogReadSchema.safeParse({ backlog: [badType] }).success).toBe(
+        false
+      );
+    });
+
+    it('BacklogReadSchema still rejects empty context_scope', () => {
+      // SETUP: clone the plain-scope backlog and blank out the subtask scope
+      const emptyScopeBacklog = structuredClone(plainScopeBacklog);
+      emptyScopeBacklog.backlog[0].milestones[0].tasks[0].subtasks[0].context_scope =
+        '';
+
+      // EXECUTE
+      const result = BacklogReadSchema.safeParse(emptyScopeBacklog);
+
+      // VERIFY: empty scope is genuinely malformed — rejected even by the lenient schema
+      expect(result.success).toBe(false);
+    });
+
+    it('strict BacklogSchema is unchanged and still rejects plain context_scope', () => {
+      // VERIFY (defensive): the strict write-time validator still enforces the contract format
+      expect(BacklogSchema.safeParse(plainScopeBacklog).success).toBe(false);
     });
   });
 
