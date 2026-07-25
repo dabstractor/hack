@@ -59,6 +59,7 @@ import {
   renderDeltaPRD,
   writeDeltaPRD,
   loadDeltaPRD,
+  nextBugfixDir,
 } from '../core/session-utils.js';
 import { TaskOrchestrator as TaskOrchestratorClass } from '../core/task-orchestrator.js';
 import { DeltaAnalysisWorkflow } from './delta-analysis-workflow.js';
@@ -1859,7 +1860,15 @@ export class PRPPipeline extends Workflow {
             // into it (the workflow reads it from there), and pass that path.
             const { resolve } = await import('node:path');
             const { mkdir, copyFile } = await import('node:fs/promises');
-            const bugfixSessionPath = resolve(sessionPath, 'bugfix');
+            // PRD §4.4 step 3 / §5.1: numbered bugfix/NNN_hash/ iteration (archives
+            // prior iterations instead of overwriting a flat bugfix/ dir).
+            // nextBugfixDir is read-only (returns the path + sequence); mkdir below
+            // creates it (+ parent bugfix/ if absent). The path still contains
+            // 'bugfix' so FixCycleWorkflow's includes('bugfix') check still passes.
+            const { dir: bugfixSessionPath } = await nextBugfixDir(
+              sessionPath,
+              testResults.summary ?? JSON.stringify(testResults.bugs)
+            );
             await mkdir(bugfixSessionPath, { recursive: true });
             const testResultsPath = resolve(sessionPath, 'TEST_RESULTS.md');
             try {

@@ -21,6 +21,12 @@ vi.mock('node:fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
   copyFile: vi.fn().mockResolvedValue(undefined),
   stat: vi.fn(),
+  // nextBugfixDir (real, via session-utils.js mock's ...actual spread) calls
+  // readdir(bugfixDir, { withFileTypes: true }). Default to ENOENT so it
+  // returns sequence 1 cleanly (first iteration) — no real FS access.
+  readdir: vi
+    .fn()
+    .mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
 }));
 
 // Mock session-utils so handleDelta's resolvePRD call is controlled (no real I/O).
@@ -802,6 +808,139 @@ describe('PRPPipeline', () => {
         expect.anything(),
         expect.anything(),
         { parallelResearch: false, researchDepth: 2 }
+      );
+    });
+
+    it('creates a numbered bugfix/NNN_hash/ dir (not flat bugfix/) when bugs found', async () => {
+      // SETUP - all-Complete backlog so QA runs, then bug-found branch
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+
+      // Bug-hunt mode forces QA to run immediately (reaches the fix-spawn branch)
+      (pipeline as any).mode = 'bug-hunt';
+
+      // BugHuntWorkflow must report bugs so the fix-spawn branch executes
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: true,
+          bugs: [
+            {
+              id: 'BUG-001',
+              severity: 'major',
+              title: 'Bug',
+              description: 'desc',
+              reproduction: 'repro',
+            },
+          ],
+          summary: 'Found 1 bug',
+          recommendations: [],
+        }),
+      }));
+      // FixCycleWorkflow returns a resolved cycle (no remaining bugs)
+      MockFixCycleWorkflow.mockClear();
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: false,
+          bugs: [],
+          summary: 'All bugs fixed',
+          recommendations: [],
+        }),
+      }));
+
+      // EXECUTE — default readdir mock (ENOENT) → nextBugfixDir sequence 1
+      await pipeline.runQACycle();
+
+      // VERIFY — mkdir was called with a numbered bugfix/NNN_hash/ path
+      const { mkdir } = await import('node:fs/promises');
+      expect(mkdir).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]\d{3}_[a-f0-9]{12}$/),
+        { recursive: true }
+      );
+      // VERIFY — #runBugFixCycle (via MockFixCycleWorkflow) received the SAME
+      // numbered path (1st arg). 5th arg (parallel config) varies by env.
+      expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]\d{3}_[a-f0-9]{12}$/),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    it('creates 002_ when a 001_ bugfix iteration already exists (prior iteration preserved)', async () => {
+      // SETUP - all-Complete backlog so QA runs, then bug-found branch
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+
+      (pipeline as any).mode = 'bug-hunt';
+
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: true,
+          bugs: [
+            {
+              id: 'BUG-001',
+              severity: 'major',
+              title: 'Bug',
+              description: 'desc',
+              reproduction: 'repro',
+            },
+          ],
+          summary: 'Found 1 bug',
+          recommendations: [],
+        }),
+      }));
+      MockFixCycleWorkflow.mockClear();
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          hasBugs: false,
+          bugs: [],
+          summary: 'All bugs fixed',
+          recommendations: [],
+        }),
+      }));
+
+      // OVERRIDE readdir: simulate a prior bugfix/001_<hash>/ iteration
+      // already existing → nextBugfixDir must return sequence 2 (max+1).
+      const { readdir } = await import('node:fs/promises');
+      vi.mocked(readdir).mockResolvedValueOnce([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+      ] as any);
+
+      // EXECUTE
+      await pipeline.runQACycle();
+
+      // VERIFY — mkdir received a 002_<12hex> path (prior 001_ preserved)
+      const { mkdir } = await import('node:fs/promises');
+      expect(mkdir).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]002_[a-f0-9]{12}$/),
+        { recursive: true }
       );
     });
   });
