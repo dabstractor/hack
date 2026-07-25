@@ -158,14 +158,14 @@
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Make executeBacklog Abort on Empty Backlog (Issue 5)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Ensure executeBacklog() throws when no backlog is found, so the pipeline does not silently proceed to validation/QA with zero tasks.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "Make 'no backlog found' a hard abort that propagates unconditionally",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Move the no-backlog check above the try/catch in executeBacklog, or throw a fatal PipelineError that propagates past isFatalError().",
               "subtasks": [
                 {
@@ -186,7 +186,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Verify and update affected unit tests for the abort behavior",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"
@@ -220,7 +220,7 @@
                   "type": "Subtask",
                   "id": "P2.M2.T1.S1",
                   "title": "Create ContextScopeReadSchema (lenient) and BacklogReadSchema",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/test_validation.md §3B. ContextScopeSchema at src/core/models.ts:~106 uses superRefine to enforce 'CONTRACT DEFINITION:\\n' prefix + 4 numbered sections. It is referenced by SubtaskSchema (line ~402: context_scope: ContextScopeSchema) → TaskSchema → MilestoneSchema → PhaseSchema → BacklogSchema. readTasksJSON uses BacklogSchema.parse() on read, rejecting any subtask without the contract format.\n2. INPUT: src/core/models.ts — the existing ContextScopeSchema (strict, line ~106), SubtaskSchema (line ~402), BacklogSchema. The Zod import is already present at the top of the file.\n3. LOGIC: (a) Create a new export ContextScopeReadSchema = z.string().min(1, 'Context scope is required') — lenient, no format enforcement. (b) Create a SubtaskReadSchema that mirrors SubtaskSchema but uses context_scope: ContextScopeReadSchema. (c) Create TaskReadSchema, MilestoneReadSchema, PhaseReadSchema, BacklogReadSchema that mirror their strict counterparts but use SubtaskReadSchema. (d) Keep the existing strict ContextScopeSchema and BacklogSchema UNCHANGED — they remain the write-time validation for architect output. (e) Export both BacklogSchema (strict) and BacklogReadSchema (lenient). No mocking needed.\n4. OUTPUT: New exports in src/core/models.ts: ContextScopeReadSchema, BacklogReadSchema (and intermediate read schemas). The strict BacklogSchema is preserved for architect output validation. Consumed by P2.M2.T1.S2 (read path wiring).\n5. DOCS: [Mode A] Add JSDoc to ContextScopeReadSchema and BacklogReadSchema explaining the write-strict / read-lenient split and why read-time rejection on a doc-format field is too strict for recovery (PRD §5.1).",

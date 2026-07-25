@@ -306,6 +306,37 @@ describe('PRPPipeline Progress Integration', () => {
       );
     });
 
+    it('should abort on missing backlog even under continueOnError (PRD §4.2/§5.1; bugfix Issue 5)', async () => {
+      // SETUP: no backlog + continueOnError === true. The 5th constructor arg is
+      // `continueOnError` (after prdPath, scope, mode, noCache) — the established
+      // accessor pattern (cf. prp-pipeline-validation.test.ts:352), avoiding any
+      // private-field mutation.
+      const mockSession: any = {
+        metadata: { path: '/test' },
+        taskRegistry: null, // No backlog
+      };
+      const mockManager: any = {
+        currentSession: mockSession,
+      };
+
+      const pipeline = new PRPPipeline(
+        './test.md',
+        undefined,
+        'normal',
+        false,
+        /* continueOnError */ true
+      );
+      (pipeline as any).sessionManager = mockManager;
+
+      // EXECUTE & VERIFY — the throw is ABOVE executeBacklog's try/catch, so
+      // isFatalError() (which returns false-for-all under continueOnError) is
+      // bypassed entirely; the abort propagates unconditionally. This locks S1's
+      // core design invariant (the whole reason the check was hoisted above the try).
+      await expect(pipeline.executeBacklog()).rejects.toThrow(
+        'Cannot execute pipeline: no backlog found in session'
+      );
+    });
+
     it('should log initialization message with total subtasks', async () => {
       // SETUP
       const backlog = createTestBacklog([
