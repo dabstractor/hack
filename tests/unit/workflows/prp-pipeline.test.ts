@@ -1385,6 +1385,254 @@ describe('PRPPipeline', () => {
     });
   });
 
+  // ----------------------------------------------------------------------
+  // S4: end-to-end lifecycle proving creation (S2) + detection (S3) AGREE on
+  // the numbered bugfix/NNN_hash/ layout across multiple QA iterations. S2 and
+  // S3 each prove their OWN side in isolation; this suite proves the
+  // multi-iteration INTEGRATION (chain runQACycle calls; exercise creation +
+  // detection together). See PRD §4.4 step 3 / §5.1.
+  // ----------------------------------------------------------------------
+  describe('numbered bugfix iteration lifecycle', () => {
+    // Lifecycle-scoped constants (distinct names so we never shadow the
+    // resume-suite helpers if they're ever hoisted into scope).
+    const LIFECYCLE_VALID_BACKLOG_JSON = JSON.stringify(
+      createTestBacklog([createTestPhase('P1', 'Phase 1', 'Planned')])
+    );
+    const LIFECYCLE_BUG_RESULTS = {
+      hasBugs: true,
+      bugs: [
+        {
+          id: 'BUG-001',
+          severity: 'major',
+          title: 'Bug',
+          description: 'desc',
+          reproduction: 'repro',
+        },
+      ],
+      summary: 'Found 1 bug',
+      recommendations: [],
+    };
+    const LIFECYCLE_CLEAN_RESULTS = {
+      hasBugs: false,
+      bugs: [],
+      summary: 'All bugs fixed',
+      recommendations: [],
+    };
+    /** ENOENT error factory. */
+    const enoent = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
+    /**
+     * Build a pipeline whose MAIN session is an all-Complete backlog in
+     * bug-hunt mode, at a path that does NOT contain 'bugfix' (so the resume
+     * detection gate is not suppressed). Mirrors buildBugHuntPipeline.
+     */
+    const buildLifecyclePipeline = (
+      sessionPath = '/tmp/plan/008_lifecycle'
+    ) => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog, '# Test PRD', sessionPath);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+      // Bug-hunt mode forces QA to run (reaches the resume gate / creation)
+      // regardless of the all-Complete backlog.
+      (pipeline as any).mode = 'bug-hunt';
+      return pipeline;
+    };
+
+    beforeEach(() => {
+      // Default mocks for this block: BugHunt finds bugs (creation path),
+      // FixCycle returns clean. Per-test mockImplementation overrides these.
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue(LIFECYCLE_BUG_RESULTS),
+      }));
+      MockFixCycleWorkflow.mockClear();
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue(LIFECYCLE_CLEAN_RESULTS),
+      }));
+      // Reset readdir to the module-level default (ENOENT → never hunted)
+      // so each test is deterministic.
+      mockReaddir.mockRejectedValue(enoent());
+      mockStat.mockReset();
+      mockReadFile.mockReset();
+    });
+
+    // (3a + 3b) Two-iteration creation lifecycle: prior iteration preserved.
+    // Uses a simulated advancing disk (closure-scoped diskChildren that mkdir
+    // pushes to and readdir returns) so the 2nd runQACycle sees the 1st child
+    // and creates 002_ instead of overwriting 001_.
+    it('creates 001_ then 002_ across two runQACycle calls, preserving 001 (advancing disk)', async () => {
+      const { mkdir, copyFile } = await import('node:fs/promises');
+      const mockedMkdir = vi.mocked(mkdir);
+      const mockedCopyFile = vi.mocked(copyFile);
+
+      // Simulated advancing disk: readdir always reflects current state;
+      // mkdir pushes the NNN_hash it was asked to create.
+      const diskChildren: string[] = [];
+      mockReaddir.mockImplementation(async () =>
+        diskChildren.map(name => ({ name, isDirectory: () => true }) as any)
+      );
+      mockedMkdir.mockImplementation(async (p: any) => {
+        const m = String(p).match(/bugfix[\/](\d{3}_[a-f0-9]{12})$/);
+        if (m) diskChildren.push(m[1]);
+        return undefined;
+      });
+      // detection sees NO bug reports in any child → null → fresh hunt each
+      // time → creation proceeds. (Children created during a PRIOR iteration
+      // have no TEST_RESULTS.md in this simulation.)
+      mockStat.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('TEST_RESULTS.md')) throw enoent();
+        return {};
+      });
+
+      const pipeline = buildLifecyclePipeline();
+
+      // Iteration 1: empty disk → detection null → fresh hunt → create 001_.
+      await pipeline.runQACycle();
+      // Iteration 2: disk=[001_] → detection sees no report → fresh hunt →
+      // nextBugfixDir sees 001_ → create 002_ (001 preserved).
+      await pipeline.runQACycle();
+
+      // BOTH numbered dirs were created via mkdir.
+      expect(mockedMkdir).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]001_[a-f0-9]{12}$/),
+        { recursive: true }
+      );
+      expect(mockedMkdir).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]002_[a-f0-9]{12}$/),
+        { recursive: true }
+      );
+      // 001 was PRESERVED on the simulated disk (not overwritten by 002).
+      expect(diskChildren.filter(n => n.startsWith('001_'))).toHaveLength(1);
+      expect(diskChildren.filter(n => n.startsWith('002_'))).toHaveLength(1);
+      // TEST_RESULTS.md was copied into EACH numbered dir (both iterations).
+      expect(mockedCopyFile).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringMatching(
+          /bugfix[\\/]001_[a-f0-9]{12}[\\/]TEST_RESULTS\.md$/
+        )
+      );
+      expect(mockedCopyFile).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringMatching(
+          /bugfix[\\/]002_[a-f0-9]{12}[\\/]TEST_RESULTS\.md$/
+        )
+      );
+    });
+
+    // (3c + 3e) Detect-most-recent-interrupted across two interrupted children,
+    // resuming the EXACT 002_ path (not 001, not flat bugfix).
+    it('resumes the MOST RECENT interrupted child (002 over 001) with the exact numbered path', async () => {
+      const pipeline = buildLifecyclePipeline();
+      // Two interrupted children: both have TEST_RESULTS.md, both lack tasks.json.
+      mockReaddir.mockResolvedValue([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+        { name: '002_bbbbbbbbbbbb', isDirectory: () => true },
+      ] as any);
+      mockStat.mockImplementation(async (p: string) => {
+        if (String(p).endsWith('TEST_RESULTS.md')) return {}; // both have reports
+        throw enoent(); // both tasks.json missing → interrupted
+      });
+
+      await pipeline.runQACycle();
+
+      // Resume pre-empted the fresh hunt.
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      // Resumed the EXACT most-recent interrupted child (002_ + its hash).
+      expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]002_bbbbbbbbbbbb$/),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+      // (3e negative) Resume did NOT target 001 or the flat bugfix dir.
+      expect(MockFixCycleWorkflow).not.toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]001_/),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    // (3d + 3e) Detect-skips-healthy: healthy 001 + interrupted 002 → resume
+    // 002 (001 skipped). This is the lifecycle scenario S3's healthy-skip test
+    // does NOT cover (S3 tests the reverse: healthy 002 + interrupted 001).
+    it('skips a HEALTHY older child (001) and resumes the interrupted newer child (002)', async () => {
+      const pipeline = buildLifecyclePipeline();
+      mockReaddir.mockResolvedValue([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+        { name: '002_bbbbbbbbbbbb', isDirectory: () => true },
+      ] as any);
+      // NNN-disambiguated health: 001 HEALTHY (valid tasks.json), 002 interrupted.
+      mockStat.mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s.includes('001_')) return {}; // 001 healthy (both files present)
+        if (s.includes('002_') && s.endsWith('TEST_RESULTS.md')) return {}; // 002 has report
+        throw enoent(); // 002 tasks.json missing → interrupted
+      });
+      mockReadFile.mockImplementation(async (p: string) => {
+        if (String(p).includes('001_')) return LIFECYCLE_VALID_BACKLOG_JSON;
+        return ''; // 002 not reached (its tasks.json stat throws first)
+      });
+
+      await pipeline.runQACycle();
+
+      // 001 skipped (healthy); 002 resumed. Fresh hunt NOT called.
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]002_bbbbbbbbbbbb$/),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+      // (3e negative) Resume did NOT target the healthy 001 child.
+      expect(MockFixCycleWorkflow).not.toHaveBeenCalledWith(
+        expect.stringMatching(/bugfix[\\/]001_/),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    // (3d-variant) A single HEALTHY numbered child → detection returns null →
+    // a fresh hunt runs (resume does not pre-empt). Lifecycle framing: the
+    // numbered child is healthy so the cycle proceeds to a new iteration.
+    // The fresh hunt finds NO bugs (clean) so no new FixCycle is spawned.
+    it('runs a fresh hunt when the only numbered child is HEALTHY (no resume)', async () => {
+      const pipeline = buildLifecyclePipeline();
+      mockReaddir.mockResolvedValue([
+        { name: '001_aaaaaaaaaaaa', isDirectory: () => true },
+      ] as any);
+      mockStat.mockResolvedValue({}); // all files present
+      mockReadFile.mockResolvedValue(LIFECYCLE_VALID_BACKLOG_JSON); // valid tasks.json → healthy
+      // Fresh hunt (when it runs) finds NO bugs → no new FixCycle spawn.
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue(LIFECYCLE_CLEAN_RESULTS),
+      }));
+
+      await pipeline.runQACycle();
+
+      // Detection null → fresh hunt ran; resume (FixCycle) NOT pre-empted,
+      // and clean results → no new FixCycle spawned either.
+      expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+      expect(MockFixCycleWorkflow).not.toHaveBeenCalled();
+    });
+  });
+
   describe('run', () => {
     it('should call all workflow steps in order', async () => {
       // SETUP
