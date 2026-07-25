@@ -525,14 +525,41 @@ export function parseCLIArgs():
   // behavior without duplicating the body.
   const taskAction = async (
     action: string,
-    options: { file?: string; output?: string }
+    options: { file?: string; output?: string; session?: string }
   ): Promise<void> => {
     try {
       const { readFile } = await import('node:fs/promises');
+      const { SessionManager } = await import('../core/session-manager.js');
       const planDir = resolve('plan');
-      const tasksFile = options.file
-        ? resolve(options.file)
-        : resolve(planDir, 'tasks.json');
+
+      // Resolve the tasks.json file per PRD §5.3 "Task File Discovery Priority":
+      //   1. --file <path>          (explicit override)
+      //   2. --session <hash>       (specific session)
+      //   3. latest session         (plan/NNN_hash/tasks.json)
+      //
+      // Previously this resolved the flat `plan/tasks.json`, which does not
+      // exist (sessions live under plan/NNN_hash/), so `prd status` / `prd
+      // task` crashed with ENOENT even when valid sessions existed (HIGH-1).
+      // `inspect` already resolves the latest session this way; mirror it.
+      let tasksFile: string;
+      if (options.file) {
+        tasksFile = resolve(options.file);
+      } else if (options.session) {
+        const sessions = await SessionManager.listSessions(planDir);
+        const session = sessions.find(s => s.hash.startsWith(options.session!));
+        if (!session) {
+          throw new Error(`Session not found: ${options.session}`);
+        }
+        tasksFile = resolve(session.path, 'tasks.json');
+      } else {
+        const latest = await SessionManager.findLatestSession(planDir);
+        if (!latest) {
+          throw new Error(
+            'No sessions found. Run the pipeline first or use --file / --session.'
+          );
+        }
+        tasksFile = resolve(latest.path, 'tasks.json');
+      }
 
       const content = await readFile(tasksFile, 'utf-8');
       const data = JSON.parse(content);
@@ -629,6 +656,7 @@ export function parseCLIArgs():
     .description('Display and query pipeline tasks')
     .argument('[action]', 'Action: (none), next, status', '')
     .option('-f, --file <path>', 'Override tasks.json file path')
+    .option('--session <hash>', 'Inspect specific session by hash')
     .option('-o, --output <format>', 'Output format (table, json)', 'table')
     .action(taskAction);
 
@@ -638,6 +666,7 @@ export function parseCLIArgs():
     .description('Display and query pipeline tasks (alias of `task`)')
     .argument('[action]', 'Action: (none), next, status', '')
     .option('-f, --file <path>', 'Override tasks.json file path')
+    .option('--session <hash>', 'Inspect specific session by hash')
     .option('-o, --output <format>', 'Output format (table, json)', 'table')
     .action(taskAction);
 

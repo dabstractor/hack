@@ -484,7 +484,18 @@ export function updateItemStatus(
   // Roll the change up: completing the last subtask of a task should mark the
   // task Complete, completing the last task of a milestone marks the milestone
   // Complete, and so on up to the phase. Monotonic + idempotent.
-  return rollupCompletion(updated);
+  //
+  // IMPORTANT: only roll up when the caller is moving a leaf toward 'Complete'.
+  // Rolling up on a *downward* reset (e.g. task-patcher setting a 'modified'
+  // Task/Milestone/Phase back to 'Planned' for re-implementation) would let
+  // `promoteIfAllComplete` see that all the item's children are still
+  // 'Complete' and silently promote it straight back to 'Complete', undoing
+  // the explicit reset (PRD §4.3 "modified" branch, HIGH-2 bug). Leaves have
+  // no children, so rollup is a no-op for them in any case.
+  if (newStatus === 'Complete') {
+    return rollupCompletion(updated);
+  }
+  return updated;
 }
 
 /**

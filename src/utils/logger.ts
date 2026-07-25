@@ -263,7 +263,11 @@ function buildRoot(machineReadable: boolean): any {
   const dest = pretty({
     colorize: true,
     translateTime: 'HH:MM:ss',
-    ignore: 'pid,hostname',
+    // `context` and `correlationId` are already rendered in messageFormat
+    // (above), so re-rendering them as indented key:value lines is pure
+    // noise for an interactive CLI (LOW-1). Keep singleLine:false so any
+    // *other* structured fields still render for debugging.
+    ignore: 'pid,hostname,context,correlationId',
     messageFormat: '[{correlationId}] [{context}] {msg}',
     singleLine: false,
   });
