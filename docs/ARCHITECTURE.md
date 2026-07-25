@@ -11,11 +11,14 @@
 ## Table of Contents
 
 - [System Overview](#system-overview)
+- [Resolved-Document Invariant (Distributed PRDs)](#resolved-document-invariant-distributed-prds)
 - [Four Core Processing Engines](#four-core-processing-engines)
 - [Groundswell Framework Integration](#groundswell-framework-integration)
 - [Multi-Agent Architecture](#multi-agent-architecture)
+- [Model Roles & Reasoning Budget](#model-roles--reasoning-budget)
 - [State Management and Persistence](#state-management-and-persistence)
 - [Task Hierarchy and Execution Flow](#task-hierarchy-and-execution-flow)
+- [Adopt Mode (--adopt-prd)](#adopt-mode---adopt-prd)
 - [See Also](#see-also)
 
 ---
@@ -78,6 +81,36 @@ Throughout the process, the Session Manager maintains state persistence, enablin
 
 ---
 
+## Resolved-Document Invariant (Distributed PRDs)
+
+A PRD of any real size may be authored across multiple files (architecture, API, data model, companion docs) and assembled into **one canonical document** at load time (PRD §2.3). An `@path/to/file.md` token is an _include directive_ — it is replaced inline by the referenced file's UTF-8 contents.
+
+### Expansion Rules
+
+A token expands only when **both** conditions hold:
+
+1. **Boundary** — the `@` is at the start of a line _or_ preceded by a non-path character, so `foo@bar.com` and mid-word `@` are left literal.
+2. **Existence** — the path resolves to an existing **file** (directories and missing paths stay verbatim and silent).
+
+Includes resolve **project-root-relative** (relative to the entry PRD's directory) and expand **recursively, with cycle detection**, up to `PRD_INCLUDE_MAX_DEPTH` (default `10`). Re-resolution is **idempotent** — identical input bytes yield identical resolved bytes.
+
+When `PRD_INCLUDE_MARKERS` is set, resolved output emits `<!-- @include: path -->` / `<!-- @end-include -->` markers around expanded includes; a `.md` token that fails to resolve (a _stale include_) emits a warning on stderr.
+
+### The Invariant: One Canonical Document Downstream
+
+Everything downstream operates over the **fully-resolved, include-expanded document**, never the raw entry file:
+
+- **Hashing** — the session hash (PRD §4.1 step 2) is computed over the resolved document, so `hash === prd_snapshot.md` bytes.
+- **`prd_snapshot.md`** — written from the resolved document.
+- **Delta detection** — delta sessions key off the resolved hash (PRD §4.3).
+- **Delta-PRD inputs** — the PRD slice fed to the Architect on a delta run is resolved.
+- **Agent prompts** — integration, validation, and bug-finder prompts embed resolved content; the prompts explicitly state the text is the _complete merged document_, so agents never chase includes themselves.
+- **`prd_selectors` / mdsel indexing** — section indexing runs over a materialized resolved copy (`prd_snapshot.md`) (PRD §4.2).
+
+The resolver is `resolvePRD(prdPath)` in [`src/core/session-utils.ts`](../src/core/session-utils.ts). See [Configuration → Distributed PRDs](./CONFIGURATION.md#distributed-prds) for the include-expansion environment knobs.
+
+---
+
 ## Four Core Processing Engines
 
 The PRP Pipeline's architecture is built around four interconnected processing engines that handle different aspects of the development lifecycle.
@@ -98,7 +131,7 @@ The Session Manager provides centralized state management, PRD hash-based initia
 
 ##### Resolved-document invariant
 
-The session hash (PRD §4.1 step 2) and `prd_snapshot.md` are computed over the **fully-resolved**, include-expanded PRD (PRD §2.3), never the raw entry file. `initialize()` resolves once via `resolvePRD` and feeds that single string to both `hashPRDContent` (the pure hashing primitive) and `snapshotPRD`, guaranteeing `hash === snapshot` bytes. (Full multi-file-PRD capability framing: P6.)
+The session hash and `prd_snapshot.md` are computed over the fully-resolved, include-expanded PRD — see [Resolved-Document Invariant (Distributed PRDs)](#resolved-document-invariant-distributed-prds) for the full capability framing (PRD §2.3).
 
 #### Key Methods
 
@@ -212,12 +245,15 @@ The Agent Runtime manages LLM agent creation, configuration, and execution with 
 
 #### Agent Types
 
-| Agent          | Persona               | Responsibility                  | Token Limit |
-| -------------- | --------------------- | ------------------------------- | ----------- |
-| **Architect**  | System Designer       | Generates task backlog from PRD | 8192        |
-| **Researcher** | Context Gatherer      | Generates PRPs for subtasks     | 4096        |
-| **Coder**      | Implementation Expert | Executes PRPs to produce code   | 4096        |
-| **QA**         | Quality Assurance     | Finds and fixes bugs            | 4096        |
+Each persona maps to a model **role** (research / reasoning / implementation) that selects both the model **tier** and the **reasoning budget** via `ROLE_CONFIG` (the single source of truth in [`src/agents/agent-factory.ts`](../src/agents/agent-factory.ts)). Tier names are `high` / `balanced` / `fast`. See [Model Roles & Reasoning Budget](#model-roles--reasoning-budget) for the role→{tier, budget} contract.
+
+| Persona        | Role           | Tier (model)         | Reasoning budget | Responsibility                        | Token Limit |
+| -------------- | -------------- | -------------------- | ---------------- | ------------------------------------- | ----------- |
+| **Architect**  | Reasoning      | balanced (`glm-5.2`) | `xhigh` (max)    | Decompose PRD into task backlog       | 8192        |
+| **Researcher** | Research       | balanced (`glm-5.2`) | normal           | Generate PRPs for subtasks            | 4096        |
+| **Coder**      | Implementation | fast (`glm-5-turbo`) | normal           | Execute PRPs to produce code          | 4096        |
+| **QA**         | Reasoning      | balanced (`glm-5.2`) | `xhigh` (max)    | Validate + bug-hunt (default `pizr`)  | 4096        |
+| **Cleanup**    | Implementation | fast (`glm-5-turbo`) | normal           | Post-validation doc reorg (stateless) | 4096        |
 
 #### Tool System
 
@@ -560,6 +596,38 @@ graph LR
 
 ---
 
+## Model Roles & Reasoning Budget
+
+The pipeline uses **three separate model roles** so cost, speed, and reasoning depth can be tuned per phase (PRD §9.2.3 / §6.1). The role→{tier, `thinking`} mapping is driven by `ROLE_CONFIG` in [`src/agents/agent-factory.ts`](../src/agents/agent-factory.ts) — the single source of truth:
+
+| Role               | Tier     | Reasoning budget            | Pipeline agents                                                         |
+| ------------------ | -------- | --------------------------- | ----------------------------------------------------------------------- |
+| **Research**       | balanced | normal (`thinking` omitted) | Researcher — PRP creation & architecture research                       |
+| **Reasoning**      | balanced | **`xhigh`** (max)           | Architect (decomposition), QA (validation + bug-finder, default `pizr`) |
+| **Implementation** | fast     | normal (`thinking` omitted) | Coder (PRP execution / fix), Cleanup (doc reorg)                        |
+
+- **Research role** — architecture research and PRP creation. Balanced tier, **normal** reasoning budget. Canonical env var `PRP_MODEL_BALANCED` (default `glm-5.2`).
+- **Reasoning role** — task decomposition, creative bug-finding, and validation. Balanced tier at the **maximum** reasoning budget (`thinking: 'xhigh'`), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy, adversarial bug-finding, and validating against the full PRD are the most reasoning-intensive steps. Personas: Architect (breakdown) and QA (bug-finder/validation; `BUG_FINDER_AGENT` / `VALIDATION_AGENT`, default `pizr`). Canonical env var `PRP_MODEL_BALANCED` @ `xhigh`.
+- **Implementation role** — code-writing (PRP execution, post-validation fix, cleanup). Fast tier, normal budget. Personas: Coder, Cleanup. Canonical env var `PRP_MODEL_FAST` (default `glm-5-turbo`).
+
+### How `thinking` is wired
+
+The `thinking` field **rides on the agent config object** for downstream harness wiring — Groundswell's `AgentConfig` does not natively model thinking, so only the Reasoning role sets `thinking: 'xhigh'`; Research and Implementation omit it (normal budget). The valid `ThinkingLevel` values are `'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
+
+### Model strings are provider-qualified
+
+Models are read at runtime (never hardcoded) and are **provider-qualified** (`zai/glm-5.2`), **never harness-qualified** (`pi/zai/glm-5.2` is invalid). The harness (`pi` / `claude-code`) is selected independently of the provider/model at startup — see [Groundswell Framework Integration](#groundswell-framework-integration) and PRD §9.4.
+
+### Canonical ↔ legacy environment variables
+
+The canonical tier names are primary (`PRP_MODEL_HIGH`, `PRP_MODEL_BALANCED`, `PRP_MODEL_FAST`), defaulting to `glm-5.2` / `glm-5.2` / `glm-5-turbo` respectively. The tier names were **renamed** from an earlier legacy scheme to the current `high` / `balanced` / `fast` scheme (default model values are unchanged). When a canonical var is unset, the loader falls back to the matching **legacy alias** and emits a **one-time deprecation warning** per legacy var (slated for future removal, PRD §9.2.8). The exact legacy names and the full canonical↔legacy mapping live in [Configuration → Deprecation (legacy aliases)](./CONFIGURATION.md#deprecation-legacy-anthropic-aliases) — ARCHITECTURE.md does not duplicate that table.
+
+> **bash-pipeline equivalence (cross-ref only):** research = `pi`, reasoning = `pizr` (`pi --thinking xhigh`), implementation = `piznt` (PRD §9.2.3). In the TypeScript rewrite these map to the Architect/Researcher/Coder/QA/Cleanup personas above.
+
+See [Configuration → Model Roles](./CONFIGURATION.md#model-roles) for the full environment-variable table.
+
+---
+
 ## State Management and Persistence
 
 The PRP Pipeline uses a robust state management system with immutable data structures and atomic persistence. It also self-heals `tasks.json` corruption automatically after every agent run — see [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery).
@@ -742,6 +810,26 @@ const result = await recoverTasksJson(
 // result: { restored: boolean; source: 'disk' | 'git'; reason?: string }
 ```
 
+### Two-Phase Commit (Per-Item Survival)
+
+Each subtask commits in **two phases** via the Smart Commit tool — `stagecoach` — which delegates commit-message authorship to an LLM with bounded retry + exponential backoff and a last-resort placeholder fallback (honoring smartCommit's never-fail-on-commit contract) (PRD §4.2 step 4):
+
+1. **Pre-cleanup _survival_ commit** — _before_ the long, interruptible cleanup agent runs, the orchestrator commits the item's substance: source changes + its `plan/` work directory + its `Complete` status. Committing before cleanup **guarantees** a force-interrupt during cleanup can no longer leave an item "Complete on disk but uncommitted" — the state that orphans `plan/` directories forever (the cleanup agent is forbidden from touching `plan/`).
+2. **Post-cleanup commit** — _after_ cleanup reorganizes docs (temp artifacts removed, docs moved to `docs/`), a second `stagecoach` commit records the doc reorganization. It runs only when cleanup succeeded.
+
+This complements [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery): recovery survives `tasks.json` _corruption_; the two-phase commit survives _interruption_ mid-item.
+
+### State Integrity Protections
+
+Beyond smart recovery and the two-phase commit, the pipeline layers several explicit integrity guards (PRD §5.1 / §4.4 / §9.3.2):
+
+- **flock-guarded `tasks.json` RMW (PRD §5.1)** — every read-modify-write of `tasks.json` is serialized under a process-level mutex via `withLockedTasksJSON(sessionDir, fn)` in [`src/core/file-lock.ts`](../src/core/file-lock.ts): an in-process async mutex (with re-entrancy, safe under recursion) **plus** an `O_EXCL` `<sessionDir>/tasks.json.lock` lockfile (cross-process). This prevents lost updates between the foreground executor, the background research supervisor, and recovery.
+- **`restore_critical_files` (PRD §5.1)** — the **mechanical** backstop to the prompt layer. After staging, before commit, `smartCommit` detects any staged **deletion** whose basename is `PRD.md` or `PRP.md` (covering root `PRD.md` and every nested `PRP.md`); if the file exists in HEAD it is restored via `git checkout HEAD -- <path>`, otherwise unstaged via `git reset HEAD -- <path>`. Non-fatal / best-effort — per-path failures are logged and smartCommit always proceeds.
+- **`tasks.json` smart recovery (PRD §5.1)** — after every agent run the legitimate status delta is re-applied and, on parse/validation failure, the last valid version is restored from git history; `Researching` / `Retrying` statuses survive a restore. (See [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery) above.)
+- **Orphaned-`plan/` recovery / skip-recovery (PRD §5.1)** — before skipping an item, the orchestrator checks **HEAD's** `tasks.json` for the item's Completed status. If the working tree shows Complete but HEAD disagrees (a _stranded_ `plan/`), it runs a recovery `smartCommit` to persist the stranded state before skipping. An unreadable HEAD `tasks.json` is treated as stranded (non-fatal).
+- **Watchdog kills are terminal (PRD §9.3.2)** — a watchdog kill is `result.timedOut === true` (Node watchdog) **or** `result.exitCode === 124` (the `timeout` coreutil). Both are **hard, never-retried** failures: a hung process simply re-hangs on retry, so a watchdog-killed validation aborts the run **before bug-hunt** and is not retried.
+- **`NO_ISSUES_FOUND.md` marker (PRD §4.4)** — a clean bug hunt (no critical/major/minor issues) writes `NO_ISSUES_FOUND.md` and commits it; a buggy hunt removes a stale marker. This distinguishes "already hunted (clean)" from "never hunted".
+
 ---
 
 ## Task Hierarchy and Execution Flow
@@ -902,6 +990,27 @@ flowchart TD
     style Coder fill:#fff9c4
     style Validate fill:#ffccbc
 ```
+
+---
+
+## Adopt Mode (--adopt-prd)
+
+To integrate the pipeline into an **already-implemented** project after writing the PRD — without wasting a full breakdown + implementation pass on code that already exists — `--adopt-prd` declares the PRD the source of truth for a shipped codebase (PRD §4.6). On a **fresh project** (no `plan/` sessions) it:
+
+1. **Creates a baseline session and stamps it with a `.adopted` marker** (`seedAdoptedBaseline()` in [`src/core/session-manager.ts`](../src/core/session-manager.ts)).
+2. **Seeds a single completed `tasks.json`** — one Phase → Milestone → Task → "Adopt existing codebase" Subtask, **all `Complete`** — with **no breakdown and no agent tokens**, so `is_session_complete` is `true`. This session becomes the idempotent baseline that future deltas diff against. The in-memory task registry is updated so `decomposePRD()` auto-skips the Architect entirely (zero tokens).
+3. **Sets `SKIP_EXECUTION_LOOP=true`** — implementation is skipped, but **validation + bug-hunt still run** against the real codebase + PRD.
+
+The next `PRD.md` edit produces a normal delta session against the adopted baseline.
+
+### Guard Rails (PRD §4.6)
+
+- **Requires the PRD to exist** — a missing PRD exits loudly (never scribbles session files near the filesystem root).
+- **Fresh-project only** — if sessions already exist, it is a **no-op** that warns and proceeds with normal session resolution.
+- **Rejects an empty `SESSION_DIR`.**
+- **`mkdir -p`s the plan dir first.**
+
+See the [CLI Reference](./CLI_REFERENCE.md) for the `--adopt-prd` flag.
 
 ---
 

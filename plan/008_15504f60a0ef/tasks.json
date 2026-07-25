@@ -1096,21 +1096,21 @@
       "type": "Phase",
       "id": "P6",
       "title": "Sync Changeset-Level Documentation (Mode B)",
-      "status": "Researching",
+      "status": "Ready",
       "description": "Cross-cutting documentation that only makes sense once the whole delta lands. Update README.md, docs/ARCHITECTURE.md, and docs/CONFIGURATION.md to reflect all new features, config names, flags, and behavioral changes from Phases 1-5. Per-file Mode A docs ride with their implementing subtasks and are NOT duplicated here.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P6.M1",
           "title": "Changeset-Level Doc Sweep",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Final documentation sweep updating README.md, docs/ARCHITECTURE.md, and docs/CONFIGURATION.md to summarize the entire delta. Runs LAST; depends on every implementing subtask.",
           "tasks": [
             {
               "type": "Task",
               "id": "P6.M1.T1",
               "title": "Sync Changeset-Level Documentation",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Update README.md, docs/ARCHITECTURE.md, and docs/CONFIGURATION.md to reflect all features from Phases 1-5: distributed PRDs, provider-neutral config, depth-chained research, two-phase commit, integrity protections, delta/QA hardening, adopt mode, and the prd status alias.",
               "subtasks": [
                 {
@@ -1147,7 +1147,7 @@
                   "type": "Subtask",
                   "id": "P6.M1.T1.S2",
                   "title": "Update docs/ARCHITECTURE.md for resolved-document invariant and new behaviors",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S3",
@@ -1172,7 +1172,7 @@
                   "type": "Subtask",
                   "id": "P6.M1.T1.S3",
                   "title": "Update docs/CONFIGURATION.md as canonical env-var reference",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S2",
