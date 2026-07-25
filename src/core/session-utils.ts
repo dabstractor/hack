@@ -625,6 +625,22 @@ export async function createSessionDirectory(
   planDir: string = resolve('plan'),
   precomputedHash?: string
 ): Promise<string> {
+  // PRD §4.6 guard rail (e): mkdir -p PLAN_DIR FIRST so the session path is
+  // always nested under it, and reject an empty planDir so collapsed root
+  // paths can never be written. EEXIST is tolerated (the plan dir already
+  // existing is the normal case for any project beyond the first session).
+  if (!planDir || planDir.trim() === '') {
+    throw new Error('planDir cannot be empty (PRD §4.6)');
+  }
+  try {
+    await mkdir(planDir, { recursive: true, mode: 0o755 });
+  } catch (error: unknown) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== 'EEXIST') {
+      throw new SessionFileError(planDir, 'mkdir plan dir', error as Error);
+    }
+  }
+
   try {
     // Compute PRD hash. When a precomputed hash is supplied, use it directly (the
     // caller — e.g. SessionManager.initialize — already resolved + hashed, so this

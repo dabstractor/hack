@@ -252,7 +252,8 @@ async function main(): Promise<number> {
     args.cacheTtl,
     args.prpCompression,
     args.metricsOutput,
-    args.acceptPrdChanges
+    args.acceptPrdChanges,
+    args.adoptPrd
   );
 
   // Run pipeline

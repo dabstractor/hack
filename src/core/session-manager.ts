@@ -286,6 +286,22 @@ export class SessionManager {
   }
 
   /**
+   * Returns true iff at least one session directory exists under this.planDir.
+   *
+   * Used by the --adopt-prd guard rail (PRD §4.6): adopt mode applies only to
+   * fresh projects; if sessions already exist the flag is a no-op (warn +
+   * proceed). Safe to call BEFORE {@link initialize} — only requires
+   * {@link planDir} (set in the constructor).
+   *
+   * @returns true if any `NNN_<hash>` session dir exists under this.planDir.
+   */
+  async hasAnySessions(): Promise<boolean> {
+    const sessions: SessionDirInfo[] =
+      await SessionManager.__scanSessionDirectories(this.planDir);
+    return sessions.length > 0;
+  }
+
+  /**
    * Initializes session manager - creates new session or loads existing
    *
    * @remarks

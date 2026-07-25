@@ -38,6 +38,7 @@ import type { Scope } from '../core/scope-resolver.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
 import {
+  SessionError,
   isPipelineError,
   isFatalError,
   toErrorMessage,
@@ -190,6 +191,16 @@ export class PRPPipeline extends Workflow {
    * baseline without generating a delta session. Threaded from the CLI flag.
    */
   private readonly acceptPrdChanges: boolean = false;
+
+  /**
+   * `--adopt-prd` (PRD §4.6 Adopt Mode): declare the PRD the source of truth
+   * for an already-implemented codebase. Guard rails (no-op if sessions exist,
+   * reject empty SESSION_DIR, mkdir -p PLAN_DIR) run in {@link initializeSession}.
+   * The baseline seeding (completed tasks.json + .adopted marker +
+   * SKIP_EXECUTION_LOOP) is implemented in P5.M1.T1.S2; S1 is intentionally
+   * inert on the fresh-project path (flag threaded + guard rails only).
+   */
+  private readonly adoptPrd: boolean = false;
 
   /**
    * Integrate-into-current seam (PRD §4.3 step 2): fold new requirements into
@@ -370,7 +381,8 @@ export class PRPPipeline extends Workflow {
     cacheTtl: number = 24 * 60 * 60 * 1000,
     prpCompression: 'off' | 'standard' | 'aggressive' = 'standard',
     metricsOutputPath?: string,
-    acceptPrdChanges: boolean = false
+    acceptPrdChanges: boolean = false,
+    adoptPrd: boolean = false
   ) {
     super('PRPPipeline');
 
@@ -408,6 +420,10 @@ export class PRPPipeline extends Workflow {
     // session (cancels .pending_delta_hash, refreshes prd_snapshot.md, exits
     // idempotently). Threaded from the --accept-prd-changes CLI flag.
     this.acceptPrdChanges = acceptPrdChanges;
+
+    // PRD §4.6 "Adopt Mode": declare the PRD the source of truth for an
+    // already-implemented codebase. Threaded from the --adopt-prd CLI flag.
+    this.adoptPrd = adoptPrd;
 
     // SessionManager and TaskOrchestrator will be created in run() to catch initialization errors
     // Using definite assignment assertion (!) in property declarations
@@ -630,8 +646,49 @@ export class PRPPipeline extends Workflow {
         // else: fall through to the normal initialize() path.
       }
 
+      // ============================================================
+      // PRD §4.6 Adopt Mode (--adopt-prd) guard rails.
+      // Applies only to fresh projects; if sessions already exist the flag is a
+      // no-op misuse (warn and proceed with normal session resolution). The
+      // baseline seeding (completed tasks.json + .adopted marker +
+      // SKIP_EXECUTION_LOOP) is implemented in P5.M1.T1.S2; P5.M1.T1.S1 (this
+      // block) is intentionally inert on the fresh path.
+      // ============================================================
+      if (this.adoptPrd) {
+        const hasSessions = await this.sessionManager.hasAnySessions();
+        if (hasSessions) {
+          this.logger.warn(
+            `[PRPPipeline] --adopt-prd is a no-op: sessions already exist in ${this.sessionManager.planDir}; proceeding with normal session resolution (PRD §4.6)`
+          );
+          // Fall through to normal session resolution below (rail c: warn + proceed).
+        } else {
+          // EXTENSION POINT (P5.M1.T1.S2): seed completed baseline tasks.json +
+          // .adopted marker + SKIP_EXECUTION_LOOP=true here. S1 threads the flag +
+          // guard rails only and is intentionally inert on the fresh-project path.
+          this.logger.info(
+            '[PRPPipeline] --adopt-prd set on fresh project (no sessions); adopt baseline seeding is implemented in P5.M1.T1.S2'
+          );
+          // Fall through to normal session creation below.
+        }
+      }
+
       // Initialize session manager (detects new vs existing)
       const session = await this.sessionManager.initialize();
+
+      // ============================================================
+      // PRD §4.6 guard rail (d): reject an empty SESSION_DIR before
+      // breakdown/validation so collapsed root paths can never be written.
+      // General guard (runs for ALL sessions, not just adopt) — only ever fires
+      // on a pathological empty path. Throws a fatal SessionError so the
+      // pipeline aborts (a plain Error is treated as non-fatal by isFatalError
+      // and would let execution continue into breakdown/validation).
+      // ============================================================
+      if (!session.metadata.path || session.metadata.path.trim() === '') {
+        throw new SessionError(
+          'Session directory (SESSION_DIR) is empty; refusing to proceed to breakdown/validation to prevent collapsed root paths (PRD §4.6)',
+          { operation: 'initializeSession' }
+        );
+      }
 
       this.logger.info(`[PRPPipeline] Session: ${session.metadata.id}`);
       this.logger.info(`[PRPPipeline] Path: ${session.metadata.path}`);

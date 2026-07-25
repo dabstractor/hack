@@ -275,6 +275,43 @@ describe('cli/index', () => {
         expect('acceptPrdChanges' in args).toBe(true);
       });
 
+      it('should default --adopt-prd to false when absent', () => {
+        // SETUP
+        setArgv([]);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: adoptPrd defaults to false
+        expect(args.adoptPrd).toBe(false);
+      });
+
+      it('should parse --adopt-prd flag as true', () => {
+        // SETUP
+        setArgv(['--adopt-prd']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: adoptPrd is true
+        expect(args.adoptPrd).toBe(true);
+      });
+
+      it('should carry --adopt-prd onto ValidatedCLIArgs', () => {
+        // SETUP
+        setArgv(['--adopt-prd']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: the flag survives validation as a boolean (PRD §4.6 —
+        // --adopt-prd must flow through to PRPPipeline unchanged).
+        expect(args.adoptPrd).toBe(true);
+        // parseArgs() already narrows via isCLIArgs(); the returned object is a
+        // ValidatedCLIArgs, so adoptPrd is present and typed.
+        expect('adoptPrd' in args).toBe(true);
+      });
+
       it('should parse all options together', () => {
         // SETUP
         setArgv([

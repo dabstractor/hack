@@ -358,10 +358,13 @@ describe('core/session-utils', () => {
       // VERIFY
       expect(sessionPath).toContain('plan');
       expect(sessionPath).toContain('001_14b9dc2a33c7');
-      expect(mockMkdir).toHaveBeenCalledTimes(4); // sessionPath + 3 subdirs
+      expect(mockMkdir).toHaveBeenCalledTimes(5); // planDir + sessionPath + 3 subdirs
+
+      // PRD §4.6 (e): the FIRST mkdir is the plan dir itself.
+      const calls = mockMkdir.mock.calls;
+      expect(calls[0][0]).toMatch(/plan$/);
 
       // Verify directory paths
-      const calls = mockMkdir.mock.calls;
       const createdPaths = calls.map((call: any[]) => call[0]);
       expect(createdPaths.some((p: string) => p.endsWith('architecture'))).toBe(
         true
@@ -370,6 +373,33 @@ describe('core/session-utils', () => {
       expect(createdPaths.some((p: string) => p.endsWith('artifacts'))).toBe(
         true
       );
+    });
+
+    it('should throw on empty planDir (PRD §4.6)', async () => {
+      // SETUP
+      mockMkdir.mockResolvedValue(undefined);
+
+      // EXECUTE + VERIFY: empty planDir is rejected before any mkdir.
+      await expect(
+        createSessionDirectory('/test/PRD.md', 1, '', PRECOMPUTED_HASH)
+      ).rejects.toThrow(/planDir cannot be empty/);
+      expect(mockMkdir).not.toHaveBeenCalled();
+    });
+
+    it('should mkdir -p the plan dir as the FIRST operation (PRD §4.6)', async () => {
+      // SETUP
+      mockMkdir.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await createSessionDirectory(
+        '/test/PRD.md',
+        1,
+        '/tmp/planX',
+        PRECOMPUTED_HASH
+      );
+
+      // VERIFY: the first mkdir call targets the plan dir.
+      expect(mockMkdir.mock.calls[0][0]).toBe('/tmp/planX');
     });
 
     it('should pad sequence number to 3 digits', async () => {

@@ -239,16 +239,17 @@ prd status next -o json
 
 ### Boolean Flags
 
-| Option                 | Type    | Default | Description                                                             |
-| ---------------------- | ------- | ------- | ----------------------------------------------------------------------- |
-| `--continue`           | boolean | false   | Resume from previous session                                            |
-| `--dry-run`            | boolean | false   | Show plan without executing (no credential required)                    |
-| `--verbose`            | boolean | false   | Enable debug logging                                                    |
-| `--machine-readable`   | boolean | false   | Enable machine-readable JSON output                                     |
-| `--no-cache`           | boolean | false   | Bypass cache and regenerate all PRPs                                    |
-| `--continue-on-error`  | boolean | false   | Treat all errors as non-fatal and continue pipeline execution           |
-| `--validate-prd`       | boolean | false   | Validate PRD and exit (no agent, no credential)                         |
-| `--accept-prd-changes` | boolean | false   | Accept PRD edits as the new baseline without a delta session (PRD §4.3) |
+| Option                 | Type    | Default | Description                                                                       |
+| ---------------------- | ------- | ------- | --------------------------------------------------------------------------------- |
+| `--continue`           | boolean | false   | Resume from previous session                                                      |
+| `--dry-run`            | boolean | false   | Show plan without executing (no credential required)                              |
+| `--verbose`            | boolean | false   | Enable debug logging                                                              |
+| `--machine-readable`   | boolean | false   | Enable machine-readable JSON output                                               |
+| `--no-cache`           | boolean | false   | Bypass cache and regenerate all PRPs                                              |
+| `--continue-on-error`  | boolean | false   | Treat all errors as non-fatal and continue pipeline execution                     |
+| `--validate-prd`       | boolean | false   | Validate PRD and exit (no agent, no credential)                                   |
+| `--accept-prd-changes` | boolean | false   | Accept PRD edits as the new baseline without a delta session (PRD §4.3)           |
+| `--adopt-prd`          | boolean | false   | Declare the PRD as the source of truth for an already-shipped codebase (PRD §4.6) |
 
 **Flag Details:**
 
@@ -267,6 +268,8 @@ prd status next -o json
 - **`--validate-prd`**: Validates PRD structure and exits. Returns exit code 0 if valid, 1 if invalid. No agent is invoked and no credential is required. Equivalent to `--mode validate`.
 
 - **`--accept-prd-changes`**: Accept PRD edits as the new baseline **without** generating a delta session. When the pipeline detects a PRD change on an active session, this flag cancels the queued `.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD, and exits/resumes idempotently (PRD §4.3 step 2). Use this for doc-only edits or for changes that merely describe already-finished work. See [Delta Response Selection](#delta-response-selection).
+
+- **`--adopt-prd`**: Declare the PRD the source of truth for an _already-implemented_ codebase (PRD §4.6). On a **fresh project** (no `plan/` sessions) it seeds a completed baseline session (P5.M1.T1.S2) so future PRD edits produce deltas against the real code. Guard rails: requires the PRD to exist; is a **no-op** (warn + proceed) if sessions already exist; rejects an empty session dir; and `mkdir -p`s the plan dir first.
 
 ### Limit Options
 

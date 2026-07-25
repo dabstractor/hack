@@ -272,7 +272,9 @@ function createMockSessionManager(
     hasSessionChanged: vi.fn().mockReturnValue(hasSessionChanged),
     createDeltaSession: vi.fn().mockResolvedValue(session),
     prdPath: '/test/prd.md',
+    planDir: '/plan',
     flushUpdates: vi.fn().mockResolvedValue(undefined),
+    hasAnySessions: vi.fn().mockResolvedValue(false),
   };
   // Set the mock instance to be returned by SessionManager constructor
   MockSessionManagerClass.mockImplementation(() => mock);
@@ -1458,6 +1460,97 @@ describe('PRPPipeline', () => {
         expect(pipeline.currentPhase).toBe('session_initialized');
 
         handleDeltaSpy.mockRestore();
+      });
+    });
+
+    describe('--adopt-prd guard rails', () => {
+      it('should warn (no-op) and proceed with normal session resolution when adoptPrd is set and sessions already exist', async () => {
+        // SETUP
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, false);
+        mockManager.hasAnySessions = vi.fn().mockResolvedValue(true); // sessions exist
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        (pipeline as any).adoptPrd = true;
+
+        const warnSpy = vi.spyOn((pipeline as any).logger, 'warn');
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: warn was called with a no-op message mentioning the plan dir,
+        // and normal session resolution proceeded (initialize was called, no abort).
+        expect(mockManager.hasAnySessions).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no-op'));
+        expect(mockManager.initialize).toHaveBeenCalledTimes(1);
+        expect(pipeline.currentPhase).toBe('session_initialized');
+
+        warnSpy.mockRestore();
+      });
+
+      it('should log the S2 seam (info) and proceed when adoptPrd is set on a fresh project (no sessions)', async () => {
+        // SETUP
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, false);
+        mockManager.hasAnySessions = vi.fn().mockResolvedValue(false); // fresh
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        (pipeline as any).adoptPrd = true;
+
+        const infoSpy = vi.spyOn((pipeline as any).logger, 'info');
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: info logged the S2 seam, and normal session creation proceeded
+        // (S1 is intentionally inert — no seeding in this subtask).
+        expect(mockManager.hasAnySessions).toHaveBeenCalledTimes(1);
+        expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('S2'));
+        expect(mockManager.initialize).toHaveBeenCalledTimes(1);
+        expect(pipeline.currentPhase).toBe('session_initialized');
+
+        infoSpy.mockRestore();
+      });
+
+      it('should skip the adopt block entirely when adoptPrd is false (hasAnySessions never called)', async () => {
+        // SETUP
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, false);
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        // adoptPrd left at default (false)
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: the adopt guard-rail block was skipped — hasAnySessions is
+        // never consulted.
+        expect(mockManager.hasAnySessions).not.toHaveBeenCalled();
+        expect(mockManager.initialize).toHaveBeenCalledTimes(1);
+      });
+
+      it('should reject an empty SESSION_DIR after initialize (general hard guard, PRD §4.6)', async () => {
+        // SETUP: session with an empty metadata.path — the hard guard fires for
+        // ALL sessions (not just adopt), so adoptPrd is left false here.
+        const backlog = createTestBacklog([]);
+        const emptyPathSession = createTestSession(backlog, '# Test PRD', '');
+        const mockManager = createMockSessionManager(emptyPathSession, false);
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        // adoptPrd left at default (false) — guard is general.
+
+        // EXECUTE + VERIFY: under default continueOnError=false the guard
+        // re-throws → initializeSession rejects with the SESSION_DIR message.
+        await expect(pipeline.initializeSession()).rejects.toThrow(
+          /SESSION_DIR/
+        );
       });
     });
 

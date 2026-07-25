@@ -2459,6 +2459,33 @@ describe('SessionManager', () => {
       expect(byPRD).not.toBeNull();
       expect(byPRD?.id).toBe('001_14b9dc2a33c7');
     });
+
+    it('hasAnySessions() returns true when session dirs exist (PRD §4.6)', async () => {
+      // SETUP: a session directory matches the NNN_<hash> pattern.
+      mockStatSync.mockReturnValue({ isFile: () => true });
+      mockReaddir.mockResolvedValue([
+        { name: '001_14b9dc2a33c7', isDirectory: () => true },
+      ]);
+
+      const manager = new SessionManager('/test/PRD.md', '/test/plan');
+
+      // EXECUTE + VERIFY
+      expect(await manager.hasAnySessions()).toBe(true);
+    });
+
+    it('hasAnySessions() returns false on a fresh project (no sessions, PRD §4.6)', async () => {
+      // SETUP: plan dir has no NNN_<hash> session directories.
+      mockStatSync.mockReturnValue({ isFile: () => true });
+      mockReaddir.mockResolvedValue([
+        { name: 'not-a-session.txt', isDirectory: () => false },
+        { name: 'README.md', isDirectory: () => false },
+      ]);
+
+      const manager = new SessionManager('/test/PRD.md', '/test/plan');
+
+      // EXECUTE + VERIFY
+      expect(await manager.hasAnySessions()).toBe(false);
+    });
   });
 
   describe('batch state updates', () => {

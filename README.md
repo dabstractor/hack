@@ -211,18 +211,19 @@ npm run dev -- --prd ./PRD.md --no-cache
 
 ## CLI Options
 
-| Option               | Alias | Type    | Default    | Description                                               |
-| -------------------- | ----- | ------- | ---------- | --------------------------------------------------------- |
-| `--prd <path>`       | `-p`  | string  | `./PRD.md` | Path to PRD file                                          |
-| `--scope <scope>`    | `-s`  | string  | -          | Execute specific scope (e.g., `P3.M4`)                    |
-| `--mode <mode>`      | `-m`  | string  | `normal`   | Execution mode: `normal`, `delta`, `bug-hunt`, `validate` |
-| `--continue`         | `-c`  | boolean | false      | Resume from previous session                              |
-| `--dry-run`          | `-d`  | boolean | false      | Show plan without executing (no credential required)      |
-| `--validate-prd`     | -     | boolean | false      | Validate the PRD and exit (no agent, no credential)       |
-| `--verbose`          | `-v`  | boolean | false      | Enable debug logging                                      |
-| `--machine-readable` | -     | boolean | false      | Enable machine-readable JSON output                       |
-| `--no-cache`         | -     | boolean | false      | Bypass PRP cache and regenerate all PRPs                  |
-| `--help`             | `-h`  | boolean | false      | Show help                                                 |
+| Option               | Alias | Type    | Default    | Description                                                      |
+| -------------------- | ----- | ------- | ---------- | ---------------------------------------------------------------- |
+| `--prd <path>`       | `-p`  | string  | `./PRD.md` | Path to PRD file                                                 |
+| `--scope <scope>`    | `-s`  | string  | -          | Execute specific scope (e.g., `P3.M4`)                           |
+| `--mode <mode>`      | `-m`  | string  | `normal`   | Execution mode: `normal`, `delta`, `bug-hunt`, `validate`        |
+| `--continue`         | `-c`  | boolean | false      | Resume from previous session                                     |
+| `--dry-run`          | `-d`  | boolean | false      | Show plan without executing (no credential required)             |
+| `--validate-prd`     | -     | boolean | false      | Validate the PRD and exit (no agent, no credential)              |
+| `--verbose`          | `-v`  | boolean | false      | Enable debug logging                                             |
+| `--machine-readable` | -     | boolean | false      | Enable machine-readable JSON output                              |
+| `--no-cache`         | -     | boolean | false      | Bypass PRP cache and regenerate all PRPs                         |
+| `--adopt-prd`        | -     | boolean | false      | Adopt an already-implemented codebase against the PRD (PRD §4.6) |
+| `--help`             | `-h`  | boolean | false      | Show help                                                        |
 
 ## Configuration
 

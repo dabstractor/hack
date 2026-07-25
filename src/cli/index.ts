@@ -101,6 +101,13 @@ export interface CLIArgs {
    */
   acceptPrdChanges: boolean;
 
+  /**
+   * Declare the PRD as the source of truth for an already-implemented codebase
+   * (PRD §4.6 "Adopt Mode"). On a fresh project this is the baseline-adoption
+   * flag; on a project with existing sessions it is a no-op (warn + proceed).
+   */
+  adoptPrd: boolean;
+
   /** Maximum number of tasks to execute (optional) */
   maxTasks?: number;
 
@@ -311,6 +318,11 @@ export function parseCLIArgs():
     .option(
       '--accept-prd-changes',
       'Accept PRD edits as the new baseline without generating a delta session (PRD §4.3)',
+      false
+    )
+    .option(
+      '--adopt-prd',
+      'Declare the PRD as the source of truth for an already-implemented codebase (PRD §4.6)',
       false
     )
     .option('--max-tasks <number>', 'Maximum number of tasks to execute')
