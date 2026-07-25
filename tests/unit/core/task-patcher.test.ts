@@ -481,6 +481,42 @@ describe('core/task-patcher', () => {
       );
     });
 
+    it('should NOT log warn and should leave the backlog structurally unchanged for an added change', () => {
+      // SETUP: a backlog with real items so "no items added/removed" is meaningful.
+      mockLogger.warn.mockClear();
+      mockLogger.debug.mockClear();
+      const phase = createTestPhase('P1', 'Phase 1', 'Complete');
+      const backlog = createTestBacklog([phase]);
+
+      const delta: DeltaAnalysis = createDeltaAnalysis(
+        [
+          {
+            itemId: 'P1.M1.T1.S1',
+            type: 'added',
+            description: 'New requirement',
+            impact: 'Generate new tasks',
+          },
+        ],
+        ['P1.M1.T1.S1']
+      );
+
+      // EXECUTE
+      const patched = patchBacklog(backlog, delta);
+
+      // VERIFY (NEGATIVE): the silent-drop signal is GONE — no warn('Feature not implemented').
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+
+      // VERIFY (POSITIVE): debug delegation is logged (mirrors S1's two blocks).
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        { changeType: 'added', taskId: 'P1.M1.T1.S1' },
+        'Added requirement delegated to delta-session breakdown (decomposePRD over delta_prd.md); patchBacklog is a no-op for added changes'
+      );
+
+      // VERIFY (STRUCTURAL): the added requirement added/removed NO backlog items
+      //   (delegated to the delta breakdown, not silently dropped nor injected here).
+      expect(patched).toEqual(backlog);
+    });
+
     it('should log debug delegation for multiple added changes', () => {
       // SETUP: Logger mock
       mockLogger.debug.mockClear();

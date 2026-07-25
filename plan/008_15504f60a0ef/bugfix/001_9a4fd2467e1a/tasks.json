@@ -158,21 +158,21 @@
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Make executeBacklog Abort on Empty Backlog (Issue 5)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Ensure executeBacklog() throws when no backlog is found, so the pipeline does not silently proceed to validation/QA with zero tasks.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "Make 'no backlog found' a hard abort that propagates unconditionally",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Move the no-backlog check above the try/catch in executeBacklog, or throw a fatal PipelineError that propagates past isFatalError().",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "Move no-backlog check above try/catch and throw fatal error",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/test_validation.md §Issue 5. executeBacklog() at src/workflows/prp-pipeline.ts:~1295 throws Error('Cannot execute pipeline: no backlog found in session') INSIDE the try/catch block. isFatalError() (src/utils/errors.ts:~835) returns false for plain Error (only PipelineError subtypes like SessionError+LOAD_FAILED are fatal). The catch swallows it and continues. When continueOnError=true, isFatalError ALWAYS returns false (override at line ~842), so even a fatal error would be swallowed.\n2. INPUT: executeBacklog() method in src/workflows/prp-pipeline.ts:~1295. The skipExecutionLoop guard (line ~1305) is above the try block. Available error classes from src/utils/errors.ts: SessionError (fatal with LOAD_FAILED/SAVE_FAILED codes), ErrorCodes enum.\n3. LOGIC: Move the backlog null-check and the 'Cannot execute pipeline: no backlog found' throw ABOVE the try/catch block (between the skipExecutionLoop early-return and the try). This ensures the throw propagates unconditionally — it is NOT caught by the try/catch's isFatalError check, so it works even under --continue-on-error. Alternatively, throw new SessionError('Cannot execute pipeline: no backlog found in session', ErrorCodes.PIPELINE_SESSION_LOAD_FAILED, { operation: 'executeBacklog' }) instead of plain Error — but MOVING the check above try/catch is the safer fix since it bypasses isFatalError entirely. Keep the rest of executeBacklog (subtask count check, progress tracker, execution loop) inside the try/catch.\n4. OUTPUT: executeBacklog() throws when no backlog is found, and the throw propagates to the caller (run()'s catch or the pipeline abort). The pipeline does NOT proceed to validation/QA with zero tasks.\n5. DOCS: [Mode A] Update JSDoc on executeBacklog() to document that a missing backlog causes an unconditional abort (not subject to continue-on-error).",
@@ -186,7 +186,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Verify and update affected unit tests for the abort behavior",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"

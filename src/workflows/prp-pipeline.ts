@@ -1362,6 +1362,15 @@ export class PRPPipeline extends Workflow {
    *
    * NOTE: TaskOrchestrator.executeSubtask() is currently a placeholder.
    * Future: Will integrate PRPRuntime for actual PRP execution.
+   *
+   * **Unconditional abort on missing backlog (PRD §4.2/§5.1; bugfix Issue 5).** If
+   * `currentSession.taskRegistry` is absent, this method throws a fatal
+   * {@link SessionError} (`PIPELINE_SESSION_LOAD_FAILED`) carrying the message
+   * `'Cannot execute pipeline: no backlog found in session'`. The check lives ABOVE
+   * the execution try/catch, so the throw propagates unconditionally — it is NOT
+   * subject to `isFatalError()` and therefore NOT swallowed under `--continue-on-error`.
+   * A missing backlog is a misconfigured session; running validation/QA over zero
+   * tasks is not useful, so the pipeline aborts loudly.
    */
   async executeBacklog(): Promise<void> {
     this.logger.info('[PRPPipeline] Executing backlog');
@@ -1384,13 +1393,21 @@ export class PRPPipeline extends Workflow {
       return;
     }
 
-    try {
-      // Initialize progress tracker with session backlog
-      const backlog = this.sessionManager.currentSession?.taskRegistry;
-      if (!backlog) {
-        throw new Error('Cannot execute pipeline: no backlog found in session');
-      }
+    // HARD ABORT — no backlog = misconfigured session; never useful to continue
+    // (PRD §4.2/§5.1; bugfix Issue 5). Thrown ABOVE the try/catch so it propagates
+    // unconditionally — bypassing isFatalError(), so it aborts even under
+    // --continue-on-error. SessionError's hardcoded PIPELINE_SESSION_LOAD_FAILED
+    // code is also classified fatal by isFatalError (defense in depth).
+    const backlog = this.sessionManager.currentSession?.taskRegistry;
+    if (!backlog) {
+      throw new SessionError(
+        'Cannot execute pipeline: no backlog found in session',
+        { operation: 'executeBacklog' }
+      );
+    }
 
+    try {
+      // (backlog declared + null-checked above; narrowed to non-null here)
       // Check if there are any subtasks to execute
       const totalSubtasks = this.#countTasks();
       if (totalSubtasks === 0) {
