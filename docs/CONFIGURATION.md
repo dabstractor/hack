@@ -11,20 +11,23 @@
 - [Quick Reference](#quick-reference)
 - [Environment Variables](#environment-variables)
   - [API Authentication](#api-authentication)
-  - [Model Selection](#model-selection-1)
+  - [Model Selection](#model-selection)
   - [Agent Runtime (Harness)](#agent-runtime-harness)
   - [Pipeline Control](#pipeline-control)
   - [Resilience Tuning](#resilience-tuning)
+  - [Distributed PRDs](#distributed-prds)
+  - [Concurrency & Monitoring](#concurrency--monitoring)
   - [Bug Hunt Configuration](#bug-hunt-configuration)
   - [Validation Control](#validation-control)
   - [Advanced Configuration](#advanced-configuration)
+  - [tasks.json Lock Tunables](#tasksjson-lock-tunables)
 - [CLI Options](#cli-options)
   - [Required Options](#required-options)
   - [Execution Mode](#execution-mode)
   - [Boolean Flags](#boolean-flags)
   - [Limit Options](#limit-options)
   - [Delta Response](#delta-response)
-- [Model Selection](#model-selection)
+- [Models, Roles & Reasoning Budget](#models-roles--reasoning-budget)
 - [Configuration Priority](#configuration-priority)
 - [Security](#security)
 - [Example Configuration](#example-configuration)
@@ -91,13 +94,14 @@ if (
 
 ### Model Selection
 
-Configure which models each agent tier uses.
+Configure which model each **tier** uses. For how tiers map to **roles** and reasoning budgets, see
+[Models, Roles & Reasoning Budget](#models-roles--reasoning-budget).
 
-| Variable             | Required | Default       | Description                                                                                                   |
-| -------------------- | -------- | ------------- | ------------------------------------------------------------------------------------------------------------- |
-| `PRP_MODEL_HIGH`     | No       | `glm-5.2`     | Model for Architect agent (highest quality, complex reasoning). Legacy alias: `ANTHROPIC_DEFAULT_OPUS_MODEL`. |
-| `PRP_MODEL_BALANCED` | No       | `glm-5.2`     | Model for Researcher/Coder agents (balanced, default). Legacy alias: `ANTHROPIC_DEFAULT_SONNET_MODEL`.        |
-| `PRP_MODEL_FAST`     | No       | `glm-5-turbo` | Model for simple operations (fastest). Legacy alias: `ANTHROPIC_DEFAULT_HAIKU_MODEL`.                         |
+| Variable             | Required | Default       | Description                                                                                                              |
+| -------------------- | -------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `PRP_MODEL_HIGH`     | No       | `glm-5.2`     | Highest-quality tier model (override). Legacy alias: `ANTHROPIC_DEFAULT_OPUS_MODEL`.                                     |
+| `PRP_MODEL_BALANCED` | No       | `glm-5.2`     | Balanced tier model (default tier for the Research and Reasoning roles). Legacy alias: `ANTHROPIC_DEFAULT_SONNET_MODEL`. |
+| `PRP_MODEL_FAST`     | No       | `glm-5-turbo` | Fast tier model (used by the Implementation role). Legacy alias: `ANTHROPIC_DEFAULT_HAIKU_MODEL`.                        |
 
 > Models are **provider-qualified** at runtime. A bare model name (e.g. `glm-5.2`)
 > resolves to `zai/glm-5.2` (provider `zai`, the default); an already-qualified
@@ -110,7 +114,7 @@ Configure which models each agent tier uses.
 
 The agent runtime (harness) drives prompting, tool execution, and streaming. It is
 **independent of the LLM provider** — it is selected separately from the model
-(see [Model Selection](#model-selection-1)). Mirrors PRD §9.2.2 / §9.4.2.
+(see [Models, Roles & Reasoning Budget](#models-roles--reasoning-budget)). Mirrors PRD §9.2.2 / §9.4.2.
 
 | Variable            | Required | Default | Choices             | Description                                                                                                                     |
 | ------------------- | -------- | ------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -119,7 +123,7 @@ The agent runtime (harness) drives prompting, tool execution, and streaming. It 
 **Harness ↔ provider independence:**
 
 - The **harness** (`PRP_AGENT_HARNESS`) and the **provider/model** (see
-  [Model Selection](#model-selection-1)) are selected independently.
+  [Models, Roles & Reasoning Budget](#models-roles--reasoning-budget)) are selected independently.
 - The harness **never** appears in the model string. `pi/zai/glm-5.2` is **invalid**;
   always use `provider/model` (e.g. `zai/glm-5.2`).
 - **`claude-code` is Anthropic-only** and is **incompatible with the z.ai provider**
@@ -138,25 +142,26 @@ Groundswell Guide.
 
 Control pipeline execution behavior.
 
-| Variable               | Required | Default | Description                                                                                                                    |
-| ---------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `PRP_PIPELINE_RUNNING` | No       | None    | Nested execution guard. Contains parent PID to prevent recursive pipeline execution. Automatically set by pipeline controller. |
-| `SKIP_BUG_FINDING`     | No       | `false` | Skip bug hunt / bug fix mode. Set to `true` to disable QA and bug fix operations.                                              |
-| `SKIP_EXECUTION_LOOP`  | No       | `false` | Skip execution, run validation only. Set to `true` to validate PRDs without executing tasks.                                   |
+| Variable               | Required | Default | Description                                                                                                                          |
+| ---------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `PRP_PIPELINE_RUNNING` | No       | None    | Nested execution guard. Contains parent PID to prevent recursive pipeline execution. Automatically set by pipeline controller.       |
+| `SKIP_BUG_FINDING`     | No       | `false` | Skip bug hunt. When `true`, also identifies **bug-fix mode** and disables QA / bug-finding operations. See PRD §9.2.2.               |
+| `SKIP_EXECUTION_LOOP`  | No       | `false` | Skip execution, run validation only. Also set **internally by `--adopt-prd`** (PRD §4.6). See [Adopt Mode](#adopt-mode---adopt-prd). |
 
 ### Resilience Tuning
 
-Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.5 (issue-driven re-planning), and §9.2.2.
+Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.3 (delta-classifier retry), §4.5 (issue-driven re-planning), and §9.2.2.
 
-| Variable                 | Required | Default  | Description                                                                                                                                                    |
-| ------------------------ | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RESEARCH_TIMEOUT`       | No       | `1800`   | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2.                                    |
-| `PARALLEL_RESEARCH`      | No       | `false`  | Enable background (parallel) PRP research. Set to `true` (literal). Forwarded to the bugfix sub-pipeline. CLI: `-r`/`--parallel-research`. See PRD §4.2, §4.4. |
-| `RESEARCH_DEPTH`         | No       | `2`      | How many items ahead the background research supervisor prefetches as a chain. Forwarded to the bugfix sub-pipeline. See PRD §4.2, §4.4.                       |
-| `ISSUE_RETRY_MAX`        | No       | `3`      | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                                                               |
-| `COMMIT_RETRY_MAX`       | No       | `5`      | Maximum number of stagecoach commit-message-generation attempts before falling back (total attempts: initial + retries). See PRD §5.1.                         |
-| `COMMIT_RETRY_DELAY`     | No       | `10000`  | Base delay in milliseconds between stagecoach commit-message-generation retries (exponential, doubling). See PRD §5.1.                                         |
-| `COMMIT_RETRY_DELAY_CAP` | No       | `120000` | Maximum delay cap in milliseconds for stagecoach commit-message-generation backoff. See PRD §5.1.                                                              |
+| Variable                 | Required | Default  | Description                                                                                                                                                                                                                           |
+| ------------------------ | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEARCH_TIMEOUT`       | No       | `1800`   | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2.                                                                                                           |
+| `PARALLEL_RESEARCH`      | No       | `false`  | Enable background (parallel) PRP research. Set to `true` (literal). Forwarded to the bugfix sub-pipeline. CLI: `-r`/`--parallel-research`. See PRD §4.2, §4.4.                                                                        |
+| `RESEARCH_DEPTH`         | No       | `2`      | How many items ahead the background research supervisor prefetches as a chain. Forwarded to the bugfix sub-pipeline. See PRD §4.2, §4.4.                                                                                              |
+| `ISSUE_RETRY_MAX`        | No       | `3`      | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                                                                                                                                      |
+| `COMMIT_RETRY_MAX`       | No       | `5`      | Maximum number of stagecoach commit-message-generation attempts before falling back (total attempts: initial + retries). See PRD §5.1.                                                                                                |
+| `COMMIT_RETRY_DELAY`     | No       | `10000`  | Base delay in milliseconds between stagecoach commit-message-generation retries (exponential, doubling). See PRD §5.1.                                                                                                                |
+| `COMMIT_RETRY_DELAY_CAP` | No       | `120000` | Maximum delay cap in milliseconds for stagecoach commit-message-generation backoff. See PRD §5.1.                                                                                                                                     |
+| `CLASSIFIER_RETRY_MAX`   | No       | `4`      | Maximum number of LLM change/artifact-classifier attempts before failing to the protective/conservative default (treat as SUBSTANTIVE/DIRTY). Total attempt count (initial + retries), like the `COMMIT_RETRY_*` knobs. See PRD §4.3. |
 
 ### Distributed PRDs
 
@@ -169,15 +174,24 @@ A PRD may be authored across multiple files (architecture, API, data model, comp
 | `PRD_INCLUDE_MAX_DEPTH` | No       | `10`    | Max recursion depth for include expansion (PRD §2.3). Non-numeric or non-positive values fall back to the default.                                                                                |
 | `PRD_INCLUDE_MARKERS`   | No       | unset   | When set, resolved output emits `<!-- @include: path -->` / `<!-- @end-include -->` markers around expanded includes; a `.md` token that fails to resolve (stale include) emits a stderr warning. |
 
+### Concurrency & Monitoring
+
+Control background concurrency and resource-monitoring cadence. Mirror the
+`.env.example` "CONCURRENCY CONFIGURATION" grouping. Both are CLI-flag env overrides.
+
+| Variable                     | Required | Default | Description                                                                                                                           |
+| ---------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEARCH_QUEUE_CONCURRENCY` | No       | `3`     | Max concurrent background research tasks for parallel PRP generation (range 1-10). CLI: `--research-queue-concurrency`. See PRD §4.2. |
+| `MONITOR_TASK_INTERVAL`      | No       | `1`     | Monitor resources every Nth task (range 1-100). CLI: `--monitor-task-interval`.                                                       |
+
 ### Bug Hunt Configuration
 
 Configure the bug hunt and bug fix behavior.
 
-| Variable           | Required | Default           | Description                                                                   |
-| ------------------ | -------- | ----------------- | ----------------------------------------------------------------------------- |
-| `BUG_FINDER_AGENT` | No       | `pizr`            | Reasoning-tier agent used for creative bug discovery (PRD §4.4, §9.2.3).      |
-| `BUG_RESULTS_FILE` | No       | `TEST_RESULTS.md` | Output file for bug hunt results.                                             |
-| `BUGFIX_SCOPE`     | No       | `subtask`         | Scope level for bug fix operations (`subtask`, `task`, `milestone`, `phase`). |
+| Variable           | Required | Default           | Description                                                              |
+| ------------------ | -------- | ----------------- | ------------------------------------------------------------------------ |
+| `BUG_FINDER_AGENT` | No       | `pizr`            | Reasoning-tier agent used for creative bug discovery (PRD §4.4, §9.2.3). |
+| `BUG_RESULTS_FILE` | No       | `TEST_RESULTS.md` | Output file for bug hunt results.                                        |
 
 ### Validation Control
 
@@ -190,11 +204,28 @@ Configure the validation stage of the QA & bug-hunt loop. See PRD §4.4 and §9.
 
 ### Advanced Configuration
 
-Advanced settings for performance and debugging.
+Advanced settings for performance and debugging. The `HACKY_` prefix marks framework /
+Groundswell-level knobs exposed as CLI `--flag` env overrides.
 
-| Variable         | Required | Default | Description                                                 |
-| ---------------- | -------- | ------- | ----------------------------------------------------------- |
-| `API_TIMEOUT_MS` | No       | `60000` | Request timeout in milliseconds. Increase for complex PRDs. |
+| Variable                        | Required | Default | Description                                                                                                                      |
+| ------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `API_TIMEOUT_MS`                | No       | `60000` | Request timeout in milliseconds. Increase for complex PRDs. (Framework-level — consumed by the harness SDK, not read in `src/`.) |
+| `HACKY_LOG_LEVEL`               | No       | `info`  | Minimum log level. CLI: `--log-level`.                                                                                           |
+| `HACKY_TASK_RETRY_MAX_ATTEMPTS` | No       | `3`     | Max retry attempts for transient errors (range 0-10). CLI: `--task-retry-max-attempts`.                                          |
+| `HACKY_FLUSH_RETRIES`           | No       | `3`     | Max retries for batch write failures (range 0-10). CLI: `--flush-retries`.                                                       |
+| `HACKY_PRP_CACHE_TTL`           | No       | `24h`   | PRP cache time-to-live (internal; rarely set directly). CLI: `--prp-cache-ttl`.                                                  |
+
+### tasks.json Lock Tunables
+
+Tune the O_EXCL `tasks.json.lock` file used by `withLockedTasksJSON` (PRD §5.1). These are
+**rarely tuned** — only adjust if read-modify-write critical sections run longer than the
+defaults.
+
+| Variable                | Required | Default | Description                                                                                    |
+| ----------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `TASKS_LOCK_STALE_MS`   | No       | `30000` | Age in ms at which an unreleased `tasks.json.lock` is considered stale and forcibly removed.   |
+| `TASKS_LOCK_TIMEOUT_MS` | No       | `30000` | Deadline in ms to acquire `tasks.json.lock` before giving up with `TasksLockAcquisitionError`. |
+| `TASKS_LOCK_POLL_MS`    | No       | `50`    | Retry interval in ms between lock-acquisition attempts.                                        |
 
 ---
 
@@ -270,37 +301,51 @@ Declares the PRD the source of truth for an _already-implemented_ codebase (PRD 
 
 ---
 
-## Model Selection
+## Models, Roles & Reasoning Budget
 
-The PRP Pipeline uses three model tiers, each optimized for different tasks.
+The pipeline selects models via **three roles** — research, reasoning, and implementation. Each
+role maps to a quality **tier** (high / balanced / fast) and a reasoning budget. The
+`PRP_MODEL_*` env vars override the tier defaults; the role → {tier, budget} mapping is fixed in
+`ROLE_CONFIG` (`src/agents/agent-factory.ts`, PRD §9.2.3 / §6.1). Tiers are **quality levels**
+(default model + max tokens); roles are the authoritative binding of a pipeline persona to a tier
+plus a reasoning budget. See the [Model Selection](#model-selection) env-var table for the
+canonical tier-override env vars.
 
 ### Model Tiers
 
-| Model Tier   | Default Model | Max Tokens | Use Case                                     | Agents                |
-| ------------ | ------------- | ---------- | -------------------------------------------- | --------------------- |
-| **high**     | glm-5.2       | 8192       | Complex reasoning, architectural planning    | Architect             |
-| **balanced** | glm-5.2       | 4096       | Balanced performance, default for most tasks | Researcher, Coder, QA |
-| **fast**     | glm-5-turbo   | 4096       | Fast, simple operations                      | Future: quick lookups |
+Tiers are **quality levels**. The default model for each is overridable via the `PRP_MODEL_*`
+env vars (see [Model Selection](#model-selection)); the role→tier binding is authoritative in
+[Model Roles](#model-roles) below.
+
+| Tier         | Default Model | Max Tokens | Use Case                                     |
+| ------------ | ------------- | ---------- | -------------------------------------------- |
+| **high**     | glm-5.2       | 8192       | Complex reasoning, architectural planning    |
+| **balanced** | glm-5.2       | 4096       | Balanced performance, default for most tasks |
+| **fast**     | glm-5-turbo   | 4096       | Fast, simple operations                      |
+
+> **Tier ↔ role note:** `balanced` is bound to the Research and Reasoning roles (Reasoning at the
+> `xhigh` reasoning budget); `fast` is bound to the Implementation role (Coder PRP
+> execution/fix, Cleanup). `high` is the highest-quality tier override — not currently bound to a
+> fixed role. See [Model Roles](#model-roles) for the authoritative mapping.
 
 ### When to Use Each Tier
 
 **high (glm-5.2):**
 
-- Use for the Architect Agent where complex reasoning is required
-- Higher cost, but higher quality output for breaking down PRDs
-- Best for: PRD analysis, task decomposition, architectural decisions
+- Highest quality, higher cost; override `PRP_MODEL_HIGH` to use it for a role.
+- Best for: PRD analysis, task decomposition, architectural decisions.
 
 **balanced (glm-5.2):**
 
-- Use for Researcher, Coder, and QA agents by default
-- Balanced cost and performance
-- Best for: Code implementation, research, testing, documentation
+- The default tier — bound to the **Research** role (Researcher) and **Reasoning** role
+  (Architect decomposition, Bug-finder, Validation).
+- Balanced cost and performance.
+- Best for: code implementation, research, testing, documentation.
 
 **fast (glm-5-turbo):**
 
-- Use for simple operations where speed is more important than quality
-- Lower cost, faster response times
-- Currently unused, reserved for future enhancements
+- Fastest, lowest cost — bound to the **Implementation** role (Coder PRP execution/fix, Cleanup).
+- Best for: simple operations where speed matters more than peak quality.
 
 ### Model Roles
 
@@ -503,9 +548,6 @@ ZAI_API_KEY=your-zai-key-here
 
 # Output file for bug hunt results
 # BUG_RESULTS_FILE=TEST_RESULTS.md
-
-# Scope level for bug fix operations
-# BUGFIX_SCOPE=subtask
 
 # =============================================================================
 # VALIDATION CONFIGURATION (OPTIONAL)
