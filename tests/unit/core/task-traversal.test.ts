@@ -54,15 +54,39 @@ vi.mock('../../../src/utils/git-commit.js', () => ({
   smartCommit: vi.fn().mockResolvedValue(null),
 }));
 
-// Mock the ResearchQueue class
-vi.mock('../../../src/core/research-queue.js', () => ({
-  ResearchQueue: vi.fn().mockImplementation(() => ({
-    enqueue: vi.fn().mockResolvedValue(undefined),
-    getPRP: vi.fn().mockReturnValue(null),
-    processNext: vi.fn().mockResolvedValue(undefined),
-    getStats: vi.fn().mockReturnValue({ queued: 0, researching: 0, cached: 0 }),
-  })),
-}));
+// Mock the ResearchQueue class — use importOriginal so the REAL
+// ResearchTimeoutError survives mocking (task-orchestrator.ts:903 does
+// `error instanceof ResearchTimeoutError`; without importOriginal the class
+// binding is undefined → "[vitest] No ResearchTimeoutError export" TypeError).
+// The ResearchQueue mock body mirrors the canonical task-orchestrator.test.ts
+// mock (all methods the source calls: enqueue/getPRP/processNext/getStats/
+// waitForPRP/researchNow/deletePRP) so executeSubtask's research path works.
+vi.mock('../../../src/core/research-queue.js', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('../../../src/core/research-queue.js')
+    >();
+  return {
+    ...actual,
+    ResearchQueue: vi.fn().mockImplementation(() => ({
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      getPRP: vi.fn().mockReturnValue(null),
+      processNext: vi.fn().mockResolvedValue(undefined),
+      getStats: vi
+        .fn()
+        .mockReturnValue({ queued: 0, researching: 0, cached: 0 }),
+      waitForPRP: vi.fn().mockResolvedValue({
+        id: 'default-prp',
+        title: 'cached PRP',
+      }),
+      researchNow: vi.fn().mockResolvedValue({
+        id: 'default-prp',
+        title: 'inline PRP',
+      }),
+      deletePRP: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
 
 // Mock the PRPRuntime class
 vi.mock('../../../src/agents/prp-runtime.js', () => ({
