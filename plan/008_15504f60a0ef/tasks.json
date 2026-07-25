@@ -1117,7 +1117,7 @@
                   "type": "Subtask",
                   "id": "P6.M1.T1.S1",
                   "title": "Update README.md with all new features and flags",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S3",
@@ -1147,7 +1147,7 @@
                   "type": "Subtask",
                   "id": "P6.M1.T1.S2",
                   "title": "Update docs/ARCHITECTURE.md for resolved-document invariant and new behaviors",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S3",

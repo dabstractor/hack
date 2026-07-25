@@ -105,10 +105,24 @@ That's it! The pipeline will analyze your PRD, generate tasks, and implement the
 
 **Next Steps**: Check out [Usage Examples](#usage-examples) or [Configuration](#configuration).
 
+## Distributed (Multi-File) PRDs
+
+A PRD can be authored across multiple files and assembled into one canonical document at load
+time (PRD §2.3). An `@path/to/file.md` token is an _include directive_ — replaced inline by the
+referenced file's contents (resolved project-root-relative to the entry PRD's directory,
+recursively with cycle detection up to `PRD_INCLUDE_MAX_DEPTH`, default `10`). Set
+`PRD_INCLUDE_MARKERS` to emit `<!-- @include: path -->` markers; a stale include warns on
+stderr. Hashing, `prd_snapshot.md`, delta detection, and `prd_selectors`/mdsel all operate over
+the **fully-resolved** document, so a split PRD behaves identically to a monolithic one.
+`prd_selectors` additionally scope each researcher to only the relevant PRD sections. See
+[Configuration](docs/CONFIGURATION.md#distributed-prds) for the env knobs.
+
 ## Features
 
 - **4 AI Engines**: Specialized agents for Architecture, Research, Implementation, and QA
 - **Hierarchical Task Decomposition**: Organize work into Phases → Milestones → Tasks → Subtasks
+- **Distributed (Multi-File) PRDs**: `@include` directives assemble a canonical resolved
+  document; `prd_selectors` scope each researcher to relevant PRD sections.
 - **Delta Sessions**: Automatically detect PRD changes and only execute affected tasks
 - **QA Bug Hunt**: 3-phase testing (syntax, unit, integration, creative)
 - **Scoped Execution**: Run specific phases, milestones, or tasks
@@ -116,21 +130,39 @@ That's it! The pipeline will analyze your PRD, generate tasks, and implement the
 - **4-Level Validation**: Syntax, unit tests, integration tests, and manual validation gates
 - **Smart Git Integration**: Automatic commits with generated messages
 - **Performance Optimizations**: PRP caching, I/O batching, and parallel research
+- **Depth-Chained Parallel Research**: prefetch up to N items ahead with synchronous fallback
+  (see [Self-Healing & Resilience](#self-healing--resilience)).
+- **Two-Phase Commits**: a survival commit before cleanup + a doc-reorg commit after, so
+  interrupted runs never orphan `plan/` directories.
+- **State Integrity Protection**: flock-guarded `tasks.json`, critical-file restore, terminal
+  watchdog kills, and a `NO_ISSUES_FOUND.md` hunt marker.
 - **Self-Healing & Resilience**: Research deadlines with fallback, issue-driven re-planning,
   and automatic `tasks.json` recovery (see [Self-Healing & Resilience](#self-healing--resilience))
 
 ## Self-Healing & Resilience
 
-The pipeline recovers from common agent failures without human intervention. Three mechanisms
+The pipeline recovers from common agent failures without human intervention. Six mechanisms
 keep a session running:
 
-- **Research deadline & synchronous fallback** — background research is bounded by
-  `RESEARCH_TIMEOUT` (default `1800`s; PRD §4.2). If the deadline elapses, the in-flight research
-  is abandoned and the item is re-researched synchronously inline, so a single hung agent cannot
-  stall the pipeline.
+- **Depth-chained parallel research** — background research prefetches a **chain** of up to
+  `RESEARCH_DEPTH` (default `2`) items ahead (PRD §4.2). On `RESEARCH_TIMEOUT` (default `1800`s)
+  the in-flight research is abandoned and the item is re-researched synchronously inline, so a
+  single hung agent cannot stall the pipeline. Research settings forward to bugfix children.
+- **Two-phase commits** — each item commits **twice** via the Smart Commit tool (`stagecoach`):
+  a pre-cleanup _survival commit_ (source + `plan/` + `Complete` status) and a post-cleanup
+  _doc-reorg commit_. A force-interrupt can therefore never orphan a "Complete on disk but
+  uncommitted" `plan/` directory (PRD §4.2 step 4 / §5.1).
+- **State integrity protection** — guards around `tasks.json` and the working tree (PRD §5.1):
+  a `flock`-based process-level mutex serializes `tasks.json` read-modify-write;
+  `restore_critical_files` in `smartCommit` blocks deletion of forbidden critical files; a
+  status-delta re-apply + git-history restore runs after each agent run (discarding unauthorized
+  mutations); watchdog kills (`exit 124`) are **terminal** and never retried; a
+  `NO_ISSUES_FOUND.md` marker distinguishes "already hunted" from "never hunted" (PRD §4.4).
 - **Issue-driven re-planning** — when a coder reports an `issue` (a recoverable planning gap),
   the stale PRP is deleted, the item is reset, and research re-runs with the captured feedback.
   Re-plans are bounded by `ISSUE_RETRY_MAX` (default `3`; PRD §4.5) before the item hard-fails.
+  Change classification (COSMETIC/SUBSTANTIVE; PRD §4.3) retries transient API failures before
+  falling back to a protective default.
 - **`tasks.json` corruption recovery** — after every agent run the orchestrator re-applies only
   the legitimate status delta (discarding unauthorized mutations) and restores a corrupted
   `tasks.json` from git history. This is automatic and non-fatal (PRD §5.1).
@@ -188,6 +220,47 @@ Run QA bug hunt even with incomplete tasks:
 npm run dev -- --prd ./PRD.md --mode bug-hunt
 ```
 
+### Adopt an Existing Codebase (--adopt-prd)
+
+Declare an _already-shipped_ codebase as the implementation of the PRD (PRD §4.6). On a
+**fresh project** (no `plan/` sessions) this seeds a completed baseline session so future PRD
+edits produce deltas against the real code; validation + bug-hunt still run. Guard rails: no-op
+(warn + proceed) if sessions already exist; rejects an empty session dir.
+
+```bash
+# Seed a baseline session for an existing implementation
+npm run dev -- --prd ./PRD.md --adopt-prd
+```
+
+### Accept PRD Edits as Baseline (--accept-prd-changes)
+
+For doc-only edits or changes that merely describe already-finished work, accept the PRD edits
+as the new baseline **without** spawning a delta session (PRD §4.3). It cancels the queued
+`.pending_delta_hash`, refreshes `prd_snapshot.md` to the current PRD, and resumes idempotently.
+
+```bash
+# Accept PRD edits without a delta session
+npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
+```
+
+### Task Status (prd status / prd task)
+
+`prd status` is an alias of `prd task` (git muscle memory; PRD §5.3) for inspecting the current
+session's backlog. Bugfix tasks discovered before main-session tasks are surfaced first.
+
+```bash
+# List all tasks in the current session
+prd status
+# Same thing, git-style alias
+prd task
+
+# Show the next executable (Planned) subtask
+prd task next
+
+# Status-counts summary (grouped by status)
+prd task status
+```
+
 ### Resume Interrupted Session
 
 ```bash
@@ -211,35 +284,47 @@ npm run dev -- --prd ./PRD.md --no-cache
 
 ## CLI Options
 
-| Option               | Alias | Type    | Default    | Description                                                      |
-| -------------------- | ----- | ------- | ---------- | ---------------------------------------------------------------- |
-| `--prd <path>`       | `-p`  | string  | `./PRD.md` | Path to PRD file                                                 |
-| `--scope <scope>`    | `-s`  | string  | -          | Execute specific scope (e.g., `P3.M4`)                           |
-| `--mode <mode>`      | `-m`  | string  | `normal`   | Execution mode: `normal`, `delta`, `bug-hunt`, `validate`        |
-| `--continue`         | `-c`  | boolean | false      | Resume from previous session                                     |
-| `--dry-run`          | `-d`  | boolean | false      | Show plan without executing (no credential required)             |
-| `--validate-prd`     | -     | boolean | false      | Validate the PRD and exit (no agent, no credential)              |
-| `--verbose`          | `-v`  | boolean | false      | Enable debug logging                                             |
-| `--machine-readable` | -     | boolean | false      | Enable machine-readable JSON output                              |
-| `--no-cache`         | -     | boolean | false      | Bypass PRP cache and regenerate all PRPs                         |
-| `--adopt-prd`        | -     | boolean | false      | Adopt an already-implemented codebase against the PRD (PRD §4.6) |
-| `--help`             | `-h`  | boolean | false      | Show help                                                        |
+| Option                 | Alias | Type    | Default    | Description                                                             |
+| ---------------------- | ----- | ------- | ---------- | ----------------------------------------------------------------------- |
+| `--prd <path>`         | `-p`  | string  | `./PRD.md` | Path to PRD file                                                        |
+| `--scope <scope>`      | `-s`  | string  | -          | Execute specific scope (e.g., `P3.M4`)                                  |
+| `--mode <mode>`        | `-m`  | string  | `normal`   | Execution mode: `normal`, `delta`, `bug-hunt`, `validate`               |
+| `--continue`           | `-c`  | boolean | false      | Resume from previous session                                            |
+| `--dry-run`            | `-d`  | boolean | false      | Show plan without executing (no credential required)                    |
+| `--validate-prd`       | -     | boolean | false      | Validate the PRD and exit (no agent, no credential)                     |
+| `--accept-prd-changes` | -     | boolean | false      | Accept PRD edits as the new baseline without a delta session (PRD §4.3) |
+| `--verbose`            | `-v`  | boolean | false      | Enable debug logging                                                    |
+| `--machine-readable`   | -     | boolean | false      | Enable machine-readable JSON output                                     |
+| `--no-cache`           | -     | boolean | false      | Bypass PRP cache and regenerate all PRPs                                |
+| `--adopt-prd`          | -     | boolean | false      | Adopt an already-implemented codebase against the PRD (PRD §4.6)        |
+| `--help`               | `-h`  | boolean | false      | Show help                                                               |
+
+> `--mode validate` runs the validation agent phase on a real session; `--mode bug-hunt` runs
+> the QA bug hunt. These are `--mode` values — distinct from the pure-local `--validate-prd`
+> flag, which validates PRD syntax and exits without invoking any agent. See
+> [CLI Reference](docs/CLI_REFERENCE.md) for the exhaustive flag list.
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable                         | Required | Default                          | Description                                                                    |
-| -------------------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------------ |
-| `ZAI_API_KEY`                    | Yes\*    | None                             | z.ai API key (default-path credential for the `zai` provider).                 |
-| `ANTHROPIC_BASE_URL`             | No       | `https://api.z.ai/api/anthropic` | API endpoint (auto-set to z.ai for the `zai` provider only).                   |
-| `PRP_API_KEY`                    | No       | None                             | Explicit API-key override (highest precedence, any provider).                  |
-| `PRP_AGENT_HARNESS`              | No       | `pi`                             | Agent runtime: `pi` (default) or `claude-code` (Anthropic-only).               |
-| `ANTHROPIC_AUTH_TOKEN`           | No\*\*   | None                             | **Optional.** Anthropic provider only; mapped to `ANTHROPIC_API_KEY` if unset. |
-| `ANTHROPIC_API_KEY`              | No\*\*   | None                             | **Optional.** Anthropic provider only.                                         |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL`   | No       | `glm-5.2`                        | Architect agent model (provider-qualified at runtime).                         |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No       | `glm-5.2`                        | Researcher/Coder model (default).                                              |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL`  | No       | `glm-5-turbo`                    | Simple-operations model (fastest).                                             |
+| Variable               | Required | Default                          | Description                                                                    |
+| ---------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| `ZAI_API_KEY`          | Yes\*    | None                             | z.ai API key (default-path credential for the `zai` provider).                 |
+| `PRP_API_BASE_URL`     | No       | `https://api.z.ai/api/anthropic` | LLM provider endpoint (z.ai default for the `zai` provider).                   |
+| `PRP_MODEL_HIGH`       | No       | `glm-5.2`                        | Highest-quality tier — Architect agent.                                        |
+| `PRP_MODEL_BALANCED`   | No       | `glm-5.2`                        | Balanced/default tier — planning & research roles.                             |
+| `PRP_MODEL_FAST`       | No       | `glm-5-turbo`                    | Fast/codegen tier — implementation role.                                       |
+| `PRP_API_KEY`          | No       | None                             | Explicit API-key override (highest precedence, any provider).                  |
+| `PRP_AGENT_HARNESS`    | No       | `pi`                             | Agent runtime: `pi` (default) or `claude-code` (Anthropic-only).               |
+| `ANTHROPIC_AUTH_TOKEN` | No\*\*   | None                             | **Optional.** Anthropic provider only; mapped to `ANTHROPIC_API_KEY` if unset. |
+| `ANTHROPIC_API_KEY`    | No\*\*   | None                             | **Optional.** Anthropic provider only.                                         |
+
+> **Deprecation (PRD §9.2.8):** the `ANTHROPIC_BASE_URL` and `ANTHROPIC_DEFAULT_*` names are
+> deprecated aliases — still readable, they emit a one-time warning and are slated for future
+> removal. Set the canonical `PRP_*` names instead (see the [canonical↔legacy table](docs/CONFIGURATION.md#deprecation-legacy-anthropic_-aliases)).
+> Provider-native credentials (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`) are
+> **not** renamed.
 
 _\*Required for the default path: **`ZAI_API_KEY`**, `pi /login` (`~/.pi/agent/auth.json`, auto-detected), **or** `PRP_API_KEY`. **\*\*Optional:** Anthropic credentials are consulted only when the resolved provider is `anthropic` (via an `anthropic/*` model override); they are **ignored** for the default `zai` provider. A startup preflight (PRD §9.2.7) aborts with an actionable error if none is present **for runs that invoke an agent** (see [Troubleshooting](#troubleshooting)). The pure-local modes `--validate-prd` and `--dry-run` make no API calls and run **without any credential**._
 
@@ -265,9 +350,12 @@ export ZAI_API_KEY="your-zai-key-here"
 
 ### Model Tiers
 
-- **Opus** (glm-5.2): Highest quality, used for Architect agent
-- **Sonnet** (glm-5.2): Balanced quality/speed, default for most agents
-- **Haiku** (glm-5-turbo): Fastest, used for simple operations
+- **High** (glm-5.2): Highest quality, used for Architect agent
+- **Balanced** (glm-5.2): Balanced quality/speed, default for planning & research roles
+- **Fast** (glm-5-turbo): Fastest, used for the implementation role (simple operations)
+
+> Tier names were renamed `opus`→`high`, `sonnet`→`balanced`, `haiku`→`fast` (PRD §9.2.8).
+> The legacy `ANTHROPIC_DEFAULT_*` env vars still work with a one-time deprecation warning.
 
 ### How It Works
 
@@ -331,11 +419,11 @@ The PRP Pipeline uses **z.ai** as the API endpoint, not Anthropic's official API
 
 **Model Tiers:**
 
-| Tier   | Model       | Use Case                            |
-| ------ | ----------- | ----------------------------------- |
-| Opus   | glm-5.2     | Architect agent (complex reasoning) |
-| Sonnet | glm-5.2     | Researcher/Coder agents (default)   |
-| Haiku  | glm-5-turbo | Simple operations (fastest)         |
+| Tier     | Model       | Use Case                            |
+| -------- | ----------- | ----------------------------------- |
+| High     | glm-5.2     | Architect agent (complex reasoning) |
+| Balanced | glm-5.2     | Planning/Research roles (default)   |
+| Fast     | glm-5-turbo | Implementation role (fastest)       |
 
 **Example .env File:**
 
@@ -346,12 +434,16 @@ The PRP Pipeline uses **z.ai** as the API endpoint, not Anthropic's official API
 ZAI_API_KEY=your-zai-key-here
 
 # Optional: API endpoint (defaults to z.ai for the zai provider)
-# ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+# PRP_API_BASE_URL=https://api.z.ai/api/anthropic
 # Optional: Anthropic provider only (ignored for zai)
 # ANTHROPIC_AUTH_TOKEN=…
 # ANTHROPIC_API_KEY=…
 
-# Optional: Model overrides
+# Optional: Model overrides (canonical PRP_* names, PRD §9.2.8)
+# PRP_MODEL_HIGH=glm-5.2
+# PRP_MODEL_BALANCED=glm-5.2
+# PRP_MODEL_FAST=glm-5-turbo
+# DEPRECATED legacy aliases (still readable, one-time warning):
 # ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.2
 # ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.2
 # ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5-turbo
@@ -365,10 +457,10 @@ The test setup safeguards prevent using Anthropic's official API.
 
 ```bash
 # Fix: Set BASE_URL to z.ai endpoint
-export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
+export PRP_API_BASE_URL="https://api.z.ai/api/anthropic"
 
 # Or add to .env file
-echo "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" >> .env
+echo "PRP_API_BASE_URL=https://api.z.ai/api/anthropic" >> .env
 ```
 
 **"Authentication preflight failed" startup abort**
@@ -409,7 +501,7 @@ stack trace). Fix it one of two ways:
 unset PRP_AGENT_HARNESS        # or: export PRP_AGENT_HARNESS=pi
 
 # Option B: keep claude-code and switch to Anthropic models
-export ANTHROPIC_DEFAULT_SONNET_MODEL="anthropic/claude-sonnet-4"
+export PRP_MODEL_BALANCED="anthropic/claude-sonnet-4"
 export ANTHROPIC_API_KEY="your-anthropic-key-here"
 ```
 
@@ -419,7 +511,7 @@ The z.ai endpoint may not support the configured model.
 
 ```bash
 # Fix: Verify model name or override with supported model
-export ANTHROPIC_DEFAULT_SONNET_MODEL="supported-model-name"
+export PRP_MODEL_BALANCED="supported-model-name"
 
 # Check z.ai documentation for available models
 ```
