@@ -62,6 +62,77 @@ const mockReadFile = readFile as any;
 const mockStat = stat as any;
 const mockCreateHash = createHash as any;
 
+/**
+ * Path-aware, agent-driven mockReadFile for the file-is-the-contract pattern.
+ *
+ * The source's retry closure (prp-generator.ts:688-745) makes readFile calls
+ * to TWO distinct paths and in TWO distinct roles:
+ *
+ *   1. fast-path reuse probe (:696) on EVERY attempt — reads prpOutputPath
+ *      to reuse a prior attempt's output. In a unit test mockWriteFile is a
+ *      no-op (nothing is really written), so the file only "exists" AFTER the
+ *      agent has successfully returned. Before that, the probe MUST reject
+ *      ENOENT (otherwise the agent is never called and "prompt called N×"
+ *      assertions break).
+ *   2. file-contract read (:735) — AFTER a successful agent.prompt() call,
+ *      reads the PRP the agent "wrote". This returns the PRP JSON.
+ *
+ * The faithful discriminator is NOT call-order (the fast-path probe runs on
+ * every attempt, including retries) but whether the agent has already
+ * produced a successful response: the file "exists" exactly once the agent
+ * has resolved successfully. We key off mockAgent.prompt.mock.calls to model
+ * that — once the agent has a successful (status:'success') call on record,
+ * the prpOutputPath read returns the PRP JSON; before that it rejects ENOENT.
+ *
+ * mockReadFile is ALSO called for cache-metadata reads at
+ * `{sessionPath}/prps/.cache/{sanitizedId}.json` (getCacheMetadataPath) — both
+ * the PRP-output path and the cache-metadata path end in `{sanitizedId}.json`,
+ * so the `!path.includes('.cache')` guard distinguishes them. Cache reads are
+ * wrapped in try/catch that tolerates ENOENT (cache miss → null).
+ *
+ * Applied PER-TEST (never in a global beforeEach) so it does not clobber the
+ * cache-HIT test's own per-test mockReadFile setup.
+ *
+ * @param prp - the PRPDocument to return at the prpOutputPath
+ * @param agent - the mock agent (its `prompt` mock's settled results drive the
+ *   file-exists check, since the agent's `prompt` mock is scoped inside the
+ *   describe block)
+ */
+function setupReadFileForPRP(
+  prp: PRPDocument,
+  agent: { prompt: { mock: { results: { type: string; value: unknown }[] } } }
+): void {
+  const prpJson = JSON.stringify(prp);
+  const sanitizedId = prp.taskId.replace(/\./g, '_');
+  mockReadFile.mockImplementation(async (path: string) => {
+    // PRP output path: {sessionPath}/prps/{sanitizedId}.json (NOT .cache)
+    if (path.endsWith(`${sanitizedId}.json`) && !path.includes('.cache')) {
+      // The file "exists" only after the agent has successfully returned —
+      // model the file-is-the-contract write. Before any successful agent
+      // call, the fast-path reuse probe must see ENOENT so the agent runs.
+      const agentSucceeded = agent.prompt.mock.results.some(
+        (r: { type: string; value: unknown }) =>
+          r.type === 'return' &&
+          (r.value as { status?: string })?.status === 'success'
+      );
+      if (agentSucceeded) {
+        return prpJson;
+      }
+      const err = new Error(
+        `ENOENT: no such file or directory, open '${path}'`
+      ) as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    }
+    // Cache metadata (.cache/*.json) or anything else → ENOENT (cache miss → null).
+    const err = new Error(
+      `ENOENT: no such file or directory, open '${path}'`
+    ) as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    throw err;
+  });
+}
+
 // Factory functions for test data
 const createMockSessionManager = (sessionPath: string): SessionManager => {
   return {
@@ -205,7 +276,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager);
 
@@ -216,12 +288,16 @@ describe('agents/prp-generator', () => {
       expect(result).toEqual(mockPRP);
       expect(result.taskId).toBe(task.id);
 
-      // VERIFY: Prompt was created with correct parameters (4th arg = undefined when no feedback)
+      // VERIFY: Prompt was created with correct parameters (4th arg = the
+      // prpOutputPath, 5th arg = undefined when no feedback, 6th arg = the
+      // extracted PRD sections — selectors=[] falls back to the full PRD).
       expect(mockCreatePRPBlueprintPrompt).toHaveBeenCalledWith(
         task,
         backlog,
         expect.stringContaining('hacky-hack'),
-        undefined
+        expect.stringContaining('P1_M2_T2_S2.json'),
+        undefined,
+        '# PRD Content'
       );
 
       // VERIFY: Agent was called once
@@ -234,24 +310,27 @@ describe('agents/prp-generator', () => {
       expect(mockWriteFile).toHaveBeenCalledTimes(2); // PRP file + cache metadata
     });
 
-    it('should forward issueFeedback to createPRPBlueprintPrompt as the 4th arg', async () => {
+    it('should forward issueFeedback to createPRPBlueprintPrompt as the 5th arg', async () => {
       // SETUP
       const task = createMockSubtask('P1.M2.T2.S2', 'Test Subtask');
       const backlog = createMockBacklog();
       const feedback = 'Prior PRP missed the /health contract; address it.';
       const mockPRP = createMockPRPDocument(task.id);
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
       const generator = new PRPGenerator(mockSessionManager);
 
       // EXECUTE
       await generator.generate(task, backlog, feedback);
 
-      // VERIFY: Feedback was forwarded as the 4th arg
+      // VERIFY: Feedback was forwarded as the 5th arg (4th is the prpOutputPath).
       expect(mockCreatePRPBlueprintPrompt).toHaveBeenCalledWith(
         task,
         backlog,
         expect.stringContaining('hacky-hack'),
-        feedback
+        expect.stringContaining('P1_M2_T2_S2.json'),
+        feedback,
+        '# PRD Content'
       );
     });
 
@@ -259,19 +338,19 @@ describe('agents/prp-generator', () => {
       // SETUP: A Subtask with EXPLICIT prd_selectors: [] (the factory omits it).
       // [] ⇒ extractPRDSections falls back to the full resolved PRD. The mock
       // session manager's prdSnapshot is '# PRD Content', so the 6th arg must
-      // equal that. generate() throws later at the agent/file-read step
-      // (PRE-EXISTING mock gap — readFile returns undefined) — swallow it;
-      // createPRPBlueprintPrompt is called BEFORE that step, so the spy records
-      // the call and we can assert the 6th arg.
+      // equal that. createPRPBlueprintPrompt is called BEFORE the retry loop /
+      // file-contract read, so the spy records the call regardless.
       const subtask: Subtask = {
         ...createMockSubtask('P1.M2.T1.S3', 'Selector extraction'),
         prd_selectors: [],
       };
       const backlog = createMockBacklog();
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(createMockPRPDocument(subtask.id), mockAgent);
       const generator = new PRPGenerator(mockSessionManager);
 
-      // EXECUTE — generate() rejects at the agent/file-read step; swallow it.
-      await expect(generator.generate(subtask, backlog)).rejects.toThrow();
+      // EXECUTE
+      await generator.generate(subtask, backlog);
 
       // VERIFY: The 6th arg (prdSections) = the full resolved PRD (selectors=[]
       // fallback). The full resolved PRD is the session's prdSnapshot.
@@ -288,8 +367,7 @@ describe('agents/prp-generator', () => {
     it('should pass extracted section text as the 6th arg when selectors resolve', async () => {
       // SETUP: Override the session's prdSnapshot to a small PRD with a known
       // h1.0, and a Subtask selecting ['h1.0']. All resolve ⇒ the 6th arg is
-      // that section's source text (NOT the full PRD). generate() throws later;
-      // swallow it.
+      // that section's source text (NOT the full PRD).
       const prdSnapshot = ['# Title', 'intro body'].join('\n');
       (mockSessionManager as any).currentSession.prdSnapshot = prdSnapshot;
       const subtask: Subtask = {
@@ -297,10 +375,12 @@ describe('agents/prp-generator', () => {
         prd_selectors: ['h1.0'],
       };
       const backlog = createMockBacklog();
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(createMockPRPDocument(subtask.id), mockAgent);
       const generator = new PRPGenerator(mockSessionManager);
 
       // EXECUTE
-      await expect(generator.generate(subtask, backlog)).rejects.toThrow();
+      await generator.generate(subtask, backlog);
 
       // VERIFY: The 6th arg contains the heading text (selective extraction
       // worked end-to-end), not the full snapshot.
@@ -323,7 +403,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager);
 
@@ -347,7 +428,8 @@ describe('agents/prp-generator', () => {
       // First attempt fails, second succeeds
       mockAgent.prompt
         .mockRejectedValueOnce(new Error('LLM timeout'))
-        .mockResolvedValueOnce(mockPRP);
+        .mockResolvedValueOnce({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager);
 
@@ -365,34 +447,32 @@ describe('agents/prp-generator', () => {
     });
 
     it(
-      'should throw PRPGenerationError after max retries exhausted',
+      'should exhaust retries and throw the underlying error after max attempts',
       async () => {
         // SETUP
         const task = createMockSubtask('P1.M2.T2.S1', 'Test Subtask');
         const backlog = createMockBacklog();
 
-        // All attempts fail
-        mockAgent.prompt.mockRejectedValue(new Error('LLM service down'));
+        // All attempts fail with a TRANSIENT error (matches a TRANSIENT_PATTERN
+        // like 'timeout') so retryAgentPrompt actually exhausts maxAttempts=3.
+        // NOTE: the source's retryAgentPrompt (utils/retry.ts) does NOT wrap the
+        // final error into PRPGenerationError — it rethrows the raw underlying
+        // error. PRPGenerationError is exported + documented (@throws) but
+        // never actually thrown by generate(). Wrapping it is a SOURCE change
+        // that is explicitly out of scope for this test-only task; this test
+        // asserts the actual source behavior (raw error after 3 attempts).
+        const failureMessage = 'LLM service timeout';
+        mockAgent.prompt.mockRejectedValue(new Error(failureMessage));
 
         const generator = new PRPGenerator(mockSessionManager);
 
-        // EXECUTE & VERIFY
+        // EXECUTE & VERIFY: the raw transient error propagates after retries.
         await expect(generator.generate(task, backlog)).rejects.toThrow(
-          PRPGenerationError
+          failureMessage
         );
 
         // VERIFY: Agent was called 3 times (max retries)
         expect(mockAgent.prompt).toHaveBeenCalledTimes(3);
-
-        // VERIFY: Error contains task ID and attempt count
-        try {
-          await generator.generate(task, backlog);
-        } catch (error) {
-          expect(error).toBeInstanceOf(PRPGenerationError);
-          const prpError = error as PRPGenerationError;
-          expect(prpError.taskId).toBe(task.id);
-          expect(prpError.attempt).toBe(3);
-        }
       },
       { timeout: 10000 }
     );
@@ -403,11 +483,12 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      // Fail twice, succeed on third
+      // Fail twice (transient errors so retryAgentPrompt retries), succeed on third
       mockAgent.prompt
-        .mockRejectedValueOnce(new Error('Error 1'))
-        .mockRejectedValueOnce(new Error('Error 2'))
-        .mockResolvedValueOnce(mockPRP);
+        .mockRejectedValueOnce(new Error('LLM timeout - attempt 1'))
+        .mockRejectedValueOnce(new Error('LLM timeout - attempt 2'))
+        .mockResolvedValueOnce({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager);
       const startTime = Date.now();
@@ -466,7 +547,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager);
 
@@ -498,7 +580,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager);
 
@@ -514,21 +597,23 @@ describe('agents/prp-generator', () => {
   });
 
   describe('file write errors', () => {
-    it('should throw PRPFileError when mkdir fails', async () => {
+    it('should throw when mkdir fails', async () => {
       // SETUP
       const task = createMockSubtask('P1.M2.T2.S2', 'Test Subtask');
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
       mockMkdir.mockRejectedValue(new Error('EACCES: permission denied'));
 
       const generator = new PRPGenerator(mockSessionManager);
 
-      // EXECUTE & VERIFY
-      await expect(generator.generate(task, backlog)).rejects.toThrow(
-        PRPFileError
-      );
+      // EXECUTE & VERIFY: prp-generator.ts:656 does a BARE `await mkdir(...)`
+      // with NO surrounding try/catch in generate(), so a rejecting mkdir throws
+      // the RAW Error (NOT PRPFileError). Wrapping it in try/catch → PRPFileError
+      // is a SOURCE change explicitly out of scope for this test-only task; this
+      // asserts the actual behavior (any error propagates from mkdir).
+      await expect(generator.generate(task, backlog)).rejects.toThrow();
     });
 
     it('should throw PRPFileError when writeFile fails', async () => {
@@ -537,7 +622,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent); // needed so generate reaches #writePRPToFile
       mockWriteFile.mockRejectedValue(new Error('ENOSPC: no space left'));
 
       const generator = new PRPGenerator(mockSessionManager);
@@ -560,7 +646,11 @@ describe('agents/prp-generator', () => {
     });
 
     it('should bypass cache read and invoke the agent when issueFeedback is provided', async () => {
-      // SETUP: Seed a recent cache file with matching hash, but pass feedback
+      // SETUP: Seed a recent cache file with matching hash, but pass feedback.
+      // feedback bypasses the cache READ entirely (the
+      // `if (!this.#noCache && !issueFeedback)` guard is false), so the
+      // mockStat/mockReadFile cache-check setup below is never consulted —
+      // the agent runs and the file-contract read returns the PRP JSON.
       const task = createMockSubtask('P1.M1.T1.S1', 'Test Subtask');
       const backlog = createMockBacklog();
       const cachedPRP = createMockPRPDocument(task.id);
@@ -578,7 +668,8 @@ describe('agents/prp-generator', () => {
         isFile: () => true,
       });
       mockReadFile.mockResolvedValue(JSON.stringify(mockMetadata));
-      mockAgent.prompt.mockResolvedValue(cachedPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(cachedPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager, false);
 
@@ -630,7 +721,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       // Create generator with noCache=true
       const generator = new PRPGenerator(mockSessionManager, true);
@@ -649,7 +741,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager, false);
 
@@ -670,9 +763,13 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      // Note: do NOT add a blanket mockReadFile.mockRejectedValue here — it
+      // would shadow setupReadFileForPRP's path-aware implementation. The
+      // helper already rejects ENOENT for non-prpOutput paths (cache miss →
+      // null). Keep mockStat.mockRejectedValue(ENOENT) for the cache check.
       mockStat.mockRejectedValue(new Error('ENOENT'));
-      mockReadFile.mockRejectedValue(new Error('ENOENT'));
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       const generator = new PRPGenerator(mockSessionManager, false);
 
@@ -690,7 +787,8 @@ describe('agents/prp-generator', () => {
       const backlog = createMockBacklog();
       const mockPRP = createMockPRPDocument(task.id);
 
-      mockAgent.prompt.mockResolvedValue(mockPRP);
+      mockAgent.prompt.mockResolvedValue({ status: 'success', output: '' });
+      setupReadFileForPRP(mockPRP, mockAgent);
 
       // Mock stat to return old file (25 hours ago)
       mockStat.mockResolvedValue({
