@@ -206,14 +206,14 @@
           "type": "Milestone",
           "id": "P2.M2",
           "title": "Relax ContextScopeSchema Read-Time Validation (Issue 3B)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Split context_scope validation into strict-write (architect output) and lenient-read (tasks.json loading) so legacy/manually-edited/externally-authored sessions still load.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M2.T1",
               "title": "Create lenient read schema and wire it into the read path",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Introduce a BacklogReadSchema with a lenient context_scope field, and switch readTasksJSON/loadSession to use it instead of the strict BacklogSchema.",
               "subtasks": [
                 {
@@ -234,7 +234,7 @@
                   "type": "Subtask",
                   "id": "P2.M2.T1.S2",
                   "title": "Wire readTasksJSON and loadSession to use BacklogReadSchema",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S1"
@@ -268,7 +268,7 @@
                   "type": "Subtask",
                   "id": "P2.M3.T1.S1",
                   "title": "Fix PRP-generator tests to mock the file-contract return path",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M2.T1.S2"

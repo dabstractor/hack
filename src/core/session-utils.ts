@@ -39,7 +39,11 @@ import {
   getPrdIncludeMarkers,
 } from '../config/constants.js';
 import type { Backlog, DeltaAnalysis, PRPDocument } from './models.js';
-import { BacklogSchema, PRPDocumentSchema } from './models.js';
+import {
+  BacklogSchema,
+  BacklogReadSchema,
+  PRPDocumentSchema,
+} from './models.js';
 
 /**
  * Logger instance for session-utils debug logging
@@ -867,7 +871,33 @@ export async function readTasksJSON(sessionPath: string): Promise<Backlog> {
     const tasksPath = resolve(sessionPath, 'tasks.json');
     const content = await readFile(tasksPath, 'utf-8');
     const parsed = JSON.parse(content);
-    const validated = BacklogSchema.parse(parsed);
+    // PRD §5.1 / bugfix Issue 3B: lenient READ twin — accepts legacy / hand-edited /
+    // externally-authored sessions whose context_scope lacks the CONTRACT DEFINITION
+    // prefix (the strict write gate stays at writeTasksJSON:777). Leniency is FORMAT-only;
+    // structural errors (bad ID/status/empty scope) still throw SessionFileError.
+    const validated = BacklogReadSchema.parse(parsed);
+
+    // Observable lenient acceptance (no rejection): scan the validated backlog for
+    // subtasks whose context_scope lacks the CONTRACT DEFINITION prefix and emit a
+    // single debug-level breadcrumb listing the IDs (PRD Issue 3 "warn on read").
+    const nonContractIds: string[] = [];
+    for (const phase of validated.backlog) {
+      for (const milestone of phase.milestones) {
+        for (const task of milestone.tasks) {
+          for (const subtask of task.subtasks) {
+            if (!subtask.context_scope.startsWith('CONTRACT DEFINITION:')) {
+              nonContractIds.push(subtask.id);
+            }
+          }
+        }
+      }
+    }
+    if (nonContractIds.length > 0) {
+      logger().debug(
+        { sessionPath, nonContractIds, count: nonContractIds.length },
+        'tasks.json loaded with subtask(s) missing CONTRACT DEFINITION prefix (lenient read)'
+      );
+    }
 
     logger().debug(
       {
