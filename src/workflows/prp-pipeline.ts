@@ -203,6 +203,15 @@ export class PRPPipeline extends Workflow {
   private readonly adoptPrd: boolean = false;
 
   /**
+   * True after an `--adopt-prd` fresh-project seeding (PRD §4.6). When set,
+   * {@link executeBacklog} early-returns so implementation is skipped while
+   * validation + bug hunt still run. `decomposePRD` is skipped for free via
+   * its existing non-empty-backlog guard once the adopted baseline is seeded
+   * into the in-memory task registry.
+   */
+  private skipExecutionLoop: boolean = false;
+
+  /**
    * Integrate-into-current seam (PRD §4.3 step 2): fold new requirements into
    * the running session's task hierarchy instead of spawning a delta session.
    *
@@ -649,11 +658,12 @@ export class PRPPipeline extends Workflow {
       // ============================================================
       // PRD §4.6 Adopt Mode (--adopt-prd) guard rails.
       // Applies only to fresh projects; if sessions already exist the flag is a
-      // no-op misuse (warn and proceed with normal session resolution). The
-      // baseline seeding (completed tasks.json + .adopted marker +
-      // SKIP_EXECUTION_LOOP) is implemented in P5.M1.T1.S2; P5.M1.T1.S1 (this
-      // block) is intentionally inert on the fresh path.
+      // no-op misuse (warn and proceed with normal session resolution). On a
+      // fresh project the completed baseline (tasks.json + .adopted marker +
+      // SKIP_EXECUTION_LOOP) is seeded AFTER initialize() below (the session
+      // dir + prd_snapshot.md must exist first).
       // ============================================================
+      let adoptFresh = false;
       if (this.adoptPrd) {
         const hasSessions = await this.sessionManager.hasAnySessions();
         if (hasSessions) {
@@ -662,11 +672,12 @@ export class PRPPipeline extends Workflow {
           );
           // Fall through to normal session resolution below (rail c: warn + proceed).
         } else {
-          // EXTENSION POINT (P5.M1.T1.S2): seed completed baseline tasks.json +
-          // .adopted marker + SKIP_EXECUTION_LOOP=true here. S1 threads the flag +
-          // guard rails only and is intentionally inert on the fresh-project path.
+          // Fresh project: seed the completed baseline AFTER initialize() below
+          // (it creates the session dir + writes prd_snapshot.md). Capture the
+          // decision here and act on it once the session path exists.
+          adoptFresh = true;
           this.logger.info(
-            '[PRPPipeline] --adopt-prd set on fresh project (no sessions); adopt baseline seeding is implemented in P5.M1.T1.S2'
+            '[PRPPipeline] --adopt-prd set on fresh project (no sessions); seeding adopted baseline (PRD §4.6)'
           );
           // Fall through to normal session creation below.
         }
@@ -674,6 +685,21 @@ export class PRPPipeline extends Workflow {
 
       // Initialize session manager (detects new vs existing)
       const session = await this.sessionManager.initialize();
+
+      // ============================================================
+      // PRD §4.6 Adopt Mode: seed the completed baseline + .adopted marker, then
+      // skip the execution loop. initialize() has created the session dir +
+      // written prd_snapshot.md; seedAdoptedBaseline reuses writeTasksJSON
+      // (BacklogSchema.parse + atomicWrite) and updates the in-memory registry
+      // so the next decomposePRD() auto-skips the architect (zero tokens).
+      // ============================================================
+      if (adoptFresh) {
+        await this.sessionManager.seedAdoptedBaseline();
+        this.skipExecutionLoop = true;
+        this.logger.info(
+          '[PRPPipeline] Adopted baseline seeded (PRD §4.6); execution loop will be skipped (validation/bug-hunt still run)'
+        );
+      }
 
       // ============================================================
       // PRD §4.6 guard rail (d): reject an empty SESSION_DIR before
@@ -1224,6 +1250,18 @@ export class PRPPipeline extends Workflow {
    */
   async executeBacklog(): Promise<void> {
     this.logger.info('[PRPPipeline] Executing backlog');
+
+    // PRD §4.6 Adopt Mode: skip implementation while still allowing validation
+    // + bug hunt (called later in run()). The adopted baseline is all-Complete,
+    // so nothing would run anyway; this guard makes the skip explicit and fast
+    // and is the signal S3 (validation/bug-hunt-still-run) keys off.
+    if (this.skipExecutionLoop) {
+      this.logger.info(
+        '[PRPPipeline] Skipping execution loop (adopt mode / SKIP_EXECUTION_LOOP)'
+      );
+      this.currentPhase = 'backlog_complete';
+      return;
+    }
 
     try {
       // Initialize progress tracker with session backlog

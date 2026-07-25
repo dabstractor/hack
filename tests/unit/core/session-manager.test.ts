@@ -11,7 +11,10 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { SessionManager } from '../../../src/core/session-manager.js';
+import {
+  SessionManager,
+  createAdoptedBaseline,
+} from '../../../src/core/session-manager.js';
 import {
   hashPRD,
   resolvePRD,
@@ -29,7 +32,7 @@ import {
 import { PRDValidator } from '../../../src/utils/prd-validator.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 import type { Backlog } from '../../../src/core/models.js';
-import { Status } from '../../../src/core/models.js';
+import { Status, BacklogSchema } from '../../../src/core/models.js';
 
 // Mock the node:fs/promises module
 vi.mock('node:fs/promises', () => ({
@@ -1505,6 +1508,112 @@ describe('SessionManager', () => {
         3,
         resolve('plan'),
         hash3
+      );
+    });
+  });
+
+  describe('createAdoptedBaseline', () => {
+    it('returns one Phase→Milestone→Task→Subtask, all Complete', () => {
+      // EXECUTE
+      const b = createAdoptedBaseline();
+
+      // VERIFY: a single 4-level hierarchy with the exact IDs + all-Complete.
+      expect(b.backlog).toHaveLength(1);
+      const p = b.backlog[0];
+      const m = p.milestones[0];
+      const t = m.tasks[0];
+      const s = t.subtasks[0];
+      expect(p.id).toBe('P1');
+      expect(p.status).toBe('Complete');
+      expect(m.id).toBe('P1.M1');
+      expect(m.status).toBe('Complete');
+      expect(t.id).toBe('P1.M1.T1');
+      expect(t.status).toBe('Complete');
+      expect(s.id).toBe('P1.M1.T1.S1');
+      expect(s.title).toBe('Adopt existing codebase');
+      expect(s.status).toBe('Complete');
+      expect(s.prd_selectors).toEqual([]);
+    });
+
+    it('passes BacklogSchema.parse (schema-valid, writeTasksJSON would accept it)', () => {
+      // EXECUTE + VERIFY: the seeded baseline MUST pass schema validation so
+      // writeTasksJSON (which runs BacklogSchema.parse) accepts it at seed time.
+      expect(() => BacklogSchema.parse(createAdoptedBaseline())).not.toThrow();
+    });
+  });
+
+  describe('seedAdoptedBaseline', () => {
+    beforeEach(() => {
+      mockStatSync.mockReturnValue({ isFile: () => true });
+    });
+
+    it('writes .adopted marker + tasks.json and updates in-memory taskRegistry', async () => {
+      // SETUP: initialize a session (sets #currentSession.path to the mocked
+      // session dir). writeTasksJSON is mocked (vi.mock session-utils), so it
+      // records the call without invoking BacklogSchema.parse; writeFile is
+      // mocked (node:fs/promises) for the .adopted marker.
+      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockReaddir.mockResolvedValue([]);
+      mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
+      mockReadFile.mockResolvedValue('# Test PRD');
+      mockWriteFile.mockResolvedValue(undefined);
+      // Mock successful PRD validation (consumed by initialize()).
+      mockValidate.mockResolvedValue({
+        valid: true,
+        prdPath: '/test/PRD.md',
+        issues: [],
+        summary: { critical: 0, warning: 0, info: 0 },
+        validatedAt: new Date(),
+      });
+      mockWriteTasksJSON.mockResolvedValue(undefined);
+      mockWriteTasksJSON.mockClear();
+      mockWriteFile.mockClear();
+
+      const manager = new SessionManager('/test/PRD.md', resolve('plan'));
+      await manager.initialize();
+
+      // sanity: the seeded session dir is the expected path
+      expect(manager.currentSession?.metadata.path).toBe(
+        '/plan/001_14b9dc2a33c7'
+      );
+
+      // EXECUTE
+      const result = await manager.seedAdoptedBaseline();
+
+      // VERIFY (a): .adopted marker written at join(sessionPath, '.adopted')
+      const markerCalls = (mockWriteFile as any).mock.calls.filter(
+        (c: unknown[]) => typeof c[0] === 'string' && c[0].endsWith('.adopted')
+      );
+      expect(markerCalls).toHaveLength(1);
+      expect(markerCalls[0][0]).toBe('/plan/001_14b9dc2a33c7/.adopted');
+
+      // VERIFY (b): writeTasksJSON called with the session path + a baseline
+      // whose single Phase id is P1 (schema-valid — see createAdoptedBaseline).
+      expect(mockWriteTasksJSON).toHaveBeenCalledTimes(1);
+      expect(mockWriteTasksJSON).toHaveBeenCalledWith(
+        '/plan/001_14b9dc2a33c7',
+        expect.objectContaining({
+          backlog: expect.arrayContaining([
+            expect.objectContaining({ id: 'P1', status: 'Complete' }),
+          ]),
+        })
+      );
+
+      // VERIFY (c): in-memory taskRegistry updated to the seeded baseline so
+      // the very next decomposePRD() auto-skips the architect.
+      expect(result.taskRegistry.backlog).toHaveLength(1);
+      expect(result.taskRegistry.backlog[0].id).toBe('P1');
+      expect(manager.currentSession?.taskRegistry.backlog).toHaveLength(1);
+      expect(manager.currentSession?.taskRegistry.backlog[0].id).toBe('P1');
+    });
+
+    it('throws if called before initialize (#currentSession null)', async () => {
+      // SETUP: a manager with NO currentSession (initialize() not called).
+      const manager = new SessionManager('/test/PRD.md', resolve('plan'));
+
+      // EXECUTE + VERIFY
+      await expect(manager.seedAdoptedBaseline()).rejects.toThrow(
+        /initialized session/
       );
     });
   });

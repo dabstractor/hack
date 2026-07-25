@@ -459,6 +459,39 @@ describe('PRPPipeline', () => {
   });
 
   describe('executeBacklog', () => {
+    it('should early-return (currentPhase=backlog_complete) when skipExecutionLoop is set (PRD §4.6)', async () => {
+      // SETUP: an adopted session skips the orchestrator loop entirely. The
+      // backlog contains a subtask, but processNextItem must NEVER be called.
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const mockOrchestrator = createMockTaskOrchestrator();
+      (mockOrchestrator as any).processNextItem = vi
+        .fn()
+        .mockResolvedValue(false);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      (pipeline as any).skipExecutionLoop = true; // adopt-mode skip
+
+      // EXECUTE
+      await pipeline.executeBacklog();
+
+      // VERIFY: the skip guard fired — orchestrator untouched, phase advanced.
+      expect((mockOrchestrator as any).processNextItem).not.toHaveBeenCalled();
+      expect(pipeline.currentPhase).toBe('backlog_complete');
+    });
+
     it('should call processNextItem until false returned', async () => {
       // SETUP
       const backlog = createTestBacklog([
@@ -1496,6 +1529,9 @@ describe('PRPPipeline', () => {
         const mockSession = createTestSession(backlog);
         const mockManager = createMockSessionManager(mockSession, false);
         mockManager.hasAnySessions = vi.fn().mockResolvedValue(false); // fresh
+        mockManager.seedAdoptedBaseline = vi
+          .fn()
+          .mockResolvedValue(mockSession);
 
         const pipeline = new PRPPipeline('./test.md');
         (pipeline as any).sessionManager = mockManager;
@@ -1506,10 +1542,12 @@ describe('PRPPipeline', () => {
         // EXECUTE
         await pipeline.initializeSession();
 
-        // VERIFY: info logged the S2 seam, and normal session creation proceeded
-        // (S1 is intentionally inert — no seeding in this subtask).
+        // VERIFY: info logged the fresh-adopt message, and normal session
+        // creation proceeded. S2 now ALSO seeds the baseline + sets the skip.
         expect(mockManager.hasAnySessions).toHaveBeenCalledTimes(1);
-        expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('S2'));
+        expect(infoSpy).toHaveBeenCalledWith(
+          expect.stringContaining('seeding adopted baseline')
+        );
         expect(mockManager.initialize).toHaveBeenCalledTimes(1);
         expect(pipeline.currentPhase).toBe('session_initialized');
 
@@ -1551,6 +1589,54 @@ describe('PRPPipeline', () => {
         await expect(pipeline.initializeSession()).rejects.toThrow(
           /SESSION_DIR/
         );
+      });
+    });
+
+    describe('--adopt-prd baseline seeding', () => {
+      it('seeds the adopted baseline + sets skipExecutionLoop on a fresh project', async () => {
+        // SETUP: fresh project → hasAnySessions=false. seedAdoptedBaseline is
+        // mocked on the session manager so no real disk/JSON validation runs.
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, false);
+        mockManager.hasAnySessions = vi.fn().mockResolvedValue(false);
+        mockManager.seedAdoptedBaseline = vi
+          .fn()
+          .mockResolvedValue(mockSession);
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        (pipeline as any).adoptPrd = true;
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: seeding ran AND the pipeline instance skip flag was set so
+        // the execution loop will be skipped (validation/bug-hunt still run).
+        expect(mockManager.seedAdoptedBaseline).toHaveBeenCalledTimes(1);
+        expect((pipeline as any).skipExecutionLoop).toBe(true);
+      });
+
+      it('does NOT seed when sessions already exist (no-op + skip stays false)', async () => {
+        // SETUP: existing sessions → hasAnySessions=true → no-op warn+proceed.
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, false);
+        mockManager.hasAnySessions = vi.fn().mockResolvedValue(true);
+        mockManager.seedAdoptedBaseline = vi
+          .fn()
+          .mockResolvedValue(mockSession);
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        (pipeline as any).adoptPrd = true;
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: existing-session branch warns and proceeds — no seeding, no skip.
+        expect(mockManager.seedAdoptedBaseline).not.toHaveBeenCalled();
+        expect((pipeline as any).skipExecutionLoop).toBe(false);
       });
     });
 

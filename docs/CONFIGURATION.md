@@ -260,6 +260,14 @@ When the pipeline resumes an active session (`--continue`) whose `prd_snapshot.m
 
 See the [CLI Reference: Delta Response Selection](./CLI_REFERENCE.md#delta-response-selection) for examples.
 
+### Adopt Mode (`--adopt-prd`)
+
+Declares the PRD the source of truth for an _already-implemented_ codebase (PRD §4.6). On a **fresh project** (no `plan/` sessions), `--adopt-prd` seeds a single completed baseline `tasks.json` (one "Adopt existing codebase" item, all `Complete`) and writes an `.adopted` marker, then sets the internal `SKIP_EXECUTION_LOOP` flag so implementation is skipped while **validation and bug hunt still run** against the real codebase. This adopted session becomes the idempotent baseline that future deltas diff against.
+
+- Requires the PRD to exist; is a **no-op** (warn + proceed) if sessions already exist.
+- Guard rails: rejects an empty session dir and `mkdir -p`s the plan dir first.
+- See also the [`SKIP_EXECUTION_LOOP`](#pipeline-control) env var (§9.2.2) and [CLI Reference → `--adopt-prd`](./CLI_REFERENCE.md).
+
 ---
 
 ## Model Selection

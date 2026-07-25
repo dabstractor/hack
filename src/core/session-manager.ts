@@ -22,7 +22,7 @@
 
 import { statSync } from 'node:fs';
 import { readFile, writeFile, stat, readdir } from 'node:fs/promises';
-import { resolve, basename } from 'node:path';
+import { resolve, basename, join } from 'node:path';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import type {
@@ -40,6 +40,7 @@ import {
   createSessionDirectory,
   snapshotPRD,
   readTasksJSON,
+  writeTasksJSON,
   SessionFileError,
 } from './session-utils.js';
 import { diffPRDs } from './prd-differ.js';
@@ -155,6 +156,74 @@ interface SessionDirInfo {
  * Wraps existing session-utils.ts functions into a cohesive API.
  * Uses readonly properties for immutability and prevents state corruption.
  */
+
+/**
+ * Build the single completed baseline backlog used by Adopt Mode (PRD §4.6).
+ *
+ * @remarks
+ * Returns exactly one Phase → Milestone → Task → "Adopt existing codebase"
+ * Subtask, ALL `status: 'Complete'`. The returned object passes
+ * {@link BacklogSchema.parse} (so `writeTasksJSON` accepts it), making it the
+ * idempotent baseline that future delta sessions diff against. The architect
+ * is never invoked for this backlog (its non-empty size auto-skips
+ * `decomposePRD`), and `PRPPipeline.skipExecutionLoop` skips `executeBacklog`.
+ *
+ * The Subtask `context_scope` follows the mandatory `CONTRACT DEFINITION:` /
+ * numbered-sections shape enforced by {@link ContextScopeSchema}.
+ *
+ * @returns A schema-valid all-`Complete` baseline backlog (PRD §4.6).
+ */
+export function createAdoptedBaseline(): Backlog {
+  return {
+    backlog: [
+      {
+        id: 'P1',
+        type: 'Phase',
+        title: 'Adopt Existing Codebase',
+        status: 'Complete',
+        description:
+          'Baseline adoption of the already-implemented codebase against the PRD (PRD §4.6).',
+        milestones: [
+          {
+            id: 'P1.M1',
+            type: 'Milestone',
+            title: 'Adopt Existing Codebase',
+            status: 'Complete',
+            description:
+              'Baseline adoption of the already-implemented codebase against the PRD (PRD §4.6).',
+            tasks: [
+              {
+                id: 'P1.M1.T1',
+                type: 'Task',
+                title: 'Adopt Existing Codebase',
+                status: 'Complete',
+                description:
+                  'Declare the PRD the source of truth for the already-shipped codebase (PRD §4.6).',
+                subtasks: [
+                  {
+                    id: 'P1.M1.T1.S1',
+                    type: 'Subtask',
+                    title: 'Adopt existing codebase',
+                    status: 'Complete',
+                    story_points: 1,
+                    dependencies: [],
+                    context_scope: `CONTRACT DEFINITION:
+1. RESEARCH NOTE: Adopt Mode (PRD §4.6) seeds a single completed baseline with no breakdown and no agent tokens; the PRD becomes the source of truth for an already-implemented codebase.
+2. INPUT: The existing codebase + the adopted PRD snapshot (written by initialize()).
+3. LOGIC: No implementation is performed; the baseline is marked all-Complete and SKIP_EXECUTION_LOOP is set so validation + bug hunt still run against the real code.
+4. OUTPUT: An idempotent adopted baseline session that future deltas diff against.`,
+                    prd_selectors: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 export class SessionManager {
   /** Logger instance for structured logging */
   readonly #logger: Logger;
@@ -763,6 +832,51 @@ export class SessionManager {
       'Delta session created'
     );
     return deltaSession;
+  }
+
+  /**
+   * Seed the Adopt-Mode baseline for the current session (PRD §4.6).
+   *
+   * @remarks
+   * Writes the `.adopted` marker and a single completed baseline `tasks.json`
+   * (one Phase → Milestone → Task → "Adopt existing codebase" Subtask, all
+   * `Complete`), then updates the in-memory task registry so the subsequent
+   * `decomposePRD()` auto-skips the Architect (zero tokens) and
+   * `executeBacklog()` is skipped via `PRPPipeline.skipExecutionLoop`.
+   *
+   * Requires {@link initialize} to have run (it creates the session dir +
+   * writes `prd_snapshot.md`). Reuses {@link writeTasksJSON}, which validates
+   * the baseline via `BacklogSchema.parse` (a malformed baseline fails loudly
+   * at seed time, not at first read). Does NOT re-write `prd_snapshot.md`
+   * (initialize already wrote it) and does NOT duplicate `createSessionDirectory`.
+   *
+   * @returns The updated SessionState with the seeded baseline task registry.
+   * @throws {Error} If called before {@link initialize} (`#currentSession` is null).
+   */
+  async seedAdoptedBaseline(): Promise<SessionState> {
+    if (!this.#currentSession) {
+      throw new Error(
+        'seedAdoptedBaseline requires an initialized session (call initialize() first) (PRD §4.6)'
+      );
+    }
+    const sessionPath = this.#currentSession.metadata.path;
+    await writeFile(
+      join(sessionPath, '.adopted'),
+      `Adopted baseline (PRD §4.6).\nCreated: ${new Date().toISOString()}\n`
+    );
+    const baseline = createAdoptedBaseline();
+    await writeTasksJSON(sessionPath, baseline); // BacklogSchema.parse + atomicWrite
+    // CRITICAL: update the in-memory registry so decomposePRD() auto-skips the
+    // architect. #currentSession fields are readonly; reassign immutably.
+    this.#currentSession = {
+      ...this.#currentSession,
+      taskRegistry: baseline,
+    };
+    this.#logger.info(
+      { sessionId: this.#currentSession.metadata.id },
+      '[SessionManager] Adopted baseline seeded (PRD §4.6)'
+    );
+    return this.#currentSession;
   }
 
   /**
