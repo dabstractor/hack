@@ -899,10 +899,15 @@ export class PRPPipeline extends Workflow {
    * Operates on the CURRENT session directory — does NOT call
    * `createDeltaSession`.
    *
-   * GOTCHA: `patchBacklog`'s `'added'` case is unimplemented
-   * (task-patcher.ts) — added requirements are silently dropped. `modified`/
-   * `removed` are handled. This is out of scope for this item; do not rely on
-   * `'added'`.
+   * Added requirements: `patchBacklog` handles only `modified`/`removed`; its
+   * `'added'` case is an intentional no-op (added reqs need task GENERATION,
+   * which a sync pure function cannot do). When `delta.changes` contains any
+   * `'added'` item, this method invokes the Architect over a focused Added-only
+   * delta PRD (via `renderDeltaPRD`) and merges the resulting tasks into the
+   * patched backlog (`mergeBacklogs` — the same utility the delta path uses).
+   * An Architect failure is caught: the modified/removed integration (already
+   * applied) is preserved and the patched backlog is re-asserted on disk; the
+   * added requirement is skipped with a warn (never a silent drop).
    */
   private async integrateIntoCurrentSessionResponse(
     sessionPath: string
@@ -945,6 +950,91 @@ export class PRPPipeline extends Workflow {
     // APPLY the patched backlog to the CURRENT session (NOT a delta dir).
     this.logger.info('[PRPPipeline] Saving patched backlog to current session');
     await this.sessionManager.saveBacklog(patchedBacklog);
+
+    // P1.M2.T1.S2: ADDED-requirement handling (PRD §4.3 step 6 "Adds new tasks").
+    // patchBacklog handles only modified/removed (its 'added' case is a documented
+    // no-op — added reqs need task GENERATION). If the delta has any 'added'
+    // changes, invoke the Architect over a focused Added-only delta PRD and MERGE
+    // its output into the just-saved patched backlog (same mergeBacklogs utility
+    // as the delta path — P1.M1.T1.S2). Gated on added-changes so modified/
+    // removed-only deltas are byte-equivalent to before. try/catch: an Architect
+    // failure MUST NOT abort the modified/removed integration (already applied
+    // above); the patched backlog is re-asserted on disk so the session stays
+    // consistent.
+    const addedChanges = delta.changes.filter(c => c.type === 'added');
+    if (addedChanges.length > 0) {
+      try {
+        const addedOnlyDelta: DeltaAnalysis = {
+          ...delta,
+          changes: addedChanges,
+        };
+        const addedPrdContent = renderDeltaPRD(
+          addedOnlyDelta,
+          completedTaskIds,
+          currentSession.metadata.id
+        );
+
+        // Dynamic imports mirror decomposePRD() (agent factory + prompt builder).
+        const { createArchitectAgent } =
+          await import('../agents/agent-factory.js');
+        const { createArchitectPrompt } =
+          await import('../agents/prompts/architect-prompt.js');
+        // Created ONCE outside the retry closure (PRD §6.1 "same budget"
+        // invariant — see decomposePRD comment). Do NOT move inside retryAgentPrompt.
+        const architectAgent = createArchitectAgent();
+        const architectPrompt = createArchitectPrompt(
+          addedPrdContent,
+          sessionPath
+        );
+
+        this.logger.info(
+          '[PRPPipeline] Decomposing added requirements via Architect (integrate path)'
+        );
+        const result = await retryAgentPrompt(
+          () => architectAgent.prompt(architectPrompt),
+          { agentType: 'Architect', operation: 'integrateAddedRequirements' }
+        );
+        if (result.status === 'error') {
+          const errMsg = result.error?.message ?? 'unknown agent error';
+          throw new Error(
+            `Architect agent failed on added requirements: ${errMsg}`
+          );
+        }
+
+        // The Architect writes tasks.json itself (createArchitectPrompt
+        // substitutes $TASKS_FILE → {sessionPath}/tasks.json). Read it back + merge.
+        const { readFile } = await import('node:fs/promises');
+        const { resolve } = await import('node:path');
+        const tasksPath = resolve(sessionPath, 'tasks.json');
+        const tasksContent = await readFile(tasksPath, 'utf-8');
+        const parsedBacklog = JSON.parse(tasksContent) as Backlog;
+
+        // mergeBacklogs(patched, architect): patched is the BASE (modified/
+        // removed statuses preserved); architect's added-req tasks are folded in.
+        // The Architect's disk write bypassed SessionManager, so
+        // currentSession.taskRegistry STILL holds the patched backlog here.
+        const mergedBacklog = mergeBacklogs(
+          this.sessionManager.currentSession!.taskRegistry,
+          parsedBacklog
+        );
+        await this.sessionManager.saveBacklog(mergedBacklog);
+        this.totalTasks = this.#countTasks();
+        this.logger.info(
+          `[PRPPipeline] Merged ${addedChanges.length} added requirement(s) into backlog`
+        );
+      } catch (error) {
+        // Architect/read/parse/merge failure: preserve the modified/removed
+        // integration that already succeeded. Re-assert the patched backlog on
+        // disk in case the Architect clobbered tasks.json before failing.
+        const errMsg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `[PRPPipeline] Added-requirement decomposition failed; modified/removed integration preserved: ${errMsg}`
+        );
+        await this.sessionManager.saveBacklog(
+          this.sessionManager.currentSession!.taskRegistry
+        );
+      }
+    }
 
     // ONLY NOW (integration applied) refresh the snapshot + clear the marker.
     await refreshSnapshotToCurrentPRD(sessionPath, this.sessionManager.prdPath);

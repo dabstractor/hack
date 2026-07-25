@@ -84,6 +84,13 @@ vi.mock('../../../src/agents/agent-factory.js', () => ({
   createArchitectAgent: vi.fn(),
   createQAAgent: vi.fn(),
 }));
+// Mock architect-prompt (exercised by integrate-path added-req decomposition).
+// Mirrors the canonical recipe from delta-prd.test.ts.
+vi.mock('../../../src/agents/prompts/architect-prompt.js', () => ({
+  createArchitectPrompt: vi
+    .fn()
+    .mockReturnValue({ user: 'mock-architect-prompt' }),
+}));
 vi.mock('../../../src/agents/prompts.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../../src/agents/prompts.js')>();
@@ -440,6 +447,152 @@ describe('PRPPipeline delta-response dispatcher (PRD §4.3 step 2)', () => {
 
       // VERIFY: saveBacklog precedes the snapshot refresh.
       expect(order).toEqual(['saveBacklog', 'refreshSnapshot']);
+    });
+
+    it('invokes the Architect and merges new tasks when the delta has an added requirement (P1.M2.T1.S2)', async () => {
+      // SETUP — a delta with an 'added' change; the Architect returns success;
+      // readFile returns a valid Backlog JSON when reading tasks.json
+      // (path-discriminating, else JSON.parse throws inside the new block).
+      const session = createTestSession(
+        createTestBacklog([]),
+        '# Original PRD'
+      );
+      const { pipeline, mockManager } = buildPipeline(session, {
+        integratePrdChanges: true,
+      });
+
+      // delta with an 'added' change (modified/removed-only deltas skip the block)
+      MockDeltaAnalysisWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          changes: [
+            {
+              itemId: 'P9',
+              type: 'added',
+              description: 'New feature',
+              impact: 'new tasks',
+            },
+          ],
+          patchInstructions: 'add',
+          taskIds: [],
+        }),
+      }));
+
+      // Architect returns success (the agent factory mock returns undefined by
+      // default — configure it per-test).
+      const { createArchitectAgent } =
+        await import('../../../src/agents/agent-factory.js');
+      (createArchitectAgent as any).mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({ status: 'success', output: '' }),
+      });
+
+      // readFile returns a valid Backlog JSON for tasks.json; the default
+      // '# Updated PRD' for other utf-8 reads (resolvePRD etc.); a Buffer for
+      // no-encoding reads.
+      const architectBacklog = {
+        backlog: [
+          {
+            id: 'P9',
+            type: 'Phase',
+            title: 'New',
+            status: 'Planned',
+            description: 'd',
+            milestones: [],
+          },
+        ],
+      };
+      mockReadFile.mockImplementation((path: string, encoding?: any) =>
+        String(path).endsWith('tasks.json') && encoding === 'utf-8'
+          ? Promise.resolve(JSON.stringify(architectBacklog))
+          : encoding === 'utf-8'
+            ? Promise.resolve('# Updated PRD')
+            : Promise.resolve(Buffer.from('# Updated PRD', 'utf-8'))
+      );
+
+      // EXECUTE
+      await pipeline.handleDelta();
+
+      // VERIFY: the Architect was invoked.
+      expect(createArchitectAgent).toHaveBeenCalled();
+      // VERIFY: saveBacklog ran (patched + merged).
+      expect(mockManager.saveBacklog).toHaveBeenCalled();
+      // VERIFY: the LAST saveBacklog call carried the MERGED backlog (P9 folded in).
+      const lastSaved = mockManager.saveBacklog.mock.calls.at(-1)[0];
+      expect(lastSaved.backlog.some((p: any) => p.id === 'P9')).toBe(true);
+
+      // VERIFY: snapshot refreshed + marker cleared AFTER integration succeeded.
+      const sessionPath = session.metadata.path;
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        resolve(sessionPath, 'prd_snapshot.md'),
+        '# Updated PRD',
+        { mode: 0o644 }
+      );
+      expect(mockUnlink).toHaveBeenCalledWith(
+        resolve(sessionPath, PENDING_DELTA_HASH_FILE)
+      );
+      // VERIFY: phase.
+      expect(pipeline.currentPhase).toBe('delta_integrated');
+    });
+
+    it('preserves modified/removed integration (re-asserts the patched backlog) when the Architect fails on added requirements', async () => {
+      // SETUP — the failure-isolation contract: an Architect failure during
+      // added-req decomposition MUST NOT abort the modified/removed integration
+      // (already applied). The patched backlog is re-asserted on disk; a warn is
+      // logged; refreshSnapshot + clearPendingDeltaHash still run (session left
+      // consistent, never a silent drop).
+      const session = createTestSession(
+        createTestBacklog([]),
+        '# Original PRD'
+      );
+      const { pipeline, mockManager } = buildPipeline(session, {
+        integratePrdChanges: true,
+      });
+
+      MockDeltaAnalysisWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue({
+          changes: [
+            {
+              itemId: 'P9',
+              type: 'added',
+              description: 'New feature',
+              impact: 'new tasks',
+            },
+          ],
+          patchInstructions: 'add',
+          taskIds: [],
+        }),
+      }));
+
+      // Architect returns an error status → the new block throws → catch branch.
+      const { createArchitectAgent } =
+        await import('../../../src/agents/agent-factory.js');
+      (createArchitectAgent as any).mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({
+          status: 'error',
+          error: { message: 'architect exploded' },
+        }),
+      });
+
+      // EXECUTE — must NOT throw (the catch isolates the failure).
+      await pipeline.handleDelta();
+
+      // VERIFY: the patched backlog was re-asserted on disk (the LAST saveBacklog
+      // call carried currentSession.taskRegistry, i.e. the patched backlog).
+      expect(mockManager.saveBacklog).toHaveBeenCalled();
+      const lastSaved = mockManager.saveBacklog.mock.calls.at(-1)[0];
+      // taskRegistry === patched backlog (empty in this fixture — no P9 merged in).
+      expect(lastSaved.backlog.some((p: any) => p.id === 'P9')).toBe(false);
+
+      // VERIFY: refresh + clear STILL ran (integration is not silently swallowed).
+      const sessionPath = session.metadata.path;
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        resolve(sessionPath, 'prd_snapshot.md'),
+        '# Updated PRD',
+        { mode: 0o644 }
+      );
+      expect(mockUnlink).toHaveBeenCalledWith(
+        resolve(sessionPath, PENDING_DELTA_HASH_FILE)
+      );
+      expect(pipeline.currentPhase).toBe('delta_integrated');
     });
   });
 
