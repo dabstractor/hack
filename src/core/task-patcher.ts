@@ -5,9 +5,9 @@
  *
  * @remarks
  * Transforms a backlog based on DeltaAnalysis results from PRD comparison.
- * Handles three change types: added (new tasks), modified (reset to Planned),
- * and removed (mark Obsolete). Completed work is preserved unless explicitly
- * affected by changes.
+ * Handles three change types: added (delegated to the delta-session breakdown —
+ * no-op here), modified (reset to Planned), and removed (mark Obsolete). Completed
+ * work is preserved unless explicitly affected by changes.
  *
  * @example
  * ```typescript
@@ -39,7 +39,9 @@ const logger = (): Logger => (_logger ??= getLogger('TaskPatcher'));
  *
  * @remarks
  * Processes three change types:
- * - 'added': Generate new tasks via Architect agent and insert into backlog
+ * - 'added': No-op here — added requirements are delegated to the delta-session
+ *   breakdown (decomposePRD over delta_prd.md). patchBacklog is a synchronous pure
+ *   function with no Architect/PRD-section access, so it cannot generate tasks.
  * - 'modified': Reset task status to 'Planned' for re-implementation
  * - 'removed': Set task status to 'Obsolete'
  *
@@ -95,13 +97,12 @@ export function patchBacklog(backlog: Backlog, delta: DeltaAnalysis): Backlog {
         break;
 
       case 'added':
-        // Generate new tasks via Architect agent
-        // NOTE: New PRD section content not available in current scope
-        // Placeholder: Log warning and continue
-        // TODO: Future enhancement - pass new PRD content to Architect
-        logger().warn(
+        // Added requirements are handled by the delta-session breakdown
+        // (decomposePRD over delta_prd.md), not here: patchBacklog is a sync
+        // pure fn with no architect/PRD-text access. No-op (break).
+        logger().debug(
           { changeType: change.type, taskId },
-          'Feature not implemented'
+          'Added requirement delegated to delta-session breakdown (decomposePRD over delta_prd.md); patchBacklog is a no-op for added changes'
         );
         break;
     }

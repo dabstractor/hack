@@ -453,9 +453,9 @@ describe('core/task-patcher', () => {
   });
 
   describe('patchBacklog - added changes', () => {
-    it('should log warning for added change (placeholder implementation)', () => {
+    it('should log debug delegation for added change (no-op)', () => {
       // SETUP: Backlog and logger mock
-      mockLogger.warn.mockClear();
+      mockLogger.debug.mockClear();
       const phase = createTestPhase('P1', 'Phase 1', 'Complete');
       const backlog = createTestBacklog([phase]);
 
@@ -474,16 +474,16 @@ describe('core/task-patcher', () => {
       // EXECUTE
       patchBacklog(backlog, delta);
 
-      // VERIFY: Warning logged, backlog unchanged
-      expect(mockLogger.warn).toHaveBeenCalledWith(
+      // VERIFY: Debug delegation logged, backlog unchanged
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         { changeType: 'added', taskId: 'P1.M1.T1.S1' },
-        'Feature not implemented'
+        'Added requirement delegated to delta-session breakdown (decomposePRD over delta_prd.md); patchBacklog is a no-op for added changes'
       );
     });
 
-    it('should handle multiple added changes with warnings', () => {
+    it('should log debug delegation for multiple added changes', () => {
       // SETUP: Logger mock
-      mockLogger.warn.mockClear();
+      mockLogger.debug.mockClear();
       const phase = createTestPhase('P1', 'Phase 1', 'Complete');
       const backlog = createTestBacklog([phase]);
 
@@ -508,15 +508,15 @@ describe('core/task-patcher', () => {
       // EXECUTE
       patchBacklog(backlog, delta);
 
-      // VERIFY: Warnings logged for both added changes
-      expect(mockLogger.warn).toHaveBeenCalledTimes(2);
-      expect(mockLogger.warn).toHaveBeenCalledWith(
+      // VERIFY: Debug delegations logged for both added changes
+      expect(mockLogger.debug).toHaveBeenCalledTimes(2);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         { changeType: 'added', taskId: 'P1.M1.T1.S1' },
-        'Feature not implemented'
+        'Added requirement delegated to delta-session breakdown (decomposePRD over delta_prd.md); patchBacklog is a no-op for added changes'
       );
-      expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         { changeType: 'added', taskId: 'P1.M1.T1.S2' },
-        'Feature not implemented'
+        'Added requirement delegated to delta-session breakdown (decomposePRD over delta_prd.md); patchBacklog is a no-op for added changes'
       );
     });
   });
@@ -882,8 +882,8 @@ describe('core/task-patcher', () => {
       const phase = createTestPhase('P1', 'Phase 1', 'Complete', [milestone]);
       const backlog = createTestBacklog([phase]);
 
-      // Logger mock for 'added' warning
-      mockLogger.warn.mockClear();
+      // Logger mock for 'added' debug delegation
+      mockLogger.debug.mockClear();
 
       const delta: DeltaAnalysis = createDeltaAnalysis(
         [
@@ -915,11 +915,11 @@ describe('core/task-patcher', () => {
       // VERIFY: Each change type handled correctly
       expect(findItem(patched, 'P1.M1.T1.S1')?.status).toBe('Planned'); // modified
       expect(findItem(patched, 'P1.M1.T1.S2')?.status).toBe('Obsolete'); // removed
-      expect(findItem(patched, 'P1.M1.T1.S3')?.status).toBe('Complete'); // added - unchanged (placeholder)
-      expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect(findItem(patched, 'P1.M1.T1.S3')?.status).toBe('Complete'); // added - unchanged (delegated to delta breakdown)
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         { changeType: 'added', taskId: 'P1.M1.T1.S3' },
-        'Feature not implemented'
-      ); // Warning for 'added'
+        'Added requirement delegated to delta-session breakdown (decomposePRD over delta_prd.md); patchBacklog is a no-op for added changes'
+      ); // debug delegation for 'added'
     });
 
     it('should handle all status values in backlog', () => {
