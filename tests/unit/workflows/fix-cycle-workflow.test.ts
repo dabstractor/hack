@@ -23,6 +23,7 @@ import type {
   TestResults,
   Bug,
   Backlog,
+  Subtask,
 } from '../../../src/core/models.js';
 import type { TaskOrchestrator } from '../../../src/core/task-orchestrator.js';
 import type { SessionManager } from '../../../src/core/session-manager.js';
@@ -41,12 +42,38 @@ vi.mock('node:fs/promises', () => ({
   constants: { F_OK: 0 },
 }));
 
+// Mock standard-decomposition dependencies consumed via dynamic import by
+// runStandardBreakdown (mirrors PRPPipeline.decomposePRD). Top-level vi.mock
+// of the module path intercepts dynamic `await import(...)` too.
+vi.mock('../../../src/agents/agent-factory.js', () => ({
+  createArchitectAgent: vi.fn(),
+}));
+vi.mock('../../../src/agents/prompts/architect-prompt.js', () => ({
+  createArchitectPrompt: vi.fn(),
+}));
+vi.mock('../../../src/utils/retry.js', () => ({
+  retryAgentPrompt: vi.fn(),
+}));
+vi.mock('../../../src/core/scope-resolver.js', () => ({
+  resolveScope: vi.fn(),
+  parseScope: vi.fn(),
+}));
+
 // Import mocked BugHuntWorkflow
 import { BugHuntWorkflow } from '../../../src/workflows/bug-hunt-workflow.js';
+import { createArchitectAgent } from '../../../src/agents/agent-factory.js';
+import { createArchitectPrompt } from '../../../src/agents/prompts/architect-prompt.js';
+import { retryAgentPrompt } from '../../../src/utils/retry.js';
+import { resolveScope, parseScope } from '../../../src/core/scope-resolver.js';
 
 const mockBugHuntWorkflow = BugHuntWorkflow as any;
 const mockedAccess = access as ReturnType<typeof vi.fn>;
 const mockedReadFile = readFile as ReturnType<typeof vi.fn>;
+const mockCreateArchitectAgent = createArchitectAgent as any;
+const mockCreateArchitectPrompt = createArchitectPrompt as any;
+const mockRetryAgentPrompt = retryAgentPrompt as any;
+const mockResolveScope = resolveScope as any;
+const mockParseScope = parseScope as any;
 
 // Factory functions for test data
 const _createTestTask = (
@@ -112,7 +139,78 @@ const createMockSessionManager = (backlog?: Backlog): SessionManager =>
     updateItemStatus: vi.fn().mockResolvedValue(undefined),
   }) as any;
 
+/** Build a single leaf Subtask for the flattened fix-subtask list. */
+const createFixSubtaskFixture = (
+  id: string,
+  title: string = `Fix ${id}`
+): Subtask => ({
+  id,
+  type: 'Subtask',
+  title,
+  status: 'Planned',
+  story_points: 3,
+  dependencies: [],
+  context_scope: 'fix',
+  prd_selectors: [],
+});
+
+/**
+ * Build a decomposed Backlog whose flattened leaf subtasks (via
+ * resolveScope(backlog, parseScope('all'))) are `subtasks`. The mock
+ * resolveScope returns `subtasks` directly, so the hierarchy shape here only
+ * needs to be a valid Backlog for the JSON.parse → Backlog round-trip.
+ */
+const createFixBacklog = (subtasks: Subtask[]): Backlog => ({
+  backlog: [
+    {
+      id: 'P1',
+      type: 'Phase',
+      title: 'Bug Fix Phase',
+      status: 'Planned',
+      milestones: [
+        {
+          id: 'P1.M1',
+          type: 'Milestone',
+          title: 'Fixes',
+          status: 'Planned',
+          tasks: [
+            {
+              id: 'P1.M1.T1',
+              type: 'Task',
+              title: 'Fix reported bugs',
+              status: 'Planned',
+              description: '',
+              subtasks,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
 describe('FixCycleWorkflow', () => {
+  /**
+   * Wire the standard-decomposition happy-path mocks for runStandardBreakdown:
+   * architect agent created once + prompt built; retryAgentPrompt runs the
+   * supplied fn; readFile returns the backlog JSON for tasks.json; resolveScope
+   * returns `subtasks`. Tests can override individual mocks after calling this.
+   */
+  const setupStandardBreakdownMocks = (
+    subtasks: Subtask[] = [createFixSubtaskFixture('P1.M1.T1.S1')]
+  ) => {
+    mockCreateArchitectAgent.mockReturnValue({
+      prompt: vi.fn().mockResolvedValue({ status: 'success', data: 'ok' }),
+    });
+    mockCreateArchitectPrompt.mockReturnValue({
+      /* architect prompt obj */
+    });
+    // retryAgentPrompt just runs the supplied fn and returns its result.
+    mockRetryAgentPrompt.mockImplementation(async (fn: any) => fn());
+    mockParseScope.mockReturnValue({ type: 'all' });
+    mockResolveScope.mockReturnValue(subtasks);
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     // Setup default BugHuntWorkflow mock
@@ -124,6 +222,32 @@ describe('FixCycleWorkflow', () => {
         recommendations: [],
       }),
     }));
+    // Default happy-path decomposition mocks (individual tests override as needed)
+    setupStandardBreakdownMocks();
+    // Default readFile: TEST_RESULTS.md → TestResults JSON, tasks.json → Backlog JSON
+    mockedReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('tasks.json')) {
+        return JSON.stringify(
+          createFixBacklog([createFixSubtaskFixture('P1.M1.T1.S1')])
+        );
+      }
+      // TEST_RESULTS.md (or any other path) → a default TestResults fixture
+      return JSON.stringify({
+        hasBugs: true,
+        bugs: [
+          createTestBug(
+            'BUG-001',
+            'critical',
+            'Login bug',
+            'Critical login failure',
+            '1. Go to login\n2. Enter bad password',
+            'src/auth/login.ts:45'
+          ),
+        ],
+        summary: 'Found 1 critical bug',
+        recommendations: ['Fix login validation'],
+      } as TestResults);
+    });
   });
 
   describe('constructor', () => {
@@ -196,8 +320,10 @@ describe('FixCycleWorkflow', () => {
     });
   });
 
-  describe('createFixTasks', () => {
-    it('should convert bugs to fix subtasks with correct format', async () => {
+  describe('runStandardBreakdown', () => {
+    const sessionPath = 'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918';
+
+    it('builds a Markdown mini-PRD containing each bug field + summary and passes it with the bugfix sessionPath', async () => {
       // SETUP
       const testResults: TestResults = {
         hasBugs: true,
@@ -210,174 +336,239 @@ describe('FixCycleWorkflow', () => {
             '1. Go to login\n2. Enter bad password',
             'src/auth/login.ts:45'
           ),
-          createTestBug(
-            'BUG-002',
-            'major',
-            'Validation error',
-            'Form validation fails',
-            '1. Open form\n2. Submit empty'
-          ),
         ],
-        summary: 'Found 2 bugs',
-        recommendations: [],
+        summary: 'Found 1 critical bug',
+        recommendations: ['Fix login validation'],
       };
 
-      // Mock file operations for loadBugReport
       mockedAccess.mockResolvedValue(undefined);
       mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
 
-      const orchestrator = createMockTaskOrchestrator();
-      const sessionManager = createMockSessionManager();
-
       const workflow = new FixCycleWorkflow(
-        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        sessionPath,
         'PRD content',
-        orchestrator,
-        sessionManager
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
       );
-
-      // Load test results first (populates this.#testResults)
       await workflow._loadBugReportForTesting();
 
       // EXECUTE
-      await workflow.createFixTasks();
+      await workflow.runStandardBreakdown();
 
-      // VERIFY - Use test-only getter
-      const fixTasks = workflow._fixTasksForTesting;
-
-      expect(fixTasks).toHaveLength(2);
-
-      // First bug
-      expect(fixTasks[0].id).toBe('PFIX.M1.T001.S1');
-      expect(fixTasks[0].title).toContain('[BUG FIX]');
-      expect(fixTasks[0].title).toContain('Login bug');
-      expect(fixTasks[0].status).toBe('Planned');
-      expect(fixTasks[0].story_points).toBe(13); // critical = 13
-      expect(fixTasks[0].dependencies).toEqual([]);
-      expect(fixTasks[0].context_scope).toContain('BUG-001');
-      expect(fixTasks[0].context_scope).toContain('src/auth/login.ts:45');
-
-      // Second bug
-      expect(fixTasks[1].id).toBe('PFIX.M1.T002.S1');
-      expect(fixTasks[1].story_points).toBe(8); // major = 8
+      // VERIFY - createArchitectPrompt received (miniPrd, this.sessionPath)
+      expect(mockCreateArchitectPrompt).toHaveBeenCalledTimes(1);
+      const [miniPrd, passedSessionPath] =
+        mockCreateArchitectPrompt.mock.calls[0];
+      expect(passedSessionPath).toBe(sessionPath);
+      // mini-PRD carries every bug field + the summary (PRD §4.4)
+      expect(miniPrd).toContain('BUG-001');
+      expect(miniPrd).toContain('critical');
+      expect(miniPrd).toContain('Login bug');
+      expect(miniPrd).toContain('Critical login failure');
+      expect(miniPrd).toContain('1. Go to login');
+      expect(miniPrd).toContain('src/auth/login.ts:45');
+      expect(miniPrd).toContain('Found 1 critical bug');
+      expect(miniPrd).toContain('Fix login validation'); // recommendation
     });
 
-    it('should map severity to correct story points', async () => {
+    it('creates the architect agent ONCE and invokes it through retryAgentPrompt({Agent, decomposeBugReport})', async () => {
       // SETUP
-      const testResults: TestResults = {
-        hasBugs: true,
-        bugs: [
-          createTestBug(
-            'BUG-001',
-            'critical',
-            'Critical bug',
-            'Critical',
-            'Repro'
-          ),
-          createTestBug('BUG-002', 'major', 'Major bug', 'Major', 'Repro'),
-          createTestBug('BUG-003', 'minor', 'Minor bug', 'Minor', 'Repro'),
-          createTestBug(
-            'BUG-004',
-            'cosmetic',
-            'Cosmetic bug',
-            'Cosmetic',
-            'Repro'
-          ),
-        ],
-        summary: 'Found 4 bugs',
-        recommendations: [],
-      };
-
-      // Mock file operations for loadBugReport
       mockedAccess.mockResolvedValue(undefined);
-      mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
-
-      const orchestrator = createMockTaskOrchestrator();
-      const sessionManager = createMockSessionManager();
 
       const workflow = new FixCycleWorkflow(
-        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        sessionPath,
         'PRD content',
-        orchestrator,
-        sessionManager
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
       );
-
-      // Load test results first
       await workflow._loadBugReportForTesting();
 
       // EXECUTE
-      await workflow.createFixTasks();
+      await workflow.runStandardBreakdown();
 
-      // VERIFY
-      const fixTasks = workflow._fixTasksForTesting;
-
-      expect(fixTasks[0].story_points).toBe(13); // critical
-      expect(fixTasks[1].story_points).toBe(8); // major
-      expect(fixTasks[2].story_points).toBe(3); // minor
-      expect(fixTasks[3].story_points).toBe(1); // cosmetic
+      // VERIFY - agent created exactly once (not inside the retry closure)
+      expect(mockCreateArchitectAgent).toHaveBeenCalledTimes(1);
+      // retryAgentPrompt wraps the agent.prompt call with the right context
+      expect(mockRetryAgentPrompt).toHaveBeenCalledTimes(1);
+      const [, context] = mockRetryAgentPrompt.mock.calls[0];
+      expect(context).toEqual({
+        agentType: 'Architect',
+        operation: 'decomposeBugReport',
+      });
     });
 
-    it('should handle bugs without location field', async () => {
-      // SETUP
-      const testResults: TestResults = {
-        hasBugs: true,
-        bugs: [
-          createTestBug(
-            'BUG-001',
-            'minor',
-            'Bug without location',
-            'Description',
-            'Repro'
-            // location is undefined
-          ),
-        ],
-        summary: 'Found 1 bug',
-        recommendations: [],
-      };
-
-      // Mock file operations for loadBugReport
+    it('reads tasks.json back, flattens via resolveScope(backlog, parseScope(all)), and stores the subtasks in #fixTasks', async () => {
+      // SETUP - mockedReadFile returns a backlog JSON for tasks.json;
+      // resolveScope returns a 2-subtask list.
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      const s2 = createFixSubtaskFixture('P1.M1.T1.S2');
+      mockResolveScope.mockReturnValue([s1, s2]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(createFixBacklog([s1, s2]));
+        }
+        // TEST_RESULTS.md fallback
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [createTestBug('BUG-001', 'critical', 'b', 'd', 'r')],
+          summary: 's',
+          recommendations: [],
+        } as TestResults);
+      });
       mockedAccess.mockResolvedValue(undefined);
-      mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
-
-      const orchestrator = createMockTaskOrchestrator();
-      const sessionManager = createMockSessionManager();
 
       const workflow = new FixCycleWorkflow(
-        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        sessionPath,
         'PRD content',
-        orchestrator,
-        sessionManager
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
       );
-
-      // Load test results first
       await workflow._loadBugReportForTesting();
 
       // EXECUTE
-      await workflow.createFixTasks();
+      await workflow.runStandardBreakdown();
 
-      // VERIFY
-      const fixTasks = workflow._fixTasksForTesting;
+      // VERIFY - tasks.json read from the bugfix sessionPath
+      expect(mockedReadFile).toHaveBeenCalledWith(
+        resolve(sessionPath, 'tasks.json'),
+        'utf-8'
+      );
+      // resolveScope called with (parsedBacklog, parseScope('all'))
+      expect(mockParseScope).toHaveBeenCalledWith('all');
+      expect(mockResolveScope).toHaveBeenCalledTimes(1);
+      const [backlogArg, scopeArg] = mockResolveScope.mock.calls[0];
+      expect(backlogArg).toEqual(createFixBacklog([s1, s2]));
+      expect(scopeArg).toEqual({ type: 'all' });
+      // #fixTasks holds the flattened subtasks
+      expect(workflow._fixTasksForTesting).toEqual([s1, s2]);
+      expect(workflow._fixTasksForTesting).toHaveLength(2);
+    });
 
-      expect(fixTasks[0].context_scope).toContain('Not specified');
+    it('throws "Architect agent failed: …" on a {status:error} agent result', async () => {
+      // SETUP - architect prompt resolves to an error result
+      mockCreateArchitectAgent.mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({
+          status: 'error',
+          error: { message: 'boom' },
+        }),
+      });
+      mockedAccess.mockResolvedValue(undefined);
+
+      const workflow = new FixCycleWorkflow(
+        sessionPath,
+        'PRD content',
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
+      );
+      await workflow._loadBugReportForTesting();
+
+      // EXECUTE & VERIFY
+      await expect(workflow.runStandardBreakdown()).rejects.toThrow(
+        'Architect agent failed: boom'
+      );
+      // tasks.json was never read (the error check short-circuits)
+      expect(
+        mockedReadFile.mock.calls.some((c: any) =>
+          String(c[0]).endsWith('tasks.json')
+        )
+      ).toBe(false);
+    });
+
+    it('throws "Failed to read/parse bugfix tasks.json …" when tasks.json is missing (ENOENT)', async () => {
+      // SETUP - readFile rejects ENOENT for the tasks.json path
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+          throw err;
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [createTestBug('BUG-001', 'critical', 'b', 'd', 'r')],
+          summary: 's',
+          recommendations: [],
+        } as TestResults);
+      });
+      mockedAccess.mockResolvedValue(undefined);
+
+      const workflow = new FixCycleWorkflow(
+        sessionPath,
+        'PRD content',
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
+      );
+      await workflow._loadBugReportForTesting();
+
+      // EXECUTE & VERIFY
+      await expect(workflow.runStandardBreakdown()).rejects.toThrow(
+        `Failed to read/parse bugfix tasks.json at ${resolve(sessionPath, 'tasks.json')}`
+      );
+    });
+
+    it('throws "No test results available" when no bug report has been loaded', async () => {
+      // SETUP - do NOT call _loadBugReportForTesting; currentResults is null
+      const workflow = new FixCycleWorkflow(
+        sessionPath,
+        'PRD content',
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
+      );
+
+      // EXECUTE & VERIFY
+      await expect(workflow.runStandardBreakdown()).rejects.toThrow(
+        'No test results available'
+      );
+    });
+
+    it('NEVER calls sessionManager.saveBacklog / updateItemStatus (§5 invariant)', async () => {
+      // SETUP
+      const sessionManager = createMockSessionManager();
+      mockedAccess.mockResolvedValue(undefined);
+
+      const workflow = new FixCycleWorkflow(
+        sessionPath,
+        'PRD content',
+        createMockTaskOrchestrator(),
+        sessionManager
+      );
+      await workflow._loadBugReportForTesting();
+
+      // EXECUTE
+      await workflow.runStandardBreakdown();
+
+      // VERIFY - the bugfix path must not touch the shared manager's registry
+      expect(sessionManager.saveBacklog).toBeUndefined(); // mock has no saveBacklog by design
+      expect(sessionManager.updateItemStatus).not.toHaveBeenCalled();
     });
   });
 
   describe('executeFixes', () => {
-    it('should execute all fix tasks via orchestrator', async () => {
-      // SETUP
-      const testResults: TestResults = {
-        hasBugs: true,
-        bugs: [
-          createTestBug('BUG-001', 'critical', 'Bug 1', 'Description', 'Repro'),
-          createTestBug('BUG-002', 'major', 'Bug 2', 'Description', 'Repro'),
-        ],
-        summary: 'Found 2 bugs',
-        recommendations: [],
-      };
-
-      // Mock file operations for loadBugReport
+    it('should execute all fix subtasks via orchestrator', async () => {
+      // SETUP - runStandardBreakdown drives #fixTasks from the mocked
+      // resolveScope return value (2 subtasks → executeSubtask called 2×).
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      const s2 = createFixSubtaskFixture('P1.M1.T1.S2');
+      mockResolveScope.mockReturnValue([s1, s2]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(createFixBacklog([s1, s2]));
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [
+            createTestBug(
+              'BUG-001',
+              'critical',
+              'Bug 1',
+              'Description',
+              'Repro'
+            ),
+            createTestBug('BUG-002', 'major', 'Bug 2', 'Description', 'Repro'),
+          ],
+          summary: 'Found 2 bugs',
+          recommendations: [],
+        } as TestResults);
+      });
       mockedAccess.mockResolvedValue(undefined);
-      mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
 
       const mockOrchestrator = createMockTaskOrchestrator();
       const sessionManager = createMockSessionManager();
@@ -389,9 +580,9 @@ describe('FixCycleWorkflow', () => {
         sessionManager
       );
 
-      // Load test results and create fix tasks first
+      // Load test results and run standard breakdown first
       await workflow._loadBugReportForTesting();
-      await workflow.createFixTasks();
+      await workflow.runStandardBreakdown();
 
       // EXECUTE
       await workflow.executeFixes();
@@ -401,20 +592,31 @@ describe('FixCycleWorkflow', () => {
     });
 
     it('should continue on individual fix failures', async () => {
-      // SETUP
-      const testResults: TestResults = {
-        hasBugs: true,
-        bugs: [
-          createTestBug('BUG-001', 'critical', 'Bug 1', 'Description', 'Repro'),
-          createTestBug('BUG-002', 'major', 'Bug 2', 'Description', 'Repro'),
-        ],
-        summary: 'Found 2 bugs',
-        recommendations: [],
-      };
-
-      // Mock file operations for loadBugReport
+      // SETUP - 2 subtasks; first executeSubtask rejects, second resolves.
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      const s2 = createFixSubtaskFixture('P1.M1.T1.S2');
+      mockResolveScope.mockReturnValue([s1, s2]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(createFixBacklog([s1, s2]));
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [
+            createTestBug(
+              'BUG-001',
+              'critical',
+              'Bug 1',
+              'Description',
+              'Repro'
+            ),
+            createTestBug('BUG-002', 'major', 'Bug 2', 'Description', 'Repro'),
+          ],
+          summary: 'Found 2 bugs',
+          recommendations: [],
+        } as TestResults);
+      });
       mockedAccess.mockResolvedValue(undefined);
-      mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
 
       const mockOrchestrator: TaskOrchestrator = {
         executeSubtask: vi
@@ -432,7 +634,7 @@ describe('FixCycleWorkflow', () => {
       );
 
       await workflow._loadBugReportForTesting();
-      await workflow.createFixTasks();
+      await workflow.runStandardBreakdown();
 
       // EXECUTE - Should not throw
       await workflow.executeFixes();
@@ -855,9 +1057,16 @@ describe('FixCycleWorkflow', () => {
         recommendations: [],
       };
 
-      // Mock file operations for loadBugReport
+      // Mock file operations: TEST_RESULTS.md → testResults, tasks.json → backlog
       mockedAccess.mockResolvedValue(undefined);
-      mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(
+            createFixBacklog([createFixSubtaskFixture('P1.M1.T1.S1')])
+          );
+        }
+        return JSON.stringify(testResults);
+      });
 
       const mockOrchestrator = createMockTaskOrchestrator();
       const sessionManager = createMockSessionManager();
@@ -914,9 +1123,16 @@ describe('FixCycleWorkflow', () => {
         recommendations: [],
       };
 
-      // Mock file operations for loadBugReport
+      // Mock file operations: TEST_RESULTS.md → testResults, tasks.json → backlog
       mockedAccess.mockResolvedValue(undefined);
-      mockedReadFile.mockResolvedValue(JSON.stringify(testResults));
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(
+            createFixBacklog([createFixSubtaskFixture('P1.M1.T1.S1')])
+          );
+        }
+        return JSON.stringify(testResults);
+      });
 
       const mockOrchestrator = createMockTaskOrchestrator();
       const sessionManager = createMockSessionManager();

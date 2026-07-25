@@ -7,9 +7,10 @@
  * Orchestrates an iterative bug fixing cycle (Fix → Re-test) until no critical
  * or major bugs remain, or max iterations (3) are reached.
  *
- * The workflow converts bugs to fix subtasks, executes them via TaskOrchestrator,
- * re-tests with BugHuntWorkflow, and repeats until bugs are resolved or max
- * iterations reached.
+ * The workflow runs the standard Architect decomposition on the QA bug report,
+ * executes the resulting fix subtasks via TaskOrchestrator, re-tests with
+ * BugHuntWorkflow, and repeats until bugs are resolved or max iterations
+ * reached.
  *
  * @example
  * ```typescript
@@ -25,13 +26,7 @@ import { readFile, access, constants } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { Workflow, Step } from 'groundswell';
-import type {
-  TestResults,
-  Bug,
-  Task,
-  Subtask,
-  Status,
-} from '../core/models.js';
+import type { TestResults, Backlog, Task, Subtask } from '../core/models.js';
 import { TestResultsSchema } from '../core/models.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
@@ -49,8 +44,9 @@ import { PARALLEL_RESEARCH, RESEARCH_DEPTH } from '../config/constants.js';
  *
  * @remarks
  * Orchestrates the bug fix cycle through four phases:
- * 1. Create Fix Tasks - Convert bugs to subtask-like fix tasks
- * 2. Execute Fixes - Run fix tasks via TaskOrchestrator
+ * 1. Standard Breakdown - Run the standard Architect decomposition on the
+ *    bug report (PRD §4.4: TEST_RESULTS.md is a mini-PRD)
+ * 2. Execute Fixes - Run fix subtasks via TaskOrchestrator
  * 3. Re-test - Run BugHuntWorkflow to verify fixes
  * 4. Check Completion - Determine if all critical/major bugs are resolved
  *
@@ -210,32 +206,137 @@ export class FixCycleWorkflow extends Workflow {
   // ========================================================================
 
   /**
-   * Phase 1: Create fix tasks from bugs
+   * Phase 1: Standard Architect breakdown of the bug report (PRD §4.4).
    *
-   * Converts each bug in testResults.bugs into a subtask-like fix task.
-   * Stores fix tasks for execution in executeFixes().
+   * @remarks
+   * PRD §4.4 mandates that the bug-fix cycle treat `TEST_RESULTS.md` as a
+   * mini-PRD and run the **standard full task breakdown** (the same
+   * Phase→Milestone→Task→Subtask decomposition a main session uses) — there is
+   * no separate "simplified" bug-fix breakdown mode. This method mirrors
+   * `PRPPipeline.decomposePRD()` exactly, MINUS the final backlog persist
+   * (the bugfix child SHARES the parent sessionManager — overwriting its
+   * registry would corrupt the parent session; the bugfix keeps its OWN
+   * `tasks.json` in its dir, written by the architect via `$TASKS_FILE`). The flattened
+   * subtasks are stored in `#fixTasks` and executed via `executeFixes()` →
+   * `executeSubtask()` (which already runs the two-phase commit + cleanup
+   * agent — CONTRACT c holds).
    */
   @Step({ trackTiming: true })
-  async createFixTasks(): Promise<void> {
+  async runStandardBreakdown(): Promise<void> {
     this.logger.info(
-      '[FixCycleWorkflow] Phase 1: Creating fix tasks from bugs'
+      '[FixCycleWorkflow] Phase 1: Standard Architect breakdown of bug report'
     );
+
     const testResults = this.currentResults ?? this.#testResults;
     if (!testResults) {
       throw new Error('[FixCycleWorkflow] No test results available');
     }
+
+    // (a) Build the mini-PRD from the QA bug report (PRD §4.4).
+    const miniPrd = this.#buildBugFixMiniPrd(testResults);
     this.logger.info(
-      `[FixCycleWorkflow] Processing ${testResults.bugs.length} bugs`
+      `[FixCycleWorkflow] Built bug-fix mini-PRD (${miniPrd.length} chars) from ${testResults.bugs.length} bugs`
     );
 
-    // Convert bugs to fix subtasks
-    this.#fixTasks = testResults.bugs.map((bug, index) =>
-      this.#createFixSubtask(bug, index)
+    // (b) Standard decomposition: Architect agent over the mini-PRD, writing
+    //     tasks.json into THIS bugfix session dir (createArchitectPrompt
+    //     substitutes $TASKS_FILE → ${sessionPath}/tasks.json). Mirrors
+    //     PRPPipeline.decomposePRD() verbatim, MINUS the backlog persist (the
+    //     bugfix shares the parent sessionManager — overwriting its registry
+    //     would corrupt the parent session).
+    const { createArchitectAgent } = await import('../agents/agent-factory.js');
+    const { createArchitectPrompt } =
+      await import('../agents/prompts/architect-prompt.js');
+    const { retryAgentPrompt } = await import('../utils/retry.js');
+
+    // Create the architect ONCE (not in the retry closure) so every retry
+    // inherits the xhigh Reasoning budget (mirrors decomposePRD invariant).
+    const architectAgent = createArchitectAgent();
+    const architectPrompt = createArchitectPrompt(miniPrd, this.sessionPath);
+
+    this.logger.info('[FixCycleWorkflow] Calling Architect agent...');
+    const result = await retryAgentPrompt(
+      () => architectAgent.prompt(architectPrompt),
+      { agentType: 'Architect', operation: 'decomposeBugReport' }
     );
 
+    // Surface agent-level failures instead of a confusing later ENOENT.
+    if (result.status === 'error') {
+      const errMsg = result.error?.message ?? 'unknown agent error';
+      throw new Error(`Architect agent failed: ${errMsg}`);
+    }
+
+    // (c) The FILE is the contract — the architect wrote tasks.json to
+    //     ${this.sessionPath}/tasks.json. Read it back and parse as Backlog.
+    const tasksPath = resolve(this.sessionPath, 'tasks.json');
+    let parsedBacklog: Backlog;
+    try {
+      const tasksContent = await readFile(tasksPath, 'utf-8');
+      parsedBacklog = JSON.parse(tasksContent) as Backlog;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[FixCycleWorkflow] Failed to read/parse bugfix tasks.json at ${tasksPath}: ${msg}`
+      );
+      throw new Error(
+        `Failed to read/parse bugfix tasks.json at ${tasksPath}: ${msg}`
+      );
+    }
+
+    // (d) Flatten the standard Phase→Milestone→Task→Subtask hierarchy into
+    //     dependency-ordered leaf subtasks (standard scope traversal).
+    const { resolveScope, parseScope } =
+      await import('../core/scope-resolver.js');
+    this.#fixTasks = resolveScope(
+      parsedBacklog,
+      parseScope('all')
+    ) as Subtask[];
+
     this.logger.info(
-      `[FixCycleWorkflow] Created ${this.#fixTasks.length} fix tasks`
+      `[FixCycleWorkflow] Standard breakdown produced ${this.#fixTasks.length} fix subtasks`
     );
+  }
+
+  /**
+   * Build a Markdown mini-PRD from the QA bug report so the Architect agent can
+   * run the standard Phase→Milestone→Task→Subtask decomposition on it (PRD §4.4:
+   * TEST_RESULTS.md is treated as a mini-PRD).
+   *
+   * @param testResults - The loaded, schema-validated bug report.
+   * @returns Markdown framing the bugs as fix requirements.
+   * @private
+   */
+  #buildBugFixMiniPrd(testResults: TestResults): string {
+    const lines: string[] = [];
+    lines.push('# Bug Fix PRD (Mini-PRD from TEST_RESULTS.md)');
+    lines.push('');
+    lines.push(
+      '> PRD §4.4: the QA bug report is treated as a mini-PRD. Break this'
+    );
+    lines.push(
+      '> down into a standard Phase→Milestone→Task→Subtask hierarchy of fixes.'
+    );
+    lines.push('');
+    lines.push('## Summary');
+    lines.push(testResults.summary || '(no summary)');
+    lines.push('');
+    lines.push('## Bugs to Fix');
+    lines.push('');
+    for (const bug of testResults.bugs) {
+      lines.push(`### ${bug.id} [${bug.severity}]: ${bug.title}`);
+      lines.push(`**Description:** ${bug.description}`);
+      lines.push(`**Reproduction:** ${bug.reproduction}`);
+      lines.push(`**Location:** ${bug.location ?? 'Not specified'}`);
+      lines.push('');
+    }
+    if (testResults.recommendations.length > 0) {
+      lines.push('## Recommendations');
+      for (const r of testResults.recommendations) {
+        lines.push(`- ${r}`);
+      }
+      lines.push('');
+    }
+    return lines.join('\n');
   }
 
   // ========================================================================
@@ -394,8 +495,8 @@ export class FixCycleWorkflow extends Workflow {
           `[FixCycleWorkflow] ========== Iteration ${this.iteration}/${this.maxIterations} ==========`
         );
 
-        // Phase 1: Create fix tasks
-        await this.createFixTasks();
+        // Phase 1: Standard Architect breakdown of the bug report (PRD §4.4)
+        await this.runStandardBreakdown();
 
         // Phase 2: Execute fixes
         await this.executeFixes();
@@ -587,66 +688,5 @@ export class FixCycleWorkflow extends Workflow {
         `Invalid TestResults in TEST_RESULTS.md at ${resultsPath}: ${errorMessage}`
       );
     }
-  }
-
-  /**
-   * Create a fix subtask from a bug report
-   *
-   * @param bug - Bug report to convert
-   * @param index - Bug index for ID generation
-   * @returns Subtask object representing the fix task
-   * @private
-   */
-  #createFixSubtask(bug: Bug, index: number): Subtask {
-    // Generate ID: PFIX.M1.T{index}.S1 (zero-padded)
-    const taskId = String(index + 1).padStart(3, '0');
-    const id = `PFIX.M1.T${taskId}.S1`;
-
-    // Map severity to story points
-    const severityToPoints: Record<Bug['severity'], number> = {
-      critical: 13,
-      major: 8,
-      minor: 3,
-      cosmetic: 1,
-    };
-
-    // Construct context_scope with all bug details
-    const contextScope = `
-# BUG REFERENCE
-Bug ID: ${bug.id}
-Severity: ${bug.severity}
-Title: ${bug.title}
-
-# BUG DESCRIPTION
-${bug.description}
-
-# REPRODUCTION STEPS
-${bug.reproduction}
-
-# TARGET LOCATION
-${bug.location ?? 'Not specified'}
-
-# FIX REQUIREMENTS
-INPUT: Current implementation at target location
-OUTPUT: Fixed implementation that addresses the bug
-MOCKING: None (real execution context)
-
-# VALIDATION CRITERIA
-1. Bug no longer reproduces following reproduction steps
-2. No regressions in related functionality
-3. Code follows existing patterns in the file
-4. Changes are minimal and focused on the bug fix
-    `.trim();
-
-    return {
-      id,
-      type: 'Subtask',
-      title: `[BUG FIX] ${bug.title}`,
-      status: 'Planned' as Status,
-      story_points: severityToPoints[bug.severity],
-      dependencies: [], // Fix tasks are independent
-      context_scope: contextScope,
-      prd_selectors: [], // Bug-fix subtasks have no PRD selectors (PRD §4.2)
-    };
   }
 }

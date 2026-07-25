@@ -778,7 +778,7 @@
       "type": "Phase",
       "id": "P4",
       "title": "Delta Workflow & QA Hardening",
-      "status": "Researching",
+      "status": "Ready",
       "description": "Add LLM change classification (COSMETIC/SUBSTANTIVE + CLEAN/DIRTY), response selection for mid-session changes, delta-PRD-bound breakdown, validation control with abort-on-failure, pizr bug-finder default, NO_ISSUES_FOUND.md marker, and standard full breakdown for bugfix with resume.",
       "milestones": [
         {
@@ -892,7 +892,7 @@
           "type": "Milestone",
           "id": "P4.M2",
           "title": "Validation & QA Hardening",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Add VALIDATION_AGENT and VALIDATION_TIMEOUT config, generate and run validate.sh with abort-on-failure, update BUG_FINDER_AGENT default to pizr, add NO_ISSUES_FOUND.md marker, and implement standard full breakdown for bugfix with interrupted-breakdown resume.",
           "tasks": [
             {
@@ -986,14 +986,14 @@
               "type": "Task",
               "id": "P4.M2.T4",
               "title": "Standard Full Breakdown for Bugfix and Resume Interrupted Breakdowns",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Make bug-fix treat TEST_RESULTS.md as a mini-PRD and run the standard full task breakdown (not a simplified mode), with cleanup for bug-fix sessions. Add auto-detection and resume of interrupted bug-fix breakdowns.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M2.T4.S1",
                   "title": "Standard full breakdown for bugfix sessions",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 4 documents: FixCycleWorkflow (fix-cycle-workflow.ts) creates PFIX subtasks via #createFixSubtask, which manually creates Subtask objects (not via the architect agent decomposition). PRD §4.4 specifies bug-fix treats TEST_RESULTS.md as a mini-PRD and runs the STANDARD FULL task breakdown (the same Phase→Milestone→Task→Subtask decomposition as a main session) — there is no separate simplified bug-fix breakdown mode. Cleanup runs for bug-fix sessions as for main sessions.\n2. INPUT: No prior subtask output consumed.\n3. LOGIC: (a) In FixCycleWorkflow (or the bugfix pipeline path), replace the manual #createFixSubtask logic with a call to the standard decomposition path: feed TEST_RESULTS.md as a mini-PRD to the architect agent (createArchitectPrompt with TEST_RESULTS.md content). (b) The architect produces a standard Phase→Milestone→Task→Subtask hierarchy. (c) Ensure cleanup runs for bug-fix sessions (same as main sessions — the two-phase commit and cleanup agent from P3.M1.T3). (d) Remove or deprecate the simplified bug-fix breakdown mode.\n4. OUTPUT: Bugfix uses standard full breakdown. Consumed by P4.M2.T4.S2.\n5. DOCS: none — no user-facing/config/API surface change.",
@@ -1006,7 +1006,7 @@
                   "type": "Subtask",
                   "id": "P4.M2.T4.S2",
                   "title": "Auto-detect and resume interrupted bugfix breakdowns",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P4.M2.T4.S1"
