@@ -20,6 +20,7 @@ vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(),
   mkdir: vi.fn().mockResolvedValue(undefined),
   copyFile: vi.fn().mockResolvedValue(undefined),
+  stat: vi.fn(),
 }));
 
 // Mock session-utils so handleDelta's resolvePRD call is controlled (no real I/O).
@@ -150,7 +151,7 @@ vi.mock('../../../src/utils/validation/execution-guard.js', () => ({
 }));
 
 // Import mocked modules
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { createArchitectAgent } from '../../../src/agents/agent-factory.js';
 import { AgentError } from '../../../src/utils/errors.js';
 import { SessionManager as SessionManagerClass } from '../../../src/core/session-manager.js';
@@ -167,6 +168,7 @@ import {
 
 // Cast mocked functions
 const mockReadFile = readFile as any;
+const mockStat = stat as any;
 const mockResolvePRD = resolvePRD as any;
 const mockCreateArchitectAgent = createArchitectAgent as any;
 const MockDeltaAnalysisWorkflow = DeltaAnalysisWorkflow as any;
@@ -300,6 +302,20 @@ describe('PRPPipeline', () => {
     mockReadFile.mockResolvedValue(
       JSON.stringify({ backlog: [createTestPhase('P1', 'Phase 1', 'Planned')] })
     );
+    // Default: no bugfix/TEST_RESULTS.md exists → #detectInterruptedBugfix
+    // returns null (not interrupted) so existing fresh-hunt tests proceed
+    // unchanged. Per-test mockImplementation overrides this where needed.
+    mockStat.mockImplementation(async (p: string) => {
+      const s = String(p);
+      if (s.endsWith('TEST_RESULTS.md')) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }
+      const err = new Error('ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    });
     mockCreateArchitectAgent.mockReturnValue({
       prompt: vi.fn().mockResolvedValue({
         backlog: createTestBacklog([]),
@@ -752,6 +768,233 @@ describe('PRPPipeline', () => {
         expect.anything(),
         { parallelResearch: false, researchDepth: 2 }
       );
+    });
+  });
+
+  describe('resume interrupted bugfix breakdowns', () => {
+    // Shared helpers for the detection/resume tests (PRD §4.4 step 3).
+    const CLEAN_RESULTS = {
+      hasBugs: false,
+      bugs: [],
+      summary: 'All bugs fixed',
+      recommendations: [],
+    };
+    const BUG_RESULTS = {
+      hasBugs: true,
+      bugs: [
+        {
+          id: 'BUG-001',
+          severity: 'major',
+          title: 'Bug',
+          description: 'desc',
+          reproduction: 'repro',
+        },
+      ],
+      summary: 'Found 1 bug',
+      recommendations: [],
+    };
+    const VALID_BACKLOG_JSON = JSON.stringify(
+      createTestBacklog([createTestPhase('P1', 'Phase 1', 'Planned')])
+    );
+
+    /** Build a pipeline whose session is an all-Complete backlog in bug-hunt mode. */
+    const buildBugHuntPipeline = (sessionPath = '/tmp/plan/008_test') => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'Phase 1', 'Complete', [
+          createTestMilestone('P1.M1', 'Milestone 1', 'Complete', [
+            createTestTask('P1.M1.T1', 'Task 1', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'Subtask 1', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const mockSession = createTestSession(backlog, '# Test PRD', sessionPath);
+      const mockManager = createMockSessionManager(mockSession);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = mockManager;
+      (pipeline as any).taskOrchestrator = createMockTaskOrchestrator();
+      // Bug-hunt mode forces QA to run (reaches the resume gate) regardless
+      // of task status.
+      (pipeline as any).mode = 'bug-hunt';
+      return pipeline;
+    };
+
+    /** Stub mockStat/mockReadFile so bugfix/TEST_RESULTS.md exists but tasks.json is missing. */
+    const stubMissingTasks = () => {
+      mockStat.mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s.endsWith('TEST_RESULTS.md')) return {}; // present
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      });
+    };
+
+    beforeEach(() => {
+      // Default mocks for this block: BugHunt finds no bugs (fresh path),
+      // FixCycle returns clean. Per-test mockImplementation overrides these.
+      MockBugHuntWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue(CLEAN_RESULTS),
+      }));
+      MockFixCycleWorkflow.mockClear();
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockResolvedValue(CLEAN_RESULTS),
+      }));
+    });
+
+    it('resumes when tasks.json is MISSING (skips fresh hunt, reuses existing dir)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      stubMissingTasks();
+
+      await pipeline.runQACycle();
+
+      // No fresh bug hunt, no mkdir/copyFile (resume reuses existing dir).
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+      expect(MockFixCycleWorkflow).toHaveBeenCalledWith(
+        expect.stringContaining('bugfix'),
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+      expect(pipeline.currentPhase).toBe('qa_complete');
+    });
+
+    it('resumes when tasks.json is EMPTY', async () => {
+      const pipeline = buildBugHuntPipeline();
+      mockStat.mockResolvedValue({}); // both files exist
+      mockReadFile.mockResolvedValue(''); // empty tasks.json
+
+      await pipeline.runQACycle();
+
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('resumes when tasks.json is CORRUPT (invalid JSON)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      mockStat.mockResolvedValue({});
+      mockReadFile.mockResolvedValue('{not valid json');
+
+      await pipeline.runQACycle();
+
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('resumes when tasks.json is CORRUPT (valid JSON, invalid Backlog)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      mockStat.mockResolvedValue({});
+      // Valid JSON but not a valid Backlog shape.
+      mockReadFile.mockResolvedValue(JSON.stringify({ foo: 1 }));
+
+      await pipeline.runQACycle();
+
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('resumes when tasks.json is UNREADABLE (readFile throws)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      // Both files exist (stat succeeds), but reading tasks.json fails
+      // (e.g. permissions) → treated as interrupted.
+      mockStat.mockResolvedValue({});
+      mockReadFile.mockRejectedValue(new Error('EACCES'));
+
+      await pipeline.runQACycle();
+
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs a fresh hunt when the dir is HEALTHY (valid tasks.json)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      mockStat.mockResolvedValue({}); // both files exist
+      mockReadFile.mockResolvedValue(VALID_BACKLOG_JSON); // valid tasks.json
+
+      await pipeline.runQACycle();
+
+      // Fresh hunt ran (detection returned null → not interrupted).
+      expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+      // Resume did not pre-empt: FixCycle was NOT called because BugHunt found
+      // no bugs in the fresh path.
+      expect(MockFixCycleWorkflow).not.toHaveBeenCalled();
+    });
+
+    it('runs a fresh hunt when there is NO TEST_RESULTS.md', async () => {
+      const pipeline = buildBugHuntPipeline();
+      // No TEST_RESULTS.md → never hunted → not interrupted.
+      mockStat.mockImplementation(async () => {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      });
+
+      await pipeline.runQACycle();
+
+      expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips detection in validate mode (returns early)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      (pipeline as any).mode = 'validate';
+      // Even with an interrupted dir present, validate must skip detection.
+      stubMissingTasks();
+
+      await pipeline.runQACycle();
+
+      expect(pipeline.currentPhase).toBe('qa_skipped');
+      expect(MockBugHuntWorkflow).not.toHaveBeenCalled();
+      expect(MockFixCycleWorkflow).not.toHaveBeenCalled();
+    });
+
+    it('skips detection when SKIP_BUG_FINDING=true (runs fresh hunt)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      stubMissingTasks(); // interrupted dir present, but gate suppressed
+
+      vi.stubEnv('SKIP_BUG_FINDING', 'true');
+      try {
+        await pipeline.runQACycle();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      // Gate suppressed detection → fresh hunt ran.
+      expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('suppresses detection inside bug-fix child sessions (no re-entry)', async () => {
+      // sessionPath contains 'bugfix' → bug-fix child → suppression gate false.
+      const pipeline = buildBugHuntPipeline(
+        '/tmp/plan/008_test/bugfix/001_child'
+      );
+      stubMissingTasks(); // interrupted dir present, but suppressed
+
+      await pipeline.runQACycle();
+
+      // Suppressed → fresh hunt ran (no re-entry loop).
+      expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls through to fresh hunt when resume THROWS (pipeline not blocked)', async () => {
+      const pipeline = buildBugHuntPipeline();
+      stubMissingTasks(); // interrupted dir present
+      // Resume attempt fails.
+      MockFixCycleWorkflow.mockImplementation(() => ({
+        run: vi.fn().mockRejectedValue(new Error('resume boom')),
+      }));
+
+      await pipeline.runQACycle();
+
+      // Resume failed → fresh hunt ran as fallback.
+      expect(MockBugHuntWorkflow).toHaveBeenCalledTimes(1);
+      // Resume attempted (1) + fresh path may call again (if bugs found) —
+      // BugHunt default is clean here, so fresh path does NOT call FixCycle.
+      // The key assertion: pipeline did NOT throw and reached qa_complete.
+      expect(MockFixCycleWorkflow).toHaveBeenCalledTimes(1);
+      expect(pipeline.currentPhase).toBe('qa_complete');
     });
   });
 

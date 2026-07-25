@@ -26,7 +26,14 @@ import { Workflow, Step } from 'groundswell';
 import type { SessionManager } from '../core/session-manager.js';
 import type { TaskOrchestrator } from '../core/task-orchestrator.js';
 import type { PRPRuntime } from '../agents/prp-runtime.js';
-import type { Backlog, Status, DeltaAnalysis, Task } from '../core/models.js';
+import type {
+  Backlog,
+  Status,
+  DeltaAnalysis,
+  Task,
+  TestResults,
+} from '../core/models.js';
+import { BacklogSchema } from '../core/models.js';
 import type { Scope } from '../core/scope-resolver.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
@@ -1541,97 +1548,138 @@ export class PRPPipeline extends Workflow {
         );
       }
 
-      const bugHuntWorkflow = new BugHuntWorkflow(prdContent, completedTasks);
-      const testResults = await bugHuntWorkflow.run(sessionPath);
-
-      // Log initial test results
-      this.logger.info('[PRPPipeline] Bug hunt complete', {
-        hasBugs: testResults.hasBugs,
-        bugCount: testResults.bugs.length,
-        summary: testResults.summary,
-      });
-
       // ============================================================
-      // Phase 2: Fix Cycle (if bugs found)
+      // PRD §4.4 step 3: Resume interrupted bugfix breakdowns.
+      // If a previous bug-fix run was killed between committing
+      // TEST_RESULTS.md and finishing breakdown, the bugfix dir has
+      // TEST_RESULTS.md but no (valid) tasks.json. Re-enter the SAME path
+      // the bug-hunt stage uses when it first finds bugs
+      // (runStandardBreakdown regenerates tasks.json). Skipped in
+      // --validate / --skip-bug-finding and suppressed inside bug-fix
+      // children (no detect→resume→detect re-entry loop).
       // ============================================================
+      const canAutoResume =
+        (this.mode as 'normal' | 'delta' | 'bug-hunt' | 'validate') !==
+          'validate' &&
+        process.env.SKIP_BUG_FINDING !== 'true' &&
+        !sessionPath.toLowerCase().includes('bugfix');
 
-      let finalResults = testResults;
+      // Declared up here so the resume branch can assign it; the fresh-hunt
+      // path assigns it below. Guaranteed assigned by exactly one of the two
+      // paths before Phase 3/4 read it (resume-success XOR fresh path).
+      let finalResults: TestResults | null = null;
+      let resumed = false;
 
-      if (testResults.hasBugs) {
-        this.logger.info('[PRPPipeline] Bugs detected, starting fix cycle');
-
-        try {
-          // Create a bugfix child session directory. The FixCycleWorkflow
-          // validates that its sessionPath contains 'bugfix' (PRD §5.1: bug
-          // fix operations must only occur in bugfix sessions). We create a
-          // bugfix/ subdirectory under the current session, copy TEST_RESULTS.md
-          // into it (the workflow reads it from there), and pass that path.
-          const { resolve } = await import('node:path');
-          const { mkdir, copyFile } = await import('node:fs/promises');
-          const bugfixSessionPath = resolve(sessionPath, 'bugfix');
-          await mkdir(bugfixSessionPath, { recursive: true });
-          const testResultsPath = resolve(sessionPath, 'TEST_RESULTS.md');
-          try {
-            await copyFile(
-              testResultsPath,
-              resolve(bugfixSessionPath, 'TEST_RESULTS.md')
-            );
-          } catch {
-            // TEST_RESULTS.md may not exist if writeBugReport skipped (no
-            // critical/major bugs); copy bug_hunt_results.json as fallback.
-            await copyFile(
-              resolve(sessionPath, 'bug_hunt_results.json'),
-              resolve(bugfixSessionPath, 'TEST_RESULTS.md')
-            ).catch(() => {
-              /* nothing to copy — fix-cycle will error on load */
-            });
-          }
+      if (canAutoResume) {
+        const interruptedDir = await this.#detectInterruptedBugfix(sessionPath);
+        if (interruptedDir) {
           this.logger.info(
-            `[PRPPipeline] Bugfix session: ${bugfixSessionPath}`
+            `[PRPPipeline] Interrupted bugfix breakdown detected at ${interruptedDir}; resuming (skipping fresh bug hunt)`
           );
-
-          const fixCycleWorkflow = new FixCycleWorkflow(
-            bugfixSessionPath,
-            prdContent,
-            this.taskOrchestrator,
-            this.sessionManager,
-            // PRD §4.2: forward parallel-research settings to the bugfix child
-            // so its shared orchestrator's depth-chain prefetch stays active
-            // during fix execution (the main items are already Complete by now).
-            {
-              parallelResearch: isParallelResearch(),
-              researchDepth: getResearchDepth(),
-            }
-          );
-
-          const fixResults = await fixCycleWorkflow.run();
-
-          // Log fix cycle results
-          const bugsRemaining = fixResults.bugs.length;
-          const bugsFixed = testResults.bugs.length - bugsRemaining;
-
-          this.logger.info('[PRPPipeline] Fix cycle complete', {
-            bugsFixed,
-            bugsRemaining,
-            hasBugs: fixResults.hasBugs,
-          });
-
-          finalResults = fixResults;
-
-          // Warning if bugs remain after fix cycle
-          if (bugsRemaining > 0) {
-            this.logger.warn(
-              `[PRPPipeline] Fix cycle completed with ${bugsRemaining} bugs remaining`
+          try {
+            finalResults = await this.#runBugFixCycle(
+              interruptedDir,
+              prdContent
             );
+            resumed = true;
+          } catch (resumeError) {
+            const msg =
+              resumeError instanceof Error
+                ? resumeError.message
+                : String(resumeError);
+            this.logger.warn(
+              `[PRPPipeline] Resume of interrupted bugfix failed, falling back to fresh bug hunt: ${msg}`
+            );
+            // resumed stays false → fresh hunt runs below
           }
-        } catch (fixError) {
-          // Fix cycle failure - log but use original test results
-          const errorMessage =
-            fixError instanceof Error ? fixError.message : String(fixError);
-          this.logger.warn(
-            `[PRPPipeline] Fix cycle failed (continuing with original results): ${errorMessage}`
-          );
-          // Keep original testResults as finalResults
+        }
+      }
+
+      // ============================================================
+      // Phase 1: Bug Hunt (fresh) — only when not resuming
+      // ============================================================
+      if (!resumed) {
+        const bugHuntWorkflow = new BugHuntWorkflow(prdContent, completedTasks);
+        const testResults = await bugHuntWorkflow.run(sessionPath);
+
+        // Log initial test results
+        this.logger.info('[PRPPipeline] Bug hunt complete', {
+          hasBugs: testResults.hasBugs,
+          bugCount: testResults.bugs.length,
+          summary: testResults.summary,
+        });
+
+        // ============================================================
+        // Phase 2: Fix Cycle (if bugs found)
+        // ============================================================
+
+        finalResults = testResults;
+
+        if (testResults.hasBugs) {
+          this.logger.info('[PRPPipeline] Bugs detected, starting fix cycle');
+
+          try {
+            // Create a bugfix child session directory. The FixCycleWorkflow
+            // validates that its sessionPath contains 'bugfix' (PRD §5.1: bug
+            // fix operations must only occur in bugfix sessions). We create a
+            // bugfix/ subdirectory under the current session, copy TEST_RESULTS.md
+            // into it (the workflow reads it from there), and pass that path.
+            const { resolve } = await import('node:path');
+            const { mkdir, copyFile } = await import('node:fs/promises');
+            const bugfixSessionPath = resolve(sessionPath, 'bugfix');
+            await mkdir(bugfixSessionPath, { recursive: true });
+            const testResultsPath = resolve(sessionPath, 'TEST_RESULTS.md');
+            try {
+              await copyFile(
+                testResultsPath,
+                resolve(bugfixSessionPath, 'TEST_RESULTS.md')
+              );
+            } catch {
+              // TEST_RESULTS.md may not exist if writeBugReport skipped (no
+              // critical/major bugs); copy bug_hunt_results.json as fallback.
+              await copyFile(
+                resolve(sessionPath, 'bug_hunt_results.json'),
+                resolve(bugfixSessionPath, 'TEST_RESULTS.md')
+              ).catch(() => {
+                /* nothing to copy — fix-cycle will error on load */
+              });
+            }
+            this.logger.info(
+              `[PRPPipeline] Bugfix session: ${bugfixSessionPath}`
+            );
+
+            const fixResults = await this.#runBugFixCycle(
+              bugfixSessionPath,
+              prdContent
+            );
+
+            // Log fix cycle results
+            const bugsRemaining = fixResults.bugs.length;
+            const bugsFixed = testResults.bugs.length - bugsRemaining;
+
+            this.logger.info('[PRPPipeline] Fix cycle complete', {
+              bugsFixed,
+              bugsRemaining,
+              hasBugs: fixResults.hasBugs,
+            });
+
+            finalResults = fixResults;
+
+            // Warning if bugs remain after fix cycle
+            if (bugsRemaining > 0) {
+              this.logger.warn(
+                `[PRPPipeline] Fix cycle completed with ${bugsRemaining} bugs remaining`
+              );
+            }
+          } catch (fixError) {
+            // Fix cycle failure - log but use original test results
+            const errorMessage =
+              fixError instanceof Error ? fixError.message : String(fixError);
+            this.logger.warn(
+              `[PRPPipeline] Fix cycle failed (continuing with original results): ${errorMessage}`
+            );
+            // Keep original testResults as finalResults
+          }
         }
       }
 
@@ -1639,7 +1687,11 @@ export class PRPPipeline extends Workflow {
       // Phase 3: Update state
       // ============================================================
 
-      this.#bugsFound = finalResults.bugs.length;
+      // finalResults is guaranteed assigned by exactly one of the two paths
+      // above (resume-success XOR fresh path runs when !resumed).
+      const resolvedResults = finalResults!;
+
+      this.#bugsFound = resolvedResults.bugs.length;
       this.currentPhase = 'qa_complete';
 
       // ============================================================
@@ -1650,21 +1702,21 @@ export class PRPPipeline extends Workflow {
       console.log('🐛 QA Summary');
       console.log('='.repeat(60));
 
-      if (finalResults.bugs.length === 0) {
+      if (resolvedResults.bugs.length === 0) {
         console.log('✅ No bugs found - all tests passed!');
       } else {
-        console.log(`📊 Total bugs found: ${finalResults.bugs.length}`);
+        console.log(`📊 Total bugs found: ${resolvedResults.bugs.length}`);
 
-        const criticalCount = finalResults.bugs.filter(
+        const criticalCount = resolvedResults.bugs.filter(
           b => b.severity === 'critical'
         ).length;
-        const majorCount = finalResults.bugs.filter(
+        const majorCount = resolvedResults.bugs.filter(
           b => b.severity === 'major'
         ).length;
-        const minorCount = finalResults.bugs.filter(
+        const minorCount = resolvedResults.bugs.filter(
           b => b.severity === 'minor'
         ).length;
-        const cosmeticCount = finalResults.bugs.filter(
+        const cosmeticCount = resolvedResults.bugs.filter(
           b => b.severity === 'cosmetic'
         ).length;
 
@@ -1673,7 +1725,7 @@ export class PRPPipeline extends Workflow {
         console.log(`  🟡 Minor: ${minorCount}`);
         console.log(`  ⚪ Cosmetic: ${cosmeticCount}`);
 
-        console.log(`\n${finalResults.summary}`);
+        console.log(`\n${resolvedResults.summary}`);
 
         if (criticalCount > 0 || majorCount > 0) {
           console.log(
@@ -1709,6 +1761,101 @@ export class PRPPipeline extends Workflow {
       this.#bugsFound = 0;
       this.currentPhase = 'qa_failed';
     }
+  }
+
+  /**
+   * Construct + run the bug-fix cycle on a bugfix session dir (PRD §4.4).
+   *
+   * Shared by the fresh-hunt Phase 2 and the interrupted-breakdown resume
+   * branch so both "re-enter the same path the bug-hunt stage uses when it
+   * first finds bugs." runStandardBreakdown (P4.M2.T4.S1) writes tasks.json
+   * into bugfixDir.
+   *
+   * @param bugfixDir - Existing bugfix session dir (must contain 'bugfix').
+   * @param prdContent - PRD snapshot for QA context.
+   * @returns Final TestResults from the fix cycle.
+   * @private
+   */
+  async #runBugFixCycle(
+    bugfixDir: string,
+    prdContent: string
+  ): Promise<TestResults> {
+    const fixCycleWorkflow = new FixCycleWorkflow(
+      bugfixDir,
+      prdContent,
+      this.taskOrchestrator,
+      this.sessionManager,
+      // PRD §4.2: forward parallel-research settings to the bugfix child
+      // so its shared orchestrator's depth-chain prefetch stays active
+      // during fix execution (the main items are already Complete by now).
+      {
+        parallelResearch: isParallelResearch(),
+        researchDepth: getResearchDepth(),
+      }
+    );
+    return await fixCycleWorkflow.run();
+  }
+
+  /**
+   * Detect a bugfix dir left in an interrupted state (PRD §4.4 step 3).
+   *
+   * "Interrupted" = the QA bug report (TEST_RESULTS.md) was committed but
+   * task breakdown (tasks.json) did not finish — the file is missing, empty,
+   * or fails JSON parse / BacklogSchema validation. Returns the bugfix dir
+   * path so the caller can resume the breakdown; returns null when there is
+   * nothing to resume (never hunted, or a healthy completed breakdown).
+   *
+   * @param sessionPath - The MAIN session dir (plan/NNN_hash).
+   * @returns The interrupted bugfix dir path, or null.
+   * @private
+   */
+  async #detectInterruptedBugfix(sessionPath: string): Promise<string | null> {
+    const { resolve } = await import('node:path');
+    const { stat, readFile } = await import('node:fs/promises');
+    const bugfixDir = resolve(sessionPath, 'bugfix');
+    const testResultsPath = resolve(bugfixDir, 'TEST_RESULTS.md');
+    const tasksPath = resolve(bugfixDir, 'tasks.json');
+
+    // 1. No bug report → never hunted (or not interrupted) → nothing to resume.
+    try {
+      await stat(testResultsPath);
+    } catch {
+      return null;
+    }
+
+    // 2. tasks.json missing → interrupted.
+    try {
+      await stat(tasksPath);
+    } catch {
+      return bugfixDir;
+    }
+
+    // 3. tasks.json empty → interrupted.
+    let content: string;
+    try {
+      content = await readFile(tasksPath, 'utf-8');
+    } catch {
+      return bugfixDir; // unreadable → treat as interrupted
+    }
+    if (content.trim() === '') {
+      return bugfixDir;
+    }
+
+    // 4. tasks.json corrupt (invalid JSON) → interrupted.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return bugfixDir;
+    }
+
+    // 5. tasks.json corrupt (valid JSON, invalid Backlog) → interrupted.
+    if (!BacklogSchema.safeParse(parsed).success) {
+      return bugfixDir;
+    }
+
+    // 6. Healthy → not interrupted.
+    return null;
   }
 
   /**

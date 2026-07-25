@@ -986,7 +986,7 @@
               "type": "Task",
               "id": "P4.M2.T4",
               "title": "Standard Full Breakdown for Bugfix and Resume Interrupted Breakdowns",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Make bug-fix treat TEST_RESULTS.md as a mini-PRD and run the standard full task breakdown (not a simplified mode), with cleanup for bug-fix sessions. Add auto-detection and resume of interrupted bug-fix breakdowns.",
               "subtasks": [
                 {
@@ -1006,7 +1006,7 @@
                   "type": "Subtask",
                   "id": "P4.M2.T4.S2",
                   "title": "Auto-detect and resume interrupted bugfix breakdowns",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P4.M2.T4.S1"
@@ -1047,7 +1047,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T1.S1",
                   "title": "CLI flag and guard rails for --adopt-prd",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/phase_findings.md §PHASE 5 documents: no adopt code exists in src/. CLI has 5 subcommands + default pipeline. PRPPipeline constructor takes 23 positional args. SessionManager.initialize() creates session dir, hashes PRD, writes snapshot. PRD §4.6 specifies guard rails: --adopt-prd REQUIRES the PRD to exist (missing PRD MUST exit loudly); applies ONLY to fresh projects (if sessions exist, flag is a no-op misuse — warn and proceed); hard guard MUST reject empty SESSION_DIR before breakdown/validation; session creation MUST mkdir -p PLAN_DIR first.\n2. INPUT: No prior subtask output consumed (greenfield feature).\n3. LOGIC: (a) Add --adopt-prd boolean flag to cli/index.ts parseCLIArgs. (b) In src/index.ts main() or a new handler: when --adopt-prd is set, validate: PRD file exists (exit loudly with error if missing). (c) Check if any sessions exist in plan/ — if sessions exist, warn 'Sessions already exist; --adopt-prd is a no-op' and proceed with normal session resolution. (d) Hard guard: reject empty/falsy SESSION_DIR before breakdown/validation to prevent collapsed root paths. (e) Ensure session creation mkdir -p the PLAN_DIR first so the session path is always nested under it.\n4. OUTPUT: --adopt-prd CLI flag with guard rails. Consumed by P5.M1.T1.S2.\n5. DOCS: [Mode A] Add --adopt-prd to docs/CLI_REFERENCE.md and README.md (flag documentation). This rides WITH the work.",
@@ -1060,7 +1060,7 @@
                   "type": "Subtask",
                   "id": "P5.M1.T1.S2",
                   "title": "Seed completed baseline tasks.json, .adopted marker, and SKIP_EXECUTION_LOOP",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P5.M1.T1.S1"
