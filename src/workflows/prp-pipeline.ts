@@ -1099,8 +1099,11 @@ export class PRPPipeline extends Workflow {
    * Decompose PRD into task backlog
    *
    * @remarks
-   * For new sessions (empty backlog), uses Architect agent to generate
-   * task hierarchy from PRD content. For existing sessions, skips generation.
+   * A delta session ALWAYS runs the Architect breakdown over `delta_prd.md`
+   * (PRD §4.3 step 5) regardless of any pre-existing patched backlog — this is
+   * what makes the delta branch reachable (bugfix 001, Issue 1). Non-delta
+   * sessions retain the `hasBacklog` early-return: an existing backlog skips
+   * generation, an empty backlog generates one from the PRD.
    *
    * Generated backlog is saved via SessionManager.saveBacklog().
    */
@@ -1108,22 +1111,37 @@ export class PRPPipeline extends Workflow {
     this.logger.info('[PRPPipeline] Decomposing PRD');
 
     try {
-      // Check if backlog already exists (existing session)
-      const backlog = this.sessionManager.currentSession?.taskRegistry;
-      const hasBacklog = backlog && backlog.backlog.length > 0;
+      // Resolve the session + delta-ness FIRST so the hasBacklog guard below
+      // only applies to NON-delta sessions (PRD §4.3 step 5; bugfix Issue 1:
+      // previously this guard ran before isDelta and, since spawnDeltaSession
+      // always saves a non-empty patched backlog, dead-coded the delta branch).
+      const sessionPath = this.sessionManager.currentSession!.metadata.path;
+      const isDelta =
+        this.sessionManager.currentSession?.metadata.parentSession != null;
 
-      if (hasBacklog) {
+      if (!isDelta) {
+        // ORIGINAL hasBacklog early-return — NON-DELTA only (byte-for-byte
+        // unchanged; only its position + this wrapper changed in bugfix S1).
+        const backlog = this.sessionManager.currentSession?.taskRegistry;
+        const hasBacklog = backlog && backlog.backlog.length > 0;
+
+        if (hasBacklog) {
+          this.logger.info(
+            '[PRPPipeline] Existing backlog found, skipping generation'
+          );
+          this.totalTasks = this.#countTasks();
+          this.currentPhase = 'prd_decomposed';
+          return;
+        }
+
         this.logger.info(
-          '[PRPPipeline] Existing backlog found, skipping generation'
+          '[PRPPipeline] New session, generating backlog from PRD'
         );
-        this.totalTasks = this.#countTasks();
-        this.currentPhase = 'prd_decomposed';
-        return;
+      } else {
+        this.logger.info(
+          '[PRPPipeline] Delta session — breakdown over delta_prd.md (PRD §4.3 step 5)'
+        );
       }
-
-      this.logger.info(
-        '[PRPPipeline] New session, generating backlog from PRD'
-      );
 
       // Import agent factory and prompt generator dynamically
       const { createArchitectAgent } =
@@ -1150,9 +1168,6 @@ export class PRPPipeline extends Workflow {
       // If delta_prd.md is missing on a delta session, throw a clear error —
       // NEVER fall back to prdSnapshot (that re-introduces the full-PRD leak;
       // the next run regenerates delta_prd.md via the delta spawn path).
-      const sessionPath = this.sessionManager.currentSession!.metadata.path;
-      const isDelta =
-        this.sessionManager.currentSession?.metadata.parentSession != null;
       let prdContent: string;
       if (isDelta) {
         try {
@@ -1197,6 +1212,13 @@ export class PRPPipeline extends Workflow {
       const tasksContent = await readFile(tasksPath, 'utf-8');
       const parsedBacklog = JSON.parse(tasksContent) as Backlog;
 
+      // S2 SEAM (P1.M1.T1.S2): for delta sessions, MERGE parsedBacklog (added
+      // tasks produced by the architect over delta_prd.md) with the in-memory
+      // patched backlog (currentSession.taskRegistry — modified→Planned,
+      // removed→Obsolete) BEFORE saving. The architect's write above clobbers
+      // tasks.json on disk, but currentSession.taskRegistry (in-memory) is
+      // untouched and available for the merge. S1 saves the architect output
+      // directly; S2 replaces this line with the merged save.
       // Save backlog to disk
       await this.sessionManager.saveBacklog(parsedBacklog);
 
