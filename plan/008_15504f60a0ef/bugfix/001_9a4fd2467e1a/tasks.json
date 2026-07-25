@@ -322,14 +322,14 @@
       "type": "Phase",
       "id": "P3",
       "title": "Bugfix Session Numbering (Issue 4)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Implement PRD §4.4 step 3 and §5.1: bugfix sessions use numbered iterations (bugfix/NNN_hash/) instead of a flat bugfix/ directory, preserving prior iterations for the audit trail.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P3.M1",
           "title": "Numbered Bugfix Iterations and Changeset Documentation",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Implement bugfix/NNN_hash/ numbered directories with archive-on-overwrite semantics, update interrupted-bugfix detection to scan numbered children, and sync changeset-level documentation.",
           "tasks": [
             {
@@ -407,14 +407,14 @@
               "type": "Task",
               "id": "P3.M1.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Update cross-cutting documentation (README.md, docs/ARCHITECTURE.md, docs/WORKFLOWS.md, docs/TESTING.md, docs/CONFIGURATION.md) to reflect the changes from all 5 issues: delta workflow restoration, executeBacklog abort, ContextScopeSchema relaxation, and bugfix numbering.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T2.S1",
                   "title": "Update README.md and docs/ARCHITECTURE.md for delta workflow and bugfix numbering",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2",

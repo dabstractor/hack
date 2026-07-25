@@ -3,8 +3,8 @@
 > Comprehensive guide to testing philosophy, structure, and guidelines for the hacky-hack PRP Pipeline codebase.
 
 **Status**: Published
-**Last Updated**: 2026-01-23
-**Version**: 1.0.0
+**Last Updated**: 2026-07-25
+**Version**: 1.0.1
 
 ---
 
@@ -56,9 +56,26 @@ If coverage drops below 100% for any metric, the test suite will fail.
 Tests must be **deterministic** with no external dependencies during execution:
 
 - **No real LLM API calls**: All Groundswell agents are mocked
-- **No real file system operations**: File I/O is mocked
 - **No real git operations**: Git commands are mocked
 - **No network requests**: All external APIs are stubbed
+
+File-system I/O follows **two coexisting patterns** depending on what is under test:
+
+- **Module-mocked `fs` (the default)** — most suites mock `node:fs` so tests are
+  deterministic, fast, and free of side effects. This is the pattern for pure
+  logic that merely touches the filesystem.
+- **Real tmpdir (for filesystem/concurrency semantics)** — suites that exercise
+  real OS-level semantics use a genuine temp directory (`mkdtemp` / `rm`) with
+  **no** `node:fs` mock, because O_EXCL locking and real I/O are untestable
+  against a mocked filesystem. Examples: the process-level file-lock mutex in
+  `src/core/file-lock.ts` (`tests/unit/core/file-lock.test.ts`) and the
+  git-history restore in `tasks-json-recovery` (`tests/unit/core/tasks-json-recovery.test.ts`).
+
+> The suite is **GREEN** post-changeset. The rotted mocks flagged in Issue 3A
+> (`ResearchTimeoutError` re-export, the PRP-generator file-contract return path,
+> and the groundswell module mock) were repaired in P2.M3.T1, and the lenient
+> read-time schema (`BacklogReadSchema` / `ContextScopeReadSchema`) from Issue 3B
+> (P2.M2.T1) lets legacy/hand-edited sessions load without lockout.
 
 This ensures tests run consistently across all environments and execute quickly.
 

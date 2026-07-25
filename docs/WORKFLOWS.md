@@ -3,8 +3,8 @@
 > Complete guide to the PRP Pipeline workflow system, including all workflows, their lifecycles, phases, and integration points.
 
 **Status**: Published
-**Last Updated**: 2026-01-23
-**Version**: 1.0.0
+**Last Updated**: 2026-07-25
+**Version**: 1.0.1
 
 ## Table of Contents
 
@@ -328,28 +328,35 @@ async initializeSession(): Promise<void> {
 2. Load new PRD from disk
 3. Extract completed task IDs
 4. Run DeltaAnalysisWorkflow for semantic comparison
-5. Apply patches to backlog via TaskPatcher
+5. Apply patches to backlog via TaskPatcher (`modified → Planned`, `removed → Obsolete`; `added` is a no-op here — see step 7)
 6. Create delta session with parent linkage
-7. Save patched backlog to delta session
+7. Write `delta_prd.md` (the structured diff slice) and save the patched backlog to the delta session — this patched backlog is the **starting point**, not the final word
+8. `decomposePRD()` runs the architect breakdown **over `delta_prd.md`** (not the full PRD) and **merges** the freshly-decomposed `added`-requirement tasks (`Phase → Milestone → Task → Subtask`) with the patched statuses from step 5 (PRD §4.3 step 5/6)
 
 **Exit Conditions:**
 
 - Delta session created
 - Backlog patched with changes
 - Parent session linked
+- Added requirements decomposed into new tasks and merged with patched statuses
 
 **Output:**
 
 - `plan/{new_session}/parent_session.txt` - Link to parent session
-- Patched tasks.json with new/modified tasks
+- `plan/{new_session}/delta_prd.md` - Structured diff slice consumed by `decomposePRD()`
+- Patched tasks.json augmented with decomposed added-requirement tasks
 
 **Integration:**
 
 ```typescript
-// Uses DeltaAnalysisWorkflow
+// Uses DeltaAnalysisWorkflow + writeDeltaPRD
 const workflow = new DeltaAnalysisWorkflow(oldPRD, newPRD, completedTaskIds);
 const delta: DeltaAnalysis = await workflow.run();
+// patchBacklog handles modified/removed (added is a documented no-op here —
+// added requirements are delegated to the breakdown over delta_prd.md)
 const patchedBacklog = patchBacklog(backlog, delta);
+// decomposePRD later runs the architect over delta_prd.md and merges the
+// decomposed added-tasks with patchedBacklog (C1/C2).
 ```
 
 ### Phase 4: Backlog Execution
@@ -361,6 +368,7 @@ const patchedBacklog = patchBacklog(backlog, delta);
 **Entry Conditions:**
 
 - Backlog available (from decomposition or delta)
+- An **empty** backlog (no backlog at all) is a **hard fatal abort** — `executeBacklog()` throws a `SessionError` that propagates unconditionally (bypassing `isFatalError()`, so it aborts even under `--continue-on-error`) instead of silently swallowing it (Issue 5 / PRD §4.2/§5.1)
 - TaskOrchestrator initialized
 
 **Process:**
@@ -484,6 +492,7 @@ These are **structurally independent**: `executeWithRetry` (TaskRetryManager) wr
    - Generate TestResults with bug reports
 2. **Fix Cycle Phase** (if bugs found):
    - Run FixCycleWorkflow to fix critical/major bugs
+   - Each iteration creates a new numbered bugfix session under `bugfix/NNN_<hash>/` via `nextBugfixDir()`; prior iterations are **archived, not overwritten**, so the audit trail is preserved (PRD §4.4 step 3 / §5.1)
    - Iterate up to 3 times
 3. **Report Phase:**
    - Write TEST_RESULTS.md if bugs remain
@@ -898,7 +907,7 @@ if (finalResults.bugs.length > 0) {
 
 ### Overview
 
-The FixCycleWorkflow orchestrates iterative bug fixing with a maximum of 3 iterations. It converts bugs to fix subtasks, executes them via TaskOrchestrator, and re-runs BugHuntWorkflow to verify fixes.
+The FixCycleWorkflow orchestrates iterative bug fixing with a maximum of 3 iterations. It converts bugs to fix subtasks, executes them via TaskOrchestrator, and re-runs BugHuntWorkflow to verify fixes. Each iteration that fixes bugs writes its work to a **numbered** bugfix session — `bugfix/001_<hash>/`, `bugfix/002_<hash>/`, … — created via `nextBugfixDir()` under the parent session's `bugfix/` directory. Prior iterations are **archived on disk, not overwritten**, preserving the full audit trail (the session-path shape is `plan/NNN_<hash>/bugfix/NNN_<hash>/`). (PRD §4.4 step 3 / §5.1.)
 
 **Key Characteristics:**
 
@@ -906,6 +915,7 @@ The FixCycleWorkflow orchestrates iterative bug fixing with a maximum of 3 itera
 - Converts bugs to fix subtasks with severity-based story points
 - Re-runs BugHuntWorkflow for verification
 - Stops when no critical/major bugs remain
+- Each iteration writes to a new numbered `bugfix/NNN_<hash>/` child (archived, not overwritten)
 
 ### Iterative Loop Diagram
 

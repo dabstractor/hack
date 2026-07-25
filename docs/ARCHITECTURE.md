@@ -3,8 +3,8 @@
 > Comprehensive overview of the PRP Pipeline architecture, including system design, component interactions, Groundswell framework integration, multi-agent system, state management, and task execution flow.
 
 **Status**: Published
-**Last Updated**: 2026-01-23
-**Version**: 1.0.0
+**Last Updated**: 2026-07-25
+**Version**: 1.0.1
 
 ---
 
@@ -639,7 +639,15 @@ plan/
 ├── 001_14b9dc2a33c7/              # First session (sequence + hash)
 │   ├── prd_snapshot.md             # Original PRD content
 │   ├── tasks.json                  # Task backlog registry
-│   └── parent_session.txt          # Parent reference (delta sessions only)
+│   ├── parent_session.txt          # Parent reference (delta sessions only)
+│   └── bugfix/                     # Numbered bug-hunt iterations (PRD §4.4 / §5.1)
+│       ├── 001_<12hexhash>/        # 1st bug-hunt iteration (archived, not overwritten)
+│       │   ├── tasks.json
+│       │   ├── prd_snapshot.md
+│       │   └── ...                 # fix subtasks + TEST_RESULTS.md
+│       └── 002_<12hexhash>/        # 2nd iteration (prior iteration preserved)
+│           ├── tasks.json
+│           └── ...
 ├── 002_a1b2c3d4e5f6/              # Delta session (PRD modified)
 │   ├── prd_snapshot.md             # Updated PRD
 │   ├── tasks.json                  # New task registry
@@ -649,6 +657,11 @@ plan/
 │       ├── P1.M1.T1.S2.md
 │       └── ...
 └── .gitignore                      # Exclude generated files
+
+> Each bug-hunt iteration that finds bugs gets a new numbered child under `bugfix/`
+> via `nextBugfixDir()` (`bugfix/001_<hash>/`, `bugfix/002_<hash>/`, …). Prior
+> iterations are archived on disk so the audit trail is preserved — the full
+> session-path shape is `plan/NNN_<hash>/bugfix/NNN_<hash>/` (PRD §5.1).
 ```
 
 ### tasks.json Format
@@ -746,14 +759,24 @@ sequenceDiagram
 
     SM-->>U: DeltaSession
 
-    Note over SM: Old tasks.json is NOT copied
-    Note over SM: Architect will regenerate
+    Note over SM: Writes delta_prd.md (the diff slice) + patched parent backlog
+    Note over SM: Architect breakdown later runs OVER delta_prd.md
 ```
+
+The delta session writes `delta_prd.md` (the structured diff slice) and saves
+the patched parent backlog. `decomposePRD()` then runs the architect breakdown
+**over `delta_prd.md`** (not the full PRD), decomposing **added** requirements
+into new `Phase → Milestone → Task → Subtask` items and **merging** them with the
+patched statuses from `patchBacklog` (`modified → Planned`, `removed → Obsolete`).
+Previously this breakdown path was unreachable (it was gated behind a
+`hasBacklog` early-return), so added requirements were silently dropped; the
+fix (Issue 1/2) checks `isDelta` _before_ `hasBacklog` and merges the freshly
+decomposed tasks with the patched backlog. (PRD §4.3 step 5/6.)
 
 **Delta Session Properties**:
 
 - **Linked**: Contains `parent_session.txt` with parent path
-- **Incremental**: Only executes tasks affected by PRD changes
+- **Incremental**: Re-executes affected tasks AND decomposes newly-added requirements into new tasks
 - **Efficient**: Skips completed work unaffected by changes
 
 ### State Persistence Patterns
@@ -1043,6 +1066,6 @@ See the [CLI Reference](./CLI_REFERENCE.md) for the `--adopt-prd` flag.
 
 ---
 
-**Document Version**: 1.0.0
-**Last Updated**: 2026-01-23
+**Document Version**: 1.0.1
+**Last Updated**: 2026-07-25
 **Maintainer**: PRP Pipeline Team

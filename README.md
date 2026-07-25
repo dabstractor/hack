@@ -41,7 +41,7 @@ validation criteria for implementing work units correctly in a single pass.
 - **Context-Dense Prompts**: Every PRP contains everything needed for one-pass implementation
 - **Progressive Validation**: 4-level quality gates catch defects early
 - **Resumable Sessions**: Pause and resume with state persistence
-- **Delta Sessions**: Only re-execute changed tasks when PRDs are updated
+- **Delta Sessions**: Re-execute changed tasks AND decompose newly-added requirements into new tasks when PRDs are updated
 
 ```mermaid
 flowchart LR
@@ -123,7 +123,7 @@ the **fully-resolved** document, so a split PRD behaves identically to a monolit
 - **Hierarchical Task Decomposition**: Organize work into Phases → Milestones → Tasks → Subtasks
 - **Distributed (Multi-File) PRDs**: `@include` directives assemble a canonical resolved
   document; `prd_selectors` scope each researcher to relevant PRD sections.
-- **Delta Sessions**: Automatically detect PRD changes and only execute affected tasks
+- **Delta Sessions**: Automatically detect PRD changes — re-execute affected tasks and decompose newly-added requirements into new tasks
 - **QA Bug Hunt**: 3-phase testing (syntax, unit, integration, creative)
 - **Scoped Execution**: Run specific phases, milestones, or tasks
 - **Resumable Sessions**: Pause and resume with Ctrl+C graceful shutdown
@@ -204,12 +204,17 @@ npm run dev -- --prd ./PRD.md --scope P3.M4.T2.S1
 
 ### Delta Session (PRD Changes)
 
-When you modify your PRD, run in delta mode to only execute changed tasks:
+When you modify your PRD, run in delta mode to re-execute changed tasks:
 
 ```bash
-# Run in delta mode (only execute changed tasks)
+# Run in delta mode (re-execute changed tasks; decompose added requirements)
 npm run dev -- --prd ./PRD.md --mode delta
 ```
+
+The delta breakdown runs over `delta_prd.md` (the structured diff slice), so **added**
+requirements are decomposed into new `Phase → Milestone → Task → Subtask` items
+(via `decomposePRD()`); **modified** requirements are reset to `Planned` and
+**removed** ones to `Obsolete`. (PRD §4.3.)
 
 ### Bug Hunt Mode
 
@@ -219,6 +224,12 @@ Run QA bug hunt even with incomplete tasks:
 # Run QA bug hunt mode
 npm run dev -- --prd ./PRD.md --mode bug-hunt
 ```
+
+Each bug-hunt iteration that finds bugs creates a new **numbered** bugfix session
+under `bugfix/` — `bugfix/001_<hash>/`, `bugfix/002_<hash>/`, … — via
+`nextBugfixDir()`. Prior iterations are **archived, not overwritten**, preserving
+the audit trail; the full session-path shape is `plan/NNN_<hash>/bugfix/NNN_<hash>/`
+(PRD §4.4 / §5.1).
 
 ### Adopt an Existing Codebase (--adopt-prd)
 
