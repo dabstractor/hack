@@ -13,7 +13,11 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ValidationWorkflow } from '../../../src/workflows/validation-workflow.js';
+import {
+  ValidationWorkflow,
+  ValidationFailedError,
+} from '../../../src/workflows/validation-workflow.js';
+import { isWatchdogKillResult } from '../../../src/utils/retry.js';
 
 // Hoisted mock state so factory + test bodies share references.
 const { mockReadFile, mockExecuteBash, MockBashMCP } = vi.hoisted(() => ({
@@ -328,6 +332,60 @@ describe('ValidationWorkflow', () => {
       await expect(workflow.run('/session')).rejects.toThrow(
         /validate.sh generation failed/
       );
+    });
+  });
+
+  describe('ValidationFailedError', () => {
+    const baseOutcome = {
+      success: false,
+      stdout: '',
+      stderr: '',
+      scriptPath: '/session/validate.sh',
+      durationMs: 5,
+    };
+
+    it('should classify a non-watchdog failure (timedOut:false, exitCode!==124) as non-terminal', () => {
+      const err = new ValidationFailedError({
+        ...baseOutcome,
+        exitCode: 1,
+        timedOut: false,
+      });
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe('ValidationFailedError');
+      expect(err.timedOut).toBe(false);
+      expect(err.exitCode).toBe(1);
+      expect(err.message).toContain('non-zero exit (exitCode 1)');
+      expect(err.message).toContain('Aborting before bug-hunt');
+      // Non-watchdog → NOT terminal.
+      expect(isWatchdogKillResult(err)).toBe(false);
+    });
+
+    it('should classify a Node-watchdog kill (timedOut:true) as terminal', () => {
+      const err = new ValidationFailedError({
+        ...baseOutcome,
+        exitCode: 137,
+        timedOut: true,
+      });
+
+      expect(err.timedOut).toBe(true);
+      expect(err.exitCode).toBe(137);
+      expect(err.message).toContain('watchdog-killed');
+      expect(isWatchdogKillResult(err)).toBe(true);
+    });
+
+    it('should classify a `timeout`-coreutil exit 124 (timedOut:false) as terminal', () => {
+      const err = new ValidationFailedError({
+        ...baseOutcome,
+        exitCode: 124,
+        timedOut: false,
+      });
+
+      // 124 → terminal even though the Node watchdog did not fire.
+      expect(err.timedOut).toBe(true);
+      expect(err.exitCode).toBe(124);
+      expect(err.message).toContain('watchdog-killed');
+      expect(isWatchdogKillResult(err)).toBe(true);
     });
   });
 });

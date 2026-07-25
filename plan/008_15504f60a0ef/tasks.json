@@ -778,7 +778,7 @@
       "type": "Phase",
       "id": "P4",
       "title": "Delta Workflow & QA Hardening",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Add LLM change classification (COSMETIC/SUBSTANTIVE + CLEAN/DIRTY), response selection for mid-session changes, delta-PRD-bound breakdown, validation control with abort-on-failure, pizr bug-finder default, NO_ISSUES_FOUND.md marker, and standard full breakdown for bugfix with resume.",
       "milestones": [
         {
@@ -892,14 +892,14 @@
           "type": "Milestone",
           "id": "P4.M2",
           "title": "Validation & QA Hardening",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add VALIDATION_AGENT and VALIDATION_TIMEOUT config, generate and run validate.sh with abort-on-failure, update BUG_FINDER_AGENT default to pizr, add NO_ISSUES_FOUND.md marker, and implement standard full breakdown for bugfix with interrupted-breakdown resume.",
           "tasks": [
             {
               "type": "Task",
               "id": "P4.M2.T1",
               "title": "Validation Control and Abort-on-Failure",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add VALIDATION_AGENT and VALIDATION_TIMEOUT config, generate a custom validate.sh from PRD + codebase tools, run it on the validation agent under its own timeout, and abort before cleanup/commit/bug-hunt on non-zero exit.",
               "subtasks": [
                 {
@@ -922,7 +922,7 @@
                   "type": "Subtask",
                   "id": "P4.M2.T1.S2",
                   "title": "validate.sh generation and abort-on-failure",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P4.M2.T1.S1",
