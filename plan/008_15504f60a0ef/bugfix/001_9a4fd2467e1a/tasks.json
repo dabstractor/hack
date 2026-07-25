@@ -151,7 +151,7 @@
       "type": "Phase",
       "id": "P2",
       "title": "Validation Gate & Test Suite Restoration (Issues 3 & 5)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Restore a green test suite so the PRD §6.3 Level-2 unit-test gate and §4.4 validation are meaningful. Issue 5 (Minor): make executeBacklog abort on empty backlog. Issue 3 (Major): relax ContextScopeSchema read-time validation and fix rotted test fixtures/mocks.",
       "milestones": [
         {
@@ -254,14 +254,14 @@
           "type": "Milestone",
           "id": "P2.M3",
           "title": "Fix Rotted Test Fixtures and Mocks (Issue 3A)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Refresh drifted test mocks and fixtures so the full test suite passes: PRP-generator file-contract mocks, ResearchTimeoutError re-exports, and groundswell integration mock guards.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M3.T1",
               "title": "Fix mock drift in PRP-generator, research-queue, and groundswell test suites",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Update test mocks to match the current source contracts: file-is-the-contract PRP return path, ResearchTimeoutError re-export, and groundswell module availability.",
               "subtasks": [
                 {
@@ -300,7 +300,7 @@
                   "type": "Subtask",
                   "id": "P2.M3.T1.S3",
                   "title": "Fix groundswell module mock for integration test suites",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M2.T1.S2"
@@ -343,7 +343,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Create next-bugfix-sequence helper to scan existing numbered children",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bugfix_numbering.md. The main session numbering pattern (session-utils.ts/session-manager.ts) uses String(sequence).padStart(3, '0') for NNN and a 12-char hash: 'NNN_hash' e.g. '001_14b9dc2a33c7'. The bugfix numbering should mirror this under the bugfix/ subdirectory. Currently runQACycle uses resolve(sessionPath, 'bugfix') (flat, line ~1730).\n2. INPUT: sessionPath (the main session directory path, e.g. plan/NNN_hash/). The existing session-utils.ts createSessionDirectory function for reference on the NNN_hash pattern. HashPRDContent or a similar hash function for generating the bugfix hash component.\n3. LOGIC: Create a helper function (in session-utils.ts or prp-pipeline.ts) nextBugfixDir(sessionPath: string, hashSeed: string): { dir: string, sequence: number } that: (a) Reads sessionPath/bugfix/ directory listing (catch ENOENT → empty array, meaning first iteration). (b) Extracts sequence numbers from entries matching /^\\d{3}_/. (c) Returns next sequence = max(found) + 1, or 1 if none found. (d) Constructs dir = resolve(sessionPath, 'bugfix', `${String(seq).padStart(3, '0')}_${hash}`). (e) The hash can be derived from the bug report content hash or a timestamp-based hash for uniqueness. Return the path. Mock filesystem for unit tests.\n4. OUTPUT: A helper function that returns the next numbered bugfix directory path. Consumed by P3.M1.T1.S2 (runQACycle) and P3.M1.T1.S3 (#detectInterruptedBugfix).\n5. DOCS: [Mode A] Add JSDoc to the helper function explaining the NNN_hash numbering and archive semantics.",
@@ -357,7 +357,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S2",
                   "title": "Update runQACycle() to create numbered bugfix/NNN_hash/ directories",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S1"

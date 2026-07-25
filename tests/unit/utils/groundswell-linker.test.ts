@@ -24,13 +24,25 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-// Mock node:fs/promises for symlink verification
+// Mock node:fs/promises for symlink verification (async path used by the
+// global linkGroundswell() verification; the 132 passing tests in this file
+// depend on these mocks).
 vi.mock('node:fs/promises', () => ({
   lstat: vi.fn(),
   readlink: vi.fn(),
   access: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
+}));
+
+// CRITICAL: linkGroundswellLocally() verifies the symlink with the SYNCHRONOUS
+// lstatSync/readlinkSync from 'node:fs' (inside the child 'close' callback,
+// where it cannot await). The async lstat/readlink mocks above cover the global
+// linkGroundswell() path ONLY. Without mocking the sync pair, the close-callback
+// hits the real filesystem → 'Path exists but is not a symbolic link'.
+vi.mock('node:fs', () => ({
+  lstatSync: vi.fn(),
+  readlinkSync: vi.fn(),
 }));
 
 // Mock groundswell-verifier module
@@ -40,6 +52,7 @@ vi.mock('../../../src/utils/groundswell-verifier.js', () => ({
 
 // Import mocked modules
 import { spawn } from 'node:child_process';
+import { lstatSync, readlinkSync } from 'node:fs';
 import { access, lstat, readFile, readlink, writeFile } from 'node:fs/promises';
 import { verifyGroundswellExists } from '../../../src/utils/groundswell-verifier.js';
 import {
@@ -977,12 +990,13 @@ describe('linkGroundswellLocally', () => {
         exitCode: 0,
       };
 
-      // Mock symlink verification
-      vi.mocked(lstat).mockResolvedValue({
+      // Mock symlink verification — linkGroundswellLocally() verifies with
+      // the SYNCHRONOUS lstatSync/readlinkSync inside the close-callback.
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as unknown as Awaited<ReturnType<typeof lstat>>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(mockGlobalLinkPath);
+      vi.mocked(readlinkSync).mockReturnValue(mockGlobalLinkPath);
 
       // Mock successful npm link groundswell
       const mockChild = createMockChild({
@@ -1015,11 +1029,11 @@ describe('linkGroundswellLocally', () => {
       };
 
       const customTarget = '/custom/global/link/path';
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(customTarget);
+      vi.mocked(readlinkSync).mockReturnValue(customTarget);
 
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
@@ -1322,10 +1336,15 @@ describe('linkGroundswellLocally', () => {
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
 
-      vi.mocked(lstat).mockRejectedValue({
-        code: 'ENOENT',
-        message: 'no such file or directory',
-      } as NodeJS.ErrnoException);
+      // linkGroundswellLocally() calls the SYNC lstatSync in the close-callback;
+      // a sync fs function THROWS (not rejects) on a missing path.
+      vi.mocked(lstatSync).mockImplementation(() => {
+        const e = new Error(
+          'ENOENT: no such file or directory'
+        ) as NodeJS.ErrnoException;
+        e.code = 'ENOENT';
+        throw e;
+      });
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
@@ -1349,10 +1368,10 @@ describe('linkGroundswellLocally', () => {
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
 
-      // Path exists but is not a symlink
-      vi.mocked(lstat).mockResolvedValue({
+      // Path exists but is not a symlink (sync lstatSync in the close-callback)
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => false,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
@@ -1377,11 +1396,11 @@ describe('linkGroundswellLocally', () => {
       vi.mocked(spawn).mockReturnValue(mockChild);
 
       const expectedTarget = '/expected/global/link/path';
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(expectedTarget);
+      vi.mocked(readlinkSync).mockReturnValue(expectedTarget);
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
@@ -1404,17 +1423,17 @@ describe('linkGroundswellLocally', () => {
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
 
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(mockGlobalLinkPath);
+      vi.mocked(readlinkSync).mockReturnValue(mockGlobalLinkPath);
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
       await resultPromise;
 
-      expect(lstat).toHaveBeenCalledWith(
+      expect(lstatSync).toHaveBeenCalledWith(
         '/home/dustin/projects/hacky-hack/node_modules/groundswell'
       );
     });
@@ -1431,17 +1450,17 @@ describe('linkGroundswellLocally', () => {
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
 
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(mockGlobalLinkPath);
+      vi.mocked(readlinkSync).mockReturnValue(mockGlobalLinkPath);
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
       await resultPromise;
 
-      expect(readlink).toHaveBeenCalledWith(
+      expect(readlinkSync).toHaveBeenCalledWith(
         '/home/dustin/projects/hacky-hack/node_modules/groundswell'
       );
     });
@@ -1614,11 +1633,11 @@ describe('linkGroundswellLocally', () => {
         exitCode: 0,
       };
 
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(mockGlobalLinkPath);
+      vi.mocked(readlinkSync).mockReturnValue(mockGlobalLinkPath);
 
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
@@ -1644,10 +1663,13 @@ describe('linkGroundswellLocally', () => {
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
 
-      vi.mocked(lstat).mockRejectedValue({
-        code: 'ENOENT',
-        message: 'not found',
-      } as NodeJS.ErrnoException);
+      // linkGroundswellLocally() calls the SYNC lstatSync in the close-callback;
+      // a sync fs function THROWS (not rejects) on a missing path.
+      vi.mocked(lstatSync).mockImplementation(() => {
+        const e = new Error('ENOENT: not found') as NodeJS.ErrnoException;
+        e.code = 'ENOENT';
+        throw e;
+      });
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
@@ -1669,10 +1691,13 @@ describe('linkGroundswellLocally', () => {
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
 
-      vi.mocked(lstat).mockRejectedValue({
-        code: 'ENOENT',
-        message: 'not found',
-      } as NodeJS.ErrnoException);
+      // linkGroundswellLocally() calls the SYNC lstatSync in the close-callback;
+      // a sync fs function THROWS (not rejects) on a missing path.
+      vi.mocked(lstatSync).mockImplementation(() => {
+        const e = new Error('ENOENT: not found') as NodeJS.ErrnoException;
+        e.code = 'ENOENT';
+        throw e;
+      });
 
       const resultPromise = linkGroundswellLocally(previousResult);
       await vi.runAllTimersAsync();
@@ -1691,11 +1716,11 @@ describe('linkGroundswellLocally', () => {
         exitCode: 0,
       };
 
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(mockGlobalLinkPath);
+      vi.mocked(readlinkSync).mockReturnValue(mockGlobalLinkPath);
 
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
@@ -1812,11 +1837,11 @@ describe('linkGroundswellLocally', () => {
       };
 
       // Then S3 (local link) should proceed
-      vi.mocked(lstat).mockResolvedValue({
+      vi.mocked(lstatSync).mockReturnValue({
         isSymbolicLink: () => true,
-      } as ReturnType<typeof lstat>);
+      } as ReturnType<typeof lstatSync>);
 
-      vi.mocked(readlink).mockResolvedValue(mockGlobalLinkPath);
+      vi.mocked(readlinkSync).mockReturnValue(mockGlobalLinkPath);
 
       const mockChild = createMockChild({ exitCode: 0 });
       vi.mocked(spawn).mockReturnValue(mockChild);
