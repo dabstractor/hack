@@ -82,14 +82,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Wire change classifier into PRD-change detection (COSMETIC skip)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Make hasSessionChanged()→handleDelta() classification-aware: compute a DiffSummary (reuse createDeltaSession's diffPRDs logic), classify via classifyChangeWithRetry, skip the delta session (absorb the change as the new baseline) when COSMETIC. Correct the misleading JSDoc.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Add SessionManager.getChangeDiffSummary() + absorbCosmeticChange()",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-002-classifiers.md §'Where the DiffSummary comes from'. SessionManager.createDeltaSession (session-manager.ts:791) already computes `diffPRDs(this.#currentSession.prdSnapshot, await resolvePRD(newPRDPath))`. #currentSession.prdSnapshot is the old (resolved) PRD; the live PRD is resolvePRD(this.prdPath). snapshotPRD is already imported (session-manager.ts:41). hashPRDContent + resolvePRD are in scope.\n2. INPUT: DiffSummary type from src/core/prd-differ.ts (the full object — {changes, summaryText, stats}, NOT just summaryText). Private fields #currentSession.prdSnapshot, #prdHash, this.prdPath.\n3. LOGIC: Add two public methods to src/core/session-manager.ts:\n   - `async getChangeDiffSummary(): Promise<DiffSummary>` → `diffPRDs(this.#currentSession!.prdSnapshot, await resolvePRD(this.prdPath))`. Throw a clear error if no current session (mirror hasSessionChanged's guards).\n   - `async absorbCosmeticChange(): Promise<void>` → refresh the baseline WITHOUT a delta session: resolvePRD(this.prdPath), rewrite prd_snapshot.md via snapshotPRD(sessionPath, this.prdPath, resolved), set metadata.hash + this.#prdHash to hashPRDContent(resolved) so the NEXT hasSessionChanged() is false. Reuse/extract the refresh logic that acceptPrdChangesResponse uses (search prp-pipeline.ts for acceptPrdChangesResponse / prd_snapshot refresh; do not duplicate). Persist metadata if needed.\n4. OUTPUT: Two methods consumed by P1.M2.T1.S2 in prp-pipeline.ts initializeSession.\n5. MOCKING: In unit tests, mock resolvePRD/snapshotPRD/hashPRDContent or construct a SessionManager with a temp session dir; verify prd_snapshot.md is rewritten and hasSessionChanged() flips to false after absorb.\n6. DOCS: none (internal methods).",
@@ -103,7 +103,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "Wire classifyChangeWithRetry into initializeSession + correct the misleading JSDoc",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"

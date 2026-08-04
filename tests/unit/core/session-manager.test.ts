@@ -2867,4 +2867,105 @@ describe('SessionManager', () => {
       expect(mockWriteTasksJSON).not.toHaveBeenCalled();
     });
   });
+
+  describe('getChangeDiffSummary', () => {
+    it('returns diffPRDs(currentSession.prdSnapshot, resolvePRD(prdPath))', async () => {
+      // SETUP: Initialize an active session (prdSnapshot = '# Test PRD').
+      mockStatSync.mockReturnValue({ isFile: () => true });
+      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockReaddir.mockResolvedValue([]);
+      mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
+      mockReadFile.mockResolvedValue('# Test PRD');
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const manager = new SessionManager('/test/PRD.md', resolve('plan'));
+      await manager.initialize();
+
+      // The live PRD now resolves to different content → the diff has work to do.
+      mockResolvePRD.mockResolvedValue('# Changed PRD');
+
+      // EXECUTE
+      const summary = await manager.getChangeDiffSummary();
+
+      // VERIFY: diffPRDs ran real (pure) over (prdSnapshot='# Test PRD', resolved='# Changed PRD').
+      // A non-throw returning a DiffSummary with a non-empty changes array proves the diff
+      // was computed from the two distinct inputs (the classifier's contract).
+      expect(summary).toBeDefined();
+      expect(Array.isArray(summary.changes)).toBe(true);
+      expect(summary.changes.length).toBeGreaterThan(0);
+    });
+
+    it('throws when no session is loaded', async () => {
+      // SETUP: Fresh manager — no current session.
+      mockStatSync.mockReturnValue({ isFile: () => true });
+      const manager = new SessionManager('/test/PRD.md', resolve('plan'));
+
+      // EXECUTE & VERIFY
+      await expect(manager.getChangeDiffSummary()).rejects.toThrow(
+        'Cannot compute change diff: no session loaded'
+      );
+    });
+  });
+
+  describe('absorbCosmeticChange', () => {
+    it('rewrites prd_snapshot.md and re-baselines hashes so hasSessionChanged() is false', async () => {
+      // SETUP: Initialize an active session. Then create a delta session whose hash
+      // differs from the cached #prdHash — the real-world state where the live PRD
+      // has changed (so hasSessionChanged() is TRUE before absorb, exactly the
+      // scenario BUG-002 Part A's COSMETIC branch runs in).
+      mockStatSync.mockReturnValue({ isFile: () => true });
+      mockHashPRD.mockResolvedValue(MOCK_FULL_HASH);
+      mockReaddir.mockResolvedValue([]);
+      mockCreateSessionDirectory.mockResolvedValue('/plan/001_14b9dc2a33c7');
+      mockReadFile.mockResolvedValue('# Test PRD');
+      mockWriteFile.mockResolvedValue(undefined);
+      mockStat.mockResolvedValue({});
+
+      const manager = new SessionManager('/test/PRD.md', resolve('plan'));
+      await manager.initialize();
+
+      // A delta session sets metadata.hash to a NEW hash while #prdHash keeps the
+      // original → hasSessionChanged() becomes true (the "PRD changed" state).
+      const deltaHash =
+        'a3f8e9d12b4aa5678901234567890abcdef1234567890abcdef1234567890abcdef';
+      mockResolvePRD.mockResolvedValueOnce('# Delta PRD');
+      mockHashPRDContent.mockReturnValueOnce(deltaHash);
+      mockCreateSessionDirectory.mockResolvedValue('/plan/002_a3f8e9d12b4a');
+      await manager.createDeltaSession('/test/PRD.md');
+      expect(manager.hasSessionChanged()).toBe(true); // BEFORE — the COSMETIC scenario
+      const sessionPath = manager.currentSession!.metadata.path;
+
+      // absorb resolves the (now cosmetic) PRD ONCE → '# Resolved', hash → 'resolvedhash'.
+      mockResolvePRD.mockResolvedValue('# Resolved');
+      mockHashPRDContent.mockReturnValue('resolvedhash');
+      mockSnapshotPRD.mockResolvedValue(undefined);
+
+      // EXECUTE
+      await manager.absorbCosmeticChange();
+
+      // VERIFY: snapshot rewritten with the resolved content (resolve-ONCE variant).
+      // createDeltaSession also calls snapshotPRD, so assert on the LAST (absorb) call.
+      expect(mockSnapshotPRD).toHaveBeenLastCalledWith(
+        sessionPath,
+        '/test/PRD.md',
+        '# Resolved'
+      );
+      // VERIFY: metadata.hash + prdSnapshot re-baselined to the resolved PRD.
+      expect(manager.currentSession!.metadata.hash).toBe('resolvedhash');
+      expect(manager.currentSession!.prdSnapshot).toBe('# Resolved');
+      // VERIFY: the contract — hasSessionChanged() now flips to false in-process.
+      expect(manager.hasSessionChanged()).toBe(false);
+    });
+
+    it('throws when no session is loaded', async () => {
+      // SETUP: Fresh manager — no current session.
+      mockStatSync.mockReturnValue({ isFile: () => true });
+      const manager = new SessionManager('/test/PRD.md', resolve('plan'));
+
+      // EXECUTE & VERIFY
+      await expect(manager.absorbCosmeticChange()).rejects.toThrow(
+        'Cannot absorb cosmetic change: no session loaded'
+      );
+    });
+  });
 });

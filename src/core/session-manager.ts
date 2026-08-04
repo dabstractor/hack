@@ -43,7 +43,7 @@ import {
   writeTasksJSON,
   SessionFileError,
 } from './session-utils.js';
-import { diffPRDs } from './prd-differ.js';
+import { diffPRDs, type DiffSummary } from './prd-differ.js';
 import {
   updateItemStatus as updateItemStatusUtil,
   setItemStatus,
@@ -1693,5 +1693,59 @@ export class SessionManager {
       throw new Error('Cannot check session change: PRD hash not computed');
     }
     return this.#prdHash !== this.#currentSession.metadata.hash;
+  }
+
+  /**
+   * Compute the resolved-vs-resolved change diff between the loaded session's PRD
+   * snapshot and the CURRENT live PRD (the object BUG-002's COSMETIC/SUBSTANTIVE
+   * classifier consumes). Pure read — does not mutate session state.
+   *
+   * @returns The full {@link DiffSummary} (changes + summaryText + stats).
+   * @throws {Error} If no session is loaded (mirrors {@link SessionManager.hasSessionChanged}).
+   */
+  async getChangeDiffSummary(): Promise<DiffSummary> {
+    if (!this.#currentSession) {
+      throw new Error('Cannot compute change diff: no session loaded');
+    }
+    return diffPRDs(
+      this.#currentSession.prdSnapshot,
+      await resolvePRD(this.prdPath)
+    );
+  }
+
+  /**
+   * Absorb a COSMETIC PRD change as the new baseline WITHOUT spawning a delta
+   * session (BUG-002 Part A). Resolves the live PRD ONCE, rewrites
+   * `prd_snapshot.md`, and re-baselines `metadata.hash` + `#prdHash` +
+   * `prdSnapshot` so the next {@link SessionManager.hasSessionChanged} is false.
+   *
+   * @remarks
+   * The persisted artifact is the rewritten `prd_snapshot.md` (via {@link snapshotPRD}).
+   * `metadata.hash` is dir-name-derived on load ({@link SessionManager.loadSession}), so no
+   * separate metadata file is written; the in-memory re-baseline makes `hasSessionChanged()`
+   * false in-process (mirrors `acceptPrdChangesResponse`'s refresh model). Does NOT clear
+   * `.pending_delta_hash` — the COSMETIC path runs before any delta spawn.
+   *
+   * @throws {Error} If no session is loaded.
+   */
+  async absorbCosmeticChange(): Promise<void> {
+    if (!this.#currentSession) {
+      throw new Error('Cannot absorb cosmetic change: no session loaded');
+    }
+    const sessionPath = this.#currentSession.metadata.path;
+    // Resolve ONCE (PRD §2.3) — feeds both the snapshot rewrite and the new hash
+    // (mirrors initialize:397 + createDeltaSession:806 "resolve ONCE" pattern).
+    const resolved = await resolvePRD(this.prdPath);
+    await snapshotPRD(sessionPath, this.prdPath, resolved);
+    const newHash = hashPRDContent(resolved);
+    // CRITICAL: SessionMetadata.hash is readonly (models.ts:1034) → rebuild the state object
+    // immutably (mirrors createDeltaSession:836-858 fresh-object assignment). The spread
+    // preserves any DeltaSession-specific fields if the current session is a delta.
+    this.#currentSession = {
+      ...this.#currentSession,
+      metadata: { ...this.#currentSession.metadata, hash: newHash },
+      prdSnapshot: resolved,
+    };
+    this.#prdHash = newHash;
   }
 }
