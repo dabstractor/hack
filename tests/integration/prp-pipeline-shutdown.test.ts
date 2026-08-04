@@ -111,14 +111,13 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       processNextItem: vi.fn().mockResolvedValue(false),
     }));
 
-    // Store original process listeners to restore after tests
+    // Store original process listeners to restore after tests.
+    // Use process.listeners() — it ALWAYS returns an array copy (0/1/N listeners),
+    // so it never throws "not iterable" when Node stores a single listener as a
+    // bare function (the documented single-listener "f" optimization).
     originalProcessListeners = {
-      SIGINT: (process as any)._events?.SIGINT
-        ? [...(process as any)._events.SIGINT]
-        : [],
-      SIGTERM: (process as any)._events?.SIGTERM
-        ? [...(process as any)._events.SIGTERM]
-        : [],
+      SIGINT: process.listeners('SIGINT') as Array<() => void>,
+      SIGTERM: process.listeners('SIGTERM') as Array<() => void>,
     };
 
     // Create temp directory for each test
@@ -137,15 +136,24 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
     rmSync(tempDir, { recursive: true, force: true });
     vi.clearAllMocks();
 
-    // Restore original process listeners
-    process.removeAllListeners('SIGINT');
-    process.removeAllListeners('SIGTERM');
-    originalProcessListeners.SIGINT.forEach(listener =>
-      process.on('SIGINT', listener)
-    );
-    originalProcessListeners.SIGTERM.forEach(listener =>
-      process.on('SIGTERM', listener)
-    );
+    // Restore original process listeners via a precise diff: remove ONLY the
+    // listeners added during the test (present now but not in the captured-before
+    // set). This preserves vitest's own SIGINT/SIGTERM handlers — a blanket
+    // wipe-all would also remove vitest's own handlers and destabilize the
+    // forks-pool worker across suites.
+    const restoreSignal = (
+      signal: 'SIGINT' | 'SIGTERM',
+      before: Array<() => void>
+    ) => {
+      const beforeSet = new Set(before);
+      for (const listener of process.listeners(signal)) {
+        if (!beforeSet.has(listener as () => void)) {
+          process.off(signal, listener as (...args: unknown[]) => void);
+        }
+      }
+    };
+    restoreSignal('SIGINT', originalProcessListeners.SIGINT);
+    restoreSignal('SIGTERM', originalProcessListeners.SIGTERM);
   });
 
   // Helper to create a test PRD file
@@ -604,7 +612,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
         undefined,
         planDir
       );
-      const initialSigintCount = (process as any)._events?.SIGINT?.length ?? 0;
+      const initialSigintCount = process.listenerCount('SIGINT');
 
       // Run pipeline
       const mockSessionManager: any = {
@@ -636,7 +644,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       await pipeline.run();
 
       // VERIFY: Signal listeners should be cleaned up (back to original count)
-      const finalSigintCount = (process as any)._events?.SIGINT?.length ?? 0;
+      const finalSigintCount = process.listenerCount('SIGINT');
       expect(finalSigintCount).toBeLessThanOrEqual(initialSigintCount);
     });
   });
