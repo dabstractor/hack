@@ -652,8 +652,28 @@ export class SessionManager {
    * @throws {SessionFileError} If tasks.json or prd_snapshot.md not found
    */
   async loadSession(sessionPath: string): Promise<SessionState> {
-    // 1. Read tasks.json
-    const taskRegistry = await readTasksJSON(sessionPath);
+    // 1. Read tasks.json. A session directory can exist (with prd_snapshot.md)
+    // before tasks.json is ever written — e.g. a previous run created the
+    // session then died before decomposePRD() generated the backlog (the exact
+    // aftermath of the event-loop-drain bug). Treat that "un-started" state as
+    // an empty backlog and let decomposePRD() generate it, instead of fataling
+    // with a confusing ENOENT that blocked resume after every crashed run.
+    // Only a genuinely MISSING tasks.json is recoverable; parse/schema/EACCES
+    // etc. still throw (data-integrity errors are never silently swallowed).
+    let taskRegistry: Backlog;
+    try {
+      taskRegistry = await readTasksJSON(sessionPath);
+    } catch (error) {
+      if (error instanceof SessionFileError && error.code === 'ENOENT') {
+        this.#logger.warn(
+          { sessionPath, code: error.code },
+          '[SessionManager] tasks.json missing in existing session — treating as un-started (empty backlog); decomposePRD will generate it'
+        );
+        taskRegistry = { backlog: [] };
+      } else {
+        throw error;
+      }
+    }
 
     // 2. Read PRD snapshot
     const prdSnapshotPath = resolve(sessionPath, 'prd_snapshot.md');

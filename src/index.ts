@@ -331,10 +331,22 @@ async function main(): Promise<number> {
  * Application entry point
  *
  * @remarks
- * Uses the void main().catch() pattern for proper top-level error handling.
- * The promise result is used as the exit code.
+ * main() resolves to the intended process exit code (0=success, 1=error,
+ * 130=SIGINT). The .then() honors that code via process.exitCode; the .catch()
+ * renders known startup errors cleanly and forces a non-zero exit. Previously
+ * `void main().catch(...)` discarded main()'s resolved value, so a pipeline
+ * resolving to `1` (failure) still exited 0 — masking failures and (combined
+ * with the event-loop drain) producing a silent, apparently-successful exit.
  */
-void main().catch((error: unknown) => {
+void main()
+  .then((code) => {
+    // Honor main()'s resolved exit code. Only set exitCode when main actually
+    // resolved with a number; rejections flow through .catch() below.
+    if (typeof code === 'number') {
+      process.exitCode = code;
+    }
+  })
+  .catch((error: unknown) => {
   if (error instanceof AuthPreflightError) {
     console.error(`\n❌ ${error.message}`); // ONE actionable message (PRD §9.2.7)
     process.exit(1);

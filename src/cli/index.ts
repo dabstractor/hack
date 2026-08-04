@@ -762,22 +762,31 @@ export function parseCLIArgs():
     }
   }
 
-  // Validate maxTasks
+  // Validate maxTasks. Commander passes <number> options as STRINGS, so
+  // coerce before validating — Number.isInteger("999") is false and would
+  // reject every value (the original bug). Mirrors the --monitor-interval
+  // pattern (Number() + Number.isInteger + assign back).
   if (options.maxTasks !== undefined) {
-    if (!Number.isInteger(options.maxTasks) || options.maxTasks <= 0) {
+    const maxTasks = Number(options.maxTasks);
+    if (!Number.isInteger(maxTasks) || maxTasks <= 0) {
       logger().error('--max-tasks must be a positive integer');
       process.exit(1);
     }
+    // Convert to number
+    options.maxTasks = maxTasks;
   }
 
-  // Validate maxDuration
+  // Validate maxDuration (coerce string -> number; see maxTasks above)
   if (options.maxDuration !== undefined) {
-    if (!Number.isInteger(options.maxDuration) || options.maxDuration <= 0) {
+    const maxDuration = Number(options.maxDuration);
+    if (!Number.isInteger(maxDuration) || maxDuration <= 0) {
       logger().error(
         '--max-duration must be a positive integer (milliseconds)'
       );
       process.exit(1);
     }
+    // Convert to number
+    options.maxDuration = maxDuration;
   }
 
   // Validate monitorInterval

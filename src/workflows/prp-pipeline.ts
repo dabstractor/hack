@@ -2619,6 +2619,22 @@ Report Location: ${sessionPath}/RESOURCE_LIMIT_REPORT.md
     // Store current PID as string for guard operations
     const currentPid = process.pid.toString();
 
+    // Keep the Node.js event loop alive for the entire duration of run().
+    //
+    // Rationale: the pipeline drives long-running work (LLM calls via the
+    // in-process agent harness) whose async chains contain handle-free windows
+    // — dynamic imports of already-cached modules + synchronous agent/session
+    // construction, all microtask-continuations, before the first HTTP socket is
+    // established. Pending Promises do NOT keep the Node event loop alive; only
+    // libuv handles (timers/sockets/watchers) do. During such a handle-free
+    // window Node would otherwise exit(0) and silently abandon the in-flight
+    // pipeline (the "dies in a few seconds, no errors" symptom). A single ref'd
+    // interval guarantees the loop stays alive until run() resolves/rejects; the
+    // finally block below clears it so the process can exit normally afterward.
+    // (The ResourceMonitor interval also keeps the loop alive, but only when
+    // --max-tasks/--max-duration is supplied — this covers the default path.)
+    const keepAlive = setInterval(() => {}, 1000);
+
     this.correlationLogger.info(
       '[PRPPipeline] Starting PRP Pipeline workflow',
       {
@@ -2824,6 +2840,10 @@ Report Location: ${sessionPath}/RESOURCE_LIMIT_REPORT.md
         shutdownReason: this.shutdownReason ?? undefined,
       };
     } finally {
+      // Release the loop-alive handle acquired at the top of run() so the
+      // process can exit naturally once the pipeline is done.
+      clearInterval(keepAlive);
+
       // Clear guard if we own it (before cleanup)
       if (process.env.PRP_PIPELINE_RUNNING === currentPid) {
         delete process.env.PRP_PIPELINE_RUNNING;
