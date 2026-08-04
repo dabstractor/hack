@@ -258,6 +258,21 @@ describe('utils/git-commit', () => {
       expect(parsed?.subtask).toBeUndefined();
     });
 
+    it('parses a bugfix-session Subtask id (own numbering, no special-casing) — BUG-003 S3', () => {
+      // EXECUTE + VERIFY — bugfix sessions have their OWN P/M/T/S ids (this
+      // item's own id, P1.M3.T2.S1, is a bugfix-session id). It parses cleanly
+      // to the CURRENT session's indices — no remapping to a parent session.
+      expect(parseItemPosition('P1.M3.T2.S1')).toEqual({
+        phase: 1,
+        milestone: 3,
+        task: 2,
+        subtask: 1,
+      });
+      expect(buildTaskPrefix(parseItemPosition('P1.M3.T2.S1')!)).toBe(
+        '1.3.2.1'
+      );
+    });
+
     it.each([
       'garbage', // not an id at all
       'P1.M2', // too few segments
@@ -1426,6 +1441,191 @@ describe('utils/git-commit', () => {
     // classification is therefore owned + tested by retry.ts's own
     // isTransientError unit tests (unchanged by this task). This test would
     // belong here only if generateCommitMessage gained a permanent failure mode.
+  });
+
+  // ===========================================================================
+  // SMARTCOMMIT POSITION WIRING (BUG-003 S3 — PRD §5.1): proves
+  // options.position flows THROUGH smartCommit → formatCommitMessage →
+  // gitCommit so committed subtasks carry the <n.n.n.n>: task-prefix (the
+  // DEFAULT) while non-backlog commits degrade to plain. These cover the THREE
+  // wrap sites: default path, generateMessage happy path, and generateMessage
+  // fallback path.
+  // ===========================================================================
+  describe('smartCommit position option (BUG-003 S3 wiring)', () => {
+    // Task-prefix is the DEFAULT (env unset). A plain-opt-out case below stubs
+    // PRP_COMMIT_FORMAT=plain; a nested afterEach unstub prevents env-bleed
+    // into the next test (mirrors the formatCommitMessage harness).
+    beforeEach(() => {
+      delete process.env.PRP_COMMIT_FORMAT;
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('DEFAULT path + position → task-prefix commit message over the verbatim subject', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE — default path (no generateMessage) WITH a position. The
+      // verbatim message gets the task-prefix layered on.
+      const result = await smartCommit('/project', 'add utility', {
+        position: parseItemPosition('P1.M2.T1.S1'),
+      });
+
+      // VERIFY — gitCommit receives the prefixed subject + trailer.
+      expect(result).toBe('abc123');
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message:
+          '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+      });
+    });
+
+    it('generateMessage happy path + position → task-prefix over the LLM subject', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({
+        success: true,
+        diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
+      });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'success',
+          data: 'feat(api): add endpoint',
+          error: null,
+        })
+      );
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE — generateMessage path WITH a position. The LLM subject gets
+      // the task-prefix layered on.
+      const result = await smartCommit('/project', 'fallback msg', {
+        generateMessage: true,
+        position: parseItemPosition('P1.M2.T1.S1'),
+      });
+
+      // VERIFY — gitCommit receives the prefixed LLM subject + trailer. NO
+      // [PRP Auto] banner (the wrap is via formatCommitMessage).
+      expect(result).toBe('abc123');
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message:
+          '1.2.1.1: feat(api): add endpoint\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+      });
+    });
+
+    it('generateMessage FALLBACK path + position → task-prefix over the placeholder (all wrap sites covered)', async () => {
+      // SETUP — agent status error → generateCommitMessage throws AgentError.
+      // Disable the retry loop (1 attempt = no retries) for a fast test.
+      vi.stubEnv('COMMIT_RETRY_MAX', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'error',
+          data: null,
+          error: { message: 'model overloaded' },
+        })
+      );
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'fb000',
+      });
+
+      // EXECUTE — generateMessage path WITH a position, agent always fails →
+      // the fallback wrap site ALSO threads position.
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+        position: parseItemPosition('P1.M2.T1.S1'),
+      });
+
+      // VERIFY — the fallback placeholder gets the task-prefix START.
+      expect(result).toBe('fb000');
+      expect(mockGitCommit).toHaveBeenCalledWith({
+        path: '/project',
+        message: expect.stringContaining(
+          '1.2.1.1: chore: commit-gen failed (exit 0); fallback commit'
+        ),
+      });
+    });
+
+    it('position null → plain commit message (regression: non-backlog degrades to plain)', async () => {
+      // SETUP
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE — position explicitly null (e.g. a malformed subtask.id →
+      // parseItemPosition returns null). Must degrade to plain.
+      const result = await smartCommit('/project', 'add utility', {
+        position: null,
+      });
+
+      // VERIFY — plain subject + trailer (no prefix, no [PRP Auto]).
+      expect(result).toBe('abc123');
+      const call = mockGitCommit.mock.calls[0]?.[0] as
+        | { message?: string }
+        | undefined;
+      expect(call?.message).toBe(
+        'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+      );
+      expect(call?.message).not.toContain('[PRP Auto]');
+    });
+
+    it('position + PRP_COMMIT_FORMAT=plain → plain (opt-out overrides position)', async () => {
+      // SETUP — opt-out of the task-prefix even when a position is supplied.
+      vi.stubEnv('PRP_COMMIT_FORMAT', 'plain');
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'abc123',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'add utility', {
+        position: parseItemPosition('P1.M2.T1.S1'),
+      });
+
+      // VERIFY — plain despite the position (format=plain wins).
+      expect(result).toBe('abc123');
+      const call = mockGitCommit.mock.calls[0]?.[0] as
+        | { message?: string }
+        | undefined;
+      expect(call?.message).toBe(
+        'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+      );
+    });
   });
 
   // ===========================================================================

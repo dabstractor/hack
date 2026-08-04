@@ -249,6 +249,19 @@ export interface SmartCommitOptions {
    * agent, which reads the staged diff. Default (omitted / `false`): use the
    * caller-provided `message` verbatim (backward compatible). */
   readonly generateMessage?: boolean;
+
+  /**
+   * Optional backlog-item position (PRD §5.1 "Commit Message Format"). When
+   * supplied AND {@link getPrpCommitFormat} returns `'task-prefix'` (the
+   * DEFAULT), the standardized
+   * `<phase>.<milestone>.<task>[.<subtask>]:` prefix is layered onto the
+   * commit subject. When `null`/`undefined` (non-backlog commits), OR when
+   * the format is `'plain'`, the subject is emitted plain.
+   *
+   * Pass {@link parseItemPosition} of the implementing item's id — a `null`
+   * result (malformed id) degrades gracefully to plain (no throw).
+   */
+  readonly position?: ItemPosition | null;
 }
 
 /**
@@ -479,7 +492,7 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
  *      diff-accurate message instead of a fixed template — intended for the
  *      two-phase cleanup commits (P3.M1.T3.S2: pre-cleanup survival commit +
  *      post-cleanup commit) whose diffs are unpredictable.
- * 6. Create commit with `[PRP Auto]` prefix and `Co-Authored-By` trailer
+ * 6. Create commit via `formatCommitMessage` (task-prefix or plain per PRD §5.1) + `Co-Authored-By` trailer
  * 7. Return commit hash for observability
  *
  * **Error Handling (never-fail-on-commit contract)**:
@@ -623,7 +636,7 @@ export async function smartCommit(
             ),
           }
         );
-        formattedMessage = formatCommitMessage(generated);
+        formattedMessage = formatCommitMessage(generated, options.position);
       } catch (genError) {
         // PRD §5.1 last-resort fallback: generation failed after all retries.
         // The index is still staged (gitAdd ran before generation), so commit
@@ -636,11 +649,12 @@ export async function smartCommit(
           `Commit-message generation failed after retries; falling back to placeholder commit: ${toErrorMessage(genError)}`
         );
         formattedMessage = formatCommitMessage(
-          buildFallbackCommitMessage(genError)
+          buildFallbackCommitMessage(genError),
+          options.position
         );
       }
     } else {
-      formattedMessage = formatCommitMessage(message);
+      formattedMessage = formatCommitMessage(message, options?.position);
     }
 
     // Create commit

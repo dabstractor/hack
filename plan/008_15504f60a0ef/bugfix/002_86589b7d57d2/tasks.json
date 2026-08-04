@@ -148,7 +148,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "BUG-003 — Task-prefix commit format + PRP_COMMIT_FORMAT (PRD §5.1) (Major)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Remove the forbidden [PRP Auto] banner; implement the standardized task-prefix <phase>.<milestone>.<task>.<subtask>: <message> with trailing-level elision and a PRP_COMMIT_FORMAT toggle (task-prefix default / plain). Non-backlog commits carry no prefix. See architecture/bug-003-commit-format.md.",
           "tasks": [
             {
@@ -208,14 +208,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Wire smartCommit position option + update all call sites",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Thread the implementing item's position through smartCommit so formatCommitMessage can build the task-prefix; backlog-item call sites pass position, non-backlog call sites omit it (→ plain). Update tests that assert [PRP Auto].",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Add smartCommit position option + wire call sites + update [PRP Auto] tests",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S2"
@@ -249,7 +249,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Fix prp-pipeline-shutdown.test.ts process._events spreading (20/20 fail)",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-004-test-suite.md §'Category (c)'. beforeEach (tests/integration/prp-pipeline-shutdown.test.ts:110-117) does `[...(process as any)._events.SIGINT]`. When a signal has ONE listener, Node stores it as a bare function (truthy) → spreading throws 'process._events.SIGINT is not iterable' → all 20 tests fail in setup.\n2. INPUT: The test file's beforeEach/afterEach.\n3. LOGIC: Guard with Array.isArray before spreading for BOTH SIGINT and SIGTERM: `Array.isArray((process as any)._events?.SIGINT) ? [...(process as any)._events.SIGINT] : []`. ALSO fix the secondary defect: afterEach calls process.removeAllListeners('SIGINT'/'SIGTERM') which WIPES vitest's own signal handlers → restore only the captured listeners by name (re-add the specific captured set), not removeAllListeners. Preserve the test's intent (capture/restore signal listeners around shutdown tests).\n4. OUTPUT: All 20 shutdown tests run their bodies; graceful-shutdown (PRD §5.1) is actually exercised.\n5. MOCKING: none (test-infra fix). Verify with `npx vitest run tests/integration/prp-pipeline-shutdown.test.ts`.\n6. DOCS: none.",

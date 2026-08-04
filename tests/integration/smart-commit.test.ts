@@ -8,7 +8,9 @@
  *
  * Tests verify:
  * - Git commit is triggered after successful subtask completion
- * - Commit message format: [PRP Auto] {subtask.id}: {subtask.title}
+ * - Commit subject: task-prefix `<n.n.n.n>:` over the message (subtasks,
+ *   default) or plain (non-backlog) + Co-Authored-By trailer (PRD §5.1).
+ *   No `[PRP Auto]` banner.
  * - Protected files (tasks.json, PRD.md, prd_snapshot.md) are not committed
  * - All other changes are staged and committed
  * - Commit hash is returned and logged
@@ -43,8 +45,7 @@ vi.mock('../../src/utils/git-commit.js', () => ({
     );
   }),
   formatCommitMessage: vi.fn(
-    (msg: string) =>
-      `[PRP Auto] ${msg}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
+    (msg: string) => `${msg}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
   ),
 }));
 
@@ -99,6 +100,7 @@ import {
   smartCommit,
   filterProtectedFiles,
   formatCommitMessage,
+  parseItemPosition,
 } from '../../src/utils/git-commit.js';
 
 // Typed mocks
@@ -272,10 +274,15 @@ describe('integration/smart-commit > smart commit functionality', () => {
       // EXECUTE: Execute subtask (this will trigger smart commit)
       await taskOrchestrator.executeSubtask(subtask);
 
-      // VERIFY: Smart commit was called with correct parameters
+      // VERIFY: Smart commit was called with correct parameters (the
+      // orchestrator threads the implementing item's position — BUG-003 S3).
       expect(mockSmartCommit).toHaveBeenCalledWith(
         sessionPath,
-        'P1.M2.T1.S3: Verify smart commit functionality'
+        'P1.M2.T1.S3: Verify smart commit functionality',
+        expect.objectContaining({
+          generateMessage: true,
+          position: parseItemPosition('P1.M2.T1.S3'),
+        })
       );
     });
 
@@ -338,26 +345,42 @@ describe('integration/smart-commit > smart commit functionality', () => {
       // EXECUTE: Execute subtask
       await taskOrchestrator.executeSubtask(subtask);
 
-      // VERIFY: Smart commit called with formatted message
+      // VERIFY: Smart commit called with formatted message + the position
+      // option (BUG-003 S3: the orchestrator now threads the implementing
+      // item's parsed position so the task-prefix lights up).
       expect(mockSmartCommit).toHaveBeenCalledWith(
         sessionPath,
-        'P3.M4.T1.S3: Implement smart commit workflow'
+        'P3.M4.T1.S3: Implement smart commit workflow',
+        expect.objectContaining({
+          generateMessage: true,
+          position: parseItemPosition('P3.M4.T1.S3'),
+        })
       );
     });
 
-    it('should add [PRP Auto] prefix to commit message', async () => {
-      // SETUP: Mock formatCommitMessage to track calls
+    it('should layer the task-prefix and NOT emit [PRP Auto] when position is supplied', async () => {
+      // EXECUTE: Call the (mocked) formatCommitMessage with a position. The
+      // mock ignores position and emits plain subject + trailer, so assert
+      // the trailer presence + the ABSENCE of the forbidden [PRP Auto] banner
+      // (PRD §5.1). The real task-prefix behavior is covered by the unit tests
+      // in tests/unit/utils/git-commit.test.ts; here we lock the format contract.
       const baseMessage = 'P1.M2.T1.S3: Test';
       mockFormatCommitMessage.mockReturnValue(
-        `[PRP Auto] ${baseMessage}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
+        `${baseMessage}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
       );
+      const formatted = formatCommitMessage(baseMessage, {
+        phase: 1,
+        milestone: 2,
+        task: 1,
+        subtask: 3,
+      });
 
-      // EXECUTE: Call formatCommitMessage
-      const formatted = formatCommitMessage(baseMessage);
-
-      // VERIFY: Prefix added
-      expect(formatted).toContain('[PRP Auto]');
+      // VERIFY: NO [PRP Auto] banner; Co-Authored-By trailer present.
+      expect(formatted).not.toContain('[PRP Auto]');
       expect(formatted).toContain(baseMessage);
+      expect(formatted).toContain(
+        'Co-Authored-By: Claude <noreply@anthropic.com>'
+      );
     });
 
     it('should add Co-Authored-By trailer to commit message', async () => {

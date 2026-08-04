@@ -40,7 +40,7 @@ import type { HierarchyItem } from '../utils/task-utils.js';
 import { getDependencies, findItem } from '../utils/task-utils.js';
 import type { Scope } from './scope-resolver.js';
 import { resolveScope } from './scope-resolver.js';
-import { smartCommit } from '../utils/git-commit.js';
+import { smartCommit, parseItemPosition } from '../utils/git-commit.js';
 import { gitReadFileAtCommit } from '../tools/git-mcp.js';
 import { TaskError } from '../utils/errors.js';
 import { atomicWrite, readTasksJSON } from './session-utils.js';
@@ -801,7 +801,10 @@ export class TaskOrchestrator {
           await smartCommit(
             sessionPath,
             `${subtask.id}: ${subtask.title} (skip-recovery: persist stranded plan/)`,
-            { generateMessage: true }
+            {
+              generateMessage: true,
+              position: parseItemPosition(subtask.id),
+            }
           );
         }
       }
@@ -1061,7 +1064,10 @@ export class TaskOrchestrator {
             const preHash = await smartCommit(
               sessionPath,
               `${subtask.id}: ${subtask.title}`,
-              { generateMessage: true }
+              {
+                generateMessage: true,
+                position: parseItemPosition(subtask.id),
+              }
             );
             if (preHash) {
               this.#logger.info(
