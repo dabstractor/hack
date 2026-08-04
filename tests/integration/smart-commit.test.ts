@@ -47,6 +47,19 @@ vi.mock('../../src/utils/git-commit.js', () => ({
   formatCommitMessage: vi.fn(
     (msg: string) => `${msg}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
   ),
+  // parseItemPosition is imported by TaskOrchestrator from this module; the mock
+  // factory must re-export it (same shape as src/utils/git-commit.ts:137).
+  parseItemPosition: vi.fn((id: string) => {
+    const m = /^P(\d+)\.M(\d+)\.T(\d+)(?:\.S(\d+))?$/.exec(id);
+    if (!m) return null;
+    const pos: Record<string, number> = {
+      phase: Number(m[1]),
+      milestone: Number(m[2]),
+      task: Number(m[3]),
+    };
+    if (m[4] !== undefined) pos.subtask = Number(m[4]);
+    return pos;
+  }),
 }));
 
 // Mock the git-mcp module
@@ -77,6 +90,13 @@ vi.mock('../../src/agents/prp-runtime.js', () => ({
   })),
 }));
 
+// Mock the PRPGenerator class (BUG-004 category (a) research seam). smart-commit's
+// subject is commits, NOT the research path — bypass generate() to avoid the
+// `PiHarness not initialized` chain (TaskOrchestrator → researchNow → generate).
+vi.mock('../../src/agents/prp-generator.js', () => ({
+  PRPGenerator: vi.fn(),
+}));
+
 // Mock logger with hoisted variables
 const { mockLogger } = vi.hoisted(() => ({
   mockLogger: {
@@ -96,6 +116,8 @@ vi.mock('../../src/utils/logger.js', () => ({
 // =============================================================================
 
 import { TaskOrchestrator } from '../../src/core/task-orchestrator.js';
+import { PRPGenerator } from '../../src/agents/prp-generator.js';
+import { wireMockPRPGenerator } from '../helpers/research-seam.js';
 import {
   smartCommit,
   filterProtectedFiles,
@@ -244,6 +266,12 @@ describe('integration/smart-commit > smart commit functionality', () => {
       updateItemStatus: vi.fn(),
       flushUpdates: vi.fn(),
     };
+
+    // Wire the research seam BEFORE constructing the orchestrator: ResearchQueue
+    // caches `new PRPGenerator(...)` in its ctor (research-queue.ts:173), so the
+    // mock implementation must be in place at construction time. (vi.clearAllMocks
+    // above wipes the prior impl, so re-wire per test.)
+    wireMockPRPGenerator({ PRPGenerator: vi.mocked(PRPGenerator) });
 
     // SETUP: Create TaskOrchestrator with mocked session manager
     taskOrchestrator = new TaskOrchestrator(mockSessionManager as any);
@@ -493,10 +521,11 @@ describe('integration/smart-commit > smart commit functionality', () => {
       // EXECUTE: Execute subtask
       await taskOrchestrator.executeSubtask(subtask);
 
-      // VERIFY: Logger called with commit hash
+      // VERIFY: Logger called with commit hash. The orchestrator's survival
+      // commit logs the hash on success (src/core/task-orchestrator.ts).
       expect(mockLogger.info).toHaveBeenCalledWith(
         { commitHash },
-        'Commit created'
+        'Survival commit created'
       );
     });
 
@@ -508,8 +537,12 @@ describe('integration/smart-commit > smart commit functionality', () => {
       const subtask = createMockSubtask();
       await taskOrchestrator.executeSubtask(subtask);
 
-      // VERIFY: Logged appropriately
-      expect(mockLogger.info).toHaveBeenCalledWith('No files to commit');
+      // VERIFY: Logged appropriately. smartCommit returning null (no
+      // committable substance) is logged by the orchestrator's survival-commit
+      // stage.
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'No substance to commit (survival commit empty)'
+      );
     });
   });
 

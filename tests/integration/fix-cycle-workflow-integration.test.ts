@@ -10,6 +10,9 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { FixCycleWorkflow } from '../../src/workflows/fix-cycle-workflow.js';
 import type { Task, TestResults, Bug, Backlog } from '../../src/core/models.js';
 import type { TaskOrchestrator } from '../../src/core/task-orchestrator.js';
@@ -18,6 +21,21 @@ import type { SessionManager } from '../../src/core/session-manager.js';
 // Mock BugHuntWorkflow
 vi.mock('../../src/workflows/bug-hunt-workflow.js', () => ({
   BugHuntWorkflow: vi.fn(),
+}));
+
+// Mock the architect agent leaf (BUG-004 category (a) seam). FixCycleWorkflow's
+// runStandardBreakdown dynamically imports + calls createArchitectAgent, which
+// is harness-backed (would throw 'PiHarness not initialized'). This suite's
+// subject is the fix-cycle loop, NOT architect decomposition — stub a success.
+vi.mock('../../src/agents/agent-factory.js', () => ({
+  createArchitectAgent: vi.fn().mockReturnValue({
+    prompt: vi.fn().mockResolvedValue({
+      status: 'success',
+      data: '{}',
+      error: null,
+      metadata: { agentId: 'mock-architect', timestamp: 0 },
+    }),
+  }),
 }));
 
 import { BugHuntWorkflow } from '../../src/workflows/bug-hunt-workflow.js';
@@ -115,9 +133,93 @@ const createMockSessionManager = (backlog?: Backlog): SessionManager =>
     updateItemStatus: vi.fn().mockResolvedValue(undefined),
   }) as any;
 
+/**
+ * Create a real bugfix session dir on disk containing:
+ *  - TEST_RESULTS.md (the JSON-serialized bug report #loadBugReport reads), and
+ *  - tasks.json (the Backlog the Architect agent would write; #runStandardBreakdown
+ *    reads it back and flattens to leaf subtasks).
+ * Returns the sessionPath, which contains the 'bugfix' substring
+ * validateBugfixSession() requires. Produces one leaf subtask per bug so the
+ * fix-execution phase runs once per bug (matching the suite's existing
+ * executeSubtask call-count expectations). The dir is tracked for cleanup.
+ */
+function setupBugfixSession(results: TestResults): string {
+  const tempDir = mkdtempSync(join(tmpdir(), 'fix-cycle-test-'));
+  const sessionPath = join(tempDir, 'plan', '001_test', 'bugfix', '001_test');
+  mkdirSync(sessionPath, { recursive: true });
+  writeFileSync(
+    join(sessionPath, 'TEST_RESULTS.md'),
+    JSON.stringify(results),
+    'utf-8'
+  );
+  // Minimal valid context_scope (src/core/models.ts superRefine requires the
+  // 'CONTRACT DEFINITION:\n' prefix + 4 ordered sections).
+  const contextScope =
+    'CONTRACT DEFINITION:\n1. RESEARCH NOTE: none\n2. INPUT: none\n3. LOGIC: none\n4. OUTPUT: none';
+  const subtasks = results.bugs.map((bug, i) => ({
+    type: 'Subtask' as const,
+    id: `PFIX.M1.T1.S${i + 1}`,
+    title: `[BUG FIX] Fix ${bug.id}: ${bug.title}`,
+    status: 'Planned' as const,
+    story_points: 1,
+    dependencies: [],
+    context_scope: contextScope,
+  }));
+  const backlog: Backlog = {
+    backlog: [
+      {
+        type: 'Phase',
+        id: 'PFIX',
+        title: 'Bug Fix Phase',
+        status: 'Planned',
+        description: 'Fixes derived from the bug report',
+        milestones: [
+          {
+            type: 'Milestone',
+            id: 'PFIX.M1',
+            title: 'Bug Fix Milestone',
+            status: 'Planned',
+            description: 'Fix milestone',
+            tasks: [
+              {
+                type: 'Task',
+                id: 'PFIX.M1.T1',
+                title: 'Bug Fix Task',
+                status: 'Planned',
+                description: 'Fix task',
+                subtasks,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  writeFileSync(
+    join(sessionPath, 'tasks.json'),
+    JSON.stringify(backlog),
+    'utf-8'
+  );
+  bugfixTempDirs.push(tempDir);
+  return sessionPath;
+}
+
+const bugfixTempDirs: string[] = [];
+
 describe('FixCycleWorkflow Integration Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    while (bugfixTempDirs.length) {
+      const dir = bugfixTempDirs.pop()!;
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
   });
 
   describe('full run() workflow execution', () => {
@@ -165,7 +267,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -220,7 +322,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -287,7 +389,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -351,7 +453,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE - Should not throw despite fix failure
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -412,7 +514,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -457,7 +559,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         prdContent,
         mockOrchestrator,
         sessionManager
@@ -510,7 +612,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -560,7 +662,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -602,7 +704,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE & VERIFY
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager
@@ -637,7 +739,7 @@ describe('FixCycleWorkflow Integration Tests', () => {
 
       // EXECUTE - Should handle gracefully
       const workflow = new FixCycleWorkflow(
-        initialResults,
+        setupBugfixSession(initialResults),
         '# Test PRD',
         mockOrchestrator,
         sessionManager

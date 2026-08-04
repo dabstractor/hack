@@ -20,7 +20,7 @@
  * @see {@link ../../src/core/task-orchestrator.ts | TaskOrchestrator Implementation}
  */
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -28,9 +28,65 @@ import { createHash } from 'node:crypto';
 
 import { SessionManager } from '../../../src/core/session-manager.js';
 import { TaskOrchestrator } from '../../../src/core/task-orchestrator.js';
+import { PRPGenerator } from '../../../src/agents/prp-generator.js';
+import { wireMockPRPGenerator } from '../../helpers/research-seam.js';
 import type { Backlog } from '../../../src/core/models.js';
 import { mockSimplePRD } from '../../fixtures/simple-prd.js';
 import type { Scope } from '../../../src/core/scope-resolver.js';
+
+// Mock the PRPGenerator class (BUG-004 category (a) research seam). This suite's
+// subject is hierarchy traversal / execution-queue management, NOT the research
+// path — bypass generate() to avoid the `PiHarness not initialized` chain.
+vi.mock('../../../src/agents/prp-generator.js', () => ({
+  PRPGenerator: vi.fn(),
+}));
+
+// Mock the PRPRuntime class (BUG-004 category (a) execution seam). The DFS
+// traversal tests drive processNextItem() → executeSubtask() → PRPRuntime, which
+// would otherwise invoke the real Coder agent (also harness-backed). This suite's
+// subject is traversal/queue logic, NOT coder execution — stub a success result.
+vi.mock('../../../src/agents/prp-runtime.js', () => ({
+  PRPRuntime: vi.fn().mockImplementation(() => ({
+    executeSubtask: vi.fn().mockResolvedValue({
+      success: true,
+      validationResults: [
+        {
+          level: 'Gate 1: Compilation',
+          passed: true,
+          details: 'Code compiles successfully',
+        },
+      ],
+      artifacts: [],
+      error: undefined,
+      fixAttempts: 0,
+    }),
+  })),
+}));
+
+// Mock the git-commit module (TaskOrchestrator imports smartCommit +
+// parseItemPosition from it).
+vi.mock('../../../src/utils/git-commit.js', () => ({
+  smartCommit: vi.fn().mockResolvedValue('abc123'),
+  filterProtectedFiles: vi.fn((files: string[]) => files),
+  formatCommitMessage: vi.fn((msg: string) => msg),
+  parseItemPosition: vi.fn((id: string) => {
+    const m = /^(\d+)\.M(\d+)\.T(\d+)(?:\.S(\d+))?$/.exec(id);
+    if (!m) return null;
+    const pos: Record<string, number> = {
+      phase: Number(m[1]),
+      milestone: Number(m[2]),
+      task: Number(m[3]),
+    };
+    if (m[4] !== undefined) pos.subtask = Number(m[4]);
+    return pos;
+  }),
+}));
+
+// Valid minimal context_scope (src/core/models.ts superRefine requires the
+// 'CONTRACT DEFINITION:\n' prefix + 4 ordered sections). Used by backlog
+// fixtures below that previously held invalid short values.
+const CONTEXT_SCOPE =
+  'CONTRACT DEFINITION:\n1. RESEARCH NOTE: none\n2. INPUT: none\n3. LOGIC: none\n4. OUTPUT: none';
 
 // =============================================================================
 // Test Constants
@@ -230,6 +286,10 @@ describe('TaskOrchestrator Integration Tests', () => {
     tempDir = env.tempDir;
     prdPath = env.prdPath;
     sessionManager = env.sessionManager;
+
+    // Wire the research seam before each test constructs the orchestrator
+    // (ResearchQueue caches `new PRPGenerator(...)` in its ctor).
+    wireMockPRPGenerator({ PRPGenerator: vi.mocked(PRPGenerator) });
   });
 
   afterEach(() => {
@@ -310,7 +370,7 @@ describe('TaskOrchestrator Integration Tests', () => {
                         status: 'Planned',
                         story_points: 1,
                         dependencies: [],
-                        context_scope: 'Test scope',
+                        context_scope: CONTEXT_SCOPE,
                       },
                     ],
                   },
@@ -427,7 +487,7 @@ describe('TaskOrchestrator Integration Tests', () => {
                         status: 'Planned',
                         story_points: 1,
                         dependencies: [],
-                        context_scope: 'Test scope',
+                        context_scope: CONTEXT_SCOPE,
                       },
                       {
                         type: 'Subtask',
@@ -436,7 +496,7 @@ describe('TaskOrchestrator Integration Tests', () => {
                         status: 'Planned',
                         story_points: 1,
                         dependencies: ['P1.M1.T1.S1'],
-                        context_scope: 'Test scope',
+                        context_scope: CONTEXT_SCOPE,
                       },
                     ],
                   },
@@ -476,6 +536,9 @@ describe('TaskOrchestrator Integration Tests', () => {
       expect(orchestrator.canExecute(dependentSubtask)).toBe(false);
 
       await sessionManager.updateItemStatus('P1.M1.T1.S1', 'Complete');
+      // The orchestrator caches #backlog at construction; refresh it so canExecute
+      // observes the SessionManager's updated task status.
+      await orchestrator.refreshBacklog();
 
       expect(orchestrator.canExecute(dependentSubtask)).toBe(true);
     });
@@ -544,7 +607,7 @@ describe('TaskOrchestrator Integration Tests', () => {
                         status: 'Planned',
                         story_points: 1,
                         dependencies: [],
-                        context_scope: 'Test',
+                        context_scope: CONTEXT_SCOPE,
                       },
                       {
                         type: 'Subtask',
@@ -553,7 +616,7 @@ describe('TaskOrchestrator Integration Tests', () => {
                         status: 'Planned',
                         story_points: 1,
                         dependencies: ['P1.M1.T1.S1'],
-                        context_scope: 'Test',
+                        context_scope: CONTEXT_SCOPE,
                       },
                     ],
                   },
@@ -670,7 +733,9 @@ describe('TaskOrchestrator Integration Tests', () => {
       const orchestrator = new TaskOrchestrator(sessionManager);
       const queue = orchestrator.executionQueue;
 
-      expect(queue.length).toBe(4);
+      // createMultiLevelHierarchy has 5 leaf subtasks across P1.M1 (3),
+      // P1.M2 (1), and P2.M1 (1); the 'all' scope returns all of them.
+      expect(queue.length).toBe(5);
       expect(queue.every(item => item.type === 'Subtask')).toBe(true);
     });
 
@@ -702,7 +767,9 @@ describe('TaskOrchestrator Integration Tests', () => {
       const orchestrator = new TaskOrchestrator(sessionManager, scope);
       const queue = orchestrator.executionQueue;
 
-      expect(queue.length).toBe(3);
+      // A milestone scope resolves to the milestone + its descendants:
+      // P1.M1, P1.M1.T1, P1.M1.T1.S1, P1.M1.T1.S2, P1.M1.T1.S3 = 5 items.
+      expect(queue.length).toBe(5);
       expect(queue.every(item => item.id.startsWith('P1.M1'))).toBe(true);
     });
 
@@ -737,7 +804,8 @@ describe('TaskOrchestrator Integration Tests', () => {
       const newQueueLength = orchestrator.executionQueue.length;
 
       expect(initialQueueLength).toBeGreaterThan(newQueueLength);
-      expect(newQueueLength).toBe(1);
+      // Milestone scope P1.M2 resolves to P1.M2 + P1.M2.T1 + P1.M2.T1.S1 = 3.
+      expect(newQueueLength).toBe(3);
     });
 
     it('should process all items in queue via processNextItem', async () => {
@@ -771,7 +839,7 @@ describe('TaskOrchestrator Integration Tests', () => {
                         status: 'Planned',
                         story_points: 1,
                         dependencies: [],
-                        context_scope: 'Test',
+                        context_scope: CONTEXT_SCOPE,
                       },
                     ],
                   },

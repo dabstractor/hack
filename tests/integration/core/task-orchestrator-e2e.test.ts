@@ -35,6 +35,8 @@ import { tmpdir } from 'node:os';
 
 import { SessionManager } from '../../../src/core/session-manager.js';
 import { TaskOrchestrator } from '../../../src/core/task-orchestrator.js';
+import { PRPGenerator } from '../../../src/agents/prp-generator.js';
+import { wireMockPRPGenerator } from '../../helpers/research-seam.js';
 import type { Backlog } from '../../../src/core/models.js';
 import { mockSimplePRD } from '../../fixtures/simple-prd.js';
 import type { Scope } from '../../../src/core/scope-resolver.js';
@@ -44,6 +46,12 @@ import type { Scope } from '../../../src/core/scope-resolver.js';
 // =============================================================================
 
 const TEMP_DIR_TEMPLATE = join(tmpdir(), 'orchestrator-e2e-test-XXXXXX');
+
+// Valid minimal context_scope (src/core/models.ts superRefine requires the
+// 'CONTRACT DEFINITION:\n' prefix + 4 ordered sections: RESEARCH NOTE, INPUT,
+// LOGIC, OUTPUT). Shared across all backlog fixtures below.
+const CONTEXT_SCOPE =
+  'CONTRACT DEFINITION:\n1. RESEARCH NOTE: none\n2. INPUT: none\n3. LOGIC: none\n4. OUTPUT: none';
 
 // =============================================================================
 // Mock Setup
@@ -73,6 +81,25 @@ vi.mock('../../../src/utils/git-commit.js', () => ({
   smartCommit: vi.fn().mockResolvedValue('abc123'),
   filterProtectedFiles: vi.fn((files: string[]) => files),
   formatCommitMessage: vi.fn((msg: string) => msg),
+  // parseItemPosition is imported by TaskOrchestrator from this module.
+  parseItemPosition: vi.fn((id: string) => {
+    const m = /^(\d+)\.M(\d+)\.T(\d+)(?:\.S(\d+))?$/.exec(id);
+    if (!m) return null;
+    const pos: Record<string, number> = {
+      phase: Number(m[1]),
+      milestone: Number(m[2]),
+      task: Number(m[3]),
+    };
+    if (m[4] !== undefined) pos.subtask = Number(m[4]);
+    return pos;
+  }),
+}));
+
+// Mock the PRPGenerator class (BUG-004 category (a) research seam). This suite's
+// subject is E2E orchestration, NOT the research path — bypass generate() to avoid
+// the `PiHarness not initialized` chain.
+vi.mock('../../../src/agents/prp-generator.js', () => ({
+  PRPGenerator: vi.fn(),
 }));
 
 // =============================================================================
@@ -110,7 +137,7 @@ function createComplexBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope',
+                    context_scope: CONTEXT_SCOPE,
                   },
                   {
                     type: 'Subtask',
@@ -119,7 +146,7 @@ function createComplexBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope',
+                    context_scope: CONTEXT_SCOPE,
                   },
                 ],
               },
@@ -146,7 +173,7 @@ function createComplexBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope',
+                    context_scope: CONTEXT_SCOPE,
                   },
                 ],
               },
@@ -182,7 +209,7 @@ function createComplexBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope',
+                    context_scope: CONTEXT_SCOPE,
                   },
                 ],
               },
@@ -271,6 +298,11 @@ describe('TaskOrchestrator E2E Workflow Tests', () => {
       // Re-throw to fail the test
       throw err;
     });
+
+    // Wire the research seam: ResearchQueue caches `new PRPGenerator(...)` in its
+    // ctor, so the mock impl must be set before each test constructs the orchestrator.
+    // (afterEach runs vi.clearAllMocks(), so re-wire per test here.)
+    wireMockPRPGenerator({ PRPGenerator: vi.mocked(PRPGenerator) });
   });
 
   afterEach(() => {
@@ -408,8 +440,10 @@ describe('TaskOrchestrator E2E Workflow Tests', () => {
         }
       }
 
-      // VERIFY: Only P1.M1 subtasks should be processed
-      expect(processedIds.length).toBe(2); // P1.M1.T1.S1, P1.M1.T1.S2
+      // VERIFY: Only P1.M1 subtasks should be processed. The scoped execution
+      // queue includes the ancestor containers (milestone + task) plus their 2
+      // leaf subtasks: P1.M1, P1.M1.T1, P1.M1.T1.S1, P1.M1.T1.S2 = 4 items.
+      expect(processedIds.length).toBe(4);
       expect(processedIds.every(id => id.startsWith('P1.M1'))).toBe(true);
     });
 
@@ -433,8 +467,10 @@ describe('TaskOrchestrator E2E Workflow Tests', () => {
         }
       }
 
-      // VERIFY: Only P1.M1.T1 subtasks should be processed
-      expect(processedIds.length).toBe(2); // P1.M1.T1.S1, P1.M1.T1.S2
+      // VERIFY: Only P1.M1.T1 subtasks should be processed. The scoped execution
+      // queue includes the task container plus its 2 leaf subtasks:
+      // P1.M1.T1, P1.M1.T1.S1, P1.M1.T1.S2 = 3 items.
+      expect(processedIds.length).toBe(3); // P1.M1.T1 + its 2 subtasks
 
       // Cleanup
       if (existsSync(env.tempDir)) {

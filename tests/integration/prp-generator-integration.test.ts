@@ -24,6 +24,11 @@ import { SessionManager } from '../../src/core/session-manager.js';
 import { PRPDocumentSchema, type Backlog } from '../../src/core/models.js';
 import { createPRPBlueprintPrompt } from '../../src/agents/prompts/prp-blueprint-prompt.js';
 import { createResearcherAgent } from '../../src/agents/agent-factory.js';
+import {
+  createSuccessAgentResponse,
+  createMockPRPDocument as createHelperPRPDocument,
+  MINIMAL_PRP_JSON_STRING,
+} from '../helpers/research-seam.js';
 
 // Mock node:fs/promises for PRP file operations only
 vi.mock('node:fs/promises', async () => {
@@ -47,8 +52,45 @@ vi.mock('node:fs/promises', async () => {
       // Use real writeFile for test setup
       return actualFs.writeFile(path, data, options);
     }),
+    // BUG-004 category (a) file-contract fix: generate() reads the PRP from a FILE
+    // at <sessionPath>/prps/<id>.json (it ignores result.data). The writeFile
+    // short-circuit above NO-OPs the agent→disk handoff. generate() reads the
+    // file TWICE: (1) a fast-path cache check BEFORE the agent call (must MISS
+    // so the agent actually runs — critical for retry/error tests), and (2) the
+    // post-agent contract read (must HIT a schema-valid JSON). The flag below is
+    // flipped by the agent mock's successful prompt() — simulating a reasoning
+    // model writing the file — so the fast-path misses until the agent has
+    // produced a result.
+    readFile: vi.fn(async (path: string, ...rest: unknown[]) => {
+      if (typeof path === 'string' && path.includes('prps')) {
+        if (!agentWroteFile) {
+          const err: NodeJS.ErrnoException = Object.assign(
+            new Error(`ENOENT: no such file '${path}'`)
+          );
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return MINIMAL_PRP_JSON_STRING;
+      }
+      return actualFs.readFile(path, ...(rest as [unknown]));
+    }),
   };
 });
+
+// Flipped to true by a successful agent prompt() — simulates the reasoning
+// model writing the .json handoff file. Reset in beforeEach.
+let agentWroteFile = false;
+
+// Wraps a resolved prompt value so that, on success, `agentWroteFile` flips
+// (the reasoning model “wrote” the file generate() then reads). Used by the
+// default agent and the per-test agent overrides.
+function writingPrompt(resolvedValue: unknown) {
+  return vi.fn().mockImplementation(async () => {
+    const r = await Promise.resolve(resolvedValue);
+    agentWroteFile = true;
+    return r;
+  });
+}
 
 // Import mocked functions
 const mockMkdir = mkdir as any;
@@ -96,29 +138,6 @@ const createTestBacklog = (): Backlog => ({
   ],
 });
 
-const createMockPRPDocument = (taskId: string) => ({
-  taskId,
-  objective: 'Implement PRPGenerator class',
-  context: '## Context\nFull implementation context',
-  implementationSteps: ['Step 1: Create class', 'Step 2: Add retry logic'],
-  validationGates: [
-    { level: 1, description: 'Lint', command: 'npm run lint', manual: false },
-    { level: 2, description: 'Test', command: 'npm test', manual: false },
-    {
-      level: 3,
-      description: 'Integration',
-      command: 'npm run test:integration',
-      manual: false,
-    },
-    { level: 4, description: 'Manual', command: null, manual: true },
-  ],
-  successCriteria: [
-    { description: 'Tests pass', satisfied: false },
-    { description: 'Code complete', satisfied: false },
-  ],
-  references: ['src/agents/prp-generator.ts'],
-});
-
 // Mock agent-factory to avoid MCP server registration issues
 vi.mock('../../src/agents/agent-factory.js', () => ({
   createResearcherAgent: vi.fn(),
@@ -140,6 +159,7 @@ describe('integration/prp-generator', () => {
     // Clear mock calls before each test
     mockWriteFile.mockClear();
     mockMkdir.mockClear();
+    agentWroteFile = false;
 
     // Create test PRD file with unique content to avoid finding existing sessions
     const testPRD = `# Test PRD ${uniqueId}
@@ -154,9 +174,13 @@ This is a unique test PRD for PRPGenerator integration tests with ID: ${uniqueId
     sessionManager = new SessionManager(prdPath, planDir, 3);
     await sessionManager.initialize();
 
-    // Setup mock agent
+    // Setup mock agent — generate() reads result.status (must be 'success'),
+    // NOT the bare doc. Wrap in createSuccessAgentResponse and use writingPrompt
+    // so a successful call flips `agentWroteFile` (BUG-004 fix).
     const mockAgent = {
-      prompt: vi.fn().mockResolvedValue(createMockPRPDocument('P3.M3.T1.S1')),
+      prompt: writingPrompt(
+        createSuccessAgentResponse(createHelperPRPDocument('P3.M3.T1.S1'))
+      ),
     };
     (createResearcherAgent as any).mockReturnValue(mockAgent);
   });
@@ -282,12 +306,19 @@ This is a unique test PRD for PRPGenerator integration tests with ID: ${uniqueId
       const backlog = createTestBacklog();
       const subtask = backlog.backlog[0].milestones[0].tasks[0].subtasks[0];
 
-      // SETUP: Mock agent to fail once, then succeed
+      // SETUP: Mock agent to fail once, then succeed. writingPrompt flips
+      // agentWroteFile on the success call so generate()'s post-agent read hits.
+      const successImpl = vi.fn().mockImplementation(async () => {
+        agentWroteFile = true;
+        return createSuccessAgentResponse(
+          createHelperPRPDocument('P3.M3.T1.S1')
+        );
+      });
       const mockAgent = {
         prompt: vi
           .fn()
           .mockRejectedValueOnce(new Error('LLM timeout'))
-          .mockResolvedValueOnce(createMockPRPDocument('P3.M3.T1.S1')),
+          .mockImplementation(successImpl),
       };
       (createResearcherAgent as any).mockReturnValue(mockAgent);
 
@@ -305,8 +336,9 @@ This is a unique test PRD for PRPGenerator integration tests with ID: ${uniqueId
       // VERIFY: Agent was called twice (failed once, succeeded once)
       expect(mockAgent.prompt).toHaveBeenCalledTimes(2);
 
-      // VERIFY: File was written once (only after success)
-      expect(mockWriteFile).toHaveBeenCalledTimes(1);
+      // VERIFY: File was written after success. generate() writes TWO files per
+      // success: the PRP markdown (.md) and the cache metadata (.cache/.json).
+      expect(mockWriteFile).toHaveBeenCalledTimes(2);
     });
 
     it('should throw PRPGenerationError after all retries exhausted', async () => {
@@ -320,10 +352,12 @@ This is a unique test PRD for PRPGenerator integration tests with ID: ${uniqueId
       };
       (createResearcherAgent as any).mockReturnValue(mockAgent);
 
-      // EXECUTE & VERIFY: Throws PRPGenerationError
+      // EXECUTE & VERIFY: generate() rejects after all retries are exhausted.
+      // (The raw agent error propagates from retryAgentPrompt; generate no
+      // longer wraps it in PRPGenerationError.)
       const generator = new PRPGenerator(sessionManager);
       await expect(generator.generate(subtask, backlog)).rejects.toThrow(
-        PRPGenerationError
+        'LLM service down'
       );
     });
   });
@@ -381,7 +415,9 @@ This is a unique test PRD for PRPGenerator integration tests with ID: ${uniqueId
 
       // SETUP: Mock agent and writeFile
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(createMockPRPDocument('P3.M3.T1.S1')),
+        prompt: writingPrompt(
+          createSuccessAgentResponse(createHelperPRPDocument('P3.M3.T1.S1'))
+        ),
       };
       (createResearcherAgent as any).mockReturnValue(mockAgent);
       mockWriteFile.mockImplementation(function (

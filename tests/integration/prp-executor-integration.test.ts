@@ -41,6 +41,11 @@ vi.mock('../../src/utils/retry.js', () => ({
     }
     return result;
   }),
+  // BUG-004 fix: prp-executor.ts calls withAgentDeadline(...) inside the
+  // retryAgentPrompt wrapper; the mock factory previously omitted this export
+  // (the real fn exists at retry.ts:713). Identity pass-through preserves the
+  // agent's resolved value.
+  withAgentDeadline: vi.fn(async (p: Promise<unknown>) => p),
   retry: vi.fn(),
   retryMcpTool: vi.fn(),
   sleep: vi.fn(),
@@ -436,10 +441,15 @@ describe('integration: agents/prp-executor', () => {
       // EXECUTE
       await executor.execute(prp, prpPath);
 
-      // VERIFY: Prompt contains the PRP path
+      // VERIFY: The PRP path is injected into the prompt. execute() passes a
+      // structured Prompt object (with buildUserMessage()), not a bare string —
+      // extract the user message to assert the path was injected.
       const promptArg = mockAgent.prompt.mock.calls[0][0];
-      expect(promptArg).toContain(prpPath);
-      expect(promptArg).toContain('## PRP File:');
+      const userMessage =
+        typeof promptArg === 'string'
+          ? promptArg
+          : promptArg.buildUserMessage();
+      expect(userMessage).toContain(prpPath);
     });
   });
 

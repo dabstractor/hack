@@ -23,6 +23,10 @@ import {
   createCoderAgent,
 } from '../../src/agents/agent-factory.js';
 import type { ExecutionResult } from '../../src/agents/prp-executor.js';
+import {
+  createSuccessAgentResponse,
+  createMockPRPDocument as createHelperPRPDocument,
+} from '../helpers/research-seam.js';
 
 // Mock node:fs/promises for PRP and artifact file operations
 vi.mock('node:fs/promises', async () => {
@@ -54,8 +58,48 @@ vi.mock('node:fs/promises', async () => {
       // Use real writeFile for test setup
       return actualFs.writeFile(path, data, options);
     }),
+    // BUG-004 category (a) file-contract fix: generate() reads the PRP from a
+    // FILE at <sessionPath>/prps/<id>.json (ignores result.data). The writeFile
+    // short-circuit above NO-OPs the agent→disk handoff. generate() reads the
+    // file TWICE: (1) a fast-path cache check BEFORE the agent call (must MISS
+    // so the agent runs), and (2) the post-agent contract read (must HIT valid
+    // JSON whose taskId round-trips — generate writes <parsedTaskId>.md). The
+    // `agentWroteFile` flag is flipped by the researcher mock's successful
+    // prompt(); the returned JSON carries the taskId parsed from the file path.
+    readFile: vi.fn(async (path: string, ...rest: unknown[]) => {
+      if (typeof path === 'string' && path.includes('prps')) {
+        if (!agentWroteFile) {
+          const err: NodeJS.ErrnoException = Object.assign(
+            new Error(`ENOENT: no such file '${path}'`)
+          );
+          err.code = 'ENOENT';
+          throw err;
+        }
+        // Derive the taskId from the .json filename (P3_M3_T1_S3.json →
+        // P3.M3.T1.S3) so it round-trips through #parsePRPText → generate
+        // writes <taskId>.md with the correct id.
+        const base = path.split('/').pop() ?? '';
+        const taskId = base.replace(/\.json$/, '').replace(/_/g, '.');
+        return JSON.stringify(createHelperPRPDocument(taskId));
+      }
+      return actualFs.readFile(path, ...(rest as [unknown]));
+    }),
   };
 });
+
+// Flipped to true by a successful researcher prompt() — simulates the reasoning
+// model writing the .json handoff file. Reset in beforeEach.
+let agentWroteFile = false;
+
+// Wraps a resolved prompt value so that, on success, `agentWroteFile` flips
+// (the reasoning model “wrote” the file generate() then reads).
+function writingPrompt(resolvedValue: unknown) {
+  return vi.fn().mockImplementation(async () => {
+    const r = await Promise.resolve(resolvedValue);
+    agentWroteFile = true;
+    return r;
+  });
+}
 
 // Import mocked functions
 const mockMkdir = mkdir as any;
@@ -101,32 +145,6 @@ const createTestBacklog = (): Backlog => ({
       ],
     },
   ],
-});
-
-const createMockPRPDocument = (taskId: string) => ({
-  taskId,
-  objective: 'Implement PRPRuntime class',
-  context: '## Context\nFull implementation context for PRPRuntime',
-  implementationSteps: [
-    'Step 1: Create PRPRuntime class',
-    'Step 2: Add orchestration logic',
-  ],
-  validationGates: [
-    { level: 1, description: 'Lint', command: 'npm run lint', manual: false },
-    { level: 2, description: 'Test', command: 'npm test', manual: false },
-    {
-      level: 3,
-      description: 'Integration',
-      command: 'npm run test:integration',
-      manual: false,
-    },
-    { level: 4, description: 'Manual', command: null, manual: true },
-  ],
-  successCriteria: [
-    { description: 'Orchestration works', satisfied: false },
-    { description: 'Tests pass', satisfied: false },
-  ],
-  references: ['src/agents/prp-runtime.ts'],
 });
 
 const createMockExecutionResult = (success: boolean): ExecutionResult => ({
@@ -194,6 +212,7 @@ describe('integration/prp-runtime', () => {
     // Clear mock calls before each test
     mockWriteFile.mockClear();
     mockMkdir.mockClear();
+    agentWroteFile = false;
 
     // Create test PRD file with unique content to avoid finding existing sessions
     const testPRD = `# Test PRD ${uniqueId}
@@ -224,9 +243,13 @@ This is a unique test PRD for PRPRuntime integration tests with ID: ${uniqueId}.
     // Initialize TaskOrchestrator
     orchestrator = new TaskOrchestrator(sessionManager);
 
-    // Setup mock agents
+    // Setup mock agents — generate() reads result.status (must be 'success'),
+    // NOT the bare doc. Wrap in createSuccessAgentResponse + writingPrompt so a
+    // successful call flips `agentWroteFile` (BUG-004 fix).
     const mockResearcherAgent = {
-      prompt: vi.fn().mockResolvedValue(createMockPRPDocument('P3.M3.T1.S3')),
+      prompt: writingPrompt(
+        createSuccessAgentResponse(createHelperPRPDocument('P3.M3.T1.S3'))
+      ),
     };
     (createResearcherAgent as any).mockReturnValue(mockResearcherAgent);
 
@@ -475,6 +498,20 @@ This is a unique test PRD for PRPRuntime integration tests with ID: ${uniqueId}.
       // SETUP: Get test subtask and backlog
       const backlog = sessionManager.currentSession!.taskRegistry;
       const subtask = backlog.backlog[0].milestones[0].tasks[0].subtasks[0];
+
+      // Isolation fix: a prior test sets mockWriteFile.mockImplementation to
+      // reject for artifacts paths; afterEach uses clearAllMocks (which does
+      // NOT reset implementations), so that leak would make the summary write
+      // throw and be swallowed by #writeArtifacts' try/catch. Restore the
+      // factory's no-op-for-prps/artifacts default before running.
+      mockWriteFile.mockImplementation(async (...args: unknown[]) => {
+        const p = args[0] as string;
+        if (p && (p.includes('prps') || p.includes('artifacts'))) {
+          return undefined;
+        }
+        const fs = await import('node:fs/promises');
+        return fs.writeFile(p, args[1] as string, args[2] as object);
+      });
 
       // EXECUTE: Run complete orchestration
       const runtime = new PRPRuntime(orchestrator);

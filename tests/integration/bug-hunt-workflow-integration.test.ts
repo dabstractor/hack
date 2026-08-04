@@ -12,6 +12,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { BugHuntWorkflow } from '../../src/workflows/bug-hunt-workflow.js';
 import type { Task, TestResults, Bug } from '../../src/core/models.js';
+import { createSuccessAgentResponse } from '../helpers/research-seam.js';
 
 // Mock agent factory to avoid LLM calls
 vi.mock('../../src/agents/agent-factory.js', () => ({
@@ -99,7 +100,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
 
       // Mock QA agent to return clean results
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({
@@ -155,7 +158,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({
@@ -184,7 +189,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
 
       const callOrder: string[] = [];
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockImplementation(() => {
         callOrder.push('createQAAgent');
@@ -224,7 +231,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -260,7 +269,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -292,7 +303,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -320,7 +333,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -348,7 +363,9 @@ describe('BugHuntWorkflow Integration Tests', () => {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -362,7 +379,10 @@ describe('BugHuntWorkflow Integration Tests', () => {
       expect(workflow.completedTasks).toHaveLength(50);
       expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith(
         prdContent,
-        completedTasks
+        completedTasks,
+        // run() now passes a file-contract outputPath (3rd arg); undefined when
+        // no sessionPath is configured (this test does not call setSessionPath).
+        undefined
       );
     });
 
@@ -404,7 +424,9 @@ interface Example {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -417,7 +439,8 @@ interface Example {
       expect(results).toEqual(expectedResults);
       expect(mockCreateBugHuntPrompt).toHaveBeenCalledWith(
         prdContent,
-        completedTasks
+        completedTasks,
+        undefined
       );
     });
   });
@@ -479,7 +502,9 @@ interface Example {
       );
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});
@@ -501,7 +526,9 @@ interface Example {
       const expectedResults = createTestResults(false, [], 'OK', []);
 
       const mockAgent = {
-        prompt: vi.fn().mockResolvedValue(expectedResults),
+        prompt: vi
+          .fn()
+          .mockResolvedValue(createSuccessAgentResponse(expectedResults)),
       };
       mockCreateQAAgent.mockReturnValue(mockAgent);
       mockCreateBugHuntPrompt.mockReturnValue({});

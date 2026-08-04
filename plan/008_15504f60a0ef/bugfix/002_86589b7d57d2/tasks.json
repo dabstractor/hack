@@ -279,7 +279,7 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Fix environmental (PiHarness not initialized) failures (category a, ~9 files)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Real Researcher/PRPGenerator runs because the research seam is unmocked and ensureHarnessInitialized() is never called. ~81 failures.",
               "subtasks": [
                 {
@@ -300,7 +300,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T2.S2",
                   "title": "Apply harness-init / research-seam fix to the ~9 affected integration suites",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M4.T2.S1",

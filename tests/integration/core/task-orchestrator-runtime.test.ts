@@ -34,6 +34,8 @@ import { tmpdir } from 'node:os';
 
 import { SessionManager } from '../../../src/core/session-manager.js';
 import { TaskOrchestrator } from '../../../src/core/task-orchestrator.js';
+import { PRPGenerator } from '../../../src/agents/prp-generator.js';
+import { wireMockPRPGenerator } from '../../helpers/research-seam.js';
 import type { Backlog, Subtask } from '../../../src/core/models.js';
 import { mockSimplePRD } from '../../fixtures/simple-prd.js';
 
@@ -42,6 +44,11 @@ import { mockSimplePRD } from '../../fixtures/simple-prd.js';
 // =============================================================================
 
 const TEMP_DIR_TEMPLATE = join(tmpdir(), 'orchestrator-runtime-test-XXXXXX');
+
+// Valid minimal context_scope (src/core/models.ts superRefine requires the
+// 'CONTRACT DEFINITION:\n' prefix + 4 ordered sections). Shared across fixtures.
+const CONTEXT_SCOPE =
+  'CONTRACT DEFINITION:\n1. RESEARCH NOTE: none\n2. INPUT: none\n3. LOGIC: none\n4. OUTPUT: none';
 
 // =============================================================================
 // Mock Setup
@@ -71,6 +78,25 @@ vi.mock('../../../src/utils/git-commit.js', () => ({
   smartCommit: vi.fn().mockResolvedValue('abc123'),
   filterProtectedFiles: vi.fn((files: string[]) => files),
   formatCommitMessage: vi.fn((msg: string) => msg),
+  // parseItemPosition is imported by TaskOrchestrator from this module.
+  parseItemPosition: vi.fn((id: string) => {
+    const m = /^(\d+)\.M(\d+)\.T(\d+)(?:\.S(\d+))?$/.exec(id);
+    if (!m) return null;
+    const pos: Record<string, number> = {
+      phase: Number(m[1]),
+      milestone: Number(m[2]),
+      task: Number(m[3]),
+    };
+    if (m[4] !== undefined) pos.subtask = Number(m[4]);
+    return pos;
+  }),
+}));
+
+// Mock the PRPGenerator class (BUG-004 category (a) research seam). This suite's
+// subject is orchestrator runtime behavior, NOT the research path — bypass
+// generate() to avoid the `PiHarness not initialized` chain. Keeps ResearchQueue real.
+vi.mock('../../../src/agents/prp-generator.js', () => ({
+  PRPGenerator: vi.fn(),
 }));
 
 // =============================================================================
@@ -108,7 +134,7 @@ function createTestBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope for S1',
+                    context_scope: CONTEXT_SCOPE,
                   },
                   {
                     type: 'Subtask',
@@ -117,7 +143,7 @@ function createTestBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope for S2',
+                    context_scope: CONTEXT_SCOPE,
                   },
                   {
                     type: 'Subtask',
@@ -126,7 +152,7 @@ function createTestBacklog(): Backlog {
                     status: 'Planned',
                     story_points: 1,
                     dependencies: [],
-                    context_scope: 'Test scope for S3',
+                    context_scope: CONTEXT_SCOPE,
                   },
                 ],
               },
@@ -212,6 +238,10 @@ describe('TaskOrchestrator Runtime Integration Tests', () => {
     const planDir = join(tempDir, 'plan');
     const sessionState = createSessionState(backlog, planDir);
     await sessionManager.loadSession(sessionState.metadata.path);
+
+    // Wire the research seam before each test constructs the orchestrator.
+    // (afterEach runs vi.clearAllMocks(), so re-wire per test here.)
+    wireMockPRPGenerator({ PRPGenerator: vi.mocked(PRPGenerator) });
   });
 
   afterEach(() => {
@@ -244,9 +274,12 @@ describe('TaskOrchestrator Runtime Integration Tests', () => {
       // EXECUTE: Execute the task (which enqueues subtasks)
       await orchestrator.executeTask(task);
 
-      // VERIFY: All subtasks should be enqueued
+      // VERIFY: All three subtasks entered the research queue and completed
+      // (the mocked PRPGenerator.generate resolves, caching each result).
+      // executeTask uses the (default) flat-pool model to bulk-enqueue all
+      // subtasks; they are processed and cached.
       const stats = orchestrator.researchQueue.getStats();
-      expect(stats.queued).toBe(3); // Three subtasks
+      expect(stats.cached).toBe(3); // Three subtasks researched + cached
     });
 
     it('should provide stats after enqueue', async () => {
