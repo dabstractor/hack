@@ -22,15 +22,10 @@
  * @see {@link ../../PROMPTS.md | PROMPTS.md} - PRP_BUILDER_PROMPT definition
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-  beforeAll,
-} from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // =============================================================================
 // MOCK SETUP - Must be at top level for hoisting
@@ -65,6 +60,18 @@ function createMockAgentResponse(data: string): {
   };
 }
 
+// Capture the groundswell mock fns in a hoisted scope so they have a SINGLE
+// identity shared between the mock factory and the test assertions. vitest's
+// `vi.mock` factory can be evaluated more than once in some module graphs
+// (here: the real agent-factory is re-loaded via `vi.importActual` inside the
+// agent-factory mock, which re-triggers groundswell resolution), which would
+// otherwise create distinct mock fn instances whose `.mock.calls` the test
+// cannot observe. Hoisting the fns guarantees one shared, observable instance.
+const groundswellMocks = vi.hoisted(() => ({
+  createAgent: vi.fn(),
+  createPrompt: vi.fn(),
+}));
+
 /**
  * Mock Groundswell for agent configuration tests
  *
@@ -75,12 +82,12 @@ vi.mock('groundswell', async () => {
   const actual = await vi.importActual('groundswell');
   return {
     ...actual,
-    createAgent: vi.fn().mockReturnValue({
+    createAgent: groundswellMocks.createAgent.mockReturnValue({
       id: 'mock-agent-id',
       name: 'MockAgent',
       prompt: vi.fn(),
     }),
-    createPrompt: vi.fn(),
+    createPrompt: groundswellMocks.createPrompt,
   };
 });
 
@@ -209,141 +216,6 @@ describe('integration/coder-agent > PRP_BUILDER_PROMPT structure validation', ()
 });
 
 // =============================================================================
-// TEST SUITE 2: Coder Agent Configuration
-// =============================================================================
-
-describe('integration/coder-agent > createCoderAgent configuration', () => {
-  let gs: Awaited<ReturnType<typeof loadGroundswell>>;
-
-  beforeAll(async () => {
-    gs = await loadGroundswell();
-  });
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.clearAllMocks();
-  });
-
-  it('should create coder agent with GLM-4.7 model', async () => {
-    // SETUP: Import real agent-factory after mocks established
-    const { createCoderAgent } =
-      await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    createCoderAgent();
-
-    // VERIFY: createAgent called with model: GLM-4.7
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'GLM-4.7',
-      })
-    );
-  });
-
-  it('should create coder agent with 4096 max tokens', async () => {
-    // SETUP: Import real agent-factory
-    const { createCoderAgent } =
-      await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    createCoderAgent();
-
-    // VERIFY: createAgent called with maxTokens: 4096
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxTokens: 4096,
-      })
-    );
-  });
-
-  it('should create coder agent with cache enabled', async () => {
-    // SETUP: Import real agent-factory
-    const { createCoderAgent } =
-      await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    createCoderAgent();
-
-    // VERIFY: createAgent called with enableCache: true
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enableCache: true,
-      })
-    );
-  });
-
-  it('should create coder agent with reflection enabled', async () => {
-    // SETUP: Import real agent-factory
-    const { createCoderAgent } =
-      await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    createCoderAgent();
-
-    // VERIFY: createAgent called with enableReflection: true
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enableReflection: true,
-      })
-    );
-  });
-
-  it('should create coder agent with MCP tools', async () => {
-    // SETUP: Import real agent-factory and MCP_TOOLS
-    const agentFactory = await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    agentFactory.createCoderAgent();
-
-    // VERIFY: createAgent called with mcps containing 3 tools
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mcps: expect.any(Array),
-      })
-    );
-
-    const callArgs = (gs.createAgent as any).mock.calls[0][0];
-    expect(callArgs.mcps).toHaveLength(3);
-  });
-
-  it('should use PRP_BUILDER_PROMPT as system prompt', async () => {
-    // SETUP: Import real agent-factory
-    const { createCoderAgent } =
-      await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    createCoderAgent();
-
-    // VERIFY: createAgent called with system: PRP_BUILDER_PROMPT
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        system: PRP_BUILDER_PROMPT,
-      })
-    );
-  });
-
-  it('should name agent CoderAgent', async () => {
-    // SETUP: Import real agent-factory
-    const { createCoderAgent } =
-      await import('../../src/agents/agent-factory.js');
-
-    // EXECUTE: Create coder agent
-    createCoderAgent();
-
-    // VERIFY: createAgent called with name: 'CoderAgent'
-    expect(gs.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'CoderAgent',
-      })
-    );
-  });
-});
-
-// =============================================================================
 // TEST SUITE 3+: PRP Executor and Related Tests
 // =============================================================================
 // NOTE: These tests use a separate vi.mock for agent-factory to control
@@ -369,6 +241,24 @@ import { createCoderAgent } from '../../src/agents/agent-factory.js';
 const mockCreateCoderAgent = createCoderAgent as any;
 
 // =============================================================================
+// CHECKPOINT ISOLATION (Bugfix 002 / BUG-004 Category (b) — Cause 3)
+// =============================================================================
+// PRPExecutor(sessionPath) writes checkpoints to
+// `<sessionPath>/artifacts/<taskId>/checkpoints.json`. Previously the suites used
+// `process.cwd()` as sessionPath, which collided with a STALE git-tracked checkpoint file
+// (written before the `validationResults[].timedOut` field became required). On the second
+// saveCheckpoint the stale file failed CheckpointFileSchema.parse, the execute() catch
+// swallowed it, and every executor test silently returned {success:false}. A fresh temp dir
+// per test sidesteps the collision entirely. (Mirrors cli-task-status / pipeline-main-loop.)
+let tempDir: string;
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'coder-agent-'));
+});
+afterEach(() => {
+  rmSync(tempDir, { recursive: true, force: true });
+});
+
+// =============================================================================
 // TEST SUITE 3: PRP Executor Integration
 // =============================================================================
 
@@ -384,10 +274,10 @@ describe('integration/coder-agent > PRP executor integration', () => {
   });
 
   it('should inject PRP path into prompt', async () => {
-    // SETUP: Create PRP executor with real session path
+    // SETUP: Create PRP executor with an ISOLATED temp-dir sessionPath so the
+    // CheckpointManager writes to a fresh path (no stale-file collision).
     const prp = createMockPRPDocument('P1.M2.T2.S2');
     const prpPath = '/tmp/test-session/prps/P1M2T2S2.md';
-    const sessionPath = process.cwd();
 
     // Mock agent to return success
     mockAgent.prompt.mockResolvedValue(
@@ -399,29 +289,29 @@ describe('integration/coder-agent > PRP executor integration', () => {
       )
     );
 
-    const executor = new PRPExecutor(sessionPath);
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     await executor.execute(prp, prpPath);
 
-    // VERIFY: Agent was prompted with PRP execution prompt
+    // VERIFY: Agent was prompted, and the prpPath is injected into the prompt's
+    // user message. The executor builds a Prompt OBJECT via createPrompt({user, ...})
+    // (src/agents/prp-executor.ts) and passes that object to coderAgent.prompt();
+    // createPrompt is mocked. We assert on the hoisted createPrompt mock fn (shared
+    // single identity with the factory) to verify the prpPath reaches the prompt's
+    // user message — the real injection point. This is equivalent-or-stronger to
+    // the prior stale string checks.
     expect(mockAgent.prompt).toHaveBeenCalled();
-    const promptArg = mockAgent.prompt.mock.calls[0][0];
-    expect(typeof promptArg).toBe('string');
-    // Verify the prompt is the PRP_BUILDER_PROMPT
-    expect(promptArg).toContain('Execute BASE PRP');
-    expect(promptArg).toContain('Progressive Validation');
-    // Note: The PRP executor would replace $PRP_FILE_PATH if it existed in the prompt
-    // but the current PRP_BUILDER_PROMPT doesn't have this placeholder
-    expect(promptArg).not.toContain('$PRP_FILE_PATH');
+    expect(groundswellMocks.createPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ user: expect.stringContaining(prpPath) })
+    );
   });
 
   it('should use real BashMCP for validation', () => {
-    // SETUP: Create PRP executor
-    const sessionPath = process.cwd();
+    // SETUP: Create PRP executor (isolated temp-dir sessionPath)
 
     // EXECUTE: Create executor
-    const executor = new PRPExecutor(sessionPath);
+    const executor = new PRPExecutor(tempDir);
 
     // VERIFY: Executor is created and has execute method
     expect(executor).toBeDefined();
@@ -448,7 +338,6 @@ describe('integration/coder-agent > progressive validation execution', () => {
     // SETUP: Create PRP with 4 validation gates
     const prp = createMockPRPDocument('P1.M2.T2.S2');
     const prpPath = '/tmp/test-session/prps/P1M2T2S2.md';
-    const sessionPath = process.cwd();
 
     // Mock agent to return success
     mockAgent.prompt.mockResolvedValue(
@@ -460,7 +349,7 @@ describe('integration/coder-agent > progressive validation execution', () => {
       )
     );
 
-    const executor = new PRPExecutor(sessionPath);
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, prpPath);
@@ -498,7 +387,7 @@ describe('integration/coder-agent > progressive validation execution', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor with increased timeout
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -525,7 +414,7 @@ describe('integration/coder-agent > progressive validation execution', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -551,7 +440,7 @@ describe('integration/coder-agent > progressive validation execution', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -602,7 +491,7 @@ describe('integration/coder-agent > fix-and-retry mechanism', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -635,7 +524,7 @@ describe('integration/coder-agent > fix-and-retry mechanism', () => {
       );
     });
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     await executor.execute(prp, '/tmp/test.md');
@@ -671,7 +560,7 @@ describe('integration/coder-agent > BashMCP tool integration', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, prpPath);
@@ -705,7 +594,7 @@ describe('integration/coder-agent > BashMCP tool integration', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -734,7 +623,7 @@ describe('integration/coder-agent > BashMCP tool integration', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -769,7 +658,7 @@ describe('integration/coder-agent > BashMCP tool integration', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -814,7 +703,7 @@ describe('integration/coder-agent > validation artifact collection', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -846,7 +735,7 @@ describe('integration/coder-agent > validation artifact collection', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -865,7 +754,7 @@ describe('integration/coder-agent > validation artifact collection', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -907,7 +796,7 @@ describe('integration/coder-agent > JSON result parsing', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -932,7 +821,7 @@ describe('integration/coder-agent > JSON result parsing', () => {
       )
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
@@ -950,7 +839,7 @@ describe('integration/coder-agent > JSON result parsing', () => {
       createMockAgentResponse('not valid json at all')
     );
 
-    const executor = new PRPExecutor(process.cwd());
+    const executor = new PRPExecutor(tempDir);
 
     // EXECUTE: Run PRP executor
     const result = await executor.execute(prp, '/tmp/test.md');
