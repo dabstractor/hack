@@ -50,6 +50,20 @@ vi.mock('../../src/agents/agent-factory.js', () => ({
   createQAAgent: vi.fn(),
 }));
 
+// Mock ValidationWorkflow so run()'s #runValidation() completes in ALL modes.
+// #runValidation() constructs ValidationWorkflow and throws ValidationFailedError
+// on !outcome.success; without this mock run() returns a failure result.
+vi.mock('../../src/workflows/validation-workflow.js', () => ({
+  ValidationWorkflow: vi.fn().mockImplementation(() => ({
+    run: vi.fn().mockResolvedValue({
+      success: true,
+      exitCode: 0,
+      timedOut: false,
+      durationMs: 0,
+    }),
+  })),
+}));
+
 // Mock PRPRuntime to avoid actual PRP execution
 vi.mock('../../src/agents/prp-runtime.js', () => ({
   PRPRuntime: vi.fn().mockImplementation(() => ({
@@ -196,6 +210,10 @@ describe('integration/pipeline-main-loop', () => {
       saveBacklog: vi.fn().mockResolvedValue(undefined),
       flushUpdates: vi.fn().mockResolvedValue(undefined),
       updateItemStatus: vi.fn().mockResolvedValue(undefined),
+      // initializeSession() calls hasSessionChanged() (:785); without it the
+      // mock throws non-fatally → currentPhase='session_failed'.
+      hasSessionChanged: vi.fn().mockReturnValue(false),
+      hasAnySessions: vi.fn().mockResolvedValue(false),
     };
     (SessionManager as any).mockImplementation(() => mock);
     return mock;
@@ -215,6 +233,12 @@ describe('integration/pipeline-main-loop', () => {
       saveBacklog: vi.fn().mockResolvedValue(undefined),
       flushUpdates: vi.fn().mockResolvedValue(undefined),
     }));
+
+    // run() calls validateNestedExecution() which throws NestedExecutionError if
+    // process.env.PRP_PIPELINE_RUNNING is set (leaks in some run contexts).
+    // vi.unstubAllEnvs() in afterEach only undoes vi.stubEnv values — it does NOT
+    // clear a genuinely-set env. Defensive clear (no-op in a clean env).
+    delete process.env.PRP_PIPELINE_RUNNING;
 
     // Clear mocks
     vi.clearAllMocks();
@@ -246,9 +270,15 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // The constructor no longer inits the session (deferred into run()/
+      // initializeSession()); drive it directly to assert the init contract.
+      (pipeline as any).sessionManager = mockSessionManager;
+      await pipeline.initializeSession();
 
-      // VERIFY: SessionManager.initialize was called
-      expect(mockSessionManager.initialize).toHaveBeenCalledWith(prdPath);
+      // VERIFY: SessionManager.initialize was called.
+      // SessionManager.initialize() is no-arg (prdPath is passed to the
+      // SessionManager constructor in run()) — assert toHaveBeenCalled().
+      expect(mockSessionManager.initialize).toHaveBeenCalled();
 
       // VERIFY: Pipeline has session initialized
       expect(pipeline.currentPhase).toBe('session_initialized');
@@ -281,9 +311,13 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline (should discover existing session)
       const pipeline = new PRPPipeline(prdPath);
+      // Drive initializeSession() directly (deferred out of the constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
+      await pipeline.initializeSession();
 
-      // VERIFY: Session was discovered/initialized
-      expect(mockSessionManager.initialize).toHaveBeenCalledWith(prdPath);
+      // VERIFY: Session was discovered/initialized.
+      // initialize() is no-arg; assert toHaveBeenCalled().
+      expect(mockSessionManager.initialize).toHaveBeenCalled();
       expect(pipeline.currentPhase).toBe('session_initialized');
     });
   });
@@ -312,13 +346,17 @@ describe('integration/pipeline-main-loop', () => {
       let callCount = 0;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           return callCount <= 3; // Returns true 3 times, then false
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // run()→initializeSession() OVERWRITES this.taskOrchestrator via
+      // `new TaskOrchestratorClass(...)`; instance injection is lost. Wire at
+      // the class level so the constructor mock RETURNS this orchestrator.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -352,6 +390,7 @@ describe('integration/pipeline-main-loop', () => {
       let callCount = 0;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           // Simulate task completion by updating status
@@ -363,7 +402,8 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -390,6 +430,10 @@ describe('integration/pipeline-main-loop', () => {
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
       const infoSpy = vi.spyOn((pipeline as any).logger, 'info');
+
+      // The constructor no longer creates sessionManager; inject it so
+      // executeBacklog() finds the backlog (HARD-ABORT otherwise).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       let callCount = 0;
       const mockOrchestrator: any = {
@@ -419,7 +463,7 @@ describe('integration/pipeline-main-loop', () => {
   });
 
   describe('individual task failure handling', () => {
-    it('should track individual task failures', async () => {
+    it('should propagate an orchestrator failure as a fatal run() failure (PRD bugfix Issue 5)', async () => {
       // SETUP: Create test PRD
       const backlog = createMockBacklog(3);
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
@@ -442,6 +486,7 @@ describe('integration/pipeline-main-loop', () => {
       let callCount = 0;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           if (callCount === 2) {
@@ -456,22 +501,23 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
-      // VERIFY: All tasks were attempted (pipeline continued after failure)
-      expect(mockOrchestrator.processNextItem).toHaveBeenCalledTimes(4);
-
-      // VERIFY: Failure was tracked
-      expect(result.hasFailures).toBe(true);
-      expect(result.failedTasks).toBe(1);
-
-      // VERIFY: Pipeline completed despite failure
-      expect(result.success).toBe(true);
+      // VERIFY: PRD bugfix Issue 5 — a processNextItem throw is wrapped as a
+      // fatal OrchestratorError and PROPAGATES out of executeBacklog (the outer
+      // catch rethrows it unconditionally, even under --continue-on-error). It
+      // does NOT reach the inner taskError catch / #trackFailure, so it surfaces
+      // as a run() FAILURE rather than a tracked individual-task failure.
+      // processNextItem is called twice: the prime (T1) + the throwing re-eval.
+      expect(mockOrchestrator.processNextItem).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
     });
 
-    it('should not stop pipeline on individual failures', async () => {
+    it('should halt on the first orchestrator failure (PRD bugfix Issue 5)', async () => {
       // SETUP: Create test PRD
       const backlog = createMockBacklog(5);
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
@@ -495,6 +541,7 @@ describe('integration/pipeline-main-loop', () => {
       const failedTasks = new Set<number>([2, 4]); // Tasks 2 and 4 will fail
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           const taskId = `P1.M1.T${callCount}.S1`;
@@ -507,20 +554,21 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
-      // VERIFY: All tasks were attempted
-      expect(mockOrchestrator.processNextItem).toHaveBeenCalledTimes(6); // 5 tasks + 1 false
-
-      // VERIFY: Failures tracked but pipeline continued
-      expect(result.failedTasks).toBe(2);
-      expect(result.hasFailures).toBe(true);
-      expect(result.success).toBe(true); // Overall success despite failures
+      // VERIFY: PRD bugfix Issue 5 — the FIRST processNextItem throw is fatal:
+      // it propagates as an OrchestratorError out of executeBacklog and run()
+      // returns a failure. The loop never reaches call 4 (the second failure).
+      // processNextItem is called twice: prime (T1) + the throwing re-eval (T2).
+      expect(mockOrchestrator.processNextItem).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
     });
 
-    it('should log warning when task fails', async () => {
+    it('should reject executeBacklog on an orchestrator failure (PRD bugfix Issue 5)', async () => {
       // SETUP: Create test PRD
       const backlog = createMockBacklog(3);
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
@@ -538,7 +586,6 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
-      const warnSpy = vi.spyOn((pipeline as any).logger, 'warn');
 
       let callCount = 0;
       const mockOrchestrator: any = {
@@ -553,16 +600,17 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
+      // Inject sessionManager (deferred out of constructor); orchestrator
+      // injection sticks because initializeSession()/run() are NOT called here.
+      (pipeline as any).sessionManager = mockSessionManager;
       (pipeline as any).taskOrchestrator = mockOrchestrator;
 
-      await pipeline.executeBacklog();
-
-      // VERIFY: Warning logged for failed task
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Task failed, continuing to next task')
-      );
-
-      warnSpy.mockRestore();
+      // VERIFY: PRD bugfix Issue 5 — a processNextItem throw is wrapped as an
+      // OrchestratorError at the priming read and PROPAGATES out of
+      // executeBacklog (the outer catch rethrows it unconditionally). The
+      // 'Task failed, continuing' warn only fires under --continue-on-error via
+      // the INNER taskError catch, which a processNextItem throw never reaches.
+      await expect(pipeline.executeBacklog()).rejects.toThrow();
     });
   });
 
@@ -588,10 +636,12 @@ describe('integration/pipeline-main-loop', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
@@ -622,6 +672,7 @@ describe('integration/pipeline-main-loop', () => {
       let callCount = 0;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           if (callCount <= 5) {
@@ -632,7 +683,8 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
@@ -641,7 +693,7 @@ describe('integration/pipeline-main-loop', () => {
       expect(mockOrchestrator.processNextItem).toHaveBeenCalledTimes(6);
     });
 
-    it('should update failedTasks count', async () => {
+    it('should not count an orchestrator failure as a tracked task failure (PRD bugfix Issue 5)', async () => {
       // SETUP: Create test PRD
       const backlog = createMockBacklog(5);
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
@@ -664,6 +716,7 @@ describe('integration/pipeline-main-loop', () => {
       let callCount = 0;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           const taskId = `P1.M1.T${callCount}.S1`;
@@ -677,13 +730,17 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
-      // VERIFY: failedTasks matches number of failures
-      expect(result.failedTasks).toBe(2);
-      expect(result.hasFailures).toBe(true);
+      // VERIFY: PRD bugfix Issue 5 — an OrchestratorError (from a processNextItem
+      // throw) is NOT counted as an individual task failure (#trackFailure is
+      // never reached because the error propagates out of executeBacklog). So
+      // #failedTasks.size stays 0 and the run fails fatally.
+      expect(result.failedTasks).toBe(0);
+      expect(result.success).toBe(false);
     });
 
     it('should track progress percentage correctly', async () => {
@@ -708,6 +765,7 @@ describe('integration/pipeline-main-loop', () => {
       let callCount = 0;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           if (callCount <= 10) {
@@ -717,7 +775,8 @@ describe('integration/pipeline-main-loop', () => {
         }),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
@@ -752,10 +811,12 @@ describe('integration/pipeline-main-loop', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -781,6 +842,9 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor); orchestrator injection
+      // sticks because initializeSession()/run() are NOT called here.
+      (pipeline as any).sessionManager = mockSessionManager;
 
       // Mock processNextItem to return false immediately (empty queue after processing)
       let callCount = 0;
@@ -818,6 +882,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       let callCount = 0;
       const mockOrchestrator: any = {
@@ -864,6 +930,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       // Mock processNextItem to return false immediately (no tasks to process)
       const mockOrchestrator: any = {
@@ -900,6 +968,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       let callCount = 0;
       const mockOrchestrator: any = {
@@ -945,6 +1015,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       // Mock processNextItem to always return true (infinite loop condition)
       const mockOrchestrator: any = {
@@ -980,6 +1052,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       const mockOrchestrator: any = {
         sessionManager: {},
@@ -1015,6 +1089,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       // Controlled behavior: exactly 3 tasks
       let callCount = 0;
@@ -1045,6 +1121,8 @@ describe('integration/pipeline-main-loop', () => {
         });
 
       const pipeline2 = new PRPPipeline(prdPath);
+      // Re-inject sessionManager on the second pipeline instance.
+      (pipeline2 as any).sessionManager = mockSessionManager;
       (pipeline2 as any).taskOrchestrator = mockOrchestrator;
       await pipeline2.executeBacklog();
 
@@ -1073,6 +1151,8 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Inject sessionManager (deferred out of constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
 
       const processedIds: string[] = [];
       let callCount = 0;
@@ -1080,9 +1160,13 @@ describe('integration/pipeline-main-loop', () => {
         sessionManager: {},
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
-          const id = `P1.M1.T${callCount}.S1`;
-          mockOrchestrator.currentItemId = id;
-          processedIds.push(id);
+          // Only track an item when one is actually processed (the final
+          // false-returning call advances no task).
+          if (callCount <= 3) {
+            const id = `P1.M1.T${callCount}.S1`;
+            mockOrchestrator.currentItemId = id;
+            processedIds.push(id);
+          }
           return callCount <= 3;
         }),
         currentItemId: null as string | null,
@@ -1119,9 +1203,13 @@ describe('integration/pipeline-main-loop', () => {
 
       // EXECUTE: Create pipeline
       const pipeline = new PRPPipeline(prdPath);
+      // Drive initializeSession() directly (deferred out of the constructor).
+      (pipeline as any).sessionManager = mockSessionManager;
+      await pipeline.initializeSession();
 
-      // VERIFY: SessionManager methods were called
-      expect(mockSessionManager.initialize).toHaveBeenCalledWith(prdPath);
+      // VERIFY: SessionManager methods were called.
+      // initialize() is no-arg (prdPath → SessionManager constructor in run()).
+      expect(mockSessionManager.initialize).toHaveBeenCalled();
       expect(pipeline.currentPhase).toBe('session_initialized');
     });
 
@@ -1163,6 +1251,10 @@ describe('integration/pipeline-main-loop', () => {
           callOrder.push('saveBacklog');
         }),
         updateItemStatus: vi.fn().mockResolvedValue(undefined),
+        // initializeSession() calls hasSessionChanged(); without it the mock
+        // throws non-fatally → currentPhase='session_failed'.
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
       };
       (SessionManager as any).mockImplementation(() => mockSessionManager);
 
@@ -1171,10 +1263,12 @@ describe('integration/pipeline-main-loop', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
         currentItemId: null as string | null,
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      // Class-level wiring: initializeSession() overwrites instance injection.
+      (TaskOrchestrator as any).mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
