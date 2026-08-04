@@ -72,6 +72,7 @@ import { FixCycleWorkflow } from './fix-cycle-workflow.js';
 import { isParallelResearch, getResearchDepth } from '../config/constants.js';
 import { patchBacklog } from '../core/task-patcher.js';
 import { mergeBacklogs } from '../core/backlog-merger.js';
+import { classifyChangeWithRetry } from '../core/change-classifier.js';
 import { filterByStatus } from '../utils/task-utils.js';
 import { progressTracker, type ProgressTracker } from '../utils/progress.js';
 import { ProgressDisplay } from '../utils/progress-display.js';
@@ -779,10 +780,50 @@ export class PRPPipeline extends Workflow {
 
       // Check for PRD changes and handle delta if needed
       if (this.sessionManager.hasSessionChanged()) {
-        this.logger.info(
-          '[PRPPipeline] PRD has changed, initializing delta session'
-        );
-        await this.handleDelta();
+        // BUG-002 Part A: classify the change before spawning a delta session
+        // (PRD §4.3 step 1). hasSessionChanged() is a pure hash compare, so
+        // EVERY edit reaches here; the classifier decides whether the change is
+        // SUBSTANTIVE (→ delta session) or COSMETIC (→ absorb the new baseline
+        // without a delta session). Any classification failure degrades to
+        // SUBSTANTIVE (the protective default — never silently skip a delta
+        // session on a classifier failure).
+        const diffSummary = await this.sessionManager.getChangeDiffSummary();
+
+        // Cheap pre-filter: diffPRDs already normalizes whitespace away, so a
+        // pure-whitespace edit yields zero changes → COSMETIC without an LLM call.
+        if (diffSummary.changes.length === 0) {
+          this.logger.info(
+            '[PRPPipeline] PRD diff is empty after normalization — absorbing as COSMETIC'
+          );
+          await this.sessionManager.absorbCosmeticChange();
+        } else {
+          let verdict: 'COSMETIC' | 'SUBSTANTIVE';
+          try {
+            verdict = await classifyChangeWithRetry(diffSummary);
+          } catch (error) {
+            // Protective default (PRD §4.3): classifyChangeWithRetry already
+            // fails to SUBSTANTIVE on retry exhaustion; this guards the residual
+            // "classifier threw around its own catch" case (e.g. module-load
+            // failure) — never silently skip the delta session.
+            const classifierErr =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              `[PRPPipeline] Change classifier threw; failing to protective default SUBSTANTIVE: ${classifierErr}`
+            );
+            verdict = 'SUBSTANTIVE';
+          }
+          if (verdict === 'SUBSTANTIVE') {
+            this.logger.info(
+              '[PRPPipeline] PRD change is SUBSTANTIVE — initializing delta session'
+            );
+            await this.handleDelta();
+          } else {
+            this.logger.info(
+              '[PRPPipeline] PRD change is COSMETIC — absorbing without delta session'
+            );
+            await this.sessionManager.absorbCosmeticChange();
+          }
+        }
       }
 
       // Update phase
@@ -842,11 +883,13 @@ export class PRPPipeline extends Workflow {
    * 3. **`spawnDeltaSession()`** (default) — the existing delta-session flow:
    *    DeltaAnalysisWorkflow → patchBacklog → createDeltaSession → saveBacklog.
    *
-   * CONTRACT INPUT (P4.M1.T1.S2): a SUBSTANTIVE verdict from
-   * `classifyChangeWithRetry()` routes here. COSMETIC changes are skipped
-   * upstream (no marker, no dispatch). Classification is NOT wired by this
-   * item — it is upstream and a separate work item; the dispatcher treats the
-   * verdict as an input seam.
+   * CONTRACT INPUT: `initializeSession()` classifies a detected PRD change via
+   * `classifyChangeWithRetry()` (PRD §4.3 step 1). A `SUBSTANTIVE` verdict routes
+   * here (delta session). A `COSMETIC` verdict is absorbed upstream via
+   * `SessionManager.absorbCosmeticChange()` — it does NOT route here and does NOT
+   * spawn a delta session. Any classifier failure (exhaustion or an unexpected
+   * throw) degrades to `SUBSTANTIVE`, so this method runs on every change that is
+   * not confidently COSMETIC.
    */
   @Step({ trackTiming: true, name: 'handleDelta' })
   async handleDelta(): Promise<void> {

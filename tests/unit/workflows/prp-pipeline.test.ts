@@ -52,6 +52,13 @@ vi.mock('../../../src/core/session-manager.js', () => ({
   })),
 }));
 
+// Mock the change classifier (BUG-002 Part A) — classifyChangeWithRetry is
+// wired into initializeSession. Default 'SUBSTANTIVE' keeps the existing
+// 'should call handleDelta when hasSessionChanged returns true' test green.
+vi.mock('../../../src/core/change-classifier.js', () => ({
+  classifyChangeWithRetry: vi.fn(),
+}));
+
 // Mock TaskOrchestrator
 vi.mock('../../../src/core/task-orchestrator.js', () => ({
   TaskOrchestrator: vi.fn().mockImplementation(() => ({
@@ -171,6 +178,7 @@ import {
   validateNestedExecution,
   isNestedExecutionError,
 } from '../../../src/utils/validation/execution-guard.js';
+import { classifyChangeWithRetry } from '../../../src/core/change-classifier.js';
 
 // Cast mocked functions
 const mockReadFile = readFile as any;
@@ -185,6 +193,9 @@ const mockPatchBacklog = patchBacklog as any;
 const mockFilterByStatus = filterByStatus as any;
 const mockValidateNestedExecution = validateNestedExecution as any;
 const mockIsNestedExecutionError = isNestedExecutionError as any;
+const mockClassifyChange = classifyChangeWithRetry as unknown as ReturnType<
+  typeof vi.fn
+>;
 // Get reference to mocked constructor for test setup
 const MockSessionManagerClass = SessionManagerClass as any;
 
@@ -282,6 +293,26 @@ function createMockSessionManager(
     planDir: '/plan',
     flushUpdates: vi.fn().mockResolvedValue(undefined),
     hasAnySessions: vi.fn().mockResolvedValue(false),
+    // BUG-002 Part A: the COSMETIC/SUBSTANTIVE classifier seam. Default NON-empty
+    // changes so the empty-diff pre-filter does not short-circuit the classify path.
+    getChangeDiffSummary: vi.fn().mockResolvedValue({
+      changes: [
+        {
+          type: 'modified',
+          sectionTitle: 'X',
+          lineNumber: 1,
+          impact: 'low',
+        },
+      ],
+      summaryText: 'changed',
+      stats: {
+        totalAdded: 1,
+        totalModified: 0,
+        totalRemoved: 0,
+        sectionsAffected: ['X'],
+      },
+    }),
+    absorbCosmeticChange: vi.fn().mockResolvedValue(undefined),
   };
   // Set the mock instance to be returned by SessionManager constructor
   MockSessionManagerClass.mockImplementation(() => mock);
@@ -306,7 +337,30 @@ describe('PRPPipeline', () => {
       currentSession: null,
       initialize: vi.fn().mockResolvedValue({ currentSession: null }),
       saveBacklog: vi.fn().mockResolvedValue(undefined),
+      // BUG-002 Part A: default the classifier seam so tests that construct via
+      // this default mock don't hit undefined when initializeSession runs.
+      getChangeDiffSummary: vi.fn().mockResolvedValue({
+        changes: [
+          {
+            type: 'modified',
+            sectionTitle: 'X',
+            lineNumber: 1,
+            impact: 'low',
+          },
+        ],
+        summaryText: 'changed',
+        stats: {
+          totalAdded: 1,
+          totalModified: 0,
+          totalRemoved: 0,
+          sectionsAffected: ['X'],
+        },
+      }),
+      absorbCosmeticChange: vi.fn().mockResolvedValue(undefined),
     }));
+    // Default classifier verdict = SUBSTANTIVE (keeps the existing
+    // 'should call handleDelta when hasSessionChanged returns true' test green).
+    mockClassifyChange.mockResolvedValue('SUBSTANTIVE');
     // Setup default mocks
     mockReadFile.mockResolvedValue(
       JSON.stringify({ backlog: [createTestPhase('P1', 'Phase 1', 'Planned')] })
@@ -2089,6 +2143,123 @@ describe('PRPPipeline', () => {
 
         // VERIFY
         expect(mockManager.hasSessionChanged).toHaveBeenCalled();
+        expect(handleDeltaSpy).not.toHaveBeenCalled();
+        expect(pipeline.currentPhase).toBe('session_initialized');
+
+        handleDeltaSpy.mockRestore();
+      });
+
+      it('routes a SUBSTANTIVE verdict to handleDelta (not absorbCosmeticChange)', async () => {
+        // SETUP — BUG-002 Part A: the classifier returns SUBSTANTIVE → delta session.
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, true);
+        mockClassifyChange.mockResolvedValueOnce('SUBSTANTIVE');
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        const handleDeltaSpy = vi
+          .spyOn(pipeline, 'handleDelta')
+          .mockResolvedValue(undefined);
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: classifier ran with the diff summary; handleDelta ran; the
+        // cosmetic absorb path did NOT.
+        expect(mockManager.getChangeDiffSummary).toHaveBeenCalled();
+        expect(mockClassifyChange).toHaveBeenCalled();
+        expect(handleDeltaSpy).toHaveBeenCalled();
+        expect(mockManager.absorbCosmeticChange).not.toHaveBeenCalled();
+        expect(pipeline.currentPhase).toBe('session_initialized');
+
+        handleDeltaSpy.mockRestore();
+      });
+
+      it('routes a COSMETIC verdict to absorbCosmeticChange (not handleDelta)', async () => {
+        // SETUP — BUG-002 Part A: the classifier returns COSMETIC → absorb the
+        // new baseline WITHOUT a delta session.
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, true);
+        mockClassifyChange.mockResolvedValueOnce('COSMETIC');
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        const handleDeltaSpy = vi
+          .spyOn(pipeline, 'handleDelta')
+          .mockResolvedValue(undefined);
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: classifier ran; the cosmetic absorb ran; handleDelta did NOT.
+        expect(mockClassifyChange).toHaveBeenCalled();
+        expect(mockManager.absorbCosmeticChange).toHaveBeenCalled();
+        expect(handleDeltaSpy).not.toHaveBeenCalled();
+        expect(pipeline.currentPhase).toBe('session_initialized');
+
+        handleDeltaSpy.mockRestore();
+      });
+
+      it('fails to SUBSTANTIVE when the classifier throws (protective default)', async () => {
+        // SETUP — BUG-002 Part A: the classifier throws (module-load failure,
+        // non-transient error). The pipeline-level try/catch degrades to
+        // SUBSTANTIVE so a delta session is NEVER silently skipped.
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, true);
+        mockClassifyChange.mockRejectedValueOnce(new Error('classifier boom'));
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        const handleDeltaSpy = vi
+          .spyOn(pipeline, 'handleDelta')
+          .mockResolvedValue(undefined);
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: classifier threw → protective default SUBSTANTIVE → handleDelta.
+        expect(mockClassifyChange).toHaveBeenCalled();
+        expect(handleDeltaSpy).toHaveBeenCalled();
+        expect(mockManager.absorbCosmeticChange).not.toHaveBeenCalled();
+        expect(pipeline.currentPhase).toBe('session_initialized');
+
+        handleDeltaSpy.mockRestore();
+      });
+
+      it('absorbs as COSMETIC without an LLM call when the diff is empty (pre-filter)', async () => {
+        // SETUP — a pure-whitespace edit is normalized away by diffPRDs, so the
+        // diff has zero changes. The empty-diff pre-filter skips the LLM call
+        // and absorbs as COSMETIC directly.
+        const backlog = createTestBacklog([]);
+        const mockSession = createTestSession(backlog);
+        const mockManager = createMockSessionManager(mockSession, true);
+        mockManager.getChangeDiffSummary.mockResolvedValueOnce({
+          changes: [],
+          summaryText: 'No changes',
+          stats: {
+            totalAdded: 0,
+            totalModified: 0,
+            totalRemoved: 0,
+            sectionsAffected: [],
+          },
+        });
+
+        const pipeline = new PRPPipeline('./test.md');
+        (pipeline as any).sessionManager = mockManager;
+        const handleDeltaSpy = vi
+          .spyOn(pipeline, 'handleDelta')
+          .mockResolvedValue(undefined);
+
+        // EXECUTE
+        await pipeline.initializeSession();
+
+        // VERIFY: the classifier was NOT called (cheap pre-filter); absorbed as
+        // COSMETIC; handleDelta did NOT run.
+        expect(mockClassifyChange).not.toHaveBeenCalled();
+        expect(mockManager.absorbCosmeticChange).toHaveBeenCalled();
         expect(handleDeltaSpy).not.toHaveBeenCalled();
         expect(pipeline.currentPhase).toBe('session_initialized');
 

@@ -75,14 +75,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "BUG-002 — Wire COSMETIC/SUBSTANTIVE + CLEAN/DIRTY classifiers (Major)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "classifyChangeWithRetry() and classifyArtifactWithRetry() (src/core/change-classifier.ts) are fully implemented with correct protective defaults but never called. Wire classifyChangeWithRetry into PRD-change detection so COSMETIC changes skip the delta session; wire classifyArtifactWithRetry around delta_prd.md consumption; correct the misleading JSDoc at prp-pipeline.ts:845-849. See architecture/bug-002-classifiers.md.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Wire change classifier into PRD-change detection (COSMETIC skip)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Make hasSessionChanged()→handleDelta() classification-aware: compute a DiffSummary (reuse createDeltaSession's diffPRDs logic), classify via classifyChangeWithRetry, skip the delta session (absorb the change as the new baseline) when COSMETIC. Correct the misleading JSDoc.",
               "subtasks": [
                 {
@@ -103,7 +103,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "Wire classifyChangeWithRetry into initializeSession + correct the misleading JSDoc",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"
@@ -121,14 +121,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Wire artifact classifier (CLEAN/DIRTY) around delta_prd.md consumption",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Guard delta_prd.md before the architect consumes it in decomposePRD. classifyArtifactWithRetry returns CLEAN/DIRTY with protective default DIRTY.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Wire classifyArtifactWithRetry guard into decomposePRD",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S2"
