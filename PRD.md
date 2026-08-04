@@ -209,6 +209,25 @@ Smart Commit delegates commit-message generation to an LLM tool (`stagecoach`). 
 - **Last-resort fallback:** if generation is still failing after all retries, the staged work MUST NOT be stranded uncommitted — the system falls back to a plain `git commit` with a clearly-labeled placeholder message (e.g. `chore: commit-gen failed (exit N); fallback commit`) so the substance is preserved and can be reworded later.
 - **Distinct from agent-subprocess timeouts:** a watchdog timeout (exit 124) on a _research/implementation/validation_ call MUST NOT be retried (a hung subprocess would just re-hang), whereas a generation-timeout on the _commit_ call MUST be retried. The two timeout sources are treated differently by design.
 
+**Commit Message Format (Standardized Task-Prefix):**
+
+Smart Commit's `stagecoach` MUST emit commit messages in a standardized, machine-parseable **task-prefix** format that encodes the implementing item's hierarchical position in the backlog, instead of decorating messages with free-form banners or Conventional-Commit scopes:
+
+`<phase>.<milestone>.<task>.<subtask>: <descriptive commit message>`
+
+- **The prefix is the item's 1-indexed position** along its Phase → Milestone → Task → Subtask path. Example: phase 1, milestone 2, task 1, subtask 1 renders as `1.2.1.1: add createDeferredPromise utility and utils barrel`.
+- **Elide trailing levels the item does not use.** When the hierarchy terminates at Task (no subtask), the subtask segment is omitted rather than rendered as zero — e.g. `1.2.1: build CLI entry point`. The same elision applies to any unused trailing level, so the prefix is always the shortest string that still identifies the item.
+- **The prefix _replaces_, it does not stack with, decoration.** The legacy `[PRP Auto]` banner and Conventional-Commit scope encoding (`feat(P1.M2.T2.S1): …`) MUST NOT be prepended. The task-prefix already encodes the item's position; layering both on top is redundant cruft and is the exact source of the `[PRP Auto] … feat(P…) …` noise in the history. The descriptive message is the LLM-generated summary, kept verbatim — only the decoration is stripped.
+- **Non-task commits carry no prefix.** Commits not tied to a backlog item — `initial commit`, the Smart Commit Resilience fallback above (`chore: commit-gen failed (exit N); fallback commit`), out-of-hierarchy toolchain scaffolding — use a plain message with no task-prefix. This guarantees the prefix always unambiguously signals "this commit implements a real backlog item."
+- **Bugfix sessions use their own numbering.** A bugfix commit's prefix is taken from the bugfix session's own Phase → Milestone → Task → Subtask decomposition (the bug report is broken down with the same hierarchy as a main session; §4.4), never the parent session's indices, so main-session and bugfix histories stay mutually legible.
+
+**Configurability (`PRP_COMMIT_FORMAT`):** the task-prefix scheme is the default but MUST be opt-out, so a project that prefers a clean, hand-curated history is not forced into machine-generated prefixes:
+
+- `PRP_COMMIT_FORMAT=task-prefix` (default): the standardized `<phase>.<milestone>.<task>.<subtask>: <message>` format above.
+- `PRP_COMMIT_FORMAT=plain`: no prefix decoration at all; the commit message is just the descriptive text `stagecoach` produces (or the fallback placeholder). Use when the project wants human-authored messages without machine-generated prefixes.
+
+When `task-prefix` is selected but the commit is not a backlog item (fallback / scaffolding / initial), the formatter MUST degrade to `plain` rather than emit a malformed or zero-filled prefix. Toggling the format affects only newly generated messages; existing history is never rewritten.
+
 **`tasks.json` Write Concurrency (lost-update prevention):**
 
 `tasks.json` is an unlocked read-modify-write resource, and two callers write it concurrently in this pipeline: the **foreground executor** (`Implementing`/`Complete`) and the **background research supervisor** (`Researching`/`Ready` for depth-chained items). Their read-modify-write cycles can interleave, and the losing interleave clobbers a status back (e.g. the supervisor reverts `N:Implementing` → `N:Ready` because it read the file before the executor's write landed). The same window affects the restore/recovery path. This MUST be prevented:
@@ -396,6 +415,9 @@ Configuration is loaded in the following order (later sources override earlier o
   - `SKIP_BUG_FINDING`: Skip bug hunt stage; also identifies bug fix mode when `true`
   - `SKIP_EXECUTION_LOOP`: Internal flag to skip task execution while allowing validation/bug hunt
   - `PARALLEL_RESEARCH`: Enable background (parallel) PRP research (`true`/`false`, default `false`; CLI `-r`/`--parallel-research`). MUST be forwarded — along with `RESEARCH_DEPTH` — into the bugfix sub-pipeline (§4.2, §4.4), where all real item execution occurs.
+
+- **Commit Configuration**:
+  - `PRP_COMMIT_FORMAT`: Commit-message format emitted by Smart Commit / `stagecoach` (§5.1). `task-prefix` (default) renders the implementing item's hierarchical position as `<phase>.<milestone>.<task>.<subtask>: <message>` with trailing unused levels elided and _no_ `[PRP Auto]` banner / Conventional-Commit scope; `plain` emits just the descriptive message with no prefix, for projects that want a clean, hand-curated history. Non-backlog commits (fallback, scaffolding, `initial commit`) always carry no prefix regardless of this setting; the format applies only to newly generated messages.
 
 - **Resilience Tuning**:
   - `RESEARCH_TIMEOUT`: Deadline in seconds for background (parallel) research before falling back to synchronous re-research (default 1800 / 30 min; see §4.2). A grace period precedes the heartbeat so legitimately long research is not flagged as stuck.
