@@ -705,12 +705,26 @@ export class SessionManager {
       parentSession,
     };
 
-    return {
+    const session: SessionState = {
       metadata,
       prdSnapshot,
       taskRegistry,
       currentItemId: null, // Task Orchestrator will set this
     };
+
+    // Make the loaded session the current session. This restores the contract
+    // that loadSession() establishes an active session (the same contract that
+    // initialize()'s load branch and loadSessionAsCurrent() rely on, and that
+    // the integration test suite was written against). Read-only CLI callers
+    // (inspect/cache/artifacts/validate-state) construct a throwaway
+    // SessionManager per call and use only the returned SessionState, so
+    // setting #currentSession on their ephemeral manager has no observable
+    // effect. Caching #prdHash mirrors initialize()'s load branch so
+    // hasSessionChanged() reports no change right after a load.
+    this.#currentSession = session;
+    this.#prdHash = session.metadata.hash;
+
+    return session;
   }
 
   /**

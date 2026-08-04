@@ -64,6 +64,7 @@ import {
   getTasksLockPollMs,
 } from '../config/constants.js';
 import { readTasksJSON, writeTasksJSON } from './session-utils.js';
+import { SessionFileError } from './session-utils.js';
 import type { Backlog } from './models.js';
 
 /**
@@ -539,12 +540,39 @@ export async function withLockedTasksJSON(
         try {
           // READ — when a readFallback is supplied (recovery PATH B: corrupt
           // disk), use it if the read throws; otherwise propagate.
+          //
+          // MISSING-FILE LENIENCY (write path): a session directory can exist
+          // (with prd_snapshot.md) before tasks.json is ever written — e.g. a
+          // previous run created the session then died before decomposePRD()
+          // generated the backlog (the aftermath of the event-loop-drain bug),
+          // or a test constructs a session dir and immediately calls
+          // saveBacklog(). loadSession() already treats a missing tasks.json
+          // as an empty backlog on the READ path; mirror that here on the WRITE
+          // path so the very next saveBacklog() on an un-started session does
+          // not crash with ENOENT (PRD §5.1 "Recover from corruption …
+          // automatic and non-fatal"). Only a genuinely MISSING file is
+          // recoverable; parse/schema/EACCES etc. still throw (data-integrity
+          // errors are never silently swallowed).
           let backlog: Backlog;
           try {
             backlog = await readTasksJSON(sessionDir);
           } catch (readErr) {
-            if (readFallback === undefined) throw readErr;
-            backlog = structuredClone(readFallback); // repo/caller-owned → clone
+            if (
+              readFallback !== undefined
+            ) {
+              backlog = structuredClone(readFallback); // repo/caller-owned → clone
+            } else if (
+              readErr instanceof SessionFileError &&
+              readErr.code === 'ENOENT'
+            ) {
+              logger().warn(
+                { sessionDir, code: readErr.code },
+                'tasks.json missing on write path — treating as un-started (empty backlog); write will create it'
+              );
+              backlog = { backlog: [] };
+            } else {
+              throw readErr;
+            }
           }
           inflightForRun.set(sessionDir, backlog); // D4: stash for re-entry
           const next = await mutator(backlog); // MODIFY

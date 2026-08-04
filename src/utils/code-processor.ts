@@ -100,15 +100,24 @@ export class CodeProcessor {
   extractFunction(code: string, functionName: string): string {
     const lines = code.split('\n');
 
+    // Match actual function declarations/definitions anchored to the start of
+    // the relevant token — NOT a bare 'function' keyword (which would falsely
+    // match comment lines like '// Sample function for testing'). Require the
+    // keyword/identifier to begin the statement (after optional whitespace),
+    // optionally preceded by 'export'/'async' modifiers.
+    const declRe = new RegExp(
+      `^(?:export\\s+)?(?:async\\s+)?(?:function\\s+${functionName}\\b|const\\s+${functionName}\\s*=|${functionName}\\s*[:=])`
+    );
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
+      // Skip comment lines so the bare 'function' word in a comment never
+      // starts extraction at the wrong line.
+      if (/^\s*(\/\/|\/\*|\*)/.test(line)) continue;
+
       // Check if this line starts the function
-      if (
-        new RegExp(
-          `(?:function|const\\s+${functionName}|${functionName}\\s*[:=])`
-        ).test(line)
-      ) {
+      if (declRe.test(line.trimStart())) {
         // Find the opening brace
         const startLine = i;
         let braceCount = 0;
@@ -125,7 +134,10 @@ export class CodeProcessor {
 
           braceCount += openBraces - closeBraces;
 
-          if (foundBrace && braceCount === 0 && openBraces > 0) {
+          // The closing line frequently holds only a '}' (openBraces === 0),
+          // so the end condition must NOT require openBraces > 0 on this line —
+          // only that we have seen an opening brace and braces are balanced.
+          if (foundBrace && braceCount === 0) {
             // Found the end
             return lines
               .slice(startLine, j + 1)
@@ -164,7 +176,10 @@ export class CodeProcessor {
 
           braceCount += openBraces - closeBraces;
 
-          if (foundBrace && braceCount === 0 && openBraces > 0) {
+          // The closing line frequently holds only a '}' (openBraces === 0),
+          // so the end condition must NOT require openBraces > 0 on this line —
+          // only that we have seen an opening brace and braces are balanced.
+          if (foundBrace && braceCount === 0) {
             // Found the end
             return lines
               .slice(i, j + 1)
@@ -367,6 +382,7 @@ export class CodeProcessor {
     return code
       .replace(/\s+/g, ' ') // Replace multiple spaces with single space
       .replace(/\s*([{}();,:])\s*/g, '$1') // Remove spaces around punctuation
+      .replace(/\s*=\s*\{/g, '={') // Join assignment directly to object literal (e.g. 'x = {' -> 'x={')
       .replace(/\s*\{\s*/g, '{') // Remove spaces around opening brace
       .replace(/\s*\}\s*/g, '}') // Remove spaces around closing brace
       .trim();

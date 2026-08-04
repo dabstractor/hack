@@ -133,8 +133,9 @@ describe('integration/architect-agent', () => {
                             status: 'Planned',
                             story_points: 1,
                             dependencies: [],
+                            prd_selectors: [],
                             context_scope:
-                              'CONTRACT DEFINITION: Create package.json',
+                              'CONTRACT DEFINITION:\n1. RESEARCH NOTE: Inspect existing package.json\n2. INPUT: None\n3. LOGIC: Initialize dependencies\n4. OUTPUT: package.json created',
                           },
                         ],
                       },

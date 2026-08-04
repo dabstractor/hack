@@ -130,6 +130,16 @@ function createMultiLevelTasksJson(): Backlog {
                     context_scope:
                       'CONTRACT DEFINITION:\n1. RESEARCH NOTE: Test\n2. INPUT: None\n3. LOGIC: None\n4. OUTPUT: None',
                   },
+                  {
+                    type: 'Subtask',
+                    id: 'P1.M1.T1.S2',
+                    title: 'Test Subtask 2',
+                    status: 'Planned',
+                    story_points: 1,
+                    dependencies: [],
+                    context_scope:
+                      'CONTRACT DEFINITION:\n1. RESEARCH NOTE: Test\n2. INPUT: None\n3. LOGIC: None\n4. OUTPUT: None',
+                  },
                 ],
               },
               {
@@ -816,7 +826,7 @@ The system shall copy the PRD content to prd_snapshot.md with identical content.
   // Test 8: Missing tasks.json Throws SessionFileError
   // =============================================================================
 
-  it('should throw SessionFileError for missing tasks.json', async () => {
+  it('should treat missing tasks.json as an empty backlog (lenient read)', async () => {
     // SETUP: Create session directory without tasks.json
     const manager1 = new SessionManager(prdPath, planDir);
     await manager1.initialize();
@@ -825,13 +835,20 @@ The system shall copy the PRD content to prd_snapshot.md with identical content.
     const sessionPath = join(planDir, sessionDirs[0]);
     const tasksPath = join(sessionPath, 'tasks.json');
 
-    // Create tasks.json first, then remove it
+    // Create tasks.json first, then remove it — simulating an interrupted run
+    // that created the session but died before decomposePRD() wrote the backlog.
     writeFileSync(tasksPath, JSON.stringify({ backlog: [] }, null, 2), 'utf-8');
     rmSync(tasksPath);
 
-    // EXECUTE & VERIFY: Should throw error
+    // EXECUTE & VERIFY: A genuinely MISSING tasks.json is recoverable — the
+    // lenient read treats it as an un-started (empty backlog) session instead
+    // of fataling with a confusing ENOENT that blocked resume after every
+    // crashed run (PRD §5.1 "Recover from corruption … automatic and non-fatal").
+    // Parse/schema/EACCES errors still throw (data-integrity errors are never
+    // silently swallowed).
     const manager2 = new SessionManager(prdPath, planDir);
-    await expect(manager2.initialize()).rejects.toThrow(SessionFileError);
+    const session = await manager2.initialize();
+    expect(session.taskRegistry.backlog).toEqual([]);
   });
 
   // =============================================================================

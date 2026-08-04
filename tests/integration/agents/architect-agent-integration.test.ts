@@ -379,7 +379,13 @@ describe('integration/agents/architect-agent-integration', () => {
       const cfg = (
         gs.createPrompt as unknown as { mock: { calls: any[][] } }
       ).mock.calls.at(-1)![0];
-      expect(cfg.user).toBe(prdContent);
+      // PRD §2.3 requires the architect user prompt to carry the pre-merged
+      // document note prefix (the pipeline resolves @includes upstream).
+      const { PRD_PREMERGED_DECLARATION } =
+        await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
+      expect(cfg.user).toBe(
+        `${PRD_PREMERGED_DECLARATION}\n\n${prdContent}`
+      );
       expect(cfg.responseFormat).not.toBe(BacklogSchema);
       expect(cfg.responseFormat).toBeInstanceOf(z.ZodType);
     });

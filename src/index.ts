@@ -339,7 +339,7 @@ async function main(): Promise<number> {
  * with the event-loop drain) producing a silent, apparently-successful exit.
  */
 void main()
-  .then((code) => {
+  .then(code => {
     // Honor main()'s resolved exit code. Only set exitCode when main actually
     // resolved with a number; rejections flow through .catch() below.
     if (typeof code === 'number') {
@@ -347,18 +347,18 @@ void main()
     }
   })
   .catch((error: unknown) => {
-  if (error instanceof AuthPreflightError) {
-    console.error(`\n❌ ${error.message}`); // ONE actionable message (PRD §9.2.7)
+    if (error instanceof AuthPreflightError) {
+      console.error(`\n❌ ${error.message}`); // ONE actionable message (PRD §9.2.7)
+      process.exit(1);
+    }
+    if (error instanceof HarnessProviderMismatchError) {
+      console.error(`\n❌ ${error.message}`); // actionable: harness+provider+§9.2.4+both remediations
+      process.exit(1);
+    }
+    if (error instanceof UnsupportedHarnessError) {
+      console.error(`\n❌ ${error.message}`); // actionable: unsupported harness id + supported list
+      process.exit(1);
+    }
+    console.error('\n❌ Fatal error in main():', error);
     process.exit(1);
-  }
-  if (error instanceof HarnessProviderMismatchError) {
-    console.error(`\n❌ ${error.message}`); // actionable: harness+provider+§9.2.4+both remediations
-    process.exit(1);
-  }
-  if (error instanceof UnsupportedHarnessError) {
-    console.error(`\n❌ ${error.message}`); // actionable: unsupported harness id + supported list
-    process.exit(1);
-  }
-  console.error('\n❌ Fatal error in main():', error);
-  process.exit(1);
-});
+  });

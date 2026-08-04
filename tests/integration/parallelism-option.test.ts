@@ -55,7 +55,11 @@ vi.mock('node:path', async importOriginal => {
   const actual = await importOriginal<typeof import('node:path')>();
   return {
     ...actual,
-    resolve: vi.fn((path: string) => path),
+    // Preserve real resolve semantics (join args) so parseCLIArgs can still
+    // locate ../../package.json relative to import.meta.dirname. The previous
+    // identity mock discarded the second argument and made that read hit a
+    // directory (EISDIR), failing every test in this file before parsing began.
+    resolve: vi.fn((...args: string[]) => actual.resolve(...args)),
   };
 });
 

@@ -47,6 +47,7 @@ import {
   PRP_BUILDER_PROMPT,
   BUG_HUNT_PROMPT,
   DELTA_ANALYSIS_PROMPT,
+  PRD_PREMERGED_DECLARATION,
 } from '../../src/agents/prompts.js';
 
 // Import prompt generator functions
@@ -456,7 +457,7 @@ describe('createArchitectPrompt', () => {
     const cfg = (
       createPrompt as unknown as { mock: { calls: any[][] } }
     ).mock.calls.at(-1)![0];
-    expect(cfg.user).toBe(prdContent);
+    expect(cfg.user).toBe(`${PRD_PREMERGED_DECLARATION}\n\n${prdContent}`);
     expect(cfg.system).toBe(TASK_BREAKDOWN_PROMPT);
     expect(cfg.responseFormat).not.toBe(BacklogSchema);
     expect(cfg.responseFormat).toBeInstanceOf(z.ZodType); // permissive z.unknown()
