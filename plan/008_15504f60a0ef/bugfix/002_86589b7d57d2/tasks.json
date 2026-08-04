@@ -319,7 +319,7 @@
               "type": "Task",
               "id": "P1.M4.T3",
               "title": "Fix test-rot (stale expectations, category b, ~7 files)",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Code evolved (P2.M2 roles refactor; PRPPipeline constructor→run() deferral) but test expectations were not updated. ~58 failures.",
               "subtasks": [
                 {
@@ -340,7 +340,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T3.S2",
                   "title": "Fix pipeline-main-loop.test.ts (constructor→run() wiring drift)",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-004-test-suite.md §'Category (b)'. PRPPipeline's constructor was refactored to DEFER SessionManager/TaskOrchestrator creation into run()/initializeSession() (prp-pipeline.ts:565-566,710,770). Tests do only `new PRPPipeline(prdPath)` then assert initialize called / currentPhase==='session_initialized' → 0 calls. Injecting (pipeline as any).taskOrchestrator before run() gets overwritten by `new TaskOrchestratorClass(...)` at :770.\n2. INPUT: tests/integration/pipeline-main-loop.test.ts + src/workflows/prp-pipeline.ts run()/initializeSession().\n3. LOGIC: Update tests to call `await pipeline.run()` (or initializeSession()) BEFORE asserting on sessionManager/currentPhase. Do not inject taskOrchestrator before run() (it is overwritten) — inject AFTER init or mock at the class level (vi.mock the TaskOrchestrator class). Align assertions with the deferred-init contract.\n4. OUTPUT: pipeline-main-loop.test.ts passes (23/23 or documents remaining).\n5. MOCKING: class-level vi.mock for TaskOrchestrator as needed.\n6. DOCS: none.",
@@ -354,7 +354,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T3.S3",
                   "title": "Fix remaining rot files (qa-agent, researcher-agent, prd-task-command, prp-blueprint-agent, task-breakdown-prompt)",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-004-test-suite.md §'Category (b)'. These five files were COUNTED, not line-audited: tests/integration/qa-agent.test.ts(4), researcher-agent.test.ts(2), prd-task-command.test.ts(5), prp-blueprint-agent.test.ts(1), task-breakdown-prompt.test.ts(1). Likely model/prompt-text rot from the roles refactor + prompt edits.\n2. INPUT: The five test files + the src they exercise.\n3. LOGIC: LINE-AUDIT each file (run it, read failures), then update stale model literals (e.g. GLM-* → current zai/*-turbo or glm-5.2 per role tier — confirm against src/config/constants.ts MODEL_NAMES + src/agents/agent-factory.ts ROLE_CONFIG) and prompt-text assertions to match current prompts (src/agents/prompts/**). Correct broken setup; do NOT change production to satisfy stale tests. If a failure reveals a real src defect, STOP and flag it in architecture/.\n4. OUTPUT: The five files pass or their failures are re-categorized and handled elsewhere.\n5. MOCKING: match each file's existing style.\n6. DOCS: none.",
