@@ -5,7 +5,7 @@
  *
  * @remarks
  * Thin factory that builds a lightweight Groundswell agent for generating
- * descriptive conventional-commit messages from a staged diff (PRD §5.1
+ * descriptive commit messages from a staged diff (PRD §5.1
  * "Smart Commit Resilience" — the `stagecoach` LLM tool).
  *
  * **Design decisions (PRP P3.M1.T3.S1)**:
@@ -21,9 +21,10 @@
  * - `maxTokens: 512` — a commit message is tiny; keeps the call cheap and fast.
  *
  * The agent emits ONLY the commit message (subject + optional body). The caller
- * (`generateCommitMessage` in `src/utils/git-commit.ts`) wraps the output with
- * the `[PRP Auto]` prefix and `Co-Authored-By` trailer via `formatCommitMessage`.
- * The system prompt forbids the agent from emitting the prefix/trailer.
+ * (`generateCommitMessage` in `src/utils/git-commit.ts`) wraps the output via
+ * `formatCommitMessage`, which layers the standardized task-prefix (or emits the
+ * subject plain per PRD §5.1) and appends the Co-Authored-By trailer. The
+ * system prompt forbids the agent from emitting the prefix/trailer.
  *
  * This is the generation boundary that P3.M1.T4.S1 wraps with retry. The
  * generation call is transient-API-sensitive — a generation timeout is LLM-API
@@ -54,22 +55,26 @@ let _logger: ReturnType<typeof getLogger> | undefined;
 const logger = () => (_logger ??= getLogger('CommitMessageAgent'));
 
 /**
- * System prompt instructing the agent to emit a conventional-commit message.
+ * System prompt instructing the agent to emit a plain descriptive imperative
+ * summary (PRD §5.1 "Commit Message Format (Standardized Task-Prefix)").
  *
  * @remarks
- * Mirrors the Conventional Commits 1.0.0 spec
- * (https://www.conventionalcommits.org/en/v1.0.0/). Hard rules ensure the
- * output is a bare message the caller can wrap with `formatCommitMessage`
- * (which adds the `[PRP Auto]` prefix and `Co-Authored-By` trailer) — a verbose
- * agent output would corrupt the commit.
+ * PRD §5.1 forbids Conventional-Commit type/scope and the `[PRP Auto]` banner —
+ * the standardized task-prefix (`<phase>.<milestone>.<task>[.<subtask>]:`)
+ * carries the item's position, so a type prefix and a work-item id in the
+ * subject are redundant. The agent therefore emits ONLY the plain descriptive
+ * subject (+ optional WHY body); the caller (`formatCommitMessage` in
+ * `src/utils/git-commit.ts`) layers the task-prefix and appends the
+ * Co-Authored-By trailer. Hard rules ensure the output is a bare message the
+ * caller can wrap — a verbose agent output would corrupt the commit.
  */
 const COMMIT_MESSAGE_SYSTEM = `You generate concise git commit messages from staged diffs.
 
-Follow Conventional Commits (https://www.conventionalcommits.org/):
-- Type prefix: feat, fix, refactor, docs, chore, test, perf, build, ci.
+Write a PLAIN DESCRIPTIVE summary of the change (imperative mood).
 - Subject line in imperative mood, ≤72 characters, no trailing period.
+- Do NOT add a Conventional-Commit type prefix (no "feat:", "fix:", "refactor:", etc.) and do NOT add a "(scope)" — the caller layers the task-position prefix separately.
+- Do NOT reference any work-item id (e.g. P3.M1.T3.S1) in the subject — the caller's task-prefix already encodes the position.
 - Optional blank line + body explaining WHY (not WHAT — the diff shows what).
-- If a work-item id appears in changed paths (e.g. P3.M1.T3.S1), reference it in the subject.
 
 HARD RULES:
 - Output ONLY the commit message (subject + optional body). No explanation.

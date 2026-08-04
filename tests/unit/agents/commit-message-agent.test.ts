@@ -124,17 +124,31 @@ describe('agents/commit-message-agent', () => {
       expect(cfg.stateless).toBe(true);
     });
 
-    it('should set a system prompt instructing conventional-commit output', () => {
+    it('should set a system prompt instructing a plain descriptive imperative summary', () => {
       // EXECUTE
       createCommitMessageAgent();
 
-      // VERIFY — the system prompt locks the agent to a bare conventional-commit
-      // message (the caller wraps [PRP Auto] prefix + trailer via
-      // formatCommitMessage).
+      // VERIFY — the system prompt locks the agent to a bare plain descriptive
+      // imperative summary (the caller layers the task-prefix + trailer via
+      // formatCommitMessage; PRD §5.1 forbids Conventional-Commit type/scope).
       const cfg = mockCreateAgent.mock.calls[0][0] as { system: string };
-      expect(cfg.system).toContain('Conventional Commits');
+      // MUST NOT mandate a Conventional-Commit type/scope (PRD §5.1 forbids it;
+      // the task-prefix carries the item's position). The explicit "Do NOT add
+      // a Conventional-Commit type prefix" prohibition is allowed; the mandate
+      // form ("Follow Conventional Commits" / "Type prefix: feat, fix, ..." list)
+      // must be gone.
+      expect(cfg.system).not.toMatch(/Follow Conventional Commits/i);
+      expect(cfg.system).not.toMatch(/^\s*-\s*Type prefix:\s*feat/i);
+      // MUST NOT instruct referencing a work-item id in the subject (the
+      // task-prefix already encodes position). The explicit "Do NOT reference
+      // any work-item id ... in the subject" prohibition is allowed; the old
+      // mandate form ("If a work-item id appears in changed paths ... reference
+      // it in the subject") must be gone.
+      expect(cfg.system).not.toMatch(/work-item id appears in changed paths/i);
+      // STILL requires an imperative summary.
       expect(cfg.system).toContain('imperative');
-      // MUST forbid prefix/trailer so formatCommitMessage does not double-wrap.
+      // STILL forbids the agent emitting [PRP Auto]/Co-Authored-By (caller adds
+      // the trailer).
       expect(cfg.system).toContain('[PRP Auto]');
       expect(cfg.system).toContain('Co-Authored-By');
     });

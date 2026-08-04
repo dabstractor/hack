@@ -148,14 +148,14 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "BUG-003 — Task-prefix commit format + PRP_COMMIT_FORMAT (PRD §5.1) (Major)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Remove the forbidden [PRP Auto] banner; implement the standardized task-prefix <phase>.<milestone>.<task>.<subtask>: <message> with trailing-level elision and a PRP_COMMIT_FORMAT toggle (task-prefix default / plain). Non-backlog commits carry no prefix. See architecture/bug-003-commit-format.md.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "PRP_COMMIT_FORMAT config + task-prefix builder + formatCommitMessage rework",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add the config getter, the pure task-prefix builder/parser, and rework formatCommitMessage to emit task-prefix/plain per config with NO [PRP Auto] banner.",
               "subtasks": [
                 {
@@ -192,7 +192,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S3",
                   "title": "Update stagecoach system prompt (no Conventional-Commit type/scope)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-003-commit-format.md §'Stagecoach prompt'. COMMIT_MESSAGE_SYSTEM (src/agents/commit-message-agent.ts:69-77) currently mandates Conventional Commits ('Type prefix: feat, fix…' and 'If a work-item id appears in changed paths, reference it in the subject'). PRD §5.1 forbids the Conventional-Commit SCOPE and the task-prefix now encodes position, so the agent must emit a PLAIN descriptive imperative summary.\n2. INPUT: The COMMIT_MESSAGE_SYSTEM const + the module's existing hard rules.\n3. LOGIC: Rewrite the system prompt so the agent emits a plain descriptive imperative summary (subject ≤72 chars, optional body explaining WHY). Remove the Conventional-Commit type-prefix mandate and the 'reference the work-item id in the subject' instruction (the task-prefix now carries position). KEEP the hard rules: output ONLY the commit message; no markdown fences/preamble; do NOT include '[PRP Auto]' or 'Co-Authored-By' (caller adds trailer); output 'skip' for empty/whitespace-only diffs.\n4. OUTPUT: stagecoach emits a plain descriptive message that the caller prefixes (task-prefix mode) or uses verbatim (plain mode).\n5. MOCKING: tests/unit/agents/commit-message-agent.test.ts asserts the prompt content — update assertions: it must NO LONGER require a Conventional-Commit type, must NOT instruct referencing the P-id in the subject, and must STILL forbid the agent emitting [PRP Auto]/Co-Authored-By. Verify against the new prompt.\n6. DOCS: none (internal prompt).",
@@ -208,14 +208,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Wire smartCommit position option + update all call sites",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Thread the implementing item's position through smartCommit so formatCommitMessage can build the task-prefix; backlog-item call sites pass position, non-backlog call sites omit it (→ plain). Update tests that assert [PRP Auto].",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Add smartCommit position option + wire call sites + update [PRP Auto] tests",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S2"
