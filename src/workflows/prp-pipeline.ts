@@ -72,7 +72,10 @@ import { FixCycleWorkflow } from './fix-cycle-workflow.js';
 import { isParallelResearch, getResearchDepth } from '../config/constants.js';
 import { patchBacklog } from '../core/task-patcher.js';
 import { mergeBacklogs } from '../core/backlog-merger.js';
-import { classifyChangeWithRetry } from '../core/change-classifier.js';
+import {
+  classifyChangeWithRetry,
+  classifyArtifactWithRetry,
+} from '../core/change-classifier.js';
 import { filterByStatus } from '../utils/task-utils.js';
 import { progressTracker, type ProgressTracker } from '../utils/progress.js';
 import { ProgressDisplay } from '../utils/progress-display.js';
@@ -1270,6 +1273,13 @@ export class PRPPipeline extends Workflow {
    * generation, an empty backlog generates one from the PRD.
    *
    * Generated backlog is saved via SessionManager.saveBacklog().
+   *
+   * @remarks **BUG-002 Part B (PRD §4.3):** on a delta session the generated
+   * `delta_prd.md` is classified CLEAN/DIRTY via `classifyArtifactWithRetry`
+   * before it is fed to the architect. CLEAN proceeds; DIRTY aborts the
+   * breakdown (`currentPhase='prd_decomposition_failed'`) so malformed content
+   * is never consumed unprotected. The non-delta full PRD is never classified.
+   * See the inline guard comment for the action-on-DIRTY rationale.
    */
   async decomposePRD(): Promise<void> {
     this.logger.info('[PRPPipeline] Decomposing PRD');
@@ -1349,6 +1359,39 @@ export class PRPPipeline extends Workflow {
       // Create properly typed prompt with PRD content.
       // Pass the session path so $TASKS_FILE / $SESSION_DIR placeholders in the
       // system prompt resolve to absolute paths inside the session directory.
+      //
+      // BUG-002 Part B: guard the GENERATED delta_prd.md artifact (PRD §4.3 step 1).
+      // classifyArtifactWithRetry returns 'CLEAN' | 'DIRTY', failing to the
+      // protective default 'DIRTY' on exhaustion (PRD §4.3: "never … proceed
+      // unprotected"). A DIRTY verdict (malformed artifact OR classifier-down)
+      // MUST NOT be fed to the architect unprotected — abort this breakdown so
+      // the next run regenerates delta_prd.md fresh via the delta spawn path and
+      // re-classifies (no infinite loop: the delta spawn regenerates the file
+      // each run). §4.3's "never proceed unprotected" rules out warn-and-proceed.
+      // The plain Error is caught by the outer catch as NON-fatal (isFatalError
+      // treats a plain Error as non-fatal) → #trackFailure + warn +
+      // currentPhase='prd_decomposition_failed' — identical handling to the
+      // 'Architect agent failed' throw below and the loadDeltaPRD-missing throw
+      // above. DELTA-ONLY: the non-delta path's prdContent is the full
+      // human-authored PRD (currentSession.prdSnapshot), NOT a generated
+      // artifact — it is intentionally NEVER classified (classifying it would
+      // block every initial breakdown on classifier availability).
+      if (isDelta) {
+        const artifactVerdict = await classifyArtifactWithRetry(prdContent);
+        if (artifactVerdict === 'DIRTY') {
+          this.logger.warn(
+            '[PRPPipeline] delta_prd.md classified DIRTY/malformed (PRD §4.3) — ' +
+              'aborting breakdown; refusing to feed the architect unprotected. ' +
+              'Re-run to regenerate delta_prd.md via the delta spawn path.'
+          );
+          throw new Error(
+            'delta_prd.md classified DIRTY/malformed (PRD §4.3) — refusing to ' +
+              'feed the architect unprotected. Re-run to regenerate delta_prd.md ' +
+              'via the delta spawn path.'
+          );
+        }
+      }
+
       const architectPrompt = createArchitectPrompt(prdContent, sessionPath);
 
       // Generate backlog with retry logic

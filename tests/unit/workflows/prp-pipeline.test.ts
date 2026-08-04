@@ -40,6 +40,9 @@ vi.mock('../../../src/core/session-utils.js', async importOriginal => {
     ...actual,
     resolvePRD: vi.fn(),
     writeDeltaPRD: vi.fn().mockResolvedValue(undefined),
+    // BUG-002 Part B: loadDeltaPRD feeds decomposePRD's delta branch. Default
+    // sample content so the delta path has deterministic input to classify.
+    loadDeltaPRD: vi.fn().mockResolvedValue('# Sample delta PRD content'),
   };
 });
 
@@ -52,11 +55,15 @@ vi.mock('../../../src/core/session-manager.js', () => ({
   })),
 }));
 
-// Mock the change classifier (BUG-002 Part A) — classifyChangeWithRetry is
-// wired into initializeSession. Default 'SUBSTANTIVE' keeps the existing
-// 'should call handleDelta when hasSessionChanged returns true' test green.
+// Mock the change classifier (BUG-002 Part A + Part B).
+// - classifyChangeWithRetry (Part A): wired into initializeSession. Default
+//   'SUBSTANTIVE' keeps the existing 'should call handleDelta when
+//   hasSessionChanged returns true' test green.
+// - classifyArtifactWithRetry (Part B): wired into decomposePRD's delta branch.
+//   Default 'CLEAN' keeps any delta success path that forgets to set it green.
 vi.mock('../../../src/core/change-classifier.js', () => ({
   classifyChangeWithRetry: vi.fn(),
+  classifyArtifactWithRetry: vi.fn(),
 }));
 
 // Mock TaskOrchestrator
@@ -178,7 +185,10 @@ import {
   validateNestedExecution,
   isNestedExecutionError,
 } from '../../../src/utils/validation/execution-guard.js';
-import { classifyChangeWithRetry } from '../../../src/core/change-classifier.js';
+import {
+  classifyChangeWithRetry,
+  classifyArtifactWithRetry,
+} from '../../../src/core/change-classifier.js';
 
 // Cast mocked functions
 const mockReadFile = readFile as any;
@@ -194,6 +204,9 @@ const mockFilterByStatus = filterByStatus as any;
 const mockValidateNestedExecution = validateNestedExecution as any;
 const mockIsNestedExecutionError = isNestedExecutionError as any;
 const mockClassifyChange = classifyChangeWithRetry as unknown as ReturnType<
+  typeof vi.fn
+>;
+const mockClassifyArtifact = classifyArtifactWithRetry as unknown as ReturnType<
   typeof vi.fn
 >;
 // Get reference to mocked constructor for test setup
@@ -278,6 +291,22 @@ const createTestSession = (
   currentItemId: null,
 });
 
+// BUG-002 Part B: build a delta session by overriding parentSession.
+// createTestSession hardcodes parentSession:null (isDelta=false); spreading
+// the base and setting parentSession makes isDelta=true so the decomposePRD
+// delta branch (the CLEAN/DIRTY guard + loadDeltaPRD) is exercised.
+function createDeltaSession(
+  backlog: Backlog,
+  prdSnapshot: string = '# Test PRD',
+  sessionPath: string = '/plan/001_14b9dc2a33c7'
+): SessionState {
+  const base = createTestSession(backlog, prdSnapshot, sessionPath);
+  return {
+    ...base,
+    metadata: { ...base.metadata, parentSession: '/plan/000_prev' },
+  };
+}
+
 // Create mock SessionManager factory
 function createMockSessionManager(
   session: SessionState | null,
@@ -361,6 +390,9 @@ describe('PRPPipeline', () => {
     // Default classifier verdict = SUBSTANTIVE (keeps the existing
     // 'should call handleDelta when hasSessionChanged returns true' test green).
     mockClassifyChange.mockResolvedValue('SUBSTANTIVE');
+    // BUG-002 Part B: default CLEAN verdict keeps any delta success path that
+    // forgets to override mockClassifyArtifact on the proceed branch green.
+    mockClassifyArtifact.mockResolvedValue('CLEAN');
     // Setup default mocks
     mockReadFile.mockResolvedValue(
       JSON.stringify({ backlog: [createTestPhase('P1', 'Phase 1', 'Planned')] })
@@ -516,6 +548,88 @@ describe('PRPPipeline', () => {
       //    initial + 2 retries). This is what makes every retry inherit the xhigh
       //    budget baked into the single createArchitectAgent() config.
       expect(promptFn).toHaveBeenCalledTimes(3);
+    });
+
+    it('classifies delta_prd.md CLEAN and proceeds to the architect (delta session)', async () => {
+      // SETUP: delta session (parentSession set) + a CLEAN artifact verdict + the
+      // architect-success path (mirrors the 'reuses the same single Architect
+      // agent instance' test's success setup).
+      mockClassifyArtifact.mockResolvedValueOnce('CLEAN');
+      mockCreateArchitectAgent.mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({ status: 'success', output: '' }),
+      } as never);
+      mockReadFile.mockResolvedValueOnce(JSON.stringify({ backlog: [] }));
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = createMockSessionManager(
+        createDeltaSession(createTestBacklog([]))
+      );
+
+      // EXECUTE
+      await pipeline.decomposePRD();
+
+      // VERIFY: the delta_prd.md content was classified, the architect WAS
+      // invoked, and the breakdown completed normally.
+      expect(mockClassifyArtifact).toHaveBeenCalledWith(
+        '# Sample delta PRD content'
+      );
+      expect(mockCreateArchitectAgent).toHaveBeenCalled();
+      expect(pipeline.currentPhase).toBe('prd_decomposed');
+    });
+
+    it('aborts the breakdown (architect NOT called) when delta_prd.md is DIRTY (PRD §4.3)', async () => {
+      // SETUP: delta session + a DIRTY artifact verdict. classifyArtifactWithRetry's
+      // own catch returns DIRTY on exhaustion, so this single DIRTY test covers BOTH
+      // 'malformed artifact' and 'classifier-down' (PRD §4.3 protective default).
+      // The architect factory is created before the guard (createArchitectAgent runs
+      // in the dynamic-import block above loadDeltaPRD), so the meaningful
+      // protection contract is that the architect's LLM prompt() is NEVER invoked.
+      mockClassifyArtifact.mockResolvedValueOnce('DIRTY');
+      const promptFn = vi.fn();
+      mockCreateArchitectAgent.mockReturnValue({ prompt: promptFn } as never);
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = createMockSessionManager(
+        createDeltaSession(createTestBacklog([]))
+      );
+      const warnSpy = vi.spyOn((pipeline as any).logger, 'warn');
+
+      // EXECUTE — decomposePRD() RESOLVES (the plain-Error throw is caught
+      // NON-fatal by the outer catch → #trackFailure + currentPhase change).
+      await pipeline.decomposePRD();
+
+      // VERIFY: the artifact was classified, the architect LLM was NEVER invoked
+      // (malformed content never fed unprotected), a prominent warning was
+      // logged, and the breakdown is tracked as failed (identical handling to
+      // the existing 'Architect agent failed' + loadDeltaPRD-missing throws).
+      expect(mockClassifyArtifact).toHaveBeenCalled();
+      expect(promptFn).not.toHaveBeenCalled();
+      expect(pipeline.currentPhase).toBe('prd_decomposition_failed');
+      expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('does NOT classify the full PRD on a non-delta (initial) session', async () => {
+      // SETUP: NON-delta session (parentSession:null → isDelta=false). The full
+      // human-authored PRD (prdSnapshot) is intentionally NEVER classified
+      // (§4.3 scopes the classifier to GENERATED artifacts). Architect-success
+      // setup so the breakdown runs past the guard to completion.
+      mockCreateArchitectAgent.mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({ status: 'success', output: '' }),
+      } as never);
+      mockReadFile.mockResolvedValueOnce(JSON.stringify({ backlog: [] }));
+
+      const pipeline = new PRPPipeline('./test.md');
+      (pipeline as any).sessionManager = createMockSessionManager(
+        createTestSession(createTestBacklog([]))
+      );
+
+      // EXECUTE
+      await pipeline.decomposePRD();
+
+      // VERIFY: the classifier was NEVER called (delta-only guard), and the
+      // architect WAS invoked (full-PRD breakdown unaffected).
+      expect(mockClassifyArtifact).not.toHaveBeenCalled();
+      expect(mockCreateArchitectAgent).toHaveBeenCalled();
     });
   });
 
