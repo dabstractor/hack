@@ -1,0 +1,13 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+  h3.0 Issue 1: Delta-session breakdown still drops ADDED requirements — mergeBacklogs treats architect ID collisions as duplicates
+ h2.2 Major Issues (Should Fix)
+  h3.1 Issue 1: COSMETIC/SUBSTANTIVE and CLEAN/DIRTY LLM change classifiers are dead code — never wired into PRD-change detection
+  h3.2 Issue 2: Commit messages still carry the forbidden [PRP Auto] banner; PRP_COMMIT_FORMAT / task-prefix format (§5.1) is entirely unimplemented
+  h3.3 Issue 3: Test suite is still red (178 failing / 21 files) — the §4.4 validation abort-on-failure gate cannot pass
+ h2.3 Minor Issues (Nice to Fix)
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:17 list:6

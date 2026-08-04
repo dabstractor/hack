@@ -1,0 +1,21 @@
+The bug hunt is complete. The result file is written and validated.
+
+## Summary
+
+I conducted a creative end-to-end QA pass focused on whether the **001 bugfix actually fixed its Critical issue**, plus under-covered areas. I found **4 bugs (1 critical, 3 major)**:
+
+### BUG-001 — CRITICAL: Delta breakdown *still* drops added requirements
+The 001 fix (reorder + `mergeBacklogs`) **did not actually fix** the Critical. The Architect numbers its output fresh from `P1`/`P1.M1` (`prompts.ts:134`) with no view of the patched backlog, so any added-requirement item **collides by ID** with the parent's existing `P1`/`P1.M1`. `mergeBacklogs` then skips it as a "duplicate" (`backlog-merger.ts:217`/`153`). I verified this empirically — a realistic architect output for a new "Reporting" phase is dropped (`Reporting phase present? false`). The 001 integration test passes only because its fixture hand-crafts a non-colliding architect output (reused title + fresh milestone ID). Affects both delta and integrate paths.
+
+### BUG-002 — MAJOR: Change classifiers are dead code
+`classifyChangeWithRetry`/`classifyArtifactWithRetry` are fully implemented with correct protective defaults but **never called**. Detection is hash-only (`session-manager.ts:1688`), and the code's own JSDoc (`prp-pipeline.ts:846`) actively misrepresents this as "COSMETIC changes are skipped."
+
+### BUG-003 — MAJOR: `[PRP Auto]` banner + no task-prefix/`PRP_COMMIT_FORMAT`
+`formatCommitMessage` (`git-commit.ts:108`) unconditionally prepends the exact `[PRP Auto]` banner PRD §5.1 explicitly forbids. `PRP_COMMIT_FORMAT` is referenced nowhere; the standardized task-prefix format is entirely unimplemented.
+
+### BUG-004 — MAJOR: Test suite still red (178 failing / 21 files)
+Continuation of 001 Issue 3 (297→178). The §4.4 validation abort-on-failure gate cannot pass; includes a genuine test bug in the shutdown suite (`process._events.SIGINT is not iterable` failing all 20 shutdown tests — so graceful shutdown is unvalidated).
+
+**Verified correct** in this pass: executeBacklog hard-abort (Issue 5), numbered bugfix iterations (Issue 4), patchBacklog 'added' delegation (Issue 2 — though it delegates to the broken merge), NO_ISSUES_FOUND marker fields, classifier protective defaults in isolation, auth preflight, and include-resolver structure.
+
+Result written to `plan/008_15504f60a0ef/bugfix/002_86589b7d57d2/bug_hunt_result.json` — valid JSON, `hasBugs: true`, 4 bugs, severities all canonical, consistency check passes.
