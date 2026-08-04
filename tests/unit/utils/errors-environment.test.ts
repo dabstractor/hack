@@ -532,9 +532,7 @@ describe('EnvironmentError edge cases', () => {
     // requirement mandates runtime immutability for PipelineError fields, so
     // we assert the compile-time contract that is actually in force: the code
     // is the documented, stable value and re-reading it yields the same value.
-    expect(error.code).toBe(
-      ErrorCodes.PIPELINE_VALIDATION_INVALID_INPUT
-    );
+    expect(error.code).toBe(ErrorCodes.PIPELINE_VALIDATION_INVALID_INPUT);
     // Re-read is stable (no accidental mutation from construction).
     expect(error.code).toBe(error.code);
   });

@@ -383,9 +383,7 @@ describe('integration/agents/architect-agent-integration', () => {
       // document note prefix (the pipeline resolves @includes upstream).
       const { PRD_PREMERGED_DECLARATION } =
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
-      expect(cfg.user).toBe(
-        `${PRD_PREMERGED_DECLARATION}\n\n${prdContent}`
-      );
+      expect(cfg.user).toBe(`${PRD_PREMERGED_DECLARATION}\n\n${prdContent}`);
       expect(cfg.responseFormat).not.toBe(BacklogSchema);
       expect(cfg.responseFormat).toBeInstanceOf(z.ZodType);
     });

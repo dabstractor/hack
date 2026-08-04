@@ -227,3 +227,250 @@ export function mergeBacklogs(patched: Backlog, architect: Backlog): Backlog {
   }
   return { backlog: result };
 }
+
+// ============================================================================
+// ID-renumbering helpers (BUG-001 fix — P1.M1.T1.S1)
+// ============================================================================
+//
+// Pure primitives that compute the next available ID number at each hierarchy level and
+// deep-renumber an architect Phase/Milestone/Task subtree against a target parent prefix,
+// producing collision-free, hierarchy-consistent IDs. P1.M1.T1.S2 will wire these into the
+// three merge append points (phase/milestone/task collision → renumber-and-append instead of
+// skip). These helpers have NO callers yet — they are intentionally additive only.
+
+/**
+ * Escape a string for safe embedding in a `RegExp` (dots, etc. are regex-special).
+ *
+ * @param s - The literal string to escape.
+ * @returns The escaped string.
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Compute the next available phase number from a reserved-id set.
+ *
+ * @remarks
+ * Scans every id in `reserved` matching `^P(\d+)(?:\.M|$)` and returns `max(capture) + 1`,
+ * or `1` if none match. The `(?:\.M|$)` tail lets it infer a phase number from a bare `P3`
+ * OR from a descendant id like `P3.M1` / `P3.M1.T2.S1` (so it's robust even when the bare
+ * phase id isn't directly reserved but its children are).
+ *
+ * Pure: does not mutate `reserved`.
+ *
+ * @param reserved - The set of ids already in use.
+ * @returns The next available phase number (>= 1).
+ */
+export function maxPhaseNumber(reserved: Set<string>): number {
+  let max = 0;
+  for (const id of reserved) {
+    const m = /^P(\d+)(?:\.M|$)/.exec(id);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return max + 1;
+}
+
+/**
+ * Compute the next available child number under a parent id, at a given hierarchy level.
+ *
+ * @remarks
+ * `parentId` is the **immediate parent** for `level` (hierarchy-correct — matches the S2
+ * append-point calls, which pass `existing.id`): the phase id for `'milestone'`, the
+ * milestone id for `'task'`, and the task id for `'subtask'`. Scans `reserved` for ids of
+ * the form `{parentId}.{M|T|S}{n}` and returns `max(n) + 1`, or `1` if none match. The
+ * `parentId` is regex-escaped before embedding (dots are regex-special).
+ *
+ * Pure: does not mutate `reserved`.
+ *
+ * @param parentId - The immediate parent id (phase/milestone/task).
+ * @param reserved - The set of ids already in use.
+ * @param level - Which child level to count: `'milestone'` (M-num under a phase), `'task'`
+ *                (T-num under a milestone), or `'subtask'` (S-num under a task).
+ * @returns The next available child number (>= 1).
+ */
+export function maxChildNumber(
+  parentId: string,
+  reserved: Set<string>,
+  level: 'milestone' | 'task' | 'subtask'
+): number {
+  const esc = escapeRegExp(parentId);
+  const re =
+    level === 'milestone'
+      ? new RegExp(`^${esc}\\.M(\\d+)`)
+      : level === 'task'
+        ? new RegExp(`^${esc}\\.T(\\d+)`)
+        : new RegExp(`^${esc}\\.S(\\d+)$`);
+  let max = 0;
+  for (const id of reserved) {
+    const m = re.exec(id);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return max + 1;
+}
+
+/**
+ * Renumber a `Task` (and its subtasks) into a fresh, collision-free id subtree.
+ *
+ * @remarks
+ * Produces a FRESH deep-cloned `Task` with `id = '${parentMilestoneId}.T${taskNum}'` and
+ * every subtask renumbered sequentially in INPUT order (`…T{taskNum}.S{1..l}`). Builds an
+ * old→new id map for THIS task's subtree and rewrites every subtask `dependencies` entry
+ * found in that map to its new id; entries referencing ids OUTSIDE the renumbered scope are
+ * left verbatim (those targets aren't moving). Every other field (`title`, `status`,
+ * `description`, `story_points`, `context_scope`, `prd_selectors`) is preserved verbatim.
+ *
+ * Pure: no I/O, no logger. The ONLY mutation is appending all produced new ids into the
+ * `reserved` accumulator (in place).
+ *
+ * @param task - The task to renumber (read-only).
+ * @param parentMilestoneId - The immediate parent milestone id (the new task prefix).
+ * @param taskNum - The fresh task number to assign.
+ * @param reserved - The running id set; mutated to register the new task + subtask ids.
+ * @returns A fresh renumbered `Task`.
+ */
+export function renumberTask(
+  task: Task,
+  parentMilestoneId: string,
+  taskNum: number,
+  reserved: Set<string>
+): Task {
+  const newTaskId = `${parentMilestoneId}.T${taskNum}`;
+  const idMap = new Map<string, string>(); // oldId → newId (this task's subtree)
+  idMap.set(task.id, newTaskId);
+  const newSubtasks = task.subtasks.map((s, i) => {
+    const newSubId = `${newTaskId}.S${i + 1}`;
+    idMap.set(s.id, newSubId);
+    return { ...s, id: newSubId };
+  });
+  // Rewrite deps using the fully-populated idMap so cross-subtask deps within the task resolve.
+  const remappedSubtasks = newSubtasks.map(s => ({
+    ...s,
+    dependencies: s.dependencies.map(d => idMap.get(d) ?? d),
+  }));
+  reserved.add(newTaskId);
+  for (const s of remappedSubtasks) reserved.add(s.id);
+  return { ...task, id: newTaskId, subtasks: remappedSubtasks };
+}
+
+/**
+ * Renumber a `Milestone` (and its task subtree) into a fresh, collision-free id subtree.
+ *
+ * @remarks
+ * Produces a FRESH deep-cloned `Milestone` with `id = '${parentPhaseId}.M${msNum}'` and
+ * every task renumbered sequentially in INPUT order (`…M{msNum}.T{1..j}`) via {@link
+ * renumberTask}. Builds an old→new id map for the WHOLE milestone scope (ms + all tasks +
+ * subtasks) so subtask `dependencies` referencing any in-scope sibling are rewritten; deps to
+ * ids outside the scope are left verbatim. Every non-id field is preserved verbatim.
+ *
+ * Pure: no I/O, no logger. The ONLY mutation is appending all produced new ids into the
+ * `reserved` accumulator (in place).
+ *
+ * @param ms - The milestone to renumber (read-only).
+ * @param parentPhaseId - The immediate parent phase id (the new milestone prefix).
+ * @param msNum - The fresh milestone number to assign.
+ * @param reserved - The running id set; mutated to register the new milestone + descendant ids.
+ * @returns A fresh renumbered `Milestone`.
+ */
+export function renumberMilestone(
+  ms: Milestone,
+  parentPhaseId: string,
+  msNum: number,
+  reserved: Set<string>
+): Milestone {
+  const newMsId = `${parentPhaseId}.M${msNum}`;
+  const idMap = new Map<string, string>(); // oldId → newId (whole milestone scope)
+  idMap.set(ms.id, newMsId);
+  // Pass 1 — populate the scope map so cross-task/subtask in-scope deps resolve.
+  ms.tasks.forEach((t, j) => {
+    const newTaskId = `${newMsId}.T${j + 1}`;
+    idMap.set(t.id, newTaskId);
+    t.subtasks.forEach((s, k) => {
+      idMap.set(s.id, `${newTaskId}.S${k + 1}`);
+    });
+  });
+  // Pass 2 — build renumbered tasks with ids + dep rewrite via the fully-populated idMap.
+  const renumberedTasks: Task[] = ms.tasks.map((t, j) => {
+    const newTaskId = `${newMsId}.T${j + 1}`;
+    const remappedSubtasks = t.subtasks.map((s, k) => {
+      const newSubId = `${newTaskId}.S${k + 1}`;
+      return {
+        ...s,
+        id: newSubId,
+        dependencies: s.dependencies.map(
+          d => idMap.get(d) ?? d // in-scope → new id; else verbatim
+        ),
+      };
+    });
+    reserved.add(newTaskId);
+    for (const s of remappedSubtasks) reserved.add(s.id);
+    return { ...t, id: newTaskId, subtasks: remappedSubtasks };
+  });
+  reserved.add(newMsId);
+  return { ...ms, id: newMsId, tasks: renumberedTasks };
+}
+
+/**
+ * Renumber a `Phase` (and its entire milestone subtree) into a fresh, collision-free id tree.
+ *
+ * @remarks
+ * Produces a FRESH deep-cloned `Phase` with `id = 'P${phaseNum}'` and every milestone
+ * renumbered sequentially in INPUT order (`P{phaseNum}.M{1..k}`) via {@link renumberMilestone},
+ * which in turn renumbers tasks (`…M{k}.T{1..j}`) and subtasks (`…T{j}.S{1..l}`). Builds an
+ * old→new id map for the WHOLE phase scope (phase + every descendant) so subtask
+ * `dependencies` referencing any in-scope sibling are rewritten; deps to ids outside the
+ * scope are left verbatim. Every non-id field is preserved verbatim.
+ *
+ * Pure: no I/O, no logger. The ONLY mutation is appending all produced new ids into the
+ * `reserved` accumulator (in place).
+ *
+ * @param phase - The phase to renumber (read-only).
+ * @param phaseNum - The fresh phase number to assign.
+ * @param reserved - The running id set; mutated to register the new phase + descendant ids.
+ * @returns A fresh renumbered `Phase`.
+ */
+export function renumberPhase(
+  phase: Phase,
+  phaseNum: number,
+  reserved: Set<string>
+): Phase {
+  const newPhaseId = `P${phaseNum}`;
+  const idMap = new Map<string, string>(); // oldId → newId (whole phase scope)
+  idMap.set(phase.id, newPhaseId);
+  // Pass 1 — populate the scope map so cross-milestone/task/subtask in-scope deps resolve.
+  phase.milestones.forEach((m, i) => {
+    const newMsId = `${newPhaseId}.M${i + 1}`;
+    idMap.set(m.id, newMsId);
+    m.tasks.forEach((t, j) => {
+      const newTaskId = `${newMsId}.T${j + 1}`;
+      idMap.set(t.id, newTaskId);
+      t.subtasks.forEach((s, k) => {
+        idMap.set(s.id, `${newTaskId}.S${k + 1}`);
+      });
+    });
+  });
+  // Pass 2 — renumber using the fully-populated idMap.
+  const renumberedMilestones: Milestone[] = phase.milestones.map((m, i) => {
+    const newMsId = `${newPhaseId}.M${i + 1}`;
+    const renumberedTasks: Task[] = m.tasks.map((t, j) => {
+      const newTaskId = `${newMsId}.T${j + 1}`;
+      const remappedSubtasks = t.subtasks.map((s, k) => {
+        const newSubId = `${newTaskId}.S${k + 1}`;
+        return {
+          ...s,
+          id: newSubId,
+          dependencies: s.dependencies.map(
+            d => idMap.get(d) ?? d // in-scope → new id; else verbatim
+          ),
+        };
+      });
+      reserved.add(newTaskId);
+      for (const s of remappedSubtasks) reserved.add(s.id);
+      return { ...t, id: newTaskId, subtasks: remappedSubtasks };
+    });
+    reserved.add(newMsId);
+    return { ...m, id: newMsId, tasks: renumberedTasks };
+  });
+  reserved.add(newPhaseId);
+  return { ...phase, id: newPhaseId, milestones: renumberedMilestones };
+}

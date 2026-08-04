@@ -49,6 +49,13 @@ vi.mock('../../../src/utils/logger.js', () => ({
 }));
 
 import { mergeBacklogs } from '../../../src/core/backlog-merger.js';
+import {
+  maxPhaseNumber,
+  maxChildNumber,
+  renumberPhase,
+  renumberMilestone,
+  renumberTask,
+} from '../../../src/core/backlog-merger.js';
 import type {
   Backlog,
   Phase,
@@ -611,5 +618,375 @@ describe('mergeBacklogs — patched status preservation', () => {
     expect(byId['P1.M1.T2'].title).toBe('removed-task');
     expect(byId['P1.M1.T3'].title).toBe('added-task');
     expect(warnMock).toHaveBeenCalledTimes(2); // T1 + T2 de-dup
+  });
+});
+
+// ============================================================================
+// ID-renumbering helpers (BUG-001 fix — P1.M1.T1.S1)
+// ============================================================================
+//
+// Pure data-in / data-out tests for the five exported helpers added in S1. These exercise
+// every branch: empty vs non-empty reserved, each hierarchy level, dep-in-map vs
+// dep-outside, deep nesting, and the collision-free guarantee (none of the produced ids were
+// in the pre-call snapshot of `reserved`).
+
+describe('renumber helpers', () => {
+  // ---- maxPhaseNumber ----
+  describe('maxPhaseNumber', () => {
+    it('returns 1 for an empty reserved set', () => {
+      expect(maxPhaseNumber(new Set())).toBe(1);
+    });
+
+    it('returns 2 for a reserved set containing only P1', () => {
+      expect(maxPhaseNumber(new Set(['P1']))).toBe(2);
+    });
+
+    it('returns max+1 when multiple phases are reserved', () => {
+      expect(maxPhaseNumber(new Set(['P1', 'P3', 'P2']))).toBe(4);
+    });
+
+    it('infers the phase number from a milestone id when the bare phase id is absent', () => {
+      expect(maxPhaseNumber(new Set(['P2.M1']))).toBe(3);
+    });
+
+    it('infers the phase number from a deeply-nested subtask id', () => {
+      expect(maxPhaseNumber(new Set(['P1.M1.T2.S1']))).toBe(2);
+    });
+
+    it('ignores non-phase ids', () => {
+      expect(maxPhaseNumber(new Set(['foo', 'X1', 'PX']))).toBe(1);
+    });
+  });
+
+  // ---- maxChildNumber ----
+  describe('maxChildNumber', () => {
+    it('milestone level: returns 1 when no milestones under the phase', () => {
+      expect(maxChildNumber('P1', new Set(), 'milestone')).toBe(1);
+    });
+
+    it('milestone level: returns max M-num + 1 under the phase', () => {
+      expect(
+        maxChildNumber('P1', new Set(['P1.M1', 'P1.M3', 'P1.M2']), 'milestone')
+      ).toBe(4);
+    });
+
+    it('milestone level: ignores milestones under a different phase', () => {
+      expect(
+        maxChildNumber('P1', new Set(['P1.M1', 'P2.M9']), 'milestone')
+      ).toBe(2);
+    });
+
+    it('task level: anchors on the immediate parent (the milestone id)', () => {
+      // Loose work-item example "parentId 'P1', level 'task'" is reconciled: the hierarchy-
+      // correct anchor is the milestone id 'P1.M1'.
+      expect(
+        maxChildNumber('P1.M1', new Set(['P1.M1.T1', 'P1.M1.T2']), 'task')
+      ).toBe(3);
+    });
+
+    it('task level: infers from a subtask descendant when the bare task id is absent', () => {
+      expect(maxChildNumber('P1.M1', new Set(['P1.M1.T2.S5']), 'task')).toBe(3);
+    });
+
+    it('task level: ignores tasks under a sibling milestone', () => {
+      expect(
+        maxChildNumber('P1.M1', new Set(['P1.M1.T1', 'P1.M2.T9']), 'task')
+      ).toBe(2);
+    });
+
+    it('subtask level: anchors on the immediate parent (the task id)', () => {
+      expect(
+        maxChildNumber(
+          'P1.M1.T1',
+          new Set(['P1.M1.T1.S1', 'P1.M1.T1.S3']),
+          'subtask'
+        )
+      ).toBe(4);
+    });
+
+    it('subtask level: returns 1 when no subtasks under the task', () => {
+      expect(maxChildNumber('P1.M1.T1', new Set(), 'subtask')).toBe(1);
+    });
+
+    it('subtask level: ignores subtasks under a different task', () => {
+      expect(
+        maxChildNumber(
+          'P1.M1.T1',
+          new Set(['P1.M1.T1.S1', 'P1.M1.T2.S9']),
+          'subtask'
+        )
+      ).toBe(2);
+    });
+  });
+
+  // ---- renumberTask ----
+  describe('renumberTask', () => {
+    it('produces hierarchy-consistent ids and registers them, preserving non-id fields', () => {
+      const sub = makeSubtask('P1.M1.T1.S1', { story_points: 5 });
+      const task = makeTask('P1.M1.T1', { subtasks: [sub] });
+      const reserved = new Set<string>(['P9']);
+      const snap = new Set(reserved);
+
+      const out = renumberTask(task, 'P3.M2', 4, reserved);
+
+      expect(out.id).toBe('P3.M2.T4');
+      expect(out.subtasks[0].id).toBe('P3.M2.T4.S1');
+      // registered
+      expect(reserved.has('P3.M2.T4')).toBe(true);
+      expect(reserved.has('P3.M2.T4.S1')).toBe(true);
+      // collision-free vs the pre-call snapshot
+      expect(snap.has('P3.M2.T4')).toBe(false);
+      expect(snap.has('P3.M2.T4.S1')).toBe(false);
+      // non-id fields preserved
+      expect(out.title).toBe(task.title);
+      expect(out.status).toBe(task.status);
+      expect(out.description).toBe(task.description);
+      expect(out.subtasks[0].story_points).toBe(5);
+      expect(out.subtasks[0].context_scope).toBe(sub.context_scope);
+    });
+
+    it('rewrites in-scope subtask deps and leaves external deps verbatim', () => {
+      const s1 = {
+        ...makeSubtask('P1.M1.T1.S1'),
+        dependencies: ['P1.M1.T1.S2'],
+      };
+      const s2 = {
+        ...makeSubtask('P1.M1.T1.S2'),
+        dependencies: ['P9.M9.T9.S9'], // external — must stay verbatim
+      };
+      const task = makeTask('P1.M1.T1', { subtasks: [s1, s2] });
+      const reserved = new Set<string>();
+
+      const out = renumberTask(task, 'P5.M1', 7, reserved);
+
+      expect(out.subtasks[0].id).toBe('P5.M1.T7.S1');
+      expect(out.subtasks[1].id).toBe('P5.M1.T7.S2');
+      // in-scope dep S1 → S2 rewritten
+      expect(out.subtasks[0].dependencies).toEqual(['P5.M1.T7.S2']);
+      // external dep verbatim
+      expect(out.subtasks[1].dependencies).toEqual(['P9.M9.T9.S9']);
+    });
+
+    it('does not mutate the input task', () => {
+      const task = makeTask('P1.M1.T1', {
+        subtasks: [makeSubtask('P1.M1.T1.S1')],
+      });
+      const reserved = new Set<string>();
+      const before = JSON.stringify(task);
+
+      renumberTask(task, 'P2.M1', 1, reserved);
+
+      expect(JSON.stringify(task)).toBe(before); // input untouched
+    });
+  });
+
+  // ---- renumberMilestone ----
+  describe('renumberMilestone', () => {
+    it('produces hierarchy-consistent ids for tasks/subtasks and registers them', () => {
+      const ms = makeMilestone('P1.M1', {
+        tasks: [
+          makeTask('P1.M1.T1', {
+            subtasks: [makeSubtask('P1.M1.T1.S1')],
+          }),
+          makeTask('P1.M1.T2', {
+            subtasks: [makeSubtask('P1.M1.T2.S1'), makeSubtask('P1.M1.T2.S2')],
+          }),
+        ],
+      });
+      const reserved = new Set<string>();
+      const snap = new Set(reserved);
+
+      const out = renumberMilestone(ms, 'P7', 3, reserved);
+
+      expect(out.id).toBe('P7.M3');
+      expect(out.tasks[0].id).toBe('P7.M3.T1');
+      expect(out.tasks[0].subtasks[0].id).toBe('P7.M3.T1.S1');
+      expect(out.tasks[1].id).toBe('P7.M3.T2');
+      expect(out.tasks[1].subtasks[0].id).toBe('P7.M3.T2.S1');
+      expect(out.tasks[1].subtasks[1].id).toBe('P7.M3.T2.S2');
+      // all registered
+      for (const id of [
+        'P7.M3',
+        'P7.M3.T1',
+        'P7.M3.T1.S1',
+        'P7.M3.T2',
+        'P7.M3.T2.S1',
+        'P7.M3.T2.S2',
+      ]) {
+        expect(reserved.has(id)).toBe(true);
+        expect(snap.has(id)).toBe(false); // collision-free
+      }
+    });
+
+    it('rewrites in-scope cross-task subtask deps and leaves external deps verbatim', () => {
+      // S1 in T1 depends on S2 in T2 (cross-task, in-scope) → rewritten.
+      const s1 = {
+        ...makeSubtask('P1.M1.T1.S1'),
+        dependencies: ['P1.M1.T2.S2'],
+      };
+      const t1 = makeTask('P1.M1.T1', { subtasks: [s1] });
+      const s2a = makeSubtask('P1.M1.T2.S1');
+      // S2 in T2 depends on an external id → verbatim.
+      const s2b = {
+        ...makeSubtask('P1.M1.T2.S2'),
+        dependencies: ['PEXT.M1.T1.S1'],
+      };
+      const t2 = makeTask('P1.M1.T2', { subtasks: [s2a, s2b] });
+      const ms = makeMilestone('P1.M1', { tasks: [t1, t2] });
+
+      const out = renumberMilestone(ms, 'P4', 1, new Set());
+
+      // T1.S1 dep on T2.S2 (in-scope, cross-task) → rewritten to the new T2.S2 id.
+      expect(out.tasks[0].subtasks[0].dependencies).toEqual(['P4.M1.T2.S2']);
+      // T2.S2 external dep → verbatim.
+      expect(out.tasks[1].subtasks[1].dependencies).toEqual(['PEXT.M1.T1.S1']);
+    });
+
+    it('preserves non-id fields verbatim', () => {
+      const ms = makeMilestone('P1.M1', {
+        title: 'Reports',
+        tasks: [
+          makeTask('P1.M1.T1', {
+            title: 'Build',
+            subtasks: [makeSubtask('P1.M1.T1.S1', { story_points: 8 })],
+          }),
+        ],
+      });
+
+      const out = renumberMilestone(ms, 'P2', 1, new Set());
+
+      expect(out.title).toBe('Reports');
+      expect(out.status).toBe('Planned');
+      expect(out.tasks[0].title).toBe('Build');
+      expect(out.tasks[0].subtasks[0].story_points).toBe(8);
+    });
+  });
+
+  // ---- renumberPhase ----
+  describe('renumberPhase', () => {
+    it('produces a hierarchy-consistent id tree for a multi-milestone phase', () => {
+      const phase = makePhase('P1', {
+        milestones: [
+          makeMilestone('P1.M1', {
+            tasks: [
+              makeTask('P1.M1.T1', {
+                subtasks: [makeSubtask('P1.M1.T1.S1')],
+              }),
+            ],
+          }),
+          makeMilestone('P1.M2', {
+            tasks: [
+              makeTask('P1.M2.T1', {
+                subtasks: [
+                  makeSubtask('P1.M2.T1.S1'),
+                  makeSubtask('P1.M2.T1.S2'),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+      const reserved = new Set<string>([
+        'P1',
+        'P1.M1',
+        'P1.M1.T1',
+        'P1.M1.T1.S1',
+      ]);
+      const snap = new Set(reserved);
+
+      const out = renumberPhase(phase, 5, reserved);
+
+      expect(out.id).toBe('P5');
+      expect(out.milestones[0].id).toBe('P5.M1');
+      expect(out.milestones[0].tasks[0].id).toBe('P5.M1.T1');
+      expect(out.milestones[0].tasks[0].subtasks[0].id).toBe('P5.M1.T1.S1');
+      expect(out.milestones[1].id).toBe('P5.M2');
+      expect(out.milestones[1].tasks[0].id).toBe('P5.M2.T1');
+      expect(out.milestones[1].tasks[0].subtasks[0].id).toBe('P5.M2.T1.S1');
+      expect(out.milestones[1].tasks[0].subtasks[1].id).toBe('P5.M2.T1.S2');
+      // all new ids registered and collision-free vs the snapshot
+      for (const id of [
+        'P5',
+        'P5.M1',
+        'P5.M1.T1',
+        'P5.M1.T1.S1',
+        'P5.M2',
+        'P5.M2.T1',
+        'P5.M2.T1.S1',
+        'P5.M2.T1.S2',
+      ]) {
+        expect(reserved.has(id)).toBe(true);
+        expect(snap.has(id)).toBe(false);
+      }
+    });
+
+    it('rewrites in-scope cross-milestone subtask deps and leaves external deps verbatim', () => {
+      // S1 in M1.T1 depends on S2 in M2.T1 (cross-milestone, in-scope) → rewritten.
+      const s1 = {
+        ...makeSubtask('P1.M1.T1.S1'),
+        dependencies: ['P1.M2.T1.S2'],
+      };
+      const m1 = makeMilestone('P1.M1', {
+        tasks: [makeTask('P1.M1.T1', { subtasks: [s1] })],
+      });
+      const s2a = makeSubtask('P1.M2.T1.S1');
+      const s2b = {
+        ...makeSubtask('P1.M2.T1.S2'),
+        dependencies: ['PEXT.M9.T9.S9'], // external → verbatim
+      };
+      const m2 = makeMilestone('P1.M2', {
+        tasks: [makeTask('P1.M2.T1', { subtasks: [s2a, s2b] })],
+      });
+      const phase = makePhase('P1', { milestones: [m1, m2] });
+
+      const out = renumberPhase(phase, 2, new Set());
+
+      expect(out.milestones[0].tasks[0].subtasks[0].dependencies).toEqual([
+        'P2.M2.T1.S2',
+      ]);
+      expect(out.milestones[1].tasks[0].subtasks[1].dependencies).toEqual([
+        'PEXT.M9.T9.S9',
+      ]);
+    });
+
+    it('preserves all non-id fields including prd_selectors', () => {
+      const sub = {
+        ...makeSubtask('P1.M1.T1.S1'),
+        prd_selectors: ['§2.3', '§4.1'],
+      };
+      const phase = makePhase('P1', {
+        title: 'Reporting',
+        milestones: [
+          makeMilestone('P1.M1', {
+            tasks: [makeTask('P1.M1.T1', { subtasks: [sub] })],
+          }),
+        ],
+      });
+
+      const out = renumberPhase(phase, 9, new Set());
+
+      expect(out.title).toBe('Reporting');
+      expect(out.milestones[0].tasks[0].subtasks[0].prd_selectors).toEqual([
+        '§2.3',
+        '§4.1',
+      ]);
+    });
+
+    it('does not mutate the input phase', () => {
+      const phase = makePhase('P1', {
+        milestones: [
+          makeMilestone('P1.M1', {
+            tasks: [
+              makeTask('P1.M1.T1', { subtasks: [makeSubtask('P1.M1.T1.S1')] }),
+            ],
+          }),
+        ],
+      });
+      const before = JSON.stringify(phase);
+
+      renumberPhase(phase, 2, new Set());
+
+      expect(JSON.stringify(phase)).toBe(before); // input untouched
+    });
   });
 });

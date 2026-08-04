@@ -557,9 +557,7 @@ export async function withLockedTasksJSON(
           try {
             backlog = await readTasksJSON(sessionDir);
           } catch (readErr) {
-            if (
-              readFallback !== undefined
-            ) {
+            if (readFallback !== undefined) {
               backlog = structuredClone(readFallback); // repo/caller-owned → clone
             } else if (
               readErr instanceof SessionFileError &&
