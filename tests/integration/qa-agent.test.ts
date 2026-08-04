@@ -64,9 +64,21 @@ vi.mock('groundswell', async () => {
  * We need to mock agent-factory for BugHuntWorkflow integration tests.
  * This is separate from the QA Agent configuration tests which use the real factory.
  */
-vi.mock('../../src/agents/agent-factory.js', () => ({
-  createQAAgent: vi.fn(),
-}));
+vi.mock('../../src/agents/agent-factory.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/agents/agent-factory.js')>();
+  return {
+    ...actual,
+    createQAAgent: vi.fn(),
+    // FixCycleWorkflow.runStandardBreakdown dynamically imports + calls
+    // createArchitectAgent. Groundswell's createAgent mock returns undefined,
+    // so stub the architect's .prompt to succeed and let the breakdown proceed
+    // to the (mock-routed) tasks.json read.
+    createArchitectAgent: vi.fn().mockReturnValue({
+      prompt: vi.fn().mockResolvedValue({ status: 'success', value: '{}' }),
+    }),
+  };
+});
 
 // =============================================================================
 // MOCK SETUP: fs/promises for FixCycleWorkflow tests
@@ -272,7 +284,7 @@ describe('integration/qa-agent', () => {
       expect(createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'QaAgent',
-          model: 'GLM-4.7',
+          model: 'zai/glm-5.2', // P2.M2 roles refactor: QA = reasoning role = balanced tier
         })
       );
       // Also verify system prompt contains BUG_HUNT_PROMPT content
@@ -815,7 +827,16 @@ describe('integration/qa-agent', () => {
 
       // Mock fs.promises functions to return initial test results
       vi.mocked(access).mockResolvedValue(undefined);
-      vi.mocked(readFile).mockResolvedValue(JSON.stringify(initialResults));
+      vi.mocked(readFile).mockImplementation(async (path: any) => {
+        // Route by filename: TEST_RESULTS.md -> bug report; tasks.json -> a valid
+        // Backlog (runStandardBreakdown reads tasks.json and JSON.parses it as a
+        // Backlog).
+        const p = String(path);
+        if (p.endsWith('tasks.json')) {
+          return JSON.stringify({ backlog: [] });
+        }
+        return JSON.stringify(initialResults);
+      });
 
       // Spy on BugHuntWorkflow to return no bugs after fix
       const bugHuntSpy = vi.spyOn(BugHuntWorkflow.prototype, 'run');
@@ -866,7 +887,16 @@ describe('integration/qa-agent', () => {
 
       // Mock fs.promises functions to return initial test results
       vi.mocked(access).mockResolvedValue(undefined);
-      vi.mocked(readFile).mockResolvedValue(JSON.stringify(initialResults));
+      vi.mocked(readFile).mockImplementation(async (path: any) => {
+        // Route by filename: TEST_RESULTS.md -> bug report; tasks.json -> a valid
+        // Backlog (runStandardBreakdown reads tasks.json and JSON.parses it as a
+        // Backlog).
+        const p = String(path);
+        if (p.endsWith('tasks.json')) {
+          return JSON.stringify({ backlog: [] });
+        }
+        return JSON.stringify(initialResults);
+      });
 
       // Spy on BugHuntWorkflow to always return bugs
       const bugHuntSpy = vi.spyOn(BugHuntWorkflow.prototype, 'run');
@@ -932,7 +962,16 @@ describe('integration/qa-agent', () => {
 
       // Mock fs.promises functions to return initial test results
       vi.mocked(access).mockResolvedValue(undefined);
-      vi.mocked(readFile).mockResolvedValue(JSON.stringify(initialResults));
+      vi.mocked(readFile).mockImplementation(async (path: any) => {
+        // Route by filename: TEST_RESULTS.md -> bug report; tasks.json -> a valid
+        // Backlog (runStandardBreakdown reads tasks.json and JSON.parses it as a
+        // Backlog).
+        const p = String(path);
+        if (p.endsWith('tasks.json')) {
+          return JSON.stringify({ backlog: [] });
+        }
+        return JSON.stringify(initialResults);
+      });
 
       // Spy on BugHuntWorkflow to return only minor bugs after fix
       const bugHuntSpy = vi.spyOn(BugHuntWorkflow.prototype, 'run');

@@ -1,0 +1,220 @@
+
+ RUN  v1.6.1 /home/dustin/projects/hacky-hack
+
+stdout | tests/setup.ts:29:15
+.env file loaded successfully
+
+stdout | tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > sample output logging > should log sample prompt content for inspection
+
+=== TASK_BREAKDOWN_PROMPT Sample Output ===
+Prompt length: 6441
+
+=== Prompt (first 500 chars) ===
+
+# LEAD TECHNICAL ARCHITECT & PROJECT SYNTHESIZER
+
+> **PRD document note (PRD §2.3):** The PRD text provided is already the complete, merged document — do not chase @include directives yourself.
+
+> **ROLE:** Act as a Lead Technical Architect and Project Management Synthesizer.
+> **CONTEXT:** You represent the rigorous, unified consensus of a senior panel (Security, DevOps, Backend, Frontend, QA).
+> **GOAL:** Validate the PRD through research, document findings, and decompose the PRD into a stric...
+
+=== Key sections verification ===
+✓ Contains LEAD TECHNICAL ARCHITECT: true
+✓ Contains HIERARCHY DEFINITIONS: true
+✓ Contains RESEARCH-DRIVEN ARCHITECTURE: true
+✓ Contains PROCESS section: true
+✓ Contains OUTPUT FORMAT: true
+✓ Contains JSON schema: true
+
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > prompt export and loading > should export TASK_BREAKDOWN_PROMPT as a string
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > prompt export and loading > should be a non-empty template literal with markdown content
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (a): architect role definition > should define Lead Technical Architect & Project Synthesizer role
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (a): architect role definition > should define role context and goal with proper markdown headings
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (a): architect role definition > should specify the role represents a senior panel consensus
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (a): architect role definition > should define the goal as validating PRD and decomposing into hierarchy
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (b): research-driven architecture > should have RESEARCH-DRIVEN ARCHITECTURE as new priority section
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (b): research-driven architecture > should require validation before breaking down
+ × tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (b): research-driven architecture > should specify spawning subagents for research
+   → expected '\n# LEAD TECHNICAL ARCHITECT & PROJEC…' to contain 'SPAWN SUBAGENTS'
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (b): research-driven architecture > should require reality check against codebase state
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (b): research-driven architecture > should specify storing findings in architecture directory
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should specify output to ./tasks.json file
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should define JSON structure with backlog array
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should include JSON schema for Phase with all required fields
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should include JSON schema for Milestone with nested tasks
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should include JSON schema for Task with nested subtasks
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should include JSON schema for Subtask with all required fields
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (c): strict JSON output format > should include context_scope in the JSON schema
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (d): implicit TDD approach > should forbid separate test subtasks
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (d): implicit TDD approach > should define implied test-first workflow
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (d): implicit TDD approach > should specify that code is not complete without tests
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (e): context scope requirements > should define context scope blinder section
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (e): context scope requirements > should specify INPUT/OUTPUT/MOCKING requirements
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (e): context scope requirements > should specify context_scope must be strict set of instructions
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (e): context scope requirements > should include context_scope template in JSON schema example
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > hierarchy definitions > should define four hierarchy levels with time scales
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > hierarchy definitions > should specify subtask story point limits
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > hierarchy definitions > should have HIERARCHY DEFINITIONS section header
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > process section > should define ULTRATHINK & PLAN process
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > process section > should specify 4-step process: ANALYZE, RESEARCH, DETERMINE, DECOMPOSE
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > process section > should specify research subagent spawning instructions
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > process section > should specify using research to populate context_scope
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > coherence & continuity constraints > should require no vacuums - architectural flow
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > coherence & continuity constraints > should require explicit handoffs between subtasks
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > coherence & continuity constraints > should require strict references from research phase
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > output format section > should have OUTPUT FORMAT section
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > output format section > should specify CONSTRAINT for writing to file
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > output format section > should include JSON code block example
+ ✓ tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > sample output logging > should log sample prompt content for inspection
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/task-breakdown-prompt.test.ts > integration/task-breakdown-prompt > requirement (b): research-driven architecture > should specify spawning subagents for research
+AssertionError: expected '\n# LEAD TECHNICAL ARCHITECT & PROJEC…' to contain 'SPAWN SUBAGENTS'
+
+- Expected
++ Received
+
+- SPAWN SUBAGENTS
++
++ # LEAD TECHNICAL ARCHITECT & PROJECT SYNTHESIZER
++
++ > **PRD document note (PRD §2.3):** The PRD text provided is already the complete, merged document — do not chase @include directives yourself.
++
++ > **ROLE:** Act as a Lead Technical Architect and Project Management Synthesizer.
++ > **CONTEXT:** You represent the rigorous, unified consensus of a senior panel (Security, DevOps, Backend, Frontend, QA).
++ > **GOAL:** Validate the PRD through research, document findings, and decompose the PRD into a strict hierarchy: `Phase` > `Milestone` > `Task` > `Subtask`.
++
++ ---
++
++ ## HIERARCHY DEFINITIONS
++
++ - **PHASE:** Project-scope goals (e.g., MVP, V1.0). _Weeks to months._
++ - **MILESTONE:** Key objectives within a Phase. _1 to 12 weeks._
++ - **TASK:** Complete features within a Milestone. _Days to weeks._
++ - **SUBTASK:** Atomic implementation steps. **0.5, 1, or 2 Story Points (SP).** (Max 2 SP, do not break subtasks down further than 2 SP unless required).
++
++ ---
++
++ ## CRITICAL CONSTRAINTS & STANDARD OF WORK (SOW)
++
++ ### 1. RESEARCH-DRIVEN ARCHITECTURE (NEW PRIORITY)
++
++ - **VALIDATE BEFORE BREAKING DOWN:** You cannot plan what you do not understand.
++ - **READ THE PRD FIRST; SUBAGENTS ARE OPTIONAL:** The PRD is already in your context and is frequently self-contained (full reference implementations, schemas, and configs in its appendices). Read it end-to-end BEFORE any research. If it is self-contained, proceed directly to decomposition.
++ - **NEVER LOOP ON SUBAGENT CALLS:** The only subagents that may exist are built-ins (e.g. context-builder, delegate, oracle). Do NOT invent names like "researcher", "coder", or "codebase-analysis". If a subagent call returns "Unknown agent", STOP calling subagents entirely and decompose from the PRD you already have. Never retry a failed subagent name.
++ - **REALITY CHECK:** Verify that the PRD's requests match the current codebase state (e.g., don't plan a React hook if the project is vanilla JS).
++ - **PERSISTENCE:** You must store architectural findings in `$SESSION_DIR/architecture/` so the downstream PRP (Product Requirement Prompt) agents have access to them.
++
++ ### 2. COHERENCE & CONTINUITY
++
++ - **NO VACUUMS:** You must ensure architectural flow. Subtasks must not exist in isolation.
++ - **EXPLICIT HANDOFFS:** If `Subtask A` defines a schema, `Subtask B` must be explicitly instructed to consume that schema.
++ - **STRICT REFERENCES:** Reference specific file paths, variable names, or API endpoints confirmed during your **Research Phase**.
++
++ ### 3. IMPLICIT TDD & QUALITY
++
++ - **DO NOT** create subtasks for "Write Tests."
++ - **IMPLIED WORKFLOW:** Assume every subtask implies: _"Write the failing test -> Implement the code -> Pass the test."_
++ - **DEFINITION OF DONE:** Code is not complete without tests.
++
++ ### 4. THE "CONTEXT SCOPE" BLINDER
++
++ For every Subtask, the `context_scope` must be a **strict set of instructions** for a developer who cannot see the rest of the project. It must define:
++
++ - **INPUT:** What specific data/interfaces are available from previous subtasks?
++ - **OUTPUT:** What exact interface does this subtask expose?
++ - **MOCKING:** What external services must be mocked to keep this subtask isolated?
++
++ ### 5. DOCUMENTATION SYNC (TWO MODES)
++
++ **Documentation is never a standalone subtask — it rides with the work, mirroring the implicit-TDD rule.** Every documentation change falls into one of two modes:
++
++ - **MODE A (doc-with-work, default):** Documentation a subtask _directly_ touches — config, public API, CLI, env vars, exported types — is updated **INSIDE** that subtask's `context_scope` and declared via a `DOCS:` line (e.g. `DOCS: update docs/CONFIGURATION.md FEATURE_TIMEOUT row`). Per-file docs → Mode A.
++ - **MODE B (changeset-level):** Cross-cutting docs that only make sense once the whole change lands — README, feature overviews, architecture summaries — become a **FINAL "Sync changeset-level documentation" task** that depends on all implementing subtasks. Whole-feature/overview docs → Mode B.
++ - **DECISION RULE:** per-file → Mode A; whole-feature/overview → Mode B; **when in doubt, both.**
++
++ ---
++
++ ## PROCESS
++
++ ULTRATHINK & PLAN
++
++ 1.  **ANALYZE** the attached or referenced PRD.
++ 2.  **RESEARCH (SPAWN & VALIDATE):**
++     - **Spawn** subagents to map the codebase and verify PRD feasibility.
++     - **Spawn** subagents to find external documentation for new tech.
++     - **Store** findings in `$SESSION_DIR/architecture/` (e.g., `system_context.md`, `external_deps.md`).
++ 3.  **DETERMINE** the highest level of scope (Phase, Milestone, or Task).
++ 4.  **DECOMPOSE** strictly downwards to the Subtask level, using your research to populate the `context_scope`.
++
++ ---
++
++ ## OUTPUT FORMAT
++
++ **CONSTRAINT:** You MUST write the JSON to the file `./$TASKS_FILE` (in the CURRENT WORKING DIRECTORY - do NOT search for or use any other tasks.json files from other projects/directories).
++
++ Do NOT output JSON to the conversation - WRITE IT TO THE FILE at path `./$TASKS_FILE`.
++
++ Use your file writing tools to create `./$TASKS_FILE` with this structure:
++
++ ```json
++ {
++   "backlog": [
++     {
++       "type": "Phase",
++       "id": "P[#]",
++       "title": "Phase Title",
++       "status": "Planned | Researching | Ready | Implementing | Complete | Failed",
++       "description": "High level goal.",
++       "milestones": [
++         {
++           "type": "Milestone",
++           "id": "P[#].M[#]",
++           "title": "Milestone Title",
++           "status": "Planned",
++           "description": "Key objective.",
++           "tasks": [
++             {
++               "type": "Task",
++               "id": "P[#].M[#].T[#]",
++               "title": "Task Title",
++               "status": "Planned",
++               "description": "Feature definition.",
++               "subtasks": [
++                 {
++                   "type": "Subtask",
++                   "id": "P[#].M[#].T[#].S[#]",
++                   "title": "Subtask Title",
++                   "status": "Planned",
++                   "story_points": 1,
++                   "dependencies": ["ID of prerequisite subtask"],
++                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: [Finding from $SESSION_DIR/architecture/ regarding this feature].\n2. INPUT: [Specific data structure/variable] from [Dependency ID].\n3. LOGIC: Implement [PRD Section X] logic. Mock [Service Y] for isolation.\n4. OUTPUT: Return [Result Object/Interface] for consumption by [Next Subtask ID]."
++                 }
++               ]
++             }
++           ]
++         }
++       ]
++     }
++   ]
++ }
++ ```
++
+
+ ❯ tests/integration/task-breakdown-prompt.test.ts:94:37
+     92| 
+     93|     it('should specify spawning subagents for research', () => {
+     94|       expect(TASK_BREAKDOWN_PROMPT).toContain('SPAWN SUBAGENTS');
+       |                                     ^
+     95|       expect(TASK_BREAKDOWN_PROMPT).toContain(
+     96|         'spawn agents to research the codebase'
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 38 passed (39)
+   Start at  18:15:31
+   Duration  198ms (transform 46ms, setup 26ms, collect 28ms, tests 8ms, environment 0ms, prepare 34ms)
+

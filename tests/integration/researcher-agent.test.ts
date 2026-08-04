@@ -278,7 +278,7 @@ describe('integration/researcher-agent', () => {
       expect(gs.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'ResearcherAgent',
-          model: 'GLM-4.7',
+          model: 'zai/glm-5.2',
           system: PRP_BLUEPRINT_PROMPT,
           maxTokens: 4096,
           enableCache: true,
@@ -438,11 +438,15 @@ describe('integration/researcher-agent', () => {
       const { PRP_BLUEPRINT_PROMPT } =
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
 
-      // VERIFY: Contains instructions for subagent spawning
-      // GOTCHA: These are ASPIRATIONAL features, not implemented in current codebase
-      // Tests verify prompt CONTAINS these instructions, not that they work
-      expect(PRP_BLUEPRINT_PROMPT).toContain('spawn subagents');
-      expect(PRP_BLUEPRINT_PROMPT).toContain('batch tools');
+      // VERIFY: Prompt still instructs on subagent usage. Wording was de-escalated to
+      // OPTIONAL/best-effort during the roles refactor; assert the CURRENT literals present
+      // in PRP_BLUEPRINT_PROMPT (src/agents/prompts.ts:182-674).
+      expect(PRP_BLUEPRINT_PROMPT).toContain(
+        'Subagents are OPTIONAL and may be unavailable'
+      );
+      expect(PRP_BLUEPRINT_PROMPT).toContain(
+        'or built-in subagents if available'
+      );
     });
 
     it('should instruct to use TodoWrite tool', async () => {

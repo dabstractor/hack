@@ -1,0 +1,400 @@
+
+ RUN  v1.6.1 /home/dustin/projects/hacky-hack
+
+stdout | tests/setup.ts:29:15
+.env file loaded successfully
+
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Initialized[39m
+stderr | tests/integration/qa-agent.test.ts > integration/qa-agent > createQAAgent configuration > should create QA agent with GLM-4.7 model
+[PRP] Deprecation: environment variable ANTHROPIC_BASE_URL is deprecated for the pipeline endpoint; use the canonical PRP_API_BASE_URL instead (PRD §9.2.8). The legacy alias will be removed in a future major version.
+
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Starting bug hunt workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Starting bug hunt workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Phase 1: Scope Analysis[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Analyzing PRD requirements...[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Completed tasks for testing:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Scope analysis complete - QA context established[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Phase 2: Creative E2E Testing[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] E2E test categories:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] E2E testing scenarios defined - awaiting QA agent execution[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Phase 3: Adversarial Testing[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Adversarial test categories:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Adversarial testing scenarios defined - awaiting QA agent execution[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Phase 4: Generating Bug Report[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] QA agent created[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Bug hunt prompt created[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Bug report generated[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Summary: OK[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Recommendations:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727274-jch02xn] [BugHuntWorkflow] [BugHuntWorkflow] Bug hunt workflow completed successfully[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Starting bug hunt workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Starting bug hunt workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Phase 1: Scope Analysis[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Analyzing PRD requirements...[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Completed tasks for testing:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Scope analysis complete - QA context established[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Phase 2: Creative E2E Testing[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] E2E test categories:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] E2E testing scenarios defined - awaiting QA agent execution[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Phase 3: Adversarial Testing[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Adversarial test categories:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Adversarial testing scenarios defined - awaiting QA agent execution[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Phase 4: Generating Bug Report[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] QA agent created[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Bug hunt prompt created[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Bug report generated[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Summary: OK[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Recommendations:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727279-odvpvn1] [BugHuntWorkflow] [BugHuntWorkflow] Bug hunt workflow completed successfully[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Starting bug hunt workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Starting bug hunt workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Phase 1: Scope Analysis[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Analyzing PRD requirements...[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Completed tasks for testing:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Scope analysis complete - QA context established[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Phase 2: Creative E2E Testing[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] E2E test categories:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] E2E testing scenarios defined - awaiting QA agent execution[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Phase 3: Adversarial Testing[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Adversarial test categories:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Adversarial testing scenarios defined - awaiting QA agent execution[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Phase 4: Generating Bug Report[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] QA agent created[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Bug hunt prompt created[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Bug report generated[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Summary: Found bugs[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Recommendations:[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727280-qtf9koe] [BugHuntWorkflow] [BugHuntWorkflow] Bug hunt workflow completed successfully[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727283-2w2nq8z] [FixCycleWorkflow] [FixCycleWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727283-2w2nq8z] [FixCycleWorkflow] [FixCycleWorkflow] Starting fix cycle workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727283-2w2nq8z] [FixCycleWorkflow] [FixCycleWorkflow] Loading bug report[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727283-2w2nq8z] [FixCycleWorkflow] [FixCycleWorkflow] Bug report loaded[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727286-2ssqlad] [FixCycleWorkflow] [FixCycleWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727286-2ssqlad] [FixCycleWorkflow] [FixCycleWorkflow] Starting fix cycle workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727286-2ssqlad] [FixCycleWorkflow] [FixCycleWorkflow] Loading bug report[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727286-2ssqlad] [FixCycleWorkflow] [FixCycleWorkflow] Bug report loaded[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727287-rrfxzfs] [FixCycleWorkflow] [FixCycleWorkflow] Initialized[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727287-rrfxzfs] [FixCycleWorkflow] [FixCycleWorkflow] Starting fix cycle workflow[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727287-rrfxzfs] [FixCycleWorkflow] [FixCycleWorkflow] Loading bug report[39m
+[22:15:27] [32mINFO[39m: [36m[1785881727287-rrfxzfs] [FixCycleWorkflow] [FixCycleWorkflow] Bug report loaded[39m
+ × tests/integration/qa-agent.test.ts > integration/qa-agent > createQAAgent configuration > should create QA agent with GLM-4.7 model
+   → expected "spy" to be called with arguments: [ ObjectContaining{…} ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+-   ObjectContaining {
+-     "model": "GLM-4.7",
++   Object {
++     "enableCache": true,
++     "enableReflection": true,
++     "env": Object {
++       "ANTHROPIC_API_KEY": "",
++       "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
++     },
++     "harness": "pi",
++     "maxTokens": 4096,
++     "mcps": Array [
++       BashMCP {
++         "name": "bash",
++         "registeredTools": Map {
++           "bash__execute_bash" => Object {
++             "executor": [Function anonymous],
++             "serverName": "bash",
++             "tool": Object {
++               "description": "Execute shell commands with optional working directory and timeout. Returns stdout, stderr, exit code, and success status. Commands are executed safely using spawn() without shell interpretation.",
++               "input_schema": Object {
++                 "properties": Object {
++                   "command": Object {
++                     "description": "The shell command to execute",
++                     "type": "string",
++                   },
++                   "cwd": Object {
++                     "description": "Working directory for command execution (optional)",
++                     "type": "string",
++                   },
++                   "timeout": Object {
++                     "description": "Timeout in milliseconds (default: 30000)",
++                     "maximum": 300000,
++                     "minimum": 1000,
++                     "type": "number",
++                   },
++                 },
++                 "required": Array [
++                   "command",
++                 ],
++                 "type": "object",
++               },
++               "name": "bash__execute_bash",
++             },
++           },
++         },
++         "servers": Map {
++           "bash" => Object {
++             "name": "bash",
++             "tools": Array [
++               Object {
++                 "description": "Execute shell commands with optional working directory and timeout. Returns stdout, stderr, exit code, and success status. Commands are executed safely using spawn() without shell interpretation.",
++                 "input_schema": Object {
++                   "properties": Object {
++                     "command": Object {
++                       "description": "The shell command to execute",
++                       "type": "string",
++                     },
++                     "cwd": Object {
++                       "description": "Working directory for command execution (optional)",
++                       "type": "string",
++                     },
++                     "timeout": Object {
++                       "description": "Timeout in milliseconds (default: 30000)",
++                       "maximum": 300000,
++                       "minimum": 1000,
++                       "type": "number",
++                     },
++                   },
++                   "required": Array [
++                     "command",
++                   ],
++                   "type": "object",
++                 },
++                 "name": "execute_bash",
++               },
++             ],
++             "transport": "inprocess",
++           },
++         },
++         "toolExecutors": Map {
++           "bash__execute_bash" => [Function anonymous],
++         },
++         "tools": Array [
++           Object {
++             "description": "Execute shell commands with optional working directory and timeout. Returns stdout, stderr, exit code, and success status. Commands are executed safely using spawn() without shell interpretation.",
++             "input_schema": Object {
++               "properties": Object {
++                 "command": Object {
++                   "description": "The shell command to execute",
++                   "type": "string",
++                 },
++                 "cwd": Object {
++                   "description": "Working directory for command execution (optional)",
++                   "type": "string",
++                 },
++                 "timeout": Object {
++                   "description": "Timeout in milliseconds (default: 30000)",
++                   "maximum": 300000,
++                   "minimum": 1000,
++                   "type": "number",
++                 },
++               },
++               "required": Array [
++                 "command",
++               ],
++               "type": "object",
++             },
++             "name": "execute_bash",
++           },
++         ],
++         "transport": "inprocess",
++       },
++       FilesystemMCP {
++         "name": "filesystem",
++         "registeredTools": Map {
++           "filesystem__file_read" => Object {
++             "executor": [Function anonymous],
++             "serverName": "filesystem",
++             "tool": Object {
++               "description": "Read file contents with optional encoding. Returns file content as string or error message.",
++               "input_schema": Object {
++                 "properties": Object {
++                   "encoding": Object {
++                     "description": "Encoding (default: utf-8)",
++                     "enum": Array [
++                       "utf-8",
++                       "utf16le",
++                       "latin1",
++                       "base64",
++                       "hex",
++                     ],
++                     "type": "string",
++                   },
++                   "path": Object {
++                     "description": "File path to read",
++                     "type": "string",
++                   },
++                 },
++                 "required": Array [
++                   "path",
++                 ],
++                 "type": "object",
++               },
++               "name": "filesystem__file_read",
++             },
++           },
++           "filesystem__file_write" => Object {
++             "executor": [Function anonymous],
++             "serverName": "filesystem",
++             "tool": Object {
++               "description": "Write content to a file. Optionally creates directories if they do not exist.",
++               "input_schema": Object {
++                 "properties": Object {
++                   "content": Object {
++                     "description": "Content to write",
++                     "type": "string",
++                   },
++                   "createDirs": Object {
++                     "description": "Create directories if needed (default: false)",
++                     "type": "boolean",
++                   },
++                   "path": Object {
++                     "description": "File path to write",
++                     "type": "string",
++                   },
++                 },
++                 "required": Array [
++                   "path",
++                   "content",
++                 ],
++                 "type": "object",
++               },
++               "name": "filesystem__file_write",
++             },
++           },
++           "filesystem__glob_files" => Object {
++             "executor": [Function anonymous],
++             "serverName": "filesystem",
++             "tool": Object {
++               "description": "Find files matching a glob pattern. Returns array of matching file paths.",
++               "input_schema": Object {
++                 "properties": Object {
++                   "cwd": Object {
++                     "description": "Working directory (optional)",
++                     "type": "string",
++                   },
++                   "pattern": Object {
++                     "description": "Glob pattern (e.g., **/*.ts, src/**/*.js)",
++                     "type": "string",
++                   },
++                 },
++                 "required": Array [
++                   "pattern",
++                 ],
++                 "type": "object",
++               },
++               "name": "filesystem__glob_files",
++             },
++           },
++           "filesystem__grep_search" => Object {
++             "executor": [Function anonymous],
++             "serverName": "filesystem",
++             "tool": Object {
++               "description": "Search for a regex pattern in a file. Returns array of matching lines with line numbers.",
++               "input_schema": Object {
++                 "properties": Object {
++                   "flags": Object {
++                     "description": "Regex flags (e.g., i for case-insensitive)",
++                     "type": "string",
++                   },
++                   "path": Object {
++                     "description": "File path to search in",
++                     "type": "string",
++                   },
++                   "pattern": Object {
++                     "description": "Regex pattern to search for",
++                     "type": "string",
++                   },
++                 },
++                 "required": Array [
++                   "pattern",
++                   "path",
++                 ],
++                 "type": "object",
++               },
++               "name": "filesystem__grep_search",
++             },
++           },
++         },
++         "servers": Map {
++           "filesystem" => Object {
++             "name": "filesystem",
++             "tools": Array [
++               Object {
++                 "description": "Read file contents with optional encoding. Returns file content as string or error message.",
++                 "input_schema": Object {
++                   "properties": Object {
++                     "encoding": Object {
++                       "description": "Encoding (default: utf-8)",
++                       "enum": Array [
++                         "utf-8",
++                         "utf16le",
++                         "latin1",
++                         "base64",
++                         "hex",
++                       ],
++                       "type": "string",
++                     },
++                     "path": Object {
++                       "description": "File path to read",
++                       "type": "string",
++                     },
++                   },
++                   "required": Array [
++                     "path",
++                   ],
++                   "type": "object",
++                 },
++                 "name": "file_read",
++               },
++               Object {
++                 "description": "Write content to a file. Optionally creates directories if they do not exist.",
++                 "input_schema": Object {
++                   "properties": Object {
++                     "content": Object {
++                       "description": "Content to write",
++                       "type": "string",
++                     },
++                     "createDirs": Object {
++                       "description": "Create directories if needed (default: false)",
++                       "type": "boolean",
++                     },
++                     "path": Object {
++                       "description": "File path to write",
++                       "type": "string",
++                     },
++                   },
++                   "required": Array [
++                     "path",
++                     "content",
++                   ],
++                   "type": "object",
++                 },
++                 "name": "file_write",
++               },
++               Object {
++                 "description": "Find files matching a glob pattern. Returns array of matching file paths.",
++                 "input_schema": Object {
++                   "properties": Object {
++                     "cwd": Object {
++                       "description": "Working directory (optional)",
++                       "type": "string",
++                     },
++                     "pattern": Object {
++                       "description": "Glob pattern (e.g., **/*.ts, src/**/*.js)",
++                       "type": "string",
++                     },
++                   },
++                   "required": Array [
++                     "pattern",
++                   ],
++                   "type": "object",
++                 },
++                 "name": "glob_files",
++               },
++               Object {
++                 "description": "Search for a regex pattern in a file. Returns array of matching lines with line numbers.",

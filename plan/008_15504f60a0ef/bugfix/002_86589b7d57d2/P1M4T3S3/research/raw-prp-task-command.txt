@@ -1,0 +1,9 @@
+
+ RUN  v1.6.1 /home/dustin/projects/hacky-hack
+
+filter:  tests/integration/prp-task-command.test.ts
+include: tests/**/*.{test,spec}.ts
+exclude:  **/dist/**, **/node_modules/**
+watch exclude:  **/node_modules/**, **/dist/**
+
+No test files found, exiting with code 1

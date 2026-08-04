@@ -69,17 +69,34 @@ vi.mock('../../src/core/session-manager.js', async importOriginal => {
   return {
     ...actual,
     SessionManager: vi.fn().mockImplementation(() => {
+      // currentSession MUST be a SessionState object (not a path string):
+      // TaskOrchestrator reads currentSession.taskRegistry; the ResearchQueue it
+      // builds constructs a PRPGenerator that reads currentSession.metadata.path.
+      const mockState = {
+        metadata: {
+          id: '001_testsession',
+          hash: 'testhash00000',
+          path: '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
+          createdAt: new Date(),
+          parentSession: null,
+        },
+        prdSnapshot: '# Test PRD\n',
+        taskRegistry: createTestBacklog(),
+        currentItemId: null,
+      };
       const mockInstance = {
-        loadSession: vi.fn().mockResolvedValue({
-          backlog: createTestBacklog(),
-          currentSession: '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
-        }),
+        loadSession: vi.fn(),
         discoverSessions: vi
           .fn()
           .mockResolvedValue([
             '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
           ]),
-        currentSession: '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
+        get currentSession() {
+          return mockState;
+        },
+        set currentSession(v) {
+          Object.assign(mockState, v);
+        },
       };
       return mockInstance;
     }),
@@ -309,11 +326,6 @@ describe('PRD Task Command Integration Tests', () => {
     it('should display tasks from current session in hierarchical format', async () => {
       // SETUP: Mock session loading
       const backlog = createTestBacklog();
-      (sessionManager.loadSession as any).mockResolvedValue({
-        tasks: backlog.backlog,
-        currentSession: '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
-      });
-
       const orchestrator = new TaskOrchestrator(sessionManager);
 
       // EXECUTE: Get all tasks (simulating 'prd task' output)
@@ -329,11 +341,6 @@ describe('PRD Task Command Integration Tests', () => {
     it('should return next executable task (first Planned or Researching)', async () => {
       // SETUP: Mock session loading with mixed statuses
       const backlog = createTestBacklog();
-      (sessionManager.loadSession as any).mockResolvedValue({
-        tasks: backlog.backlog,
-        currentSession: '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
-      });
-
       const orchestrator = new TaskOrchestrator(sessionManager);
 
       // EXECUTE: Get next task
@@ -341,10 +348,13 @@ describe('PRD Task Command Integration Tests', () => {
         t => t.status === 'Planned' || t.status === 'Researching'
       );
 
-      // VERIFY: Next task is P1.M1.T2.S1 (Researching, comes before Planned S2 in DFS)
+      // VERIFY: First Planned|Researching in DFS order. DFS leaf order is
+      // S1(Complete) -> S2(Planned) -> S3(Researching) -> S4(Implementing), so the
+      // first executable (Planned|Researching) leaf is S2 (Planned). (Confirmed by
+      // sibling test #1: tasks[0].id === 'P1.M1.T1.S1'.)
       expect(nextTask).toBeDefined();
-      expect(nextTask!.id).toBe('P1.M1.T2.S1');
-      expect(nextTask!.status).toBe('Researching');
+      expect(nextTask!.id).toBe('P1.M1.T1.S2');
+      expect(nextTask!.status).toBe('Planned');
     });
 
     it('should return null when all tasks are Complete', async () => {
@@ -360,10 +370,7 @@ describe('PRD Task Command Integration Tests', () => {
           ]),
         ],
       };
-      (sessionManager.loadSession as any).mockResolvedValue({
-        tasks: backlog.backlog,
-        currentSession: '/tmp/prd-task-test-XXXXXX/plan/001_complete',
-      });
+      (sessionManager as any).currentSession = { taskRegistry: backlog };
 
       const orchestrator = new TaskOrchestrator(sessionManager);
 
@@ -381,11 +388,6 @@ describe('PRD Task Command Integration Tests', () => {
     it('should show counts by status', async () => {
       // SETUP: Mock session loading with various statuses
       const backlog = createTestBacklog();
-      (sessionManager.loadSession as any).mockResolvedValue({
-        tasks: backlog.backlog,
-        currentSession: '/tmp/prd-task-test-XXXXXX/plan/001_testsession',
-      });
-
       const orchestrator = new TaskOrchestrator(sessionManager);
 
       // EXECUTE: Count tasks by status
@@ -493,7 +495,10 @@ describe('PRD Task Command Integration Tests', () => {
 
   describe('error handling', () => {
     it('should handle non-existent file gracefully', () => {
-      // SETUP: Non-existent file path
+      // SETUP: Non-existent file path (override the module-level existsSync=>true
+      // default for THIS path only — the passing file-override/bugfix tests rely on
+      // truthy existsSync)
+      (mockExistsSync as any).mockReturnValue(false);
       const nonExistentPath = mockJoin(tempDir, 'does-not-exist.json');
 
       // EXECUTE: Try to read file

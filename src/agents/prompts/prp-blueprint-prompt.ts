@@ -336,6 +336,10 @@ export function createPRPBlueprintPrompt(
     system: systemPrompt,
 
     // Permissive schema — the FILE is the contract (mirrors the architect).
+    // NOTE: enableReflection is intentionally OMITTED here by design (the FILE is
+    // the contract, same as createArchitectPrompt); do NOT add it. The stale JSDoc
+    // line above mentioning enableReflection is outdated — see
+    // architecture/bug-004-test-suite.md (P1.M4.T3.S3 note).
     responseFormat: z.unknown(),
   });
 }

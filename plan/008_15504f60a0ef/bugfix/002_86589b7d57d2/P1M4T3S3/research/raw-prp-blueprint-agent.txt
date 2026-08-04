@@ -1,0 +1,87 @@
+
+ RUN  v1.6.1 /home/dustin/projects/hacky-hack
+
+stdout | tests/setup.ts:29:15
+.env file loaded successfully
+
+stdout | tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > sample output logging > should log sample prompt for inspection
+
+=== PRP Blueprint Prompt Sample Output ===
+Subtask ID: P2.M2.T2.S2
+Subtask Title: Create PRP generation prompt
+User prompt length: 23412
+System prompt length: 20862
+Enable reflection: undefined
+
+=== User Prompt (first 500 chars) ===
+# Work Item Context
+
+## Task Information
+
+**Title**: Create PRP generation prompt
+**Description**: CONTRACT DEFINITION:
+1. RESEARCH NOTE: From PROMPTS.md PRP Blueprint - Requires codebase analysis, context injection, template filling.
+2. INPUT: PRPDocumentSchema, PRP_BLUEPRINT_PROMPT, Backlog with task to generate PRP for.
+3. LOGIC: Create src/agents/prompts/prp-blueprint-prompt.ts:
+   - Import createPrompt, BacklogSchema, PRPDocumentSchema, PRP_BLUEPRINT_PROMPT
+   - Export function createPRPBlu...
+
+=== System Prompt (first 300 chars) ===
+
+# Create PRP for Work Item
+
+> **PRD document note (PRD §2.3):** The PRD text provided is already the complete, merged document — do not chase @include directives yourself.
+
+## Work Item Information
+
+**ITEM TITLE**: <item_title>
+**ITEM DESCRIPTION**: <item_description>
+
+You are creating a PRP (Produ...
+
+=== Full prompt validation ===
+✓ Prompt structure valid
+✓ User prompt contains task context
+✓ System prompt contains PRP_BLUEPRINT_PROMPT
+✓ responseFormat defined
+✓ enableReflection set to true
+
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > setup > should read tasks.json from plan directory
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > setup > should validate tasks.json against BacklogSchema
+ × tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > prompt generation with Subtask > should generate valid prompt for Subtask from real Backlog
+   → expected undefined to be true // Object.is equality
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > prompt generation with Subtask > should include dependency context for Subtask with dependencies
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > prompt generation with Task > should generate valid prompt for Task from real Backlog
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > parent context extraction > should extract Phase, Milestone, and Task descriptions for Subtask
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > codebase path inclusion > should include codebase path when provided
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > codebase path inclusion > should not include codebase section when path is not provided
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > responseFormat validation > should have responseFormat matching PRPDocumentSchema structure
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > responseFormat validation > should create valid mock PRPDocument output
+ ✓ tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > sample output logging > should log sample prompt for inspection
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/prp-blueprint-agent.test.ts > integration/prp-blueprint-prompt > prompt generation with Subtask > should generate valid prompt for Subtask from real Backlog
+AssertionError: expected undefined to be true // Object.is equality
+
+- Expected: 
+true
+
++ Received: 
+undefined
+
+ ❯ tests/integration/prp-blueprint-agent.test.ts:100:39
+     98|       expect(typeof prompt.systemOverride).toBe('string');
+     99|       expect(prompt.responseFormat).toBeDefined();
+    100|       expect(prompt.enableReflection).toBe(true);
+       |                                       ^
+    101| 
+    102|       // VERIFY: User prompt contains task context
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 passed (11)
+   Start at  18:15:29
+   Duration  1.34s (transform 335ms, setup 26ms, collect 1.16s, tests 23ms, environment 0ms, prepare 33ms)
+

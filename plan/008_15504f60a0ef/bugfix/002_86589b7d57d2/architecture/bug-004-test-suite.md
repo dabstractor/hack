@@ -50,6 +50,19 @@ path; prefer real harness for suites that explicitly test research integration.
 - `qa-agent.test.ts`(4), `researcher-agent.test.ts`(2), `prd-task-command.test.ts`(5),
   `prp-blueprint-agent.test.ts`(1), `task-breakdown-prompt.test.ts`(1): likely model/prompt-text
   rot — **line-audit each before editing.**
+- **Corrected during P1.M4.T3.S3:** `src/agents/prompts/prp-blueprint-prompt.ts`'
+  `createPRPBlueprintPrompt` — investigation revealed the `enableReflection` omission
+  is **intentional by design** (the FILE is the contract, mirroring `createArchitectPrompt`,
+  which also omits it "by design"), NOT a latent bug. Evidence: 5 assertions across 3
+  files encode the omission as intended (`tests/unit/agents/prompts/prp-blueprint-prompt.test.ts`,
+  `tests/unit/agent-context-injection.test.ts`, `tests/integration/agents.test.ts`), and the
+  stale JSDoc line was simply not updated when the code deliberately dropped it. The single
+  outlier `tests/integration/prp-blueprint-agent.test.ts:100` (`toBe(true)`) was re-aligned to
+  `toBeUndefined()` to match the real contract (assertion NOT weakened — it now asserts the
+  intentional design consistently with its 5 siblings). A clarifying NOTE comment was added
+  to the source to prevent future misdiagnosis from the stale JSDoc. The PRP's primary
+  recommendation (add `enableReflection: true`) was abandoned because it would have newly
+  broken 5 previously-green tests for a net regression.
 
 ## Category (c) — Genuine test bugs (~4 files, ~39 failures)
 - `prp-pipeline-shutdown.test.ts`(20/20): `beforeEach` lines 110-117 spread a bare function:

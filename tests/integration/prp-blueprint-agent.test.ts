@@ -97,7 +97,12 @@ describe('integration/prp-blueprint-prompt', () => {
       expect(typeof prompt.user).toBe('string');
       expect(typeof prompt.systemOverride).toBe('string');
       expect(prompt.responseFormat).toBeDefined();
-      expect(prompt.enableReflection).toBe(true);
+      // enableReflection is intentionally OMITTED by design for createPRPBlueprintPrompt
+      // — the FILE is the contract (mirrors createArchitectPrompt). This matches the
+      // unit suite (tests/unit/agents/prompts/prp-blueprint-prompt.test.ts) and
+      // tests/integration/agents.test.ts. The stale JSDoc on the builder mentioning
+      // enableReflection is outdated (see architecture/bug-004-test-suite.md).
+      expect(prompt.enableReflection).toBeUndefined();
 
       // VERIFY: User prompt contains task context
       expect(prompt.user).toContain(subtask.title);
@@ -408,7 +413,7 @@ describe('integration/prp-blueprint-prompt', () => {
       console.log('✓ User prompt contains task context');
       console.log('✓ System prompt contains PRP_BLUEPRINT_PROMPT');
       console.log('✓ responseFormat defined');
-      console.log('✓ enableReflection set to true');
+      console.log('✓ enableReflection omitted by design');
 
       // VERIFY: All assertions pass
       expect(prompt).toBeDefined();

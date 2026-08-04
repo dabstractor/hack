@@ -91,9 +91,17 @@ describe('integration/task-breakdown-prompt', () => {
     });
 
     it('should specify spawning subagents for research', () => {
-      expect(TASK_BREAKDOWN_PROMPT).toContain('SPAWN SUBAGENTS');
+      // Wording updated when subagent usage was de-escalated to optional; the
+      // capability is still described in the PROCESS section. Assert the CURRENT
+      // verbatim literals (src/agents/prompts.ts:112-114).
       expect(TASK_BREAKDOWN_PROMPT).toContain(
-        'spawn agents to research the codebase'
+        '**RESEARCH (SPAWN & VALIDATE):**'
+      );
+      expect(TASK_BREAKDOWN_PROMPT).toContain(
+        '**Spawn** subagents to map the codebase and verify PRD feasibility.'
+      );
+      expect(TASK_BREAKDOWN_PROMPT).toContain(
+        '**Spawn** subagents to find external documentation for new tech.'
       );
     });
 
