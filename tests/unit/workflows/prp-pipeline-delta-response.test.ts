@@ -484,6 +484,11 @@ describe('PRPPipeline delta-response dispatcher (PRD §4.3 step 2)', () => {
       (createArchitectAgent as any).mockReturnValue({
         prompt: vi.fn().mockResolvedValue({ status: 'success', output: '' }),
       });
+      // Reach the createArchitectPrompt mock (file-top vi.mock) via the SAME
+      // dynamic import path the source uses, so the assertion resolves to the
+      // vi.fn() instance.
+      const { createArchitectPrompt } =
+        await import('../../../src/agents/prompts/architect-prompt.js');
 
       // readFile returns a valid Backlog JSON for tasks.json; the default
       // '# Updated PRD' for other utf-8 reads (resolvePRD etc.); a Buffer for
@@ -513,6 +518,10 @@ describe('PRPPipeline delta-response dispatcher (PRD §4.3 step 2)', () => {
 
       // VERIFY: the Architect was invoked.
       expect(createArchitectAgent).toHaveBeenCalled();
+      // Contract (b): the architect is invoked over the FOCUSED added-only
+      // delta PRD (renderDeltaPRD over addedChanges), not the full PRD —
+      // prove the prompt builder was called too.
+      expect(createArchitectPrompt).toHaveBeenCalled();
       // VERIFY: saveBacklog ran (patched + merged).
       expect(mockManager.saveBacklog).toHaveBeenCalled();
       // VERIFY: the LAST saveBacklog call carried the MERGED backlog (P9 folded in).

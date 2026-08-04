@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Delta Workflow Restoration — Critical & Major (Issues 1 & 2)",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Restore the delta-session breakdown pipeline so that newly-added PRD requirements are decomposed into tasks. Issue 1 (Critical): reorder decomposePRD() so the delta branch over delta_prd.md runs before the hasBacklog early-return guard. Issue 2 (Major): remove the silent drop of 'added' requirements in patchBacklog and implement handling for the integrate-into-current-session path.",
       "milestones": [
         {
@@ -81,14 +81,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Implement patchBacklog 'added' Handling (Issue 2)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Remove the silent drop of added requirements in patchBacklog. For the default delta path, added requirements are now handled by the delta breakdown (Issue 1). For the integrate-into-current-session path, invoke the architect to generate tasks for added requirements.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Remove silent drop and implement added-requirement handling in both paths",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Refactor patchBacklog's 'added' case to a documented no-op (delegated to delta breakdown), and implement architect invocation for the integrate path.",
               "subtasks": [
                 {
@@ -129,7 +129,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "Unit tests for both paths' added-requirement handling",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S2"

@@ -52,4 +52,4 @@ h1.0 Product Requirements Document: Autonomous PRP Development Pipeline
    h4.17 9.6.2 Requirements
    h4.18 9.6.3 Acceptance Criteria
 ---
-code:6 para:85 list:50 table:4 quote:1
+code:6 para:90 list:52 table:4 quote:1
