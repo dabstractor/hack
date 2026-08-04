@@ -1,52 +1,32 @@
 /**
- * Unit tests for `mergeBacklogs` (P1.M1.T1.S2 — delta-session backlog merge)
+ * Unit tests for `mergeBacklogs` (P1.M1.T1.S2 — delta-session backlog merge + BUG-001 renumber)
  *
  * @remarks
- * Pure-function tests (data-in / data-out): NO tmpdir, NO mocks of node:fs. The only mock is
- * `../utils/logger.js`, to assert that the de-dup SKIP branches fire a `logger.warn` (the
- * original bug was a silent drop — every merge-skip must be observable).
+ * Pure-function tests (data-in / data-out): NO tmpdir, NO mocks. `mergeBacklogs` is fully pure
+ * after the BUG-001 fix (the skip-on-collision logger is gone — colliding architect items are
+ * renumbered-and-appended, never dropped).
  *
  * Covers every branch of `mergeBacklogs` + its helpers (`collectIds`, `registerPhaseIds`,
- * `mergePhase`, `mergeMilestone`):
+ * `mergePhase`, `mergeMilestone`) and S1's renumber primitives (`maxPhaseNumber`,
+ * `maxChildNumber`, `renumberTask`, `renumberMilestone`, `renumberPhase`):
  * - new phase append (title + id both fresh)
  * - extend phase by title (id differs, title matches) → extend matched milestone by title +
  *   append new milestone
- * - task id de-dup (keep patched status, warn) + new task append
- * - defensive phase id collision skip (new title, colliding id) → warn
- * - defensive milestone id collision skip (within a title-matched phase) → warn
+ * - renumber-on-collision at all three levels (task / milestone / phase): a colliding architect
+ *   item is renumbered to a fresh hierarchy-consistent id and appended (NEVER dropped)
+ * - sequential-collision cascade (a fresh-id architect task collides after a prior task's
+ *   renumber registers its new id)
  * - empty patched no-op: `mergeBacklogs({ backlog: [] }, x)` ≡ `x`
  * - empty architect no-op: `mergeBacklogs(x, { backlog: [] })` ≡ `x`
- * - patched statuses preserved verbatim (Obsolete / Planned survive the merge)
+ * - patched statuses preserved verbatim (Obsolete / Planned survive the merge) while architect
+ *   items survive renumbered
  * - deep nesting / multiple architect phases (extend + multiple new)
  *
  * @see {@link ../../../src/core/backlog-merger.ts}
  * @see {@link ../../../src/core/models.ts}
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-
-// Mock the logger so the de-dup `warn` branches are observable. The merger lazily initializes
-// `_logger` via getLogger('BacklogMerger'); mocking the module replaces that instance with the
-// spy object below.
-const warnMock = vi.fn();
-vi.mock('../../../src/utils/logger.js', () => ({
-  getLogger: () => ({
-    trace: vi.fn(),
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: warnMock,
-    error: vi.fn(),
-    fatal: vi.fn(),
-    child: vi.fn(() => ({
-      trace: vi.fn(),
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: warnMock,
-      error: vi.fn(),
-      fatal: vi.fn(),
-    })),
-  }),
-}));
+import { describe, it, expect } from 'vitest';
 
 import { mergeBacklogs } from '../../../src/core/backlog-merger.js';
 import {
@@ -134,9 +114,7 @@ function makePhase(
   };
 }
 
-beforeEach(() => {
-  warnMock.mockClear();
-});
+// (mergeBacklogs is pure — no logger/fs — so there are no mocks to reset between tests.)
 
 // ============================================================================
 // mergeBacklogs — new phase append
@@ -159,7 +137,6 @@ describe('mergeBacklogs — new phase append', () => {
     expect(merged.backlog).toHaveLength(2);
     expect(merged.backlog[0].id).toBe('P1');
     expect(merged.backlog[1].id).toBe('P2');
-    expect(warnMock).not.toHaveBeenCalled();
   });
 
   it('appends multiple new architect phases (deep nesting)', () => {
@@ -339,17 +316,16 @@ describe('mergeBacklogs — extend by title', () => {
       'P1.M2.T1.S1',
       'P1.M2.T1.S2',
     ]);
-    expect(warnMock).not.toHaveBeenCalled();
   });
 });
 
 // ============================================================================
-// mergeBacklogs — task id de-dup (contract (c))
+// mergeBacklogs — renumber-on-collision (contract: no architect item dropped)
 // ============================================================================
 
-describe('mergeBacklogs — task de-dup', () => {
-  it('de-duplicates a task whose id already exists (keeps patched status, warns)', () => {
-    // SETUP — patched T1 has status Obsolete (removed); architect re-decomposes T1 (Planned).
+describe('mergeBacklogs — renumber-on-collision', () => {
+  it('renumbers a colliding architect task and appends it (keeps patched status)', () => {
+    // SETUP — patched T1 has status Obsolete (removed); architect re-decomposes T1 (collides).
     const patched: Backlog = {
       backlog: [
         makePhase('P1', {
@@ -377,7 +353,7 @@ describe('mergeBacklogs — task de-dup', () => {
               title: 'M',
               tasks: [
                 makeTask('P1.M1.T1', {
-                  title: 'T-dup',
+                  title: 'T-arch',
                   subtasks: [makeSubtask('P1.M1.T1.S1')],
                 }),
               ],
@@ -391,19 +367,18 @@ describe('mergeBacklogs — task de-dup', () => {
     const merged = mergeBacklogs(patched, architect);
     const tasks = merged.backlog[0].milestones[0].tasks;
 
-    // VERIFY — T1 de-duped (single task); patched's Obsolete version kept; warn fired.
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].status).toBe('Obsolete');
-    expect(tasks[0].title).not.toBe('T-dup');
-    expect(warnMock).toHaveBeenCalledTimes(1);
-    const [ctx, msg] = warnMock.mock.calls[0];
-    expect(ctx).toMatchObject({ itemId: 'P1.M1.T1', level: 'task' });
-    expect(msg).toMatch(/de-dup skip/);
+    // VERIFY — BOTH tasks present: patched T1 (Obsolete, base intact) + architect task
+    // renumbered to P1.M1.T2 (NOT dropped). The architect content survived.
+    expect(tasks.map(t => t.id)).toEqual(['P1.M1.T1', 'P1.M1.T2']);
+    expect(tasks[0].status).toBe('Obsolete'); // patched status preserved (base)
+    expect(tasks[1].id).toBe('P1.M1.T2'); // renumbered
+    expect(tasks[1].title).toBe('T-arch'); // architect content survived
+    expect(tasks[1].subtasks[0].id).toBe('P1.M1.T2.S1'); // subtask renumbered under new task
   });
 
-  it('appends a new architect task while de-duping a colliding one in the same milestone', () => {
-    // SETUP — patched has T1; architect has T1 (dup) AND T2 (new). Covers the append + skip
-    // branches in a single milestone.
+  it('renumbers both a colliding and a fresh architect task in the same milestone (cascade, no data loss)', () => {
+    // SETUP — patched T1; architect T1 (collides) + T2 (fresh id P1.M1.T2). After T1 renumbers
+    // to P1.M1.T2 and registers it, T2 (P1.M1.T2) NOW collides → renumbers to P1.M1.T3.
     const patched: Backlog = {
       backlog: [
         makePhase('P1', {
@@ -425,8 +400,8 @@ describe('mergeBacklogs — task de-dup', () => {
             makeMilestone('P1.M1', {
               title: 'M',
               tasks: [
-                makeTask('P1.M1.T1', { title: 'dup' }),
-                makeTask('P1.M1.T2', { title: 'fresh' }),
+                makeTask('P1.M1.T1', { title: 'arch-T1' }), // collides → renumber
+                makeTask('P1.M1.T2', { title: 'arch-T2' }), // fresh id, but collides post-cascade
               ],
             }),
           ],
@@ -438,21 +413,16 @@ describe('mergeBacklogs — task de-dup', () => {
     const merged = mergeBacklogs(patched, architect);
     const tasks = merged.backlog[0].milestones[0].tasks;
 
-    // VERIFY — T1 kept (patched), T2 appended; one warn (for T1).
-    expect(tasks.map(t => t.id)).toEqual(['P1.M1.T1', 'P1.M1.T2']);
-    expect(tasks[0].title).not.toBe('dup');
-    expect(warnMock).toHaveBeenCalledTimes(1);
-    expect(warnMock.mock.calls[0][0]).toMatchObject({ itemId: 'P1.M1.T1' });
+    // VERIFY — all THREE tasks present (patched + both architect tasks renumbered, none dropped).
+    expect(tasks.map(t => t.id)).toEqual(['P1.M1.T1', 'P1.M1.T2', 'P1.M1.T3']);
+    expect(tasks[0].status).toBe('Planned'); // patched T1 intact (base)
+    const byTitle = Object.fromEntries(tasks.map(t => [t.title, t.id]));
+    expect(byTitle['arch-T1']).toBe('P1.M1.T2'); // architect T1 survived, renumbered
+    expect(byTitle['arch-T2']).toBe('P1.M1.T3'); // architect T2 survived, renumbered (cascade)
   });
-});
 
-// ============================================================================
-// mergeBacklogs — defensive id-collision skips (phase / milestone)
-// ============================================================================
-
-describe('mergeBacklogs — defensive id collisions', () => {
-  it('skips an architect phase whose id collides (despite a new title) and warns', () => {
-    // SETUP — patched P1(title 'A'); architect P1(title 'B', id collides) → phase-level skip.
+  it('renumbers a colliding architect phase and appends it (new title, colliding id)', () => {
+    // SETUP — patched P1(title 'Alpha'); architect P1(title 'Beta', id collides).
     const patched: Backlog = {
       backlog: [makePhase('P1', { title: 'Alpha' })],
     };
@@ -463,17 +433,15 @@ describe('mergeBacklogs — defensive id collisions', () => {
     // EXECUTE
     const merged = mergeBacklogs(patched, architect);
 
-    // VERIFY — architect phase skipped (no duplicate P1 id); warn fired at phase level.
-    expect(merged.backlog).toHaveLength(1);
+    // VERIFY — BOTH phases present: patched 'Alpha'@P1 intact + architect 'Beta' renumbered to P2.
+    expect(merged.backlog).toHaveLength(2);
+    expect(merged.backlog[0].id).toBe('P1');
     expect(merged.backlog[0].title).toBe('Alpha');
-    expect(warnMock).toHaveBeenCalledTimes(1);
-    expect(warnMock.mock.calls[0][0]).toMatchObject({
-      itemId: 'P1',
-      level: 'phase',
-    });
+    expect(merged.backlog[1].id).toBe('P2'); // renumbered
+    expect(merged.backlog[1].title).toBe('Beta'); // architect content survived
   });
 
-  it('skips an architect milestone whose id collides (despite a new title) and warns', () => {
+  it('renumbers a colliding architect milestone and appends it (within a title-matched phase)', () => {
     // SETUP — title-matched phase; architect milestone has a NEW title but a COLLIDING id.
     const patched: Backlog = {
       backlog: [
@@ -496,15 +464,12 @@ describe('mergeBacklogs — defensive id collisions', () => {
 
     // EXECUTE
     const merged = mergeBacklogs(patched, architect);
+    const milestones = merged.backlog[0].milestones;
 
-    // VERIFY — milestone skipped (no duplicate P1.M1 id); warn fired at milestone level.
-    expect(merged.backlog[0].milestones).toHaveLength(1);
-    expect(merged.backlog[0].milestones[0].title).toBe('Old');
-    expect(warnMock).toHaveBeenCalledTimes(1);
-    expect(warnMock.mock.calls[0][0]).toMatchObject({
-      itemId: 'P1.M1',
-      level: 'milestone',
-    });
+    // VERIFY — BOTH milestones present: patched 'Old'@P1.M1 + architect 'Fresh' renumbered to P1.M2.
+    expect(milestones.map(m => m.id)).toEqual(['P1.M1', 'P1.M2']);
+    expect(milestones[0].title).toBe('Old');
+    expect(milestones[1].title).toBe('Fresh'); // architect content survived
   });
 });
 
@@ -531,7 +496,6 @@ describe('mergeBacklogs — empty-input no-ops', () => {
 
     // EXECUTE + VERIFY — empty patched → result deep-equals the architect input.
     expect(mergeBacklogs({ backlog: [] }, architect)).toEqual(architect);
-    expect(warnMock).not.toHaveBeenCalled();
   });
 
   it('mergeBacklogs(x, { backlog: [] }) deep-equals x (empty architect no-op)', () => {
@@ -551,7 +515,6 @@ describe('mergeBacklogs — empty-input no-ops', () => {
 
     // EXECUTE + VERIFY — empty architect → result deep-equals the patched input.
     expect(mergeBacklogs(patched, { backlog: [] })).toEqual(patched);
-    expect(warnMock).not.toHaveBeenCalled();
   });
 });
 
@@ -560,10 +523,9 @@ describe('mergeBacklogs — empty-input no-ops', () => {
 // ============================================================================
 
 describe('mergeBacklogs — patched status preservation', () => {
-  it('preserves patched modified→Planned and removed→Obsolete statuses through the merge', () => {
+  it('preserves patched modified→Planned and removed→Obsolete statuses AND survives architect collisions', () => {
     // SETUP — patched has a Planned (modified) task and an Obsolete (removed) task; the architect
-    // re-decomposes the SAME ids (which de-dup to patched's status-preserving versions) AND adds
-    // a brand-new task.
+    // re-decomposes the SAME ids (all collide → renumber-and-append) AND adds a third task.
     const patched: Backlog = {
       backlog: [
         makePhase('P1', {
@@ -594,11 +556,9 @@ describe('mergeBacklogs — patched status preservation', () => {
             makeMilestone('P1.M1', {
               title: 'M',
               tasks: [
-                // T1 + T2 re-decomposed (collide → de-dup keeps patched statuses).
-                makeTask('P1.M1.T1', { title: 'arch-T1' }),
-                makeTask('P1.M1.T2', { title: 'arch-T2' }),
-                // T3 brand new (appended).
-                makeTask('P1.M1.T3', { title: 'added-task' }),
+                makeTask('P1.M1.T1', { title: 'arch-T1' }), // collides → T3
+                makeTask('P1.M1.T2', { title: 'arch-T2' }), // collides (after T1 renumber) → T4
+                makeTask('P1.M1.T3', { title: 'added-task' }), // collides (after T2 renumber) → T5
               ],
             }),
           ],
@@ -610,14 +570,24 @@ describe('mergeBacklogs — patched status preservation', () => {
     const merged = mergeBacklogs(patched, architect);
     const tasks = merged.backlog[0].milestones[0].tasks;
 
-    // VERIFY — T1 Planned (modified reset), T2 Obsolete (removed), T3 appended; two de-dup warns.
+    // VERIFY — patched statuses preserved (base): T1 Planned (modified), T2 Obsolete (removed).
     const byId = Object.fromEntries(tasks.map(t => [t.id, t]));
     expect(byId['P1.M1.T1'].status).toBe('Planned');
     expect(byId['P1.M1.T1'].title).toBe('modified-task');
     expect(byId['P1.M1.T2'].status).toBe('Obsolete');
     expect(byId['P1.M1.T2'].title).toBe('removed-task');
-    expect(byId['P1.M1.T3'].title).toBe('added-task');
-    expect(warnMock).toHaveBeenCalledTimes(2); // T1 + T2 de-dup
+    // VERIFY — all THREE architect tasks survive (cascade-renumbered to T3/T4/T5, none dropped).
+    const byTitle = Object.fromEntries(tasks.map(t => [t.title, t.id]));
+    expect(byTitle['arch-T1']).toBe('P1.M1.T3');
+    expect(byTitle['arch-T2']).toBe('P1.M1.T4');
+    expect(byTitle['added-task']).toBe('P1.M1.T5');
+    expect(tasks.map(t => t.id)).toEqual([
+      'P1.M1.T1',
+      'P1.M1.T2',
+      'P1.M1.T3',
+      'P1.M1.T4',
+      'P1.M1.T5',
+    ]);
   });
 });
 

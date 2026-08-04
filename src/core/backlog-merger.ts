@@ -16,12 +16,14 @@
  * - **Phase / Milestone** merge by **title** (trimmed, case-sensitive) — robust to the architect
  *   re-numbering IDs, since it sees only `delta_prd.md` and not the existing ID space. A
  *   matching title EXTENDS the existing item (new milestones/tasks folded in); a new title APPENDS.
- * - **Task / Subtask** de-duplicate by **ID** — so re-decomposed modified/removed items don't
- *   duplicate. A task whose ID already exists in the patched backlog is SKIPPED (the patched
- *   version — with the correct status — is kept).
- * - **Defensive ID-collision skips** at the Phase/Milestone level too: the schemas don't enforce
- *   ID uniqueness, so the merge never introduces a duplicate ID. Every skip is LOGGED (`warn`),
- *   never silent (the original bug was a silent drop).
+ * - **Task / Subtask** are folded in by the milestone/task merge. An architect task whose ID
+ *   already exists is RENUMBERED (the architect decomposes ONLY added requirements, so every
+ *   task is genuinely new) and appended — never dropped.
+ * - **Renumber-on-collision**: a new-title Phase/Milestone whose ID collides (the architect
+ *   numbers fresh from `P1` every run, so its IDs routinely collide with the patched backlog)
+ *   is renumbered to a fresh hierarchy-consistent ID and APPENDED — never skipped. The renumber
+ *   helpers pick `max+1` per level, so every produced ID is unique by construction; **no
+ *   architect item is ever dropped** (extend OR renumber-append at every level).
  *
  * The merge is a PURE, synchronous transform: both inputs are treated as read-only (the result
  * is a fresh `Backlog`); statuses are NEVER changed (the patched backlog is the base); and no
@@ -39,11 +41,6 @@
  */
 
 import type { Backlog, Phase, Milestone, Task } from './models.js';
-import { getLogger, type Logger } from '../utils/logger.js';
-
-// Module-level logger for the backlog merger.
-let _logger: Logger | undefined;
-const logger = (): Logger => (_logger ??= getLogger('BacklogMerger'));
 
 // ============================================================================
 // ID helpers
@@ -92,11 +89,13 @@ function registerPhaseIds(phase: Phase, ids: Set<string>): void {
 // ============================================================================
 
 /**
- * Extend an existing milestone with the architect milestone's NEW tasks (id-de-duped).
+ * Extend an existing milestone with the architect milestone's NEW tasks (renumber-on-collision).
  *
  * @remarks
- * Tasks/Subtasks are de-duplicated by ID (contract (c)): an architect task whose ID already
- * exists is SKIPPED with a `warn` (the patched version — with the correct status — is kept).
+ * Tasks/Subtasks are folded in by ID. An architect task whose ID already exists is RENUMBERED
+ * via {@link renumberTask} (the architect decomposes ONLY added requirements, so every task is
+ * genuinely new) and appended — never dropped. The patched task (with the correct status) is
+ * kept as-is; the architect task survives under a fresh hierarchy-consistent ID.
  *
  * @param existing - The patched (base) milestone.
  * @param archMs - The architect milestone whose tasks should be folded in.
@@ -110,27 +109,33 @@ function mergeMilestone(
 ): Milestone {
   const tasks: Task[] = [...existing.tasks];
   for (const archTask of archMs.tasks) {
+    let taskToAdd: Task;
     if (existingIds.has(archTask.id)) {
-      logger().warn(
-        { itemId: archTask.id, level: 'task' },
-        'merge de-dup skip: architect task id already exists (patched status preserved)'
+      // Architect tasks are always new added-requirement tasks — renumber rather than drop.
+      // renumberTask picks max+1 → guaranteed unique; it registers the new ids into existingIds.
+      taskToAdd = renumberTask(
+        archTask,
+        existing.id,
+        maxChildNumber(existing.id, existingIds, 'task'),
+        existingIds
       );
-      continue; // de-dup — keep patched's version (correct status)
+    } else {
+      taskToAdd = archTask;
+      existingIds.add(archTask.id);
+      for (const s of archTask.subtasks) existingIds.add(s.id);
     }
-    existingIds.add(archTask.id);
-    for (const s of archTask.subtasks) existingIds.add(s.id);
-    tasks.push(archTask);
+    tasks.push(taskToAdd);
   }
   return { ...existing, tasks };
 }
 
 /**
- * Extend an existing phase with the architect phase's milestones (title-match or append).
+ * Extend an existing phase with the architect phase's milestones (title-match or renumber-append).
  *
  * @remarks
  * Milestones merge by **title** (trimmed): a matching title extends the existing milestone (new
- * tasks folded in); a new title appends the architect milestone wholesale. A milestone whose ID
- * already exists (despite a new title) is SKIPPED with a `warn` (defensive — no duplicate ids).
+ * tasks folded in); a new-title milestone whose ID collides is RENUMBERED via {@link
+ * renumberMilestone} and appended — never skipped. No architect milestone is ever dropped.
  *
  * @param existing - The patched (base) phase.
  * @param archPhase - The architect phase whose milestones should be folded in.
@@ -150,19 +155,27 @@ function mergePhase(
     const idx = msByTitle.get(archMs.title.trim());
     if (idx !== undefined) {
       milestones[idx] = mergeMilestone(milestones[idx], archMs, existingIds); // extend by title
-    } else if (!existingIds.has(archMs.id)) {
-      existingIds.add(archMs.id);
-      for (const t of archMs.tasks) {
-        existingIds.add(t.id);
-        for (const s of t.subtasks) existingIds.add(s.id);
-      }
-      msByTitle.set(archMs.title.trim(), milestones.length);
-      milestones.push(archMs); // new milestone
     } else {
-      logger().warn(
-        { itemId: archMs.id, level: 'milestone' },
-        'merge de-dup skip: architect milestone id already exists'
-      );
+      let msToAdd: Milestone;
+      if (existingIds.has(archMs.id)) {
+        // Architect milestone with a new title but a colliding id — renumber rather than drop.
+        // renumberMilestone picks max+1 under the immediate parent (existing.id) → unique.
+        msToAdd = renumberMilestone(
+          archMs,
+          existing.id,
+          maxChildNumber(existing.id, existingIds, 'milestone'),
+          existingIds
+        );
+      } else {
+        msToAdd = archMs;
+        existingIds.add(archMs.id);
+        for (const t of archMs.tasks) {
+          existingIds.add(t.id);
+          for (const s of t.subtasks) existingIds.add(s.id);
+        }
+      }
+      msByTitle.set(msToAdd.title.trim(), milestones.length);
+      milestones.push(msToAdd);
     }
   }
   return { ...existing, milestones };
@@ -179,9 +192,9 @@ function mergePhase(
  * Combines the architect's freshly-decomposed tasks for ADDED requirements with the patched
  * backlog (whose modified→`Planned` and removed→`Obsolete` statuses are already applied by
  * {@link patchBacklog}). Matching is by **title** at the Phase and Milestone levels (robust to the
- * architect re-numbering IDs, since it sees only `delta_prd.md`); Tasks/Subtasks are
- * de-duplicated by **ID** so re-decomposed modified/removed items don't duplicate. Any architect
- * item whose ID already exists is SKIPPED with a `warn` (observable de-dup — never a silent drop).
+ * architect re-numbering IDs, since it sees only `delta_prd.md`); any architect item whose ID
+ * already exists is RENUMBERED to a fresh hierarchy-consistent ID and appended — never skipped.
+ * No architect item is ever dropped (extend OR renumber-append at every level).
  *
  * Both inputs are treated as read-only; the result is a fresh `Backlog`. The patched backlog's
  * statuses are preserved verbatim (it is the base). `mergeBacklogs` is a pure, synchronous
@@ -193,8 +206,8 @@ function mergePhase(
  *
  * @param patched - The base backlog (modified/removed statuses already applied).
  * @param architect - The architect's output for added requirements (from `delta_prd.md` breakdown).
- * @returns A new merged `Backlog` (will be `BacklogSchema`-valid, since IDs are preserved verbatim
- *          from two valid inputs and collisions are de-duped).
+ * @returns A new merged `Backlog` (will be `BacklogSchema`-valid, since IDs are preserved
+ *          verbatim from two valid inputs or renumbered to unique hierarchy-consistent IDs).
  *
  * @example
  * ```typescript
@@ -214,15 +227,22 @@ export function mergeBacklogs(patched: Backlog, architect: Backlog): Backlog {
     const idx = phaseByTitle.get(archPhase.title.trim());
     if (idx !== undefined) {
       result[idx] = mergePhase(result[idx], archPhase, existingIds); // extend by title
-    } else if (!existingIds.has(archPhase.id)) {
-      registerPhaseIds(archPhase, existingIds);
-      phaseByTitle.set(archPhase.title.trim(), result.length);
-      result.push(archPhase); // new phase
     } else {
-      logger().warn(
-        { itemId: archPhase.id, level: 'phase' },
-        'merge de-dup skip: architect phase id already exists'
-      );
+      let phaseToAdd: Phase;
+      if (existingIds.has(archPhase.id)) {
+        // Architect phase with a new title but a colliding id — renumber rather than drop.
+        // renumberPhase picks max+1 at the phase level → unique; registers the new id tree.
+        phaseToAdd = renumberPhase(
+          archPhase,
+          maxPhaseNumber(existingIds),
+          existingIds
+        );
+      } else {
+        phaseToAdd = archPhase;
+        registerPhaseIds(archPhase, existingIds);
+      }
+      phaseByTitle.set(phaseToAdd.title.trim(), result.length);
+      result.push(phaseToAdd);
     }
   }
   return { backlog: result };

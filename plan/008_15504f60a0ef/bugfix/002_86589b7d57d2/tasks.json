@@ -11,14 +11,14 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BUG-001 — Preserve ADDED requirements through the delta merge (Critical)",
-          "status": "Researching",
+          "status": "Ready",
           "description": "mergeBacklogs drops the architect's added-requirement output whenever the architect's fresh IDs (numbered from P1, prompts.ts:134) collide with the patched backlog's IDs. Fix by renumbering colliding architect items against the patched ID space and APPENDING them, instead of skipping. See architecture/bug-001-backlog-merge.md.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Renumber-on-collision in mergeBacklogs so ADDED requirements survive",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Replace the three collision-skip branches (phase backlog-merger.ts:217, milestone :153, task :113) with renumber-and-append, using parent-context-aware renumbering so descendant IDs stay hierarchy-consistent. mergeBacklogs must remain a pure, synchronous transform and mergeBacklogs(empty, x) ≡ x.",
               "subtasks": [
                 {
@@ -39,7 +39,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Wire renumbering into mergeBacklogs/mergePhase/mergePhase (replace skip→renumber-append)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -55,7 +55,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Add realistic-collision integration test (architect numbers from P1 with a NEW title)",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"
