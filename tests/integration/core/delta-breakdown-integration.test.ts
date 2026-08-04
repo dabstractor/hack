@@ -39,6 +39,7 @@ import type {
   DeltaAnalysis,
   SessionState,
 } from '../../../src/core/models.js';
+import { mergeBacklogs } from '../../../src/core/backlog-merger.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // vi.hoisted: assertable spy + shared mutable state.
@@ -277,6 +278,46 @@ function makeArchitectBacklog(): Backlog {
   };
 }
 
+/**
+ * REALISTIC architect output (the case makeArchitectBacklog AVOIDS): the architect numbers fresh
+ * from P1 (TASK_BREAKDOWN_PROMPT, prompts.ts:134) and invents its OWN title from the delta content.
+ * So a new 'Reporting' requirement emits Phase id 'P1' title 'Reporting' (NEW title, colliding id),
+ * Milestone id 'P1.M1' title 'Reports' (colliding), Task id 'P1.M1.T1' (colliding). Pre-S2 this was
+ * DROPPED by mergeBacklogs (skip-on-collision); post-S2 it is renumbered-and-appended (BUG-001 fix).
+ */
+function makeCollidingArchitectBacklog(): Backlog {
+  return {
+    backlog: [
+      {
+        id: 'P1', // COLLIDES with patched Foundation's P1 — but title 'Reporting' is NEW
+        type: 'Phase',
+        title: 'Reporting',
+        status: 'Planned',
+        description: 'Reporting phase (ADDED requirement)',
+        milestones: [
+          {
+            id: 'P1.M1', // COLLIDES with patched Core's P1.M1 — but title 'Reports' is NEW
+            type: 'Milestone',
+            title: 'Reports',
+            status: 'Planned',
+            description: 'Reports milestone (ADDED requirement)',
+            tasks: [
+              {
+                id: 'P1.M1.T1', // COLLIDES with patched T1
+                type: 'Task',
+                title: 'New Report Task',
+                status: 'Planned',
+                description: 'Task for the ADDED requirement',
+                subtasks: [sub('P1.M1.T1.S1')], // also collides
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STATEFUL SessionManager mock.
 // currentSession is read MULTIPLE times across the path (handleDelta, spawnDeltaSession as the
@@ -361,7 +402,14 @@ describe('delta breakdown — full handleDelta → spawnDeltaSession → decompo
    * prime the architect side-effect state, drive handleDelta + decomposePRD, and return the handles
    * each assertion needs. Each `it` calls this then runs its own assertions.
    */
-  async function setupAndDrive(): Promise<{
+  /**
+   * Shared setup. Backward-compatible default (`makeArchitectBacklog()`) keeps the existing 4
+   * non-colliding `it`s unchanged; the realistic-collision case passes its own fixture so the
+   * NEW-title→renumber-append path is driven end-to-end (BUG-001 regression).
+   */
+  async function setupAndDrive(
+    architectBacklog: Backlog = makeArchitectBacklog()
+  ): Promise<{
     parent: SessionState;
     deltaPath: string;
   }> {
@@ -406,7 +454,7 @@ describe('delta breakdown — full handleDelta → spawnDeltaSession → decompo
 
     // Prime the architect side-effect state (via the vi.hoisted shared object).
     mockState.deltaSessionPath = deltaPath;
-    mockState.architectBacklog = makeArchitectBacklog();
+    mockState.architectBacklog = architectBacklog;
 
     // Construct the pipeline + overwrite its SessionManager with the STATEFUL mock.
     const sm = makeStatefulSessionManager(parent, deltaPath, delta);
@@ -465,5 +513,63 @@ describe('delta breakdown — full handleDelta → spawnDeltaSession → decompo
     ) as Backlog;
     expect(findTask(final, 'P1.M1.T1').status).toBe('Planned'); // modified
     expect(findTask(final, 'P1.M1.T2').status).toBe('Obsolete'); // removed
+  });
+
+  it('survives a realistic architect collision end-to-end (Reporting phase renumbered into tasks.json)', async () => {
+    const { deltaPath } = await setupAndDrive(makeCollidingArchitectBacklog());
+
+    // The ADDED 'Reporting' phase survives the real decomposePRD→merge wiring (renumbered, not
+    // dropped) alongside the intact patched 'Foundation' phase.
+    const final = JSON.parse(
+      readFileSync(join(deltaPath, 'tasks.json'), 'utf-8')
+    ) as Backlog;
+    const titles = final.backlog.map(p => p.title);
+    expect(titles).toContain('Foundation'); // patched phase intact
+    expect(titles).toContain('Reporting'); // ADDED phase survived the merge (renumbered, not dropped)
+    const reporting = final.backlog.find(p => p.title === 'Reporting')!;
+    expect(reporting.id).toBe('P2'); // renumbered to a fresh unique id (NOT P1)
+    expect(reporting.id).not.toBe('P1');
+    // No duplicate ids end-to-end (renumber guarantees uniqueness).
+    const ids = collectIds(final);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pure-function BUG-001 regression guard. mergeBacklogs is PURE (it imports only models.ts), so
+// the module-level vi.mocks above are INERT for a direct call — no additional mocks needed.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('mergeBacklogs — realistic architect collision (BUG-001 regression)', () => {
+  it('renumbers (not drops) a NEW-title architect phase whose id collides — the production case', () => {
+    const patched = makeParentBacklog(); // P1 'Foundation' → P1.M1 → [T1, T2]
+    const architect = makeCollidingArchitectBacklog(); // P1 'Reporting' → P1.M1 'Reports' → P1.M1.T1 (ALL collide)
+    const merged = mergeBacklogs(patched, architect);
+
+    const byTitle = Object.fromEntries(merged.backlog.map(p => [p.title, p]));
+
+    // ADDED 'Reporting' phase SURVIVES — renumbered to a fresh unique id (NOT the colliding 'P1').
+    expect(byTitle['Reporting']).toBeDefined();
+    expect(byTitle['Reporting'].id).toBe('P2');
+    expect(byTitle['Reporting'].id).not.toBe('P1');
+    // Its 'Reports' milestone + new task survived (remapped, hierarchy-consistent ids).
+    const reports = byTitle['Reporting'].milestones.find(
+      m => m.title === 'Reports'
+    );
+    expect(reports).toBeDefined();
+    expect(reports!.id).toBe('P2.M1');
+    expect(reports!.tasks.map(t => t.id)).toContain('P2.M1.T1');
+
+    // Original 'Foundation' phase + its P1.M1 milestone are FULLY INTACT (original ids preserved).
+    expect(byTitle['Foundation']).toBeDefined();
+    expect(byTitle['Foundation'].id).toBe('P1');
+    expect(byTitle['Foundation'].milestones.map(m => m.id)).toContain('P1.M1');
+    expect(byTitle['Foundation'].milestones[0].tasks.map(t => t.id)).toEqual([
+      'P1.M1.T1',
+      'P1.M1.T2',
+    ]);
+
+    // NO duplicate ids anywhere in the merged backlog (renumber guarantees uniqueness).
+    const ids = collectIds(merged);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
