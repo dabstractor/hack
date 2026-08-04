@@ -2,7 +2,7 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M3.T3.S2_1785876194401_failed_6767094d",
+      "id": "P1.M3.T3.S2_1785876557206_failed_8035fdbb",
       "taskId": "P1.M3.T3.S2",
       "label": "Task failed",
       "state": {
@@ -38,24 +38,24 @@
           }
         ],
         "fixAttempt": 2,
-        "timestamp": "2026-08-04T20:43:14.401Z"
+        "timestamp": "2026-08-04T20:49:17.206Z"
       },
-      "createdAt": "2026-08-04T20:43:14.401Z"
+      "createdAt": "2026-08-04T20:49:17.206Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785876194402_pre-execution_cd58d50a",
+      "id": "P1.M3.T3.S2_1785876557207_pre-execution_3f090a30",
       "taskId": "P1.M3.T3.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-08-04T20:43:14.402Z"
+        "timestamp": "2026-08-04T20:49:17.207Z"
       },
-      "createdAt": "2026-08-04T20:43:14.402Z"
+      "createdAt": "2026-08-04T20:49:17.207Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785876194403_coder-response_8349441f",
+      "id": "P1.M3.T3.S2_1785876557208_coder-response_f3b660da",
       "taskId": "P1.M3.T3.S2",
       "label": "After Coder Agent response",
       "state": {
@@ -67,12 +67,12 @@
           "message": "Implementation complete"
         },
         "validationResults": [],
-        "timestamp": "2026-08-04T20:43:14.403Z"
+        "timestamp": "2026-08-04T20:49:17.208Z"
       },
-      "createdAt": "2026-08-04T20:43:14.403Z"
+      "createdAt": "2026-08-04T20:49:17.208Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785876194410_validation-gate-4_e79b9fdd",
+      "id": "P1.M3.T3.S2_1785876557213_validation-gate-4_3c3c2ce7",
       "taskId": "P1.M3.T3.S2",
       "label": "After validation gate 4",
       "state": {
@@ -107,12 +107,12 @@
             "timedOut": false
           }
         ],
-        "timestamp": "2026-08-04T20:43:14.410Z"
+        "timestamp": "2026-08-04T20:49:17.213Z"
       },
-      "createdAt": "2026-08-04T20:43:14.410Z"
+      "createdAt": "2026-08-04T20:49:17.213Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785876194412_complete_57ddb178",
+      "id": "P1.M3.T3.S2_1785876557213_complete_bf9db995",
       "taskId": "P1.M3.T3.S2",
       "label": "Task completed successfully",
       "state": {
@@ -147,10 +147,10 @@
             "timedOut": false
           }
         ],
-        "timestamp": "2026-08-04T20:43:14.412Z"
+        "timestamp": "2026-08-04T20:49:17.213Z"
       },
-      "createdAt": "2026-08-04T20:43:14.412Z"
+      "createdAt": "2026-08-04T20:49:17.213Z"
     }
   ],
-  "lastModified": "2026-08-04T20:43:14.412Z"
+  "lastModified": "2026-08-04T20:49:17.213Z"
 }
