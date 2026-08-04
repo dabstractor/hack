@@ -242,7 +242,7 @@
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Fix genuine test bugs (deterministic, category c)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Fix deterministic test-only logic bugs first so failure counts stabilize. Order: (c) before (a) before (b).",
               "subtasks": [
                 {
@@ -263,7 +263,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S2",
                   "title": "Diagnose + fix remaining genuine-bug files (progressive-validation, prp-pipeline-integration, prp-create-prompt)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-004-test-suite.md §'Category (c)'. These three files were COUNTED, not line-audited: tests/integration/progressive-validation.test.ts (9 fail — exit-code/assertion logic), tests/integration/prp-pipeline-integration.test.ts (6 fail), tests/integration/prp-create-prompt.test.ts (4 fail — prompt-assertion drift). They are test-only defects, NOT production bugs.\n2. INPUT: The three test files + the src they exercise.\n3. LOGIC: LINE-AUDIT each file FIRST (run it, read the actual assertion failures + stack traces), categorize each failure as test-rot (stale expectation) vs genuine test bug vs environmental, then fix the test logic to match current intended src behavior. Do NOT change production code to satisfy a stale test (that would be rule-2/4 territory) — if a failure reveals a REAL src defect, STOP and flag it (record in architecture/) rather than masking it. Prefer: correct stale literals, fix broken test setup/spying, align with current APIs.\n4. OUTPUT: Each of the three files passes (or its failures are re-categorized to (a)/(b) and handled by the relevant subtask). Document per-file root cause in the commit message.\n5. MOCKING: as-isolated-as-possible; match the mocking style each file already uses.\n6. DOCS: none.",

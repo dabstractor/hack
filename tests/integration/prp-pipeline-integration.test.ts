@@ -15,10 +15,79 @@ import { tmpdir } from 'node:os';
 import { PRPPipeline } from '../../src/workflows/prp-pipeline.js';
 import type { Backlog, Status } from '../../src/core/models.js';
 
-// Mock agent factory to avoid LLM calls
-vi.mock('../../src/agents/agent-factory.js', () => ({
-  createArchitectAgent: vi.fn(),
-  createQAAgent: vi.fn(),
+// Mock agent factory to avoid LLM calls. Use importOriginal so every real
+// export stays defined (production imports more than just the architect/QA
+// fns — e.g. createResearcherAgent via TaskOrchestrator→ResearchQueue during
+// initializeSession); a bare-object mock makes those exports `undefined` and
+// vitest throws on access. Override only the fns this suite drives directly,
+// and stub the research/coder/QA seams so construction + runQACycle's bug
+// hunt do NOT reach the real PiHarness (category-(a) isolation — see
+// architecture/bug-004-test-suite.md).
+vi.mock('../../src/agents/agent-factory.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/agents/agent-factory.js')>();
+  const stubAgent = {
+    prompt: vi.fn().mockResolvedValue({ status: 'success' }),
+  };
+  // QA stub returns a no-bugs TestResults so BugHuntWorkflow (runQACycle)
+  // completes cleanly without triggering a fix cycle or hitting the harness.
+  const qaStub = {
+    prompt: vi.fn().mockResolvedValue({
+      status: 'success',
+      data: { hasBugs: false, bugs: [], summary: 'No bugs found.' },
+    }),
+  };
+  return {
+    ...actual,
+    createArchitectAgent: vi.fn(),
+    createQAAgent: vi.fn().mockReturnValue(qaStub),
+    createResearcherAgent: vi.fn().mockReturnValue(stubAgent),
+    createCoderAgent: vi.fn().mockReturnValue(stubAgent),
+  };
+});
+
+// Mock smartCommit so executeBacklog / runQACycle never reach the
+// stagecoach commit-message LLM (src/utils/git-commit.ts:generateCommitMessage).
+// That seam runs with retry + exponential backoff against the real PiHarness,
+// which is unmocked here -> "PiHarness not initialized" -> multi-second retries
+// that blow the per-test timeout. Category-(a) isolation
+// (architecture/bug-004-test-suite.md). smartCommit is a no-op returning a
+// stub hash; these tests assert on task counts / phases / session shape, NOT
+// on git commits, so stubbing it does not weaken any assertion.
+vi.mock('../../src/utils/git-commit.js', () => ({
+  smartCommit: vi.fn().mockResolvedValue('stub-commit-hash'),
+  parseItemPosition: vi.fn().mockReturnValue(null),
+  buildTaskPrefix: vi.fn().mockReturnValue(''),
+  formatCommitMessage: vi.fn().mockReturnValue('stub message'),
+  filterProtectedFiles: vi.fn().mockImplementation((files: string[]) => files),
+}));
+
+// Mock the validation workflow so #runValidation() is a no-op. The real
+// ValidationWorkflow generates + runs validate.sh, which executes `npm test`
+// across the WHOLE suite — currently RED (~179 failures, the very thing
+// BUG-004 is fixing). Running it here would abort run() via
+// ValidationFailedError before the test can assert on the happy path, which
+// is an environmental artifact of the red suite, not a pipeline defect. The
+// validation seam itself is exercised by the dedicated validation tests; here
+// it is stubbed so the pipeline's run() flow can complete.
+vi.mock('../../src/workflows/validation-workflow.js', () => ({
+  ValidationWorkflow: vi.fn().mockImplementation(() => ({
+    run: vi.fn().mockResolvedValue({
+      success: true,
+      exitCode: 0,
+      timedOut: false,
+      stdout: '',
+      stderr: '',
+      scriptPath: '/tmp/test-validate.sh',
+      durationMs: 0,
+    }),
+  })),
+  ValidationFailedError: class ValidationFailedError extends Error {
+    constructor(outcome: unknown) {
+      super(`Validation failed: ${JSON.stringify(outcome)}`);
+      this.name = 'ValidationFailedError';
+    }
+  },
 }));
 
 // Mock fs/promises read to return parsed tasks.json for architect result
@@ -26,12 +95,12 @@ vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
-    readFile: vi.fn((path: string) => {
+    readFile: vi.fn((path: string, encoding?: any) => {
       if (path.includes('tasks.json')) {
         // Return the actual file content for tests
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       }
-      return actual.readFile(path, 'utf-8');
+      return actual.readFile(path, encoding);
     }),
   };
 });
@@ -57,8 +126,16 @@ describe('PRPPipeline Integration Tests', () => {
   });
 
   // Helper to create a test PRD file
+  // NOTE: production (src/utils/prd-validator.ts) requires PRD content >= 100
+  // chars, so the default fixture is padded to clear that validation gate.
   const createTestPRD = (
-    content: string = '# Test PRD\n\nThis is a test PRD.'
+    content: string = [
+      '# Test PRD',
+      '',
+      'This is a test PRD used by the integration suite. It exists only to',
+      'satisfy the PRD content-length and structure validation performed',
+      'during session initialization.',
+    ].join('\n')
   ) => {
     const fs = require('node:fs'); // eslint-disable-line @typescript-eslint/no-var-requires
     fs.writeFileSync(prdPath, content);
@@ -85,12 +162,16 @@ describe('PRPPipeline Integration Tests', () => {
       (createArchitectAgent as any).mockReturnValue(mockAgent);
 
       // Mock readFile - return PRD content when reading PRD, empty backlog for tasks.json
-      (readFile as any).mockImplementation((path: string) => {
+      const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         if (path.includes(prdPath)) {
-          return '# Test PRD\n\nThis is a test PRD.';
+          // readUTF8FileStrict calls readFile(path) WITHOUT encoding (Buffer);
+          // other callers pass 'utf-8' (string). Delegate to the real readFile
+          // so the return type matches the production contract.
+          return actual.readFile(path, encoding);
         }
         return '';
       });
@@ -104,6 +185,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();
@@ -130,13 +214,13 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       // EXECUTE
@@ -148,6 +232,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();
@@ -179,13 +266,13 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       const pipeline1 = new PRPPipeline(
@@ -196,6 +283,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result1 = await pipeline1.run();
@@ -204,13 +294,13 @@ describe('PRPPipeline Integration Tests', () => {
       // Second run should reuse session
       vi.clearAllMocks();
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       const pipeline2 = new PRPPipeline(
@@ -221,6 +311,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result2 = await pipeline2.run();
@@ -241,13 +334,13 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       const pipeline1 = new PRPPipeline(
@@ -258,6 +351,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       await pipeline1.run();
@@ -269,7 +365,7 @@ describe('PRPPipeline Integration Tests', () => {
       };
       (createArchitectAgent as any).mockReturnValue(mockAgent2);
       // Mock readFile to return non-empty backlog to simulate existing session
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({
             backlog: [
@@ -295,6 +391,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       await pipeline2.run();
@@ -315,13 +414,13 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       // EXECUTE
@@ -333,6 +432,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
 
@@ -378,7 +480,16 @@ describe('PRPPipeline Integration Tests', () => {
                         status: 'Complete' as Status,
                         story_points: 1,
                         dependencies: [],
-                        context_scope: 'Test scope',
+                        // context_scope must satisfy ContextScopeSchema
+                        // (src/core/models.ts): start with "CONTRACT DEFINITION:\n"
+                        // and contain the 4 numbered sections in order.
+                        context_scope: [
+                          'CONTRACT DEFINITION:',
+                          '1. RESEARCH NOTE: Test fixture for task-count tracking.',
+                          '2. INPUT: Backlog fixture with one Complete subtask.',
+                          '3. LOGIC: decomposePRD loads + saves the backlog unchanged.',
+                          '4. OUTPUT: totalTasks/completedTasks reflect the fixture.',
+                        ].join('\n'),
                       },
                     ],
                   },
@@ -395,9 +506,15 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify(backlog);
+        }
+        if (path.includes(prdPath)) {
+          // readUTF8FileStrict calls readFile(path) WITHOUT encoding (Buffer);
+          // delegate to real readFile so the return type matches production.
+          return actual.readFile(path, encoding);
         }
         return '';
       });
@@ -411,6 +528,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();
@@ -471,9 +591,15 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify(backlog);
+        }
+        if (path.includes(prdPath)) {
+          // readUTF8FileStrict calls readFile(path) WITHOUT encoding (Buffer);
+          // delegate to real readFile so the return type matches production.
+          return actual.readFile(path, encoding);
         }
         return '';
       });
@@ -487,6 +613,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();
@@ -519,13 +648,13 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       // EXECUTE
@@ -538,6 +667,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();
@@ -563,6 +695,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();
@@ -583,13 +718,13 @@ describe('PRPPipeline Integration Tests', () => {
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
       (createArchitectAgent as any).mockReturnValue(mockAgent);
-      (readFile as any).mockImplementation((path: string) => {
+      (readFile as any).mockImplementation((path: string, encoding?: any) => {
         if (path.includes('tasks.json')) {
           return JSON.stringify({ backlog: [] });
         }
         // Return actual file content for other files (like PRD.md)
         const actual = require('node:fs/promises'); // eslint-disable-line @typescript-eslint/no-var-requires
-        return actual.readFile(path, 'utf-8');
+        return actual.readFile(path, encoding);
       });
 
       // EXECUTE with scope
@@ -601,6 +736,9 @@ describe('PRPPipeline Integration Tests', () => {
         false,
         undefined,
         undefined,
+        undefined, // monitorInterval
+        1, // monitorTaskInterval (positional; constructor default)
+        false, // disableMonitoring
         planDir
       );
       const result = await pipeline.run();

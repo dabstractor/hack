@@ -29,8 +29,8 @@ import { PRPExecutor } from '../../src/agents/prp-executor.js';
 import type { PRPDocument } from '../../src/core/models.js';
 
 // Mock the agent-factory module but preserve real BashMCP
-vi.mock('../../src/agents/agent-factory.js', () => {
-  const actual = vi.importActual('../../src/agents/agent-factory.js');
+vi.mock('../../src/agents/agent-factory.js', async () => {
+  const actual = await vi.importActual('../../src/agents/agent-factory.js');
   return {
     ...(actual as any),
     createCoderAgent: vi.fn(),
@@ -220,12 +220,10 @@ describe('integration: prp-executor > validation gate execution', () => {
       const prp = createMockPRPDocument('P1.M3.T3.S2');
       const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-      mockAgent.prompt.mockResolvedValue(
-        JSON.stringify({
-          result: 'success',
-          message: 'Implementation complete',
-        })
-      );
+      mockAgent.prompt.mockResolvedValue({
+        status: 'success',
+        data: { result: 'success', message: 'Implementation complete' },
+      });
 
       const executor = new PRPExecutor(sessionPath);
 
@@ -278,12 +276,10 @@ describe('integration: prp-executor > validation gate execution', () => {
         const prp = createMockPRPDocument('P1.M3.T3.S2', customValidationGates);
         const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-        mockAgent.prompt.mockResolvedValue(
-          JSON.stringify({
-            result: 'success',
-            message: 'Implementation complete',
-          })
-        );
+        mockAgent.prompt.mockResolvedValue({
+          status: 'success',
+          data: { result: 'success', message: 'Implementation complete' },
+        });
 
         const executor = new PRPExecutor(sessionPath);
 
@@ -314,12 +310,10 @@ describe('integration: prp-executor > validation gate execution', () => {
       const prp = createMockPRPDocument('P1.M3.T3.S2');
       const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-      mockAgent.prompt.mockResolvedValue(
-        JSON.stringify({
-          result: 'success',
-          message: 'Implementation complete',
-        })
-      );
+      mockAgent.prompt.mockResolvedValue({
+        status: 'success',
+        data: { result: 'success', message: 'Implementation complete' },
+      });
 
       const executor = new PRPExecutor(sessionPath);
 
@@ -366,12 +360,10 @@ describe('integration: prp-executor > validation gate execution', () => {
       const prp = createMockPRPDocument('P1.M3.T3.S2', customValidationGates);
       const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-      mockAgent.prompt.mockResolvedValue(
-        JSON.stringify({
-          result: 'success',
-          message: 'Implementation complete',
-        })
-      );
+      mockAgent.prompt.mockResolvedValue({
+        status: 'success',
+        data: { result: 'success', message: 'Implementation complete' },
+      });
 
       const executor = new PRPExecutor(sessionPath);
 
@@ -413,12 +405,10 @@ describe('integration: prp-executor > validation gate execution', () => {
         const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
         // Mock agent to always fail (will exhaust all attempts)
-        mockAgent.prompt.mockResolvedValue(
-          JSON.stringify({
-            result: 'success',
-            message: 'Implementation complete',
-          })
-        );
+        mockAgent.prompt.mockResolvedValue({
+          status: 'success',
+          data: { result: 'success', message: 'Implementation complete' },
+        });
 
         const executor = new PRPExecutor(sessionPath);
 
@@ -453,12 +443,10 @@ describe('integration: prp-executor > validation gate execution', () => {
         const prp = createMockPRPDocument('P1.M3.T3.S2', customValidationGates);
         const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-        mockAgent.prompt.mockResolvedValue(
-          JSON.stringify({
-            result: 'success',
-            message: 'Implementation complete',
-          })
-        );
+        mockAgent.prompt.mockResolvedValue({
+          status: 'success',
+          data: { result: 'success', message: 'Implementation complete' },
+        });
 
         const executor = new PRPExecutor(sessionPath);
 
@@ -493,12 +481,10 @@ describe('integration: prp-executor > validation gate execution', () => {
       const prp = createMockPRPDocument('P1.M3.T3.S2', customValidationGates);
       const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-      mockAgent.prompt.mockResolvedValue(
-        JSON.stringify({
-          result: 'success',
-          message: 'Implementation complete',
-        })
-      );
+      mockAgent.prompt.mockResolvedValue({
+        status: 'success',
+        data: { result: 'success', message: 'Implementation complete' },
+      });
 
       const executor = new PRPExecutor(sessionPath);
 
@@ -534,12 +520,10 @@ describe('integration: prp-executor > validation gate execution', () => {
         const prp = createMockPRPDocument('P1.M3.T3.S2', customValidationGates);
         const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-        mockAgent.prompt.mockResolvedValue(
-          JSON.stringify({
-            result: 'success',
-            message: 'Implementation complete',
-          })
-        );
+        mockAgent.prompt.mockResolvedValue({
+          status: 'success',
+          data: { result: 'success', message: 'Implementation complete' },
+        });
 
         const executor = new PRPExecutor(sessionPath);
 
@@ -573,12 +557,10 @@ describe('integration: prp-executor > validation gate execution', () => {
       const prp = createMockPRPDocument('P1.M3.T3.S2', customValidationGates);
       const prpPath = '/tmp/test-session/prps/P1M3T3S2.md';
 
-      mockAgent.prompt.mockResolvedValue(
-        JSON.stringify({
-          result: 'success',
-          message: 'Implementation complete',
-        })
-      );
+      mockAgent.prompt.mockResolvedValue({
+        status: 'success',
+        data: { result: 'success', message: 'Implementation complete' },
+      });
 
       const executor = new PRPExecutor(sessionPath);
 

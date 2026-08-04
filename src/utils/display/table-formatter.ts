@@ -22,6 +22,65 @@ import chalk from 'chalk';
 import type { SessionMetadata, Phase, Status } from '../../core/models.js';
 import { getStatusIndicator } from './status-colors.js';
 
+/**
+ * Minimum terminal width `hack inspect` stays readable at (PRD §5.4).
+ */
+const MIN_TERMINAL_WIDTH = 30;
+/**
+ * Fallback width when the terminal width cannot be detected (non-TTY/piped).
+ */
+const DEFAULT_TERMINAL_WIDTH = 80;
+
+/**
+ * Detect the current terminal width, clamped to a readable minimum (PRD §5.4).
+ *
+ * @remarks
+ * Returns `process.stdout.columns` when a TTY reports it; otherwise the
+ * {@link DEFAULT_TERMINAL_WIDTH}. Always clamps to {@link MIN_TERMINAL_WIDTH}
+ * (30) so `hack inspect` tables wrap rather than overflow on narrow terminals.
+ * Exported for testability.
+ *
+ * @returns Terminal width in columns, never below 30.
+ */
+export function getTerminalWidth(): number {
+  const columns = process.stdout.columns;
+  const detected =
+    typeof columns === 'number' && columns > 0
+      ? columns
+      : DEFAULT_TERMINAL_WIDTH;
+  return Math.max(MIN_TERMINAL_WIDTH, detected);
+}
+
+/**
+ * Compute table column widths that fit the current terminal and enable cell
+ * wrapping, distributing space by relative `weights` (PRD §5.4).
+ *
+ * @remarks
+ * cli-table3's total table width is `sum(colWidths)` plus one vertical
+ * border/separator per column boundary (`numCols + 1` chars). This helper
+ * subtracts that overhead from the (clamped) terminal width, gives each column
+ * at least `floor` characters, and distributes the remaining space by weight
+ * so long cell data wraps onto extra lines instead of pushing the table past
+ * the right edge of the terminal.
+ *
+ * @param weights - Relative widths per column (e.g. `[1, 2]` → 33%/67%).
+ * @param floor   - Minimum characters per column (default 4).
+ * @returns Integer column widths summing to `terminalWidth - (numCols + 1)`.
+ */
+function fitColumnWidths(weights: number[], floor = 4): number[] {
+  const numCols = weights.length;
+  const borders = numCols + 1; // left border + middle separators + right border
+  const usable = Math.max(numCols * floor, getTerminalWidth() - borders);
+  const weightSum = weights.reduce((sum, w) => sum + w, 0);
+  const excess = usable - numCols * floor; // guaranteed >= 0
+  const widths = weights.map(w => floor + Math.floor((excess * w) / weightSum));
+  // Absorb the non-negative rounding remainder into the last column so the
+  // total matches `usable` exactly.
+  const assigned = widths.reduce((sum, w) => sum + w, 0);
+  widths[widths.length - 1] += usable - assigned;
+  return widths;
+}
+
 // Local type definitions for inspect command
 export interface ArtifactLocation {
   taskId: string;
@@ -59,7 +118,8 @@ export interface ErrorSummary {
 export function formatSessionTable(session: SessionMetadata): string {
   const table = new Table({
     head: [chalk.cyan('Property'), chalk.cyan('Value')],
-    colWidths: [20, 60],
+    colWidths: fitColumnWidths([1, 2]),
+    wordWrap: true,
     chars: {
       top: '─',
       'top-mid': '┬',
@@ -125,6 +185,7 @@ export function formatTaskHierarchyTable(
       chalk.cyan('Status'),
       chalk.cyan('Points'),
     ],
+    colWidths: fitColumnWidths([2, 5, 3, 1]),
     wordWrap: true,
     chars: {
       top: '─',
@@ -218,7 +279,7 @@ export function formatArtifactTable(artifacts: ArtifactLocation[]): string {
       chalk.cyan('Status'),
     ],
     wordWrap: true,
-    colWidths: [20, 15, 50, 10],
+    colWidths: fitColumnWidths([3, 2, 6, 2]),
     chars: {
       top: '─',
       'top-mid': '┬',
@@ -274,7 +335,7 @@ export function formatErrorTable(errors: ErrorSummary[]): string {
       chalk.cyan('Time'),
     ],
     wordWrap: true,
-    colWidths: [15, 25, 40, 20],
+    colWidths: fitColumnWidths([2, 3, 5, 2]),
     chars: {
       top: '─',
       'top-mid': '┬',
@@ -331,7 +392,8 @@ export function formatErrorTable(errors: ErrorSummary[]): string {
 export function formatStatusCounts(counts: Record<string, number>): string {
   const table = new Table({
     head: [chalk.cyan('Status'), chalk.cyan('Count')],
-    colWidths: [20, 15],
+    colWidths: fitColumnWidths([3, 1]),
+    wordWrap: true,
     chars: {
       top: '─',
       'top-mid': '┬',
@@ -396,7 +458,8 @@ export function formatCurrentTask(
 ): string {
   const table = new Table({
     head: [chalk.cyan('Property'), chalk.cyan('Value')],
-    colWidths: [20, 60],
+    colWidths: fitColumnWidths([1, 2]),
+    wordWrap: true,
     chars: {
       top: '─',
       'top-mid': '┬',

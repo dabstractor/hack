@@ -885,6 +885,72 @@ export async function nextBugfixDir(
   };
 }
 
+/**
+ * Resolve the latest bugfix child's `tasks.json` for a session, or `null`
+ * (PRD §5.3 "Task File Discovery Priority").
+ *
+ * @remarks
+ * Mirrors the reference `run-prd.sh` `prd task` selector: among the numbered
+ * `NNN_*` children of `sessionPath/bugfix/`, pick the **most recent** one
+ * (highest sequence) and return its `tasks.json` path — but only when that
+ * file exists. A bugfix child is preferred **regardless of its task completion
+ * status** (a `Complete`/`Failed` bugfix is still the active focus until the
+ * next pipeline run). When `bugfix/` does not exist (ENOENT), there are no
+ * numbered children, or the latest child has no `tasks.json`, returns `null`
+ * so the caller falls back to the main session's `tasks.json`.
+ *
+ * Read-only: never creates directories. Reuses {@link BUGFIX_DIR_PATTERN} for
+ * the `NNN_` prefix match.
+ *
+ * @param sessionPath - The MAIN session dir (e.g. `plan/001_14b9dc2a33c7/`).
+ * @returns Absolute path to the latest bugfix child's `tasks.json`, or `null`.
+ * @throws {Error} Rethrows non-ENOENT `readdir`/`stat` errors.
+ *
+ * @example
+ * ```ts
+ * const f = await findLatestBugfixTasksFile('plan/001_14b9dc2a33c7');
+ * // f === '/abs/plan/001_14b9dc2a33c7/bugfix/001_a1b2c3d4e5f6/tasks.json'
+ * // or null when no bugfix child has a tasks.json
+ * ```
+ */
+export async function findLatestBugfixTasksFile(
+  sessionPath: string
+): Promise<string | null> {
+  const bugfixDir = resolve(sessionPath, 'bugfix');
+
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await readdir(bugfixDir, { withFileTypes: true });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      return null; // no bugfix/ dir → never hunted
+    }
+    throw error; // non-ENOENT → propagate (unexpected)
+  }
+
+  // Most recent NNN_* child (highest sequence), mirroring `sort -n | tail -1`.
+  const latest = entries
+    .filter(e => e.isDirectory() && BUGFIX_DIR_PATTERN.test(e.name))
+    .map(e => ({
+      dir: resolve(bugfixDir, e.name),
+      seq: parseInt(e.name.slice(0, 3), 10),
+    }))
+    .sort((a, b) => b.seq - a.seq)[0];
+
+  if (!latest) {
+    return null; // bugfix/ exists but has no numbered children
+  }
+
+  const tasksPath = resolve(latest.dir, 'tasks.json');
+  try {
+    await stat(tasksPath);
+    return tasksPath; // latest bugfix child has a tasks.json → use it
+  } catch {
+    return null; // latest child has no tasks.json → fall back to main
+  }
+}
+
 export async function writeTasksJSON(
   sessionPath: string,
   backlog: Backlog

@@ -28,7 +28,8 @@
 import { Command } from 'commander';
 import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
+import chalk from 'chalk';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { InspectCommand, type InspectorOptions } from './commands/inspect.js';
 import { ArtifactsCommand } from './commands/artifacts.js';
@@ -39,6 +40,35 @@ import ms from 'ms';
 
 let _logger: Logger | undefined;
 const logger = (): Logger => (_logger ??= getLogger('CLI'));
+
+/**
+ * Completion-based status color for `hack status` / `hack task` output (PRD §5.4).
+ *
+ * @remarks
+ * Mirrors the reference `tsk` tool's `getStatusColor` mapping exactly: both
+ * the task title and the status text on every line are rendered in this
+ * color (the ID stays bold). Unknown/unlisted statuses fall back to white,
+ * also matching `tsk`. Coloring is driven by chalk, so it is disabled
+ * automatically for non-TTY output or when `NO_COLOR` is set.
+ */
+const TASK_STATUS_COLOR: Readonly<Record<string, (text: string) => string>> =
+  Object.freeze({
+    Planned: chalk.gray,
+    Researching: chalk.yellow,
+    Ready: chalk.blue,
+    Implementing: chalk.magenta,
+    Complete: chalk.green,
+    Failed: chalk.red,
+  });
+
+/**
+ * Resolve the chalk color for a task status (PRD §5.4).
+ *
+ * @param status - Status string (e.g. `'Complete'`).
+ * @returns Chalk color function; `chalk.white` for unknown statuses.
+ */
+const taskStatusColor = (status: string): ((text: string) => string) =>
+  TASK_STATUS_COLOR[status] ?? chalk.white;
 
 // ===== TYPE DEFINITIONS =====
 
@@ -530,35 +560,63 @@ export function parseCLIArgs():
     try {
       const { readFile } = await import('node:fs/promises');
       const { SessionManager } = await import('../core/session-manager.js');
+      const { findLatestBugfixTasksFile } =
+        await import('../core/session-utils.js');
       const planDir = resolve('plan');
 
       // Resolve the tasks.json file per PRD §5.3 "Task File Discovery Priority":
       //   1. --file <path>          (explicit override)
-      //   2. --session <hash>       (specific session)
-      //   3. latest session         (plan/NNN_hash/tasks.json)
+      //   2. latest bugfix child    (SESSION_DIR/bugfix/NNN_hash/tasks.json)
+      //   3. main session           (SESSION_DIR/tasks.json) fallback
       //
-      // Previously this resolved the flat `plan/tasks.json`, which does not
-      // exist (sessions live under plan/NNN_hash/), so `prd status` / `prd
-      // task` crashed with ENOENT even when valid sessions existed (HIGH-1).
-      // `inspect` already resolves the latest session this way; mirror it.
+      // A bugfix child is preferred whenever it has a tasks.json, REGARDLESS of
+      // its completion status — mirroring the reference run-prd.sh selector
+      // (previously this skipped bugfix tasks entirely and always showed the
+      // parent session's list). `inspect` already resolves the latest session
+      // this way; mirror it.
       let tasksFile: string;
+      let sourceNote: string | null = null;
       if (options.file) {
         tasksFile = resolve(options.file);
-      } else if (options.session) {
-        const sessions = await SessionManager.listSessions(planDir);
-        const session = sessions.find(s => s.hash.startsWith(options.session!));
-        if (!session) {
-          throw new Error(`Session not found: ${options.session}`);
-        }
-        tasksFile = resolve(session.path, 'tasks.json');
       } else {
-        const latest = await SessionManager.findLatestSession(planDir);
-        if (!latest) {
-          throw new Error(
-            'No sessions found. Run the pipeline first or use --file / --session.'
+        // Resolve the target session (explicit --session, else the latest).
+        let sessionPath: string;
+        if (options.session) {
+          const sessions = await SessionManager.listSessions(planDir);
+          const session = sessions.find(s =>
+            s.hash.startsWith(options.session!)
           );
+          if (!session) {
+            throw new Error(`Session not found: ${options.session}`);
+          }
+          sessionPath = session.path;
+        } else {
+          const latest = await SessionManager.findLatestSession(planDir);
+          if (!latest) {
+            throw new Error(
+              'No sessions found. Run the pipeline first or use --file / --session.'
+            );
+          }
+          sessionPath = latest.path;
         }
-        tasksFile = resolve(latest.path, 'tasks.json');
+
+        // Prefer the latest bugfix child's tasks.json (PRD §5.3), else main.
+        const bugfixTasks = await findLatestBugfixTasksFile(sessionPath);
+        if (bugfixTasks) {
+          tasksFile = bugfixTasks;
+          sourceNote = `Using bugfix tasks: ${relative(sessionPath, bugfixTasks)}`;
+        } else {
+          tasksFile = resolve(sessionPath, 'tasks.json');
+          sourceNote = `Using main tasks: ${relative(planDir, tasksFile)}`;
+        }
+      }
+
+      // Print the source note (PRD §5.3) to stderr, above the listing. It is
+      // suppressed for machine-readable JSON output so `jq`/scripts get clean
+      // stdout; it is always suppressed for an explicit --file override (no
+      // discovery happened, so there is nothing to report).
+      if (sourceNote && options.output !== 'json') {
+        process.stderr.write(`${chalk.cyan(`[hack] ${sourceNote}`)}\n`);
       }
 
       const content = await readFile(tasksFile, 'utf-8');
@@ -591,9 +649,11 @@ export function parseCLIArgs():
           if (options.output === 'json') {
             console.log(JSON.stringify(next, null, 2));
           } else {
-            console.log(`Next task: ${next.id}`);
-            console.log(`  Title: ${next.title}`);
-            console.log(`  Status: ${next.status}`);
+            // Color-code by completion status (PRD §5.4).
+            const color = taskStatusColor(next.status);
+            console.log(`Next task: ${chalk.bold(next.id)}`);
+            console.log(`  Title: ${color(next.title)}`);
+            console.log(`  Status: ${color(next.status)}`);
           }
         } else {
           console.log('No tasks remaining.');
@@ -614,25 +674,24 @@ export function parseCLIArgs():
           console.log(JSON.stringify(counts, null, 2));
         } else {
           console.log('Task status summary:');
+          // Color-code each status label by completion (PRD §5.4).
           for (const [status, count] of Object.entries(counts)) {
-            console.log(`  ${status}: ${count}`);
+            console.log(`  ${taskStatusColor(status)(status)}: ${count}`);
           }
         }
       } else {
-        // Default: list all tasks
+        // Default: list all tasks, color-coded by completion status (PRD §5.4).
+        // Mirrors the reference tsk tool: bold ID, status-colored title+status.
         const listItems = (items: any[], indent = 0) => {
           for (const item of items) {
             const prefix = '  '.repeat(indent);
-            const statusIcon =
-              item.status === 'Complete'
-                ? '✅'
-                : item.status === 'Implementing'
-                  ? '🔄'
-                  : item.status === 'Blocked'
-                    ? '🚫'
-                    : '⬜';
+            const color = taskStatusColor(item.status);
+            const points =
+              typeof item.story_points === 'number'
+                ? ` (${item.story_points} points)`
+                : '';
             console.log(
-              `${prefix}${statusIcon} [${item.id}] ${item.title} (${item.status})`
+              `${prefix}${chalk.bold(item.id)}: ${color(item.title)} - ${color(item.status)}${points}`
             );
             if (item.subtasks) listItems(item.subtasks, indent + 1);
             if (item.tasks) listItems(item.tasks, indent + 1);

@@ -2,77 +2,155 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M3.T3.S2_1785873388588_coder-response_379caf18",
+      "id": "P1.M3.T3.S2_1785876194401_failed_6767094d",
       "taskId": "P1.M3.T3.S2",
-      "label": "After Coder Agent response",
+      "label": "Task failed",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "coder-response",
+        "stage": "failed",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
         "coderResult": {
-          "result": "error",
-          "message": "Failed to parse Coder Agent response: undefined"
+          "result": "success",
+          "message": "Implementation complete"
         },
-        "validationResults": [],
-        "timestamp": "2026-08-04T19:56:28.588Z"
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Syntax check",
+            "success": true,
+            "command": "echo \"Level 1 passed\"",
+            "stdout": "Level 1 passed\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 2,
+            "description": "Failing test",
+            "success": false,
+            "command": "false",
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 1,
+            "skipped": false,
+            "timedOut": false
+          }
+        ],
+        "fixAttempt": 2,
+        "timestamp": "2026-08-04T20:43:14.401Z"
       },
-      "createdAt": "2026-08-04T19:56:28.588Z"
+      "createdAt": "2026-08-04T20:43:14.401Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785873388590_pre-execution_0fc1e371",
+      "id": "P1.M3.T3.S2_1785876194402_pre-execution_cd58d50a",
       "taskId": "P1.M3.T3.S2",
       "label": "Before Coder Agent execution",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
         "stage": "pre-execution",
         "validationResults": [],
-        "timestamp": "2026-08-04T19:56:28.590Z"
+        "timestamp": "2026-08-04T20:43:14.402Z"
       },
-      "createdAt": "2026-08-04T19:56:28.590Z"
+      "createdAt": "2026-08-04T20:43:14.402Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785873388591_coder-response_e375db95",
+      "id": "P1.M3.T3.S2_1785876194403_coder-response_8349441f",
       "taskId": "P1.M3.T3.S2",
       "label": "After Coder Agent response",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
         "stage": "coder-response",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
         "coderResult": {
-          "result": "error",
-          "message": "Failed to parse Coder Agent response: undefined"
+          "result": "success",
+          "message": "Implementation complete"
         },
         "validationResults": [],
-        "timestamp": "2026-08-04T19:56:28.591Z"
+        "timestamp": "2026-08-04T20:43:14.403Z"
       },
-      "createdAt": "2026-08-04T19:56:28.591Z"
+      "createdAt": "2026-08-04T20:43:14.403Z"
     },
     {
-      "id": "P1.M3.T3.S2_1785873388592_pre-execution_825a39d0",
+      "id": "P1.M3.T3.S2_1785876194410_validation-gate-4_e79b9fdd",
       "taskId": "P1.M3.T3.S2",
-      "label": "Before Coder Agent execution",
+      "label": "After validation gate 4",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "pre-execution",
-        "validationResults": [],
-        "timestamp": "2026-08-04T19:56:28.592Z"
-      },
-      "createdAt": "2026-08-04T19:56:28.592Z"
-    },
-    {
-      "id": "P1.M3.T3.S2_1785873388592_coder-response_8822a59e",
-      "taskId": "P1.M3.T3.S2",
-      "label": "After Coder Agent response",
-      "state": {
-        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "coder-response",
+        "stage": "validation-gate-4",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
         "coderResult": {
-          "result": "error",
-          "message": "Failed to parse Coder Agent response: undefined"
+          "result": "success",
+          "message": "Implementation complete"
         },
-        "validationResults": [],
-        "timestamp": "2026-08-04T19:56:28.592Z"
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Syntax check",
+            "success": true,
+            "command": "echo \"Level 1 passed\"",
+            "stdout": "Level 1 passed\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 4,
+            "description": "Manual review",
+            "success": true,
+            "command": null,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": null,
+            "skipped": true,
+            "timedOut": false
+          }
+        ],
+        "timestamp": "2026-08-04T20:43:14.410Z"
       },
-      "createdAt": "2026-08-04T19:56:28.592Z"
+      "createdAt": "2026-08-04T20:43:14.410Z"
+    },
+    {
+      "id": "P1.M3.T3.S2_1785876194412_complete_57ddb178",
+      "taskId": "P1.M3.T3.S2",
+      "label": "Task completed successfully",
+      "state": {
+        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
+        "stage": "complete",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
+        "coderResult": {
+          "result": "success",
+          "message": "Implementation complete"
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Syntax check",
+            "success": true,
+            "command": "echo \"Level 1 passed\"",
+            "stdout": "Level 1 passed\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 4,
+            "description": "Manual review",
+            "success": true,
+            "command": null,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": null,
+            "skipped": true,
+            "timedOut": false
+          }
+        ],
+        "timestamp": "2026-08-04T20:43:14.412Z"
+      },
+      "createdAt": "2026-08-04T20:43:14.412Z"
     }
   ],
-  "lastModified": "2026-08-04T19:56:28.592Z"
+  "lastModified": "2026-08-04T20:43:14.412Z"
 }

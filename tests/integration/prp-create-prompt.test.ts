@@ -128,10 +128,11 @@ describe('integration/prp-create-prompt', () => {
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
 
       // VERIFY: Contains instructions for subagent spawning
-      // GOTCHA: These are ASPIRATIONAL features, not implemented in current codebase
-      // Tests verify prompt CONTAINS these instructions, not that they work
-      expect(PRP_BLUEPRINT_PROMPT).toContain('spawn subagents');
-      expect(PRP_BLUEPRINT_PROMPT).toContain('batch tools');
+      // GOTCHA: Subagents were made OPTIONAL in the current prompt rewrite —
+      // the prompt now references built-in subagents and instructs codebase
+      // search via shell/file tools or built-in subagents if available.
+      expect(PRP_BLUEPRINT_PROMPT).toContain('Subagents are OPTIONAL');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('Search the codebase');
     });
 
     it('should instruct to check plan/architecture directory', async () => {
@@ -262,11 +263,10 @@ describe('integration/prp-create-prompt', () => {
       const { PRP_BLUEPRINT_PROMPT } =
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
 
-      // VERIFY: Contains instruction to use batch tools
-      expect(PRP_BLUEPRINT_PROMPT).toContain('Use the batch tools');
-      expect(PRP_BLUEPRINT_PROMPT).toContain(
-        'spawn subagents to search the codebase'
-      );
+      // VERIFY: Contains instruction to search the codebase (optionally via
+      // built-in subagents — the prompt rewrite made subagents OPTIONAL).
+      expect(PRP_BLUEPRINT_PROMPT).toContain('built-in subagents');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('Search the codebase');
     });
   });
 
@@ -280,12 +280,14 @@ describe('integration/prp-create-prompt', () => {
       const { PRP_BLUEPRINT_PROMPT } =
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
 
-      // VERIFY: Contains instruction to spawn subagents for external research
+      // VERIFY: Contains instruction for external research with docs/URLs
+      // (subagents are now OPTIONAL — research is done by the agent itself
+      // or via built-in subagents if available).
       expect(PRP_BLUEPRINT_PROMPT).toContain(
-        'spawn subagents with instructions'
+        'Research similar features/patterns online'
       );
       expect(PRP_BLUEPRINT_PROMPT).toContain(
-        'do deep research for similar features/patterns online'
+        'include urls to documentation and examples'
       );
     });
 
@@ -304,8 +306,10 @@ describe('integration/prp-create-prompt', () => {
         await import('/home/dustin/projects/hacky-hack/src/agents/prompts.js');
 
       // VERIFY: Contains instruction to store research
+      // GOTCHA: the current prompt added the word "notes" — "Store all research
+      // notes in the work item's research/ subdirectory".
       expect(PRP_BLUEPRINT_PROMPT).toContain(
-        "Store all research in the work item's research/ subdirectory"
+        "Store all research notes in the work item's research/ subdirectory"
       );
     });
 
