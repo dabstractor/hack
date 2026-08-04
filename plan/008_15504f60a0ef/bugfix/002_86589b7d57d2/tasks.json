@@ -162,7 +162,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Add PRP_COMMIT_FORMAT config getter to constants.ts",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-003-commit-format.md §'S1'. Config convention is the COMMIT_RETRY_MAX triple at src/config/constants.ts:449-483 + the getValidationAgent string-getter style. NO process.env reads live outside constants.ts getters. PRP_COMMIT_FORMAT currently has ZERO matches in src/.\n2. INPUT: The constants.ts module + its existing getter patterns.\n3. LOGIC: In src/config/constants.ts add: `export const PRP_COMMIT_FORMAT = 'PRP_COMMIT_FORMAT';`, `export const DEFAULT_PRP_COMMIT_FORMAT = 'task-prefix' as const;`, `export type PrpCommitFormat = 'task-prefix' | 'plain';`, `export function getPrpCommitFormat(): PrpCommitFormat { const raw = process.env[PRP_COMMIT_FORMAT]; if (raw === undefined) return DEFAULT_PRP_COMMIT_FORMAT; const v = raw.trim(); return v === 'plain' ? 'plain' : 'task-prefix'; }` (any unknown/empty value → default task-prefix). Follow the JSDoc style of getCommitRetryMax (reference PRD §5.1, §9).\n4. OUTPUT: getPrpCommitFormat() consumed by formatCommitMessage in P1.M3.T1.S2.\n5. MOCKING: Unit-test getPrpCommitFormat by mocking process.env[PRP_COMMIT_FORMAT] (unset→task-prefix, 'plain'→plain, 'garbage'→task-prefix, ''→task-prefix).\n6. DOCS: [Mode A] Update docs/CONFIGURATION.md commit-configuration block to document PRP_COMMIT_FORMAT (task-prefix default / plain) per PRD §9. This rides WITH the work.",
@@ -176,7 +176,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Implement task-prefix builder + rework formatCommitMessage (remove [PRP Auto])",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S1"

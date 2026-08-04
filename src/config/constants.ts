@@ -674,6 +674,99 @@ export function getCommitRetryDelayCapMs(): number {
 }
 
 // =============================================================================
+// Commit Message Format (PRP_COMMIT_FORMAT) — PRD §5.1
+// =============================================================================
+// One env-var knob for the stagecoach commit-message subject: whether to layer the
+// standardized <phase>.<milestone>.<task>.<subtask>: position prefix. Consumed by
+// P1.M3.T1.S2 (formatCommitMessage in src/utils/git-commit.ts), which branches on the
+// PrpCommitFormat union. This getter is the SINGLE read site for this var (no other
+// code reads process.env[PRP_COMMIT_FORMAT] directly — project convention).
+
+/**
+ * Environment variable name: the commit-message format mode (PRD §5.1 "Commit Message Format
+ * (Standardized Task-Prefix)").
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getPrpCommitFormat}) is either
+ * `'task-prefix'` (DEFAULT — layer the `<phase>.<milestone>.<task>.<subtask>:` prefix) or
+ * `'plain'` (opt-out — emit the message verbatim with no position prefix). This constant is
+ * the env-var NAME itself; the VALUE is read + normalized by {@link getPrpCommitFormat},
+ * the SINGLE read site for this var (no other code reads `process.env[PRP_COMMIT_FORMAT]`
+ * directly).
+ *
+ * @example
+ * ```ts
+ * import { PRP_COMMIT_FORMAT } from './config/constants.js';
+ *
+ * console.log(PRP_COMMIT_FORMAT); // 'PRP_COMMIT_FORMAT'
+ * console.log(process.env[PRP_COMMIT_FORMAT]); // e.g. 'plain'
+ * ```
+ */
+export const PRP_COMMIT_FORMAT = 'PRP_COMMIT_FORMAT';
+
+/**
+ * Default commit-message format mode (PRD §5.1).
+ *
+ * @remarks
+ * `'task-prefix'` — the standardized `<phase>.<milestone>.<task>.<subtask>:` prefix is the
+ * default. Uses `as const` to preserve the literal type (matches
+ * {@link DEFAULT_VALIDATION_AGENT} and {@link DEFAULT_HARNESS}); it is a member of
+ * {@link PrpCommitFormat}.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_PRP_COMMIT_FORMAT } from './config/constants.js';
+ *
+ * console.log(DEFAULT_PRP_COMMIT_FORMAT); // 'task-prefix'
+ * ```
+ */
+export const DEFAULT_PRP_COMMIT_FORMAT = 'task-prefix' as const;
+
+/**
+ * The two supported commit-message format modes (PRD §5.1).
+ *
+ * @remarks
+ * - `'task-prefix'` — layer the position prefix (`<phase>.<milestone>.<task>.<subtask>:`)
+ *   onto the commit subject; the DEFAULT.
+ * - `'plain'` — opt-out: emit the descriptive message verbatim with no position prefix.
+ *
+ * Returned by {@link getPrpCommitFormat}; consumed by `formatCommitMessage`
+ * (P1.M3.T1.S2).
+ */
+export type PrpCommitFormat = 'task-prefix' | 'plain';
+
+/**
+ * Read the PRP_COMMIT_FORMAT env var (PRD §5.1).
+ *
+ * @returns `'plain'` when the (trimmed) value is exactly `'plain'`; otherwise
+ *          {@link DEFAULT_PRP_COMMIT_FORMAT} (`'task-prefix'`) — including when unset,
+ *          empty, whitespace-only, or any unrecognized value.
+ *
+ * @remarks
+ * The trim + unknown→default guard is the string analog of {@link getValidationAgent}'s
+ * empty-string guard: an explicitly-empty value (`PRP_COMMIT_FORMAT=`) or any typo
+ * (`'task_prefix'`, `'TASK-PREFIX'`, `'tsk-prefix'`) falls back to the safe default rather
+ * than yielding an unrecognized mode. The match is CASE-SENSITIVE — only the exact
+ * lowercase `'plain'` opts out (mirrors how `'plain'` is the only opt-out token named in
+ * PRD §5.1).
+ *
+ * @example
+ * ```ts
+ * import { getPrpCommitFormat } from './config/constants.js';
+ *
+ * const format = getPrpCommitFormat(); // 'task-prefix' (default)
+ * ```
+ */
+export function getPrpCommitFormat(): PrpCommitFormat {
+  const raw = process.env[PRP_COMMIT_FORMAT];
+  if (raw === undefined) {
+    return DEFAULT_PRP_COMMIT_FORMAT;
+  }
+  const v = raw.trim();
+  return v === 'plain' ? 'plain' : 'task-prefix'; // any unknown/empty value → default task-prefix
+}
+
+// =============================================================================
 // Validation Control (PRD §4.4, §9.2.2)
 // =============================================================================
 // Two env-var knobs for the QA & validation stage: which reasoning-tier agent runs
