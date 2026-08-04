@@ -64,9 +64,11 @@ import { createPrompt } from 'groundswell';
 import { createCommitMessageAgent } from '../../../src/agents/commit-message-agent.js';
 import {
   buildFallbackCommitMessage,
+  buildTaskPrefix,
   filterProtectedFiles,
   formatCommitMessage,
   generateCommitMessage,
+  parseItemPosition,
   restore_critical_files,
   smartCommit,
 } from '../../../src/utils/git-commit.js';
@@ -225,70 +227,216 @@ describe('utils/git-commit', () => {
     });
   });
 
+  describe('parseItemPosition', () => {
+    it('parses a 4-level Subtask id into a full position (with subtask)', () => {
+      // EXECUTE + VERIFY
+      expect(parseItemPosition('P1.M2.T1.S1')).toEqual({
+        phase: 1,
+        milestone: 2,
+        task: 1,
+        subtask: 1,
+      });
+    });
+
+    it('parses a multi-digit 4-level id', () => {
+      // EXECUTE + VERIFY
+      expect(parseItemPosition('P3.M1.T2.S4')).toEqual({
+        phase: 3,
+        milestone: 1,
+        task: 2,
+        subtask: 4,
+      });
+    });
+
+    it('parses a 3-level Task id into a position WITHOUT a subtask key (trailing-level elision)', () => {
+      // EXECUTE
+      const parsed = parseItemPosition('P1.M2.T1');
+
+      // VERIFY — exact shape (no subtask key) for toEqual, plus an explicit
+      // assertion that subtask is absent (guards trailing-level elision).
+      expect(parsed).toEqual({ phase: 1, milestone: 2, task: 1 });
+      expect(parsed?.subtask).toBeUndefined();
+    });
+
+    it.each([
+      'garbage', // not an id at all
+      'P1.M2', // too few segments
+      'P1.M2.T1.S1.X', // extra segment
+      '', // empty string
+      'p1.m2.t1.s1', // lowercase (case-SENSITIVE)
+    ])('returns null for a non-matching id %r', id => {
+      // EXECUTE + VERIFY
+      expect(parseItemPosition(id)).toBeNull();
+    });
+  });
+
+  describe('buildTaskPrefix', () => {
+    it('renders a 4-level position as p.m.t.s', () => {
+      // EXECUTE + VERIFY
+      expect(
+        buildTaskPrefix({ phase: 1, milestone: 2, task: 1, subtask: 1 })
+      ).toBe('1.2.1.1');
+    });
+
+    it('renders a multi-digit 4-level position', () => {
+      // EXECUTE + VERIFY
+      expect(
+        buildTaskPrefix({ phase: 3, milestone: 1, task: 2, subtask: 4 })
+      ).toBe('3.1.2.4');
+    });
+
+    it("ELIDES the absent trailing level for a 3-level position (never '1.2.1.0')", () => {
+      // EXECUTE
+      const prefix = buildTaskPrefix({ phase: 1, milestone: 2, task: 1 });
+
+      // VERIFY — elision: no trailing .0
+      expect(prefix).toBe('1.2.1');
+      expect(prefix).not.toBe('1.2.1.0');
+    });
+  });
+
   describe('formatCommitMessage', () => {
-    it('should add [PRP Auto] prefix to message', () => {
-      // SETUP
-      const message = 'P3.M4.T1.S3: Implement smart commit workflow';
-
-      // EXECUTE
-      const result = formatCommitMessage(message);
-
-      // VERIFY
-      expect(result).toContain('[PRP Auto]');
-      expect(result).toContain(message);
+    // The env-branch cases (task-prefix vs plain) need a clean env each run so
+    // a leftover vi.stubEnv(PRP_COMMIT_FORMAT,'plain') from a prior test can't
+    // flip the next task-prefix case to plain. Mirrors the harness in
+    // tests/unit/config/prp-commit-format.test.ts. Nested hooks run AFTER the
+    // outer file-wide beforeEach (which does vi.clearAllMocks + spies cwd).
+    beforeEach(() => {
+      delete process.env.PRP_COMMIT_FORMAT;
     });
 
-    it('should add Co-Authored-By trailer', () => {
-      // SETUP
-      const message = 'P3.M4.T1.S3: Implement smart commit workflow';
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
 
+    it('no position (non-backlog) → plain subject + trailer (NO [PRP Auto])', () => {
       // EXECUTE
-      const result = formatCommitMessage(message);
+      const result = formatCommitMessage('cleanup: doc reorganization');
 
-      // VERIFY
-      expect(result).toContain(
-        'Co-Authored-By: Claude <noreply@anthropic.com>'
+      // VERIFY — bare subject, trailer present, NEVER [PRP Auto]
+      expect(result).toBe(
+        'cleanup: doc reorganization\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
       );
+      expect(result).not.toContain('[PRP Auto]');
     });
 
-    it('should include blank line between message and trailer', () => {
-      // SETUP
-      const message = 'Test commit';
-
+    it('null position → plain subject + trailer (position explicitly null)', () => {
       // EXECUTE
-      const result = formatCommitMessage(message);
+      const result = formatCommitMessage('msg', null);
 
       // VERIFY
       expect(result).toBe(
-        `[PRP Auto] Test commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
+        'msg\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+      );
+      expect(result).not.toContain('[PRP Auto]');
+    });
+
+    it('position + env UNSET (task-prefix DEFAULT) → 4-level prefix: <p.m.t.s>: <msg> + trailer', () => {
+      // EXECUTE
+      const result = formatCommitMessage('add utility', {
+        phase: 1,
+        milestone: 2,
+        task: 1,
+        subtask: 1,
+      });
+
+      // VERIFY
+      expect(result).toBe(
+        '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+      );
+      expect(result).not.toContain('[PRP Auto]');
+    });
+
+    it('position + env UNSET (task-prefix DEFAULT) → 3-level prefix with ELISION', () => {
+      // EXECUTE
+      const result = formatCommitMessage('build CLI entry point', {
+        phase: 1,
+        milestone: 2,
+        task: 1,
+      });
+
+      // VERIFY — trailing level elided (1.2.1, never 1.2.1.0)
+      expect(result).toBe(
+        '1.2.1: build CLI entry point\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+      );
+      expect(result).not.toContain('[PRP Auto]');
+    });
+
+    it('position + PRP_COMMIT_FORMAT=plain → plain (position IGNORED) + trailer', () => {
+      // SETUP
+      vi.stubEnv('PRP_COMMIT_FORMAT', 'plain');
+
+      // EXECUTE
+      const result = formatCommitMessage('add utility', {
+        phase: 1,
+        milestone: 2,
+        task: 1,
+        subtask: 1,
+      });
+
+      // VERIFY — plain opt-out: position supplied but ignored
+      expect(result).toBe(
+        'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+      );
+      expect(result).not.toContain('[PRP Auto]');
+    });
+
+    it('position + PRP_COMMIT_FORMAT=task-prefix (explicit default honored) → prefix + trailer', () => {
+      // SETUP
+      vi.stubEnv('PRP_COMMIT_FORMAT', 'task-prefix');
+
+      // EXECUTE
+      const result = formatCommitMessage('add utility', {
+        phase: 1,
+        milestone: 2,
+        task: 1,
+        subtask: 1,
+      });
+
+      // VERIFY
+      expect(result).toBe(
+        '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
       );
     });
 
-    it('should handle multi-line messages', () => {
-      // SETUP
-      const message = 'feat: Add new feature\n\nThis is a detailed description';
+    it("DEFENSE-IN-DEPTH: strips a leading '[PRP Auto] ' banner from the message", () => {
+      // EXECUTE — message starts with the forbidden banner; the formatter must
+      // strip it so a stray banner from any caller/LLM can never reach history.
+      const result = formatCommitMessage('[PRP Auto] msg', {
+        phase: 1,
+        milestone: 2,
+        task: 1,
+        subtask: 1,
+      });
 
-      // EXECUTE
-      const result = formatCommitMessage(message);
-
-      // VERIFY
-      expect(result).toContain('[PRP Auto]');
-      expect(result).toContain(message);
-      expect(result).toContain(
-        'Co-Authored-By: Claude <noreply@anthropic.com>'
+      // VERIFY — banner is gone; task-prefix applied to the stripped subject
+      expect(result).not.toContain('[PRP Auto]');
+      expect(result).toBe(
+        '1.2.1.1: msg\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
       );
     });
 
-    it('should handle special characters in message', () => {
-      // SETUP
-      const message = 'Fix: Handle special chars @#$%^&*()';
+    it('PRESERVES the Co-Authored-By trailer in EVERY output (both modes)', () => {
+      // EXECUTE a representative cross-section of both modes + the strip path.
+      const results = [
+        formatCommitMessage('plain msg'),
+        formatCommitMessage('prefixed msg', {
+          phase: 1,
+          milestone: 2,
+          task: 1,
+          subtask: 1,
+        }),
+        formatCommitMessage('[PRP Auto] stripped msg', null),
+      ];
 
-      // EXECUTE
-      const result = formatCommitMessage(message);
-
-      // VERIFY
-      expect(result).toContain('[PRP Auto]');
-      expect(result).toContain(message);
+      // VERIFY — trailer present in every output
+      for (const result of results) {
+        expect(result).toContain(
+          'Co-Authored-By: Claude <noreply@anthropic.com>'
+        );
+        // And NEVER the banner
+        expect(result).not.toContain('[PRP Auto]');
+      }
     });
   });
 
@@ -323,7 +471,7 @@ describe('utils/git-commit', () => {
         expect(mockGitCommit).toHaveBeenCalledWith({
           path: '/project',
           message:
-            '[PRP Auto] Test commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+            'Test commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
         });
       });
 
@@ -910,7 +1058,9 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — commit hash returned + gitDiff called after gitAdd + message
-      // wrapped in [PRP Auto] prefix + Co-Authored-By trailer.
+      // wrapped via formatCommitMessage (plain subject + Co-Authored-By
+      // trailer, no [PRP Auto] — default path emits plain until S3 threads a
+      // position).
       expect(result).toBe('abc123');
       expect(mockGitDiff).toHaveBeenCalledWith({
         path: '/project',
@@ -919,7 +1069,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          '[PRP Auto] feat(api): add endpoint\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          'feat(api): add endpoint\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
       });
     });
 
@@ -984,15 +1134,16 @@ describe('utils/git-commit', () => {
 
       // VERIFY — fallback commit made with the labeled placeholder. The
       // staged substance is preserved (never stranded). The placeholder is
-      // wrapped in [PRP Auto] prefix + Co-Authored-By trailer (same wrapper
-      // as the happy path). 'exit N' uses the sentinel 0 (LLM-API failures
-      // have no subprocess exit code).
+      // wrapped via formatCommitMessage (plain subject + Co-Authored-By
+      // trailer, no [PRP Auto] — non-backlog fallback degrades to plain per
+      // PRD §5.1). 'exit N' uses the sentinel 0 (LLM-API failures have no
+      // subprocess exit code).
       expect(result).toBe('fb000');
       expect(mockGitCommit).toHaveBeenCalledTimes(1);
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message: expect.stringMatching(
-          /\[PRP Auto\] chore: commit-gen failed \(exit \d+\); fallback commit[\s\S]*Co-Authored-By: Claude/
+          /chore: commit-gen failed \(exit \d+\); fallback commit[\s\S]*Co-Authored-By: Claude/
         ),
       });
       // A warn log is emitted naming the fallback (NOT the outer 'Unexpected
@@ -1027,7 +1178,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          '[PRP Auto] Pre-formatted message\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          'Pre-formatted message\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
       });
     });
 
@@ -1161,7 +1312,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          '[PRP Auto] feat: retry works\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          'feat: retry works\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
       });
     });
 

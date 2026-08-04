@@ -40,6 +40,7 @@ import {
   getCommitRetryMax,
   getCommitRetryDelayMs,
   getCommitRetryDelayCapMs,
+  getPrpCommitFormat,
 } from '../config/constants.js';
 
 let _logger: Logger | undefined;
@@ -90,23 +91,139 @@ export function filterProtectedFiles(files: string[]): string[] {
 }
 
 /**
- * Formats a commit message with PRP prefix and co-author trailer
- *
- * @param message - Base commit message
- * @returns Formatted commit message with prefix and trailer
+ * The 1-indexed hierarchical position of a backlog item, parsed from its id
+ * (PRD §5.1 "Commit Message Format (Standardized Task-Prefix)").
  *
  * @remarks
- * Adds [PRP Auto] prefix to distinguish automated commits.
- * Appends Co-Authored-By: Claude trailer per AI contribution standards.
+ * `subtask` is OPTIONAL: a Task-level item has no subtask, so its prefix
+ * elides the trailing level (`1.2.1`, never `1.2.1.0`). Produced by
+ * {@link parseItemPosition}; consumed by {@link buildTaskPrefix} and
+ * {@link formatCommitMessage}.
+ */
+export interface ItemPosition {
+  phase: number;
+  milestone: number;
+  task: number;
+  subtask?: number;
+}
+
+/**
+ * Regex matching a backlog-item id `P{phase}.M{milestone}.T{task}[.S{subtask}]`
+ * (PRD §5.1). The `.S{subtask}` segment is OPTIONAL so a Task-level item id
+ * (`P1.M2.T1`) parses to a 3-level position (trailing-level elision). Mirrors
+ * — and generalizes — the STRICT 4-level {@link SubtaskSchema} id regex
+ * (`src/core/models.ts:~382`, `^P\d+\.M\d+\.T\d+\.S\d+$`): runtime Subtask ids
+ * are always 4-level, but the prefix builder must also render 3-level
+ * positions.
+ */
+const ITEM_ID_PATTERN = /^P(\d+)\.M(\d+)\.T(\d+)(?:\.S(\d+))?$/;
+
+/**
+ * Parse a backlog-item id into an {@link ItemPosition} (PRD §5.1).
+ *
+ * @param id - The item id, e.g. `'P1.M2.T1.S1'` (Subtask) or `'P1.M2.T1'`
+ *            (Task-level, no subtask).
+ * @returns The parsed position (`subtask` present iff the id had an `.S{n}`
+ *          segment), or `null` when `id` does not match
+ *          {@link ITEM_ID_PATTERN} (malformed, wrong case, extra segments, …).
  *
  * @example
- * ```typescript
- * formatCommitMessage('P3.M4.T1.S3: Implement smart commit');
- * // Returns: '[PRP Auto] P3.M4.T1.S3: Implement smart commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ * ```ts
+ * parseItemPosition('P1.M2.T1.S1'); // { phase:1, milestone:2, task:1, subtask:1 }
+ * parseItemPosition('P1.M2.T1');    // { phase:1, milestone:2, task:1 }
+ * parseItemPosition('garbage');     // null
  * ```
  */
-export function formatCommitMessage(message: string): string {
-  return `[PRP Auto] ${message}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`;
+export function parseItemPosition(id: string): ItemPosition | null {
+  const m = ITEM_ID_PATTERN.exec(id);
+  if (!m) return null;
+  const pos: ItemPosition = {
+    phase: Number(m[1]),
+    milestone: Number(m[2]),
+    task: Number(m[3]),
+  };
+  if (m[4] !== undefined) {
+    pos.subtask = Number(m[4]);
+  }
+  return pos;
+}
+
+/**
+ * Render an {@link ItemPosition} as the standardized task-prefix
+ * `<phase>.<milestone>.<task>[.<subtask>]` (PRD §5.1).
+ *
+ * @param pos - The item position.
+ * @returns The dotted prefix with trailing unused levels ELIDED:
+ *          `{1,2,1,1}` → `'1.2.1.1'`; `{1,2,1}` → `'1.2.1'` (never `'1.2.1.0'`).
+ *
+ * @example
+ * ```ts
+ * buildTaskPrefix({ phase:1, milestone:2, task:1, subtask:1 }); // '1.2.1.1'
+ * buildTaskPrefix({ phase:1, milestone:2, task:1 });            // '1.2.1'
+ * ```
+ */
+export function buildTaskPrefix(pos: ItemPosition): string {
+  const base = `${pos.phase}.${pos.milestone}.${pos.task}`;
+  return pos.subtask === undefined ? base : `${base}.${pos.subtask}`;
+}
+
+/**
+ * Format a commit message per PRD §5.1 "Commit Message Format (Standardized
+ * Task-Prefix)".
+ *
+ * @param message - The descriptive commit message (subject). May be a bare
+ *                  hand-written message, an LLM-generated summary, or a fallback
+ *                  placeholder; any leading `[PRP Auto] ` banner is STRIPPED
+ *                  (defense-in-depth).
+ * @param position - Optional {@link ItemPosition} for the implementing backlog
+ *                   item. When supplied AND {@link getPrpCommitFormat} returns
+ *                   `'task-prefix'` (the DEFAULT), the standardized
+ *                   `<phase>.<milestone>.<task>[.<subtask>]:` prefix is layered
+ *                   onto the subject. When absent/`null`, OR when the format is
+ *                   `'plain'`, the subject is emitted verbatim (no prefix).
+ * @returns The formatted commit message: `<prefix?><subject>\n\nCo-Authored-By:
+ *          Claude <noreply@anthropic.com>`. The `Co-Authored-By` trailer is
+ *          PRESERVED in BOTH modes (PRD §5.1 is silent on the trailer; only the
+ *          `[PRP Auto]` banner is forbidden).
+ *
+ * @remarks
+ * - NEVER emits the legacy `[PRP Auto]` banner (PRD §5.1 forbids it). A stray
+ *   `[PRP Auto] ` the caller/LLM may have included in `message` is stripped as
+ *   defense-in-depth.
+ * - Non-backlog commits (initial, fallback, scaffolding, cleanup) pass NO
+ *   `position` → plain subject (PRD §5.1: "When task-prefix selected but commit
+ *   is not a backlog item → degrade to plain").
+ * - The trailer is appended after a blank line in both modes (architecture
+ *   decision: removing it is a separate product concern).
+ *
+ * @example
+ * ```ts
+ * // task-prefix mode (DEFAULT — PRP_COMMIT_FORMAT unset):
+ * formatCommitMessage('add utility', { phase:1, milestone:2, task:1, subtask:1 });
+ * // => '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ *
+ * // plain mode (PRP_COMMIT_FORMAT=plain) — position ignored:
+ * formatCommitMessage('add utility', { phase:1, milestone:2, task:1, subtask:1 });
+ * // => 'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ *
+ * // no position (non-backlog) → always plain:
+ * formatCommitMessage('cleanup: doc reorganization');
+ * // => 'cleanup: doc reorganization\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ * ```
+ */
+export function formatCommitMessage(
+  message: string,
+  position?: ItemPosition | null
+): string {
+  // Defense-in-depth: strip any stray [PRP Auto] banner the caller/LLM may have
+  // included. PRD §5.1 forbids the banner; the stagecoach agent is also told
+  // not to emit it, but this guarantees it can never reach the history.
+  const subject = message.replace(/^\[PRP Auto\]\s*/, '');
+  const withPrefix =
+    position && getPrpCommitFormat() === 'task-prefix'
+      ? `${buildTaskPrefix(position)}: ${subject}`
+      : subject;
+  return `${withPrefix}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`;
 }
 
 // ===== STAGECOACH (LLM COMMIT-MESSAGE GENERATION) =====
@@ -234,7 +351,8 @@ const COMMIT_GEN_FALLBACK_EXIT_SENTINEL = 0;
  * {@link AgentError} rethrown by `retry()` — NOT a wrapper).
  * @returns The placeholder subject line, e.g.
  * `'chore: commit-gen failed (exit 0); fallback commit'`. The caller wraps it
- * via {@link formatCommitMessage} (adds `[PRP Auto]` prefix + `Co-Authored-By`).
+ * via {@link formatCommitMessage} (task-prefix or plain per PRD §5.1 +
+ * `Co-Authored-By` trailer).
  *
  * @remarks
  * PRD §5.1 mandates a "clearly-labeled placeholder message … so the substance

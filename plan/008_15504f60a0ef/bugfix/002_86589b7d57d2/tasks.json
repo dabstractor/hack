@@ -155,7 +155,7 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "PRP_COMMIT_FORMAT config + task-prefix builder + formatCommitMessage rework",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add the config getter, the pure task-prefix builder/parser, and rework formatCommitMessage to emit task-prefix/plain per config with NO [PRP Auto] banner.",
               "subtasks": [
                 {
@@ -176,7 +176,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Implement task-prefix builder + rework formatCommitMessage (remove [PRP Auto])",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S1"
@@ -192,7 +192,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S3",
                   "title": "Update stagecoach system prompt (no Conventional-Commit type/scope)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug-003-commit-format.md §'Stagecoach prompt'. COMMIT_MESSAGE_SYSTEM (src/agents/commit-message-agent.ts:69-77) currently mandates Conventional Commits ('Type prefix: feat, fix…' and 'If a work-item id appears in changed paths, reference it in the subject'). PRD §5.1 forbids the Conventional-Commit SCOPE and the task-prefix now encodes position, so the agent must emit a PLAIN descriptive imperative summary.\n2. INPUT: The COMMIT_MESSAGE_SYSTEM const + the module's existing hard rules.\n3. LOGIC: Rewrite the system prompt so the agent emits a plain descriptive imperative summary (subject ≤72 chars, optional body explaining WHY). Remove the Conventional-Commit type-prefix mandate and the 'reference the work-item id in the subject' instruction (the task-prefix now carries position). KEEP the hard rules: output ONLY the commit message; no markdown fences/preamble; do NOT include '[PRP Auto]' or 'Co-Authored-By' (caller adds trailer); output 'skip' for empty/whitespace-only diffs.\n4. OUTPUT: stagecoach emits a plain descriptive message that the caller prefixes (task-prefix mode) or uses verbatim (plain mode).\n5. MOCKING: tests/unit/agents/commit-message-agent.test.ts asserts the prompt content — update assertions: it must NO LONGER require a Conventional-Commit type, must NOT instruct referencing the P-id in the subject, and must STILL forbid the agent emitting [PRP Auto]/Co-Authored-By. Verify against the new prompt.\n6. DOCS: none (internal prompt).",
