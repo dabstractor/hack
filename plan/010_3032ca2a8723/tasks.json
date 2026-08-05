@@ -1,0 +1,69 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Cosmetic Delta Verification & Documentation Sync",
+      "status": "Planned",
+      "description": "Session 010 is a delta session from session 009. The PRD diff is 100% cosmetic: markdown table column re-alignment in §9.7.3 (Discovery, Layering & File Locations) and §9.7.5 (Schema Reference), plus one trailing blank line. No semantic content changed. This phase verifies the delta has zero implementation impact and ensures documentation does not drift.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Verify Cosmetic Delta and Confirm Zero Implementation Work",
+          "status": "Planned",
+          "description": "Confirm the PRD delta is purely cosmetic (markdown table formatting), verify the change classifier would classify it as COSMETIC, and confirm no source code, configuration, test, or documentation changes are required.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Verify cosmetic delta has zero code, config, and test impact",
+              "status": "Planned",
+              "description": "Analyze the PRD diff between session 009's prd_snapshot.md and the current PRD.md to confirm it is formatting-only. Verify the change classifier (src/core/change-classifier.ts) handles cosmetic changes correctly, and that no code paths depend on the exact markdown table formatting that was reformatted.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Confirm PRD diff is purely cosmetic and verify zero downstream impact",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": [
+                    "h3.5",
+                    "h4.19",
+                    "h4.21",
+                    "h4.23"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/010_3032ca2a8723/architecture/delta-analysis.md for the full diff analysis. The PRD diff between session 009's prd_snapshot.md and the current PRD.md contains exactly three changes: (a) markdown table column re-alignment in §9.7.3 (Discovery, Layering & File Locations table, lines ~832–836), (b) markdown table column re-alignment in §9.7.5 (Schema Reference table, lines ~858–897), and (c) one trailing blank line at line 1036. All three are formatting-only with zero semantic change. The change classifier at src/core/change-classifier.ts implements classifyChange() which uses an LLM to classify diffs as COSMETIC or SUBSTANTIVE with a protective SUBSTANTIVE default (§4.3). No code, config, or test files parse the PRD's markdown table formatting for behavioral logic — verified via grep across src/ and tests/.\n2. INPUT: The diff output from `diff plan/009_94353b1a9fd3/prd_snapshot.md PRD.md` showing only table re-alignment and blank-line changes.\n3. LOGIC: Verify the diff is purely cosmetic by confirming: (a) no new requirements were added, (b) no existing requirements were modified, (c) no requirements were removed, (d) the change classifier (src/core/change-classifier.ts) correctly distinguishes COSMETIC from SUBSTANTIVE changes per §4.3. Write or update a test that exercises the classifier with a cosmetic diff fixture (markdown table re-alignment) and asserts it returns 'COSMETIC'. If such a test already exists (check tests/unit/core/ and tests/integration/), verify it covers this specific pattern.\n4. OUTPUT: Confirmation (test passing or existing coverage verified) that cosmetic table-formatting changes are correctly classified as COSMETIC, and a written assertion in the architecture notes that this delta requires zero implementation work.\n5. DOCS: none — no user-facing/config/API surface change. The cosmetic delta itself is in PRD.md (human-owned, read-only)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B documentation sweep. Verify that README.md, docs/CONFIGURATION.md, docs/ARCHITECTURE.md, and .env.example do not require updates for this cosmetic-only markdown formatting delta. The docs use their own presentation format (grouped-by-section in CONFIGURATION.md, not the PRD's per-row table), so no formatting sync is expected — but this verification is mandatory per the two-mode documentation rule.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Verify README, CONFIGURATION, ARCHITECTURE, and .env.example need no updates for cosmetic delta",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": [
+                    "h3.24",
+                    "h4.23",
+                    "h4.28"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/010_3032ca2a8723/architecture/implementation_status.md for the doc analysis. docs/CONFIGURATION.md (53KB) contains 32 references to canonical PRP_* names but uses a grouped-by-section table format (e.g. `[models]` section → `high`, `balanced`, `fast` keys), NOT the PRD's per-row schema table format. README.md has 2 references to `.hack` config conceptually. .env.example uses canonical PRP_MODEL_HIGH/BALANCED/FAST and PRP_API_BASE_URL names. None of these docs mirror the exact markdown table column formatting that was changed in the PRD.\n2. INPUT: Confirmation from P1.M1.T1.S1 that the delta is purely cosmetic.\n3. LOGIC: For each doc file (README.md, docs/CONFIGURATION.md, docs/ARCHITECTURE.md, .env.example), verify it does not contain a verbatim copy of the PRD's §9.7.3 or §9.7.5 markdown tables that would need column re-alignment. If any doc DOES contain a verbatim copy of either table, update its formatting to match the PRD. If no doc contains a verbatim copy (expected outcome), document this finding.\n4. OUTPUT: A verified assertion that no documentation files require updates, OR updated doc files if any verbatim table copies were found.\n5. DOCS: This IS the documentation sync task. Verify/update README.md, docs/CONFIGURATION.md, docs/ARCHITECTURE.md sections that reference the .hack schema or configuration layering to ensure they remain consistent with the PRD's current formatting conventions."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
