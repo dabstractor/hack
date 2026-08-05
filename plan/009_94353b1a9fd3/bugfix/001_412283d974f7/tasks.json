@@ -137,7 +137,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Add HackConfigError + EnvironmentValidationError clean arms to main().catch()",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1",

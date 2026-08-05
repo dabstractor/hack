@@ -44,6 +44,8 @@ import {
 } from './config/harness.js';
 import {
   AuthPreflightError,
+  EnvironmentValidationError,
+  HackConfigError,
   HarnessProviderMismatchError,
   UnsupportedHarnessError,
 } from './config/types.js';
@@ -407,6 +409,14 @@ void main()
     }
     if (error instanceof NotARepositoryError) {
       console.error(`\n❌ ${error.message}`); // §9.8.5: searchedFrom + no-.git-ancestor + --repo-root remediation (fires before any session/.env/agent)
+      process.exit(1);
+    }
+    if (error instanceof HackConfigError) {
+      console.error(`\n❌ ${error.message}`); // §9.7.7: actionable one-line startup error (no stack)
+      process.exit(1);
+    }
+    if (error instanceof EnvironmentValidationError) {
+      console.error(`\n❌ ${error.message}`); // §9.2.7: missing-env actionable one-liner (no stack)
       process.exit(1);
     }
     console.error('\n❌ Fatal error in main():', error);
