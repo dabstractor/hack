@@ -100,14 +100,14 @@
           "type": "Milestone",
           "id": "P2.M1",
           "title": "TOML Loader, Three-Tier Layering, Secrets Policy & Validation",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Add the TOML parser dependency, implement the parse module, build the three-tier discovery/merge loader with env-over-file seeding, and enforce the secrets policy + type/range validation with stderr-synchronous warnings/errors.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "TOML parse, three-tier discovery/merge, and env-over-file seeding",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add the TOML parser dependency, create the parseHackFile function, implement the three-tier discovery/layered-merge loader that seeds process.env for unset keys, and wire it into main() after the Phase 1 chdir.",
               "subtasks": [
                 {
@@ -129,7 +129,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Three-tier discovery, layered merge, env-over-file seeding",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1",
@@ -150,14 +150,14 @@
               "type": "Task",
               "id": "P2.M1.T2",
               "title": "Secrets policy, validation, and error handling",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Enforce the secrets refusal in committable .hack, implement type/range validation with warn-vs-hard-error semantics, ensure all warnings/errors go to stderr synchronously (§9.6), and add the effective-config debug trace.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T2.S1",
                   "title": "Secrets refusal + type/range validation + error semantics + debug trace",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S2"

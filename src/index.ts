@@ -36,6 +36,7 @@
  */
 
 import { configureEnvironment } from './config/environment.js';
+import { loadHackConfig } from './config/hack-config.js';
 import {
   configureHarness,
   ensureHarnessInitialized,
@@ -156,6 +157,12 @@ async function main(): Promise<number> {
 
   // Setup global error handlers (preserve console.error for uncaught exceptions)
   setupGlobalHandlers(args.verbose);
+
+  // PRD §9.7.9 / §9.2.1: load .hack (global → project → project-local) AFTER the §9.8 chdir
+  // (project files live at repoRoot) and BEFORE configureEnvironment() (so seeded values are
+  // visible to the env resolver). Env-over-file: seeding fills ONLY undefined env keys, so
+  // shell/.env still win (§9.2.1). Secrets/type validation (§9.7.6/§9.7.7) are P2.M1.T2.S1.
+  loadHackConfig(repoRoot);
 
   // CRITICAL: Configure environment before any API operations
   configureEnvironment();
