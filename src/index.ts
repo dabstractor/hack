@@ -51,6 +51,12 @@ import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
 import { getLogger, type Logger } from './utils/logger.js';
 import { PRDValidator } from './utils/prd-validator.js';
+import { resolveRepositoryRoot } from './utils/repo-root.js';
+
+// Captured at module scope (evaluated at import — strictly before main() runs) so it reflects
+// the true invocation cwd before any bootstrap `process.chdir`. Used by the repository-root
+// bootstrap below; exposed to consumers via getInvocationCwd() (PRD §9.8.7).
+const INVOCATION_CWD = process.cwd();
 
 // ============================================================================
 // GLOBAL ERROR HANDLERS
@@ -120,6 +126,14 @@ async function main(): Promise<number> {
 
   // Otherwise, use the regular CLI args for pipeline execution
   const args: ValidatedCLIArgs = parseResult;
+
+  // Bootstrap: resolve repository root + chdir BEFORE configureEnvironment() (PRD §9.8.3 / §9.7.9).
+  // Placed AFTER parseCLIArgs() so --help/--version/usage errors short-circuit first (Commander
+  // process.exit during parse, before this point). A single process.chdir(repoRoot) makes every
+  // downstream process.cwd()/resolve(...) site resolve to the repo root with zero per-site changes.
+  // S2 will pass { explicit: args.repoRoot } once the --repo-root CLI flag lands.
+  const { repoRoot } = resolveRepositoryRoot(INVOCATION_CWD);
+  process.chdir(repoRoot);
 
   // Setup global error handlers (preserve console.error for uncaught exceptions)
   setupGlobalHandlers(args.verbose);
