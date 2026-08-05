@@ -107,14 +107,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Typed HackConfigError class and throw-site conversion",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Define a HackConfigError class in src/config/types.ts (following the existing typed-error convention) and convert all 9 plain throw new Error(...) sites in src/config/hack-config.ts to throw HackConfigError instead. Update the validateFieldValue doc comment.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Define HackConfigError + convert 9 throw sites + update doc comment",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See architecture/bug_002_fix_strategy.md. Typed error classes follow a convention: `class FooError extends Error { constructor(...) { super(message); this.name = 'FooError'; } }`. Existing classes: NotARepositoryError (src/utils/repo-root.ts:65), AuthPreflightError (src/config/types.ts:219), HarnessProviderMismatchError (src/config/types.ts:175), UnsupportedHarnessError (src/config/types.ts:142), EnvironmentValidationError (src/config/types.ts:79). The 9 throw sites in src/config/hack-config.ts are: line 83 (BOM in parseHackFile), line 90 (TOML parse in parseHackFile), line 774 (secrets policy in validateHackTier), lines 815/820/826/832/837/847 (type/range/enum in validateFieldValue). The validateFieldValue doc comment (hack-config.ts:799-803) explicitly says 'A plain throw new Error reaches main().catch()'s default arm (index.ts:401) → exit 1.' — update this to reference HackConfigError + the new clean arm.\n2. INPUT: The existing src/config/types.ts typed-error class patterns as templates.\n3. LOGIC: (a) In src/config/types.ts, add: `export class HackConfigError extends Error { constructor(message: string) { super(message); this.name = 'HackConfigError'; } }`. (b) In src/config/hack-config.ts, add `import { HackConfigError } from './types.js';`. (c) Replace all 9 `throw new Error(...)` with `throw new HackConfigError(...)` — keep the message strings IDENTICAL (they are already correct and actionable). The 9 sites are at lines 83, 90, 774, 815, 820, 826, 832, 837, 847. (d) Update the validateFieldValue JSDoc (lines 799-803) to say 'A throw of HackConfigError reaches main().catch()'s dedicated HackConfigError arm → clean ❌ message + exit 1.' instead of referencing the default arm.\n4. OUTPUT: All .hack validation errors are now typed HackConfigError. Messages are unchanged. Downstream catch arms can use `instanceof HackConfigError` for clean rendering (consumed by P1.M2.T2.S1). The hack config validate CLI path (config.ts:489-528) uses `e instanceof Error ? e.message : String(e)` which works identically (HackConfigError extends Error, same .message).\n5. DOCS: [Mode A] Update the JSDoc comment on validateFieldValue (src/config/hack-config.ts:799-803) to reflect that throws are now HackConfigError reaching a dedicated clean arm. This rides WITH the work.",
