@@ -100,7 +100,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "BUG-002: Clean error rendering for config validation errors (Minor)",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Introduce a typed HackConfigError class for .hack validation failures (BOM, parse, secrets, type/range/enum) and add a dedicated clean catch arm to main().catch() so these user-facing misconfigurations render as a single actionable ❌ line without a stack trace, consistent with the existing NotARepositoryError/AuthPreflightError arms. Also add an EnvironmentValidationError arm (same gap). See architecture/bug_002_fix_strategy.md.",
           "tasks": [
             {
@@ -130,7 +130,7 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Clean catch arms in main() and tests",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Add HackConfigError and EnvironmentValidationError clean arms to main().catch() so these user-facing errors render as a single ❌ line without a stack trace. Add tests verifying the clean rendering.",
               "subtasks": [
                 {
@@ -154,7 +154,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Tests: verify clean rendering (no stack trace) for config validation errors",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"
