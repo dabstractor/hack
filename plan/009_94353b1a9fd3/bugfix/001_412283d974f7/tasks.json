@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "PreAction hook for repo-root bootstrap",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Create a shared bootstrapRepoRoot() helper and register a Commander preAction hook that resolves the repo root + chdirs before any action handler runs. Update main() to consume the already-bootstrapped singleton instead of re-resolving. Simplify the config handler to remove its now-redundant inline resolveRepositoryRoot call.",
               "subtasks": [
                 {
@@ -55,7 +55,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Simplify config handler — remove redundant resolveRepositoryRoot inline call",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"
