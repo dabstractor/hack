@@ -1,0 +1,12 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+  h3.0 Issue 1: Subcommands (task/status/cache/inspect/artifacts/validate-state) resolve plan/ & PRD.md against the invocation dir, not the repo root — §9.8.7/§9.8.9 acceptance criteria fail
+ h2.2 Major Issues (Should Fix)
+ h2.3 Minor Issues (Nice to Fix)
+  h3.1 Issue 1: Config validation/secrets errors render via the scary default catch arm with a full stack trace, inconsistent with the clean single-message arms
+  h3.2 Issue 2: Relational constraint commit.retry_delay_cap_ms >= commit.retry_delay_ms is documented but not enforced
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:14 list:2

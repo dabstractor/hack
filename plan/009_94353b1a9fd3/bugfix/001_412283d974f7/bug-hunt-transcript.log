@@ -1,0 +1,17 @@
+I've completed a rigorous end-to-end bug hunt of the §9.8 (repo-root), §9.7 (.hack config), and §5.3 (breakdown-in-progress) delta. The result is written to the required path.
+
+## Summary of Findings
+
+I tested by **actually running the built CLI** (`dist/index.js`) in many real scenarios — outside repos, from nested subdirectories, worktrees (`.git` as a file), `--repo-root` overrides, secrets in committable vs local tiers, type/range/enum violations, BOM, env-over-file, CLI-only key application (including negated booleans), tracked-`.hack.local` warnings, and the breakdown-in-progress boundary states.
+
+**3 bugs found** (1 critical, 2 minor):
+
+1. **🚨 BUG-001 (CRITICAL):** The §9.8.3 "single bootstrap chdir benefits all subcommands automatically" premise is **empirically false**. Subcommands are Commander `.action()` handlers that run *during* `program.parse()` (inside `parseCLIArgs()`), **before** `main()`'s `chdir`. So 6 of 7 subcommands (`task`/`status`, `cache`, `inspect`, `artifacts`, `validate-state`) resolve `plan/` and `PRD.md` against the invocation directory. Only `config` was patched. This violates §9.8.7 (which enumerates every subcommand), §9.8.9 (run-from-anywhere + actionable not-a-repo message), and undermines §5.3 when invoked from a subdir. The resolver itself is correct; the wiring is incomplete.
+
+2. **BUG-002 (MINOR):** `.hack` validation/secrets errors render via the scary default catch arm with a full stack trace, inconsistent with the clean `❌`-only arms for `NotARepositoryError`/`AuthPreflightError`.
+
+3. **BUG-003 (MINOR):** The documented relational constraint `commit.retry_delay_cap_ms >= commit.retry_delay_ms` (§9.7.5) is unenforced — an acknowledged gap.
+
+**What works well:** the repo-root resolver (worktree, nesting, `--repo-root`, explicit-vs-default path semantics), the `.hack` loader (secrets policy, type/range/enum validation, three-tier precedence, env-over-file, BOM rejection, masked debug trace, CLI-only keys incl. negated booleans, tracked-file warning, `config init/show/validate/path`), and breakdown-in-progress detection from the repo root. All 110 delta unit tests + 37 integration tests pass — they test these in isolation and missed the action-handler timing gap that BUG-001 exposes.
+
+`hasBugs: true` is consistent with the 3-entry `bugs` array; all severities use the canonical `critical`/`major`/`minor` vocabulary.
