@@ -214,7 +214,13 @@ npm run dev -- --prd ./PRD.md --mode delta
 The delta breakdown runs over `delta_prd.md` (the structured diff slice), so **added**
 requirements are decomposed into new `Phase → Milestone → Task → Subtask` items
 (via `decomposePRD()`); **modified** requirements are reset to `Planned` and
-**removed** ones to `Obsolete`. (PRD §4.3.)
+**removed** ones to `Obsolete`. (PRD §4.3.) A **COSMETIC-only** PRD edit
+(whitespace/formatting) is detected by the change classifier and absorbed as the
+new baseline **without** spawning a delta session — only **SUBSTANTIVE** changes
+enter delta mode. Added requirements also **survive ID collisions**: when the
+architect's freshly-numbered IDs collide with the patched ID space, the colliding
+items are renumbered-and-appended rather than dropped (see
+[Architecture](docs/ARCHITECTURE.md#delta-sessions)).
 
 ### Bug Hunt Mode
 
@@ -330,6 +336,7 @@ npm run dev -- --prd ./PRD.md --no-cache
 | `PRP_AGENT_HARNESS`    | No       | `pi`                             | Agent runtime: `pi` (default) or `claude-code` (Anthropic-only).               |
 | `ANTHROPIC_AUTH_TOKEN` | No\*\*   | None                             | **Optional.** Anthropic provider only; mapped to `ANTHROPIC_API_KEY` if unset. |
 | `ANTHROPIC_API_KEY`    | No\*\*   | None                             | **Optional.** Anthropic provider only.                                         |
+| `PRP_COMMIT_FORMAT`    | No       | `task-prefix`                    | `task-prefix`/`plain`: [Config](docs/CONFIGURATION.md#resilience-tuning)       |
 
 > **Deprecation (PRD §9.2.8):** the `ANTHROPIC_BASE_URL` and `ANTHROPIC_DEFAULT_*` names are
 > deprecated aliases — still readable, they emit a one-time warning and are slated for future

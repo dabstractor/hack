@@ -733,7 +733,9 @@ function computePRDHash(prdPath: string): string {
 
 - Same hash → Load existing session
 - Different hash → Create new session
-- Modified PRD → Create delta session with parent reference
+- Modified PRD → classified COSMETIC or SUBSTANTIVE by the change classifier (protective default **SUBSTANTIVE**, see [Configuration](docs/CONFIGURATION.md#resilience-tuning) for `CLASSIFIER_RETRY_MAX`):
+  - **SUBSTANTIVE** → Create delta session with parent reference
+  - **COSMETIC** → Absorbed as the new baseline (`prd_snapshot.md` + `metadata.hash` refreshed) **without** a delta session
 
 ### Delta Sessions
 
@@ -771,7 +773,12 @@ patched statuses from `patchBacklog` (`modified → Planned`, `removed → Obsol
 Previously this breakdown path was unreachable (it was gated behind a
 `hasBacklog` early-return), so added requirements were silently dropped; the
 fix (Issue 1/2) checks `isDelta` _before_ `hasBacklog` and merges the freshly
-decomposed tasks with the patched backlog. (PRD §4.3 step 5/6.)
+decomposed tasks with the patched backlog. (PRD §4.3 step 5/6.) Added
+requirements are also **preserved on ID collision**: the architect numbers fresh
+from `P1` every run, so its newly-decomposed IDs routinely collide with the
+patched ID space; such colliding items are **renumbered-and-appended** (unique,
+hierarchy-consistent IDs derived from parent context) rather than dropped, so no
+added requirement is ever lost (PRD §4.3 step 6).
 
 **Delta Session Properties**:
 
@@ -841,6 +848,8 @@ Each subtask commits in **two phases** via the Smart Commit tool — `stagecoach
 2. **Post-cleanup commit** — _after_ cleanup reorganizes docs (temp artifacts removed, docs moved to `docs/`), a second `stagecoach` commit records the doc reorganization. It runs only when cleanup succeeded.
 
 This complements [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery): recovery survives `tasks.json` _corruption_; the two-phase commit survives _interruption_ mid-item.
+
+Commit subjects use the `<phase>.<milestone>.<task>.<subtask>:` **task-prefix** by default (`PRP_COMMIT_FORMAT=task-prefix`; `plain` opts out; non-backlog commits carry no prefix) and **never** carry the legacy auto-generated banner prefix (PRD §5.1). The `Co-Authored-By: Claude <noreply@anthropic.com>` trailer is **preserved** on every commit. See [Configuration](docs/CONFIGURATION.md#resilience-tuning) for the flag.
 
 ### State Integrity Protections
 

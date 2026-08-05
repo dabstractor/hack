@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix 002 — Corrective Changeset (delta-merge, classifiers, commit format, test suite)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Restore four pieces of PRD-specified behavior that the 001 changeset left broken or unimplemented: (1) [Critical] ADDED requirements dropped by mergeBacklogs' ID-collision skips (PRD §4.3 step 6); (2) COSMETIC/SUBSTANTIVE + CLEAN/DIRTY LLM classifiers are dead code (PRD §4.3 step 1); (3) [PRP Auto] banner still prepended + PRP_COMMIT_FORMAT/task-prefix unimplemented (PRD §5.1); (4) test suite red so the §4.4 validate gate cannot pass. All four are corrective (rule 5 of AGENTS.md) — they restore existing intent, not new features. See architecture/system_context.md for the cross-cutting facts every subtask must respect.",
       "milestones": [
         {
@@ -402,21 +402,21 @@
           "type": "Milestone",
           "id": "P1.M5",
           "title": "Sync changeset-level documentation (Mode B)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Cross-cutting/overview docs that only make sense once the whole changeset is in place (README feature/env-var sections, architecture overview). Per-feature/touched docs were already handled Mode A by the implementing subtasks; this is the final sweep.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M5.T1",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Update README.md and any overview/architecture docs to surface the restored capabilities: ADDED-requirement preservation, COSMETIC-change skipping, task-prefix commit format + PRP_COMMIT_FORMAT, green validate gate.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T1.S1",
                   "title": "Sweep README.md + docs/ARCHITECTURE.md + docs/WORKFLOWS.md for the changeset delta",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S3",

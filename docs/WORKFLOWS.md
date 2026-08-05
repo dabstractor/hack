@@ -320,7 +320,7 @@ async initializeSession(): Promise<void> {
 **Entry Conditions:**
 
 - Session initialized
-- PRD hash changed from previous session
+- PRD hash changed from previous session, and the change classifier returns **SUBSTANTIVE** — a **COSMETIC** change (whitespace/formatting) is absorbed as the new baseline **without** entering Phase 3 (classifier protective default is SUBSTANTIVE; see PRD §4.3)
 
 **Process:**
 
@@ -331,7 +331,8 @@ async initializeSession(): Promise<void> {
 5. Apply patches to backlog via TaskPatcher (`modified → Planned`, `removed → Obsolete`; `added` is a no-op here — see step 7)
 6. Create delta session with parent linkage
 7. Write `delta_prd.md` (the structured diff slice) and save the patched backlog to the delta session — this patched backlog is the **starting point**, not the final word
-8. `decomposePRD()` runs the architect breakdown **over `delta_prd.md`** (not the full PRD) and **merges** the freshly-decomposed `added`-requirement tasks (`Phase → Milestone → Task → Subtask`) with the patched statuses from step 5 (PRD §4.3 step 5/6)
+8. `decomposePRD()` runs the architect breakdown **over `delta_prd.md`** (not the full PRD) and **merges** the freshly-decomposed `added`-requirement tasks (`Phase → Milestone → Task → Subtask`) with the patched statuses from step 5 (PRD §4.3 step 5/6). Architect items whose fresh-from-`P1` IDs collide with the patched ID space are **renumbered-and-appended** (unique, hierarchy-consistent IDs) — never dropped, so added requirements survive.
+9. Before consuming `delta_prd.md`, `decomposePRD()` runs the artifact classifier on it (CLEAN/DIRTY; protective default **DIRTY**); a **DIRTY** or malformed `delta_prd.md` **aborts breakdown** so the next run regenerates it (PRD §4.3).
 
 **Exit Conditions:**
 
