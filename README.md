@@ -105,6 +105,24 @@ That's it! The pipeline will analyze your PRD, generate tasks, and implement the
 
 **Next Steps**: Check out [Usage Examples](#usage-examples) or [Configuration](#configuration).
 
+## Running from Anywhere
+
+You don't have to `cd` to the repository root. At startup `hack` walks upward from your
+current directory to the nearest `.git` entry (a directory for a normal clone, or a file for
+a worktree/submodule) and `chdir`s to that repository root before doing anything else
+(PRD §9.8). The session directory, `PRD.md`, `.hack`, `.env`, and `plan/` are all resolved
+relative to that root, so the same invocation works from anywhere inside the repo.
+
+```bash
+# Invoked from a deep subdirectory — resolves to the repo root automatically
+cd src/core/deep/nested && hack status
+```
+
+> If you are not inside a git repository, `hack` exits non-zero with a `NotARepositoryError`
+> naming the directory it searched from (PRD §9.8.5). Pass `--repo-root <path>` (PRD §9.8.6)
+> to pin an explicit root and skip the upward `.git` search. See
+> [CLI Reference](docs/CLI_REFERENCE.md) for the full flag list.
+
 ## Distributed (Multi-File) PRDs
 
 A PRD can be authored across multiple files and assembled into one canonical document at load
@@ -278,6 +296,16 @@ hack task next
 hack task status
 ```
 
+> **Breakdown-in-progress (PRD §5.3):** if `hack status` / `hack task` / `hack task next`
+> resolves a session whose directory exists but whose `tasks.json` has not been written yet
+> (the window between session creation and the Architect Agent finishing decomposition), the
+> command prints a single calm stderr notice and exits `0` — this is an observation of a valid
+> transient state, not a failure. With `--output json` it emits
+> `{ "status": "awaiting_breakdown", "session": "NNN_hash" }` instead. An explicit
+> `--file <path>` pointing at a missing file, and the no-sessions-at-all state, remain **hard
+> errors** (exit non-zero) — only the auto-resolved (discovered) tasks file gets the graceful
+> path. See [CLI Reference](docs/CLI_REFERENCE.md).
+
 ### Resume Interrupted Session
 
 ```bash
@@ -322,6 +350,34 @@ npm run dev -- --prd ./PRD.md --no-cache
 > [CLI Reference](docs/CLI_REFERENCE.md) for the exhaustive flag list.
 
 ## Configuration
+
+### The .hack Configuration File
+
+`.hack` is a committable TOML config file that captures every tunable default — model ids,
+retries, concurrency, commit format, and the `[cli]` defaults for flags like `--mode` — so you
+don't have to re-export env vars or re-pass CLI flags on every invocation (PRD §9.7). It is the
+recommended way to version-control project settings.
+
+| Tier          | File                                          | Committable?     | Secrets?                    |
+| ------------- | --------------------------------------------- | ---------------- | --------------------------- |
+| Global        | `~/.hack` (or `$XDG_CONFIG_HOME/hack/config`) | n/a (user-level) | Refused                     |
+| Project       | `<repoRoot>/.hack`                            | Yes              | Refused (hard error)        |
+| Project-local | `<repoRoot>/.hack.local`                      | No (gitignored)  | Allowed (only secrets tier) |
+
+```bash
+# Generate a commented .hack template (also adds .hack.local to .gitignore)
+hack config init
+# Print the effective merged config (secrets masked)
+hack config show
+```
+
+> **Secrets policy (PRD §9.7.6):** committable `.hack` refuses secret-bearing keys (any key
+> ending `_key`/`_token`/`_secret`/`_password`) — move them to `.hack.local` (gitignored) or an
+> env var. **Env-over-file rule (PRD §9.2.1):** real env vars — even empty ones — always win
+> over `.hack` values, so a committed `.hack` can never silently override a teammate's shell.
+> See [CLI Reference](docs/CLI_REFERENCE.md) (`hack config`) and
+> [Configuration → .hack Configuration File](docs/CONFIGURATION.md#hack-configuration-file)
+> for the full schema.
 
 ### Environment Variables
 

@@ -9,6 +9,7 @@
 ## Table of Contents
 
 - [Quick Reference](#quick-reference)
+- [.hack Configuration File](#hack-configuration-file)
 - [Environment Variables](#environment-variables)
   - [API Authentication](#api-authentication)
   - [Model Selection](#model-selection)
@@ -27,6 +28,7 @@
   - [Boolean Flags](#boolean-flags)
   - [Limit Options](#limit-options)
   - [Delta Response](#delta-response)
+- [Task & Status Commands](#task--status-commands)
 - [Models, Roles & Reasoning Budget](#models-roles--reasoning-budget)
 - [Configuration Priority](#configuration-priority)
 - [Security](#security)
@@ -37,6 +39,11 @@
 ---
 
 ## Quick Reference
+
+The **primary** configuration mechanism is the [`.hack` file](#hack-configuration-file) — a
+committable TOML file that captures every tunable default (PRD §9.7). The env vars and CLI
+flags below are the higher-precedence override layers (see
+[Configuration Priority](#configuration-priority)); `.hack` fills the gaps.
 
 Primary environment variable for the default `pi` + `zai` path:
 
@@ -49,6 +56,77 @@ Primary environment variable for the default `pi` + `zai` path:
 \*Required: Either `ZAI_API_KEY`, `pi /login` (`~/.pi/agent/auth.json`), or `PRP_API_KEY` must be set for the default path. Anthropic credentials (`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`) are **optional** and only used when the provider is `anthropic`. The pure-local modes `--validate-prd` and `--dry-run` make no API calls and run without any credential.
 
 For complete configuration, see [Environment Variables](#environment-variables) below.
+
+---
+
+## .hack Configuration File
+
+`.hack` is the **primary** configuration mechanism — a committable TOML file that captures
+every tunable default (both the env-var-style settings of [Environment Variables](#environment-variables)
+and the CLI flags of [CLI Options](#cli-options)), so you do not have to re-export env vars or
+re-pass CLI flags on every invocation (PRD §9.7). Every key maps to exactly one `[section].key`,
+and each maps to an env var and/or a CLI flag it seeds as a default.
+
+### Discovery (three tiers)
+
+Three files are searched (lowest → highest precedence), each optional (PRD §9.7.3):
+
+| Tier          | File                                                                    | Committable?     | Secrets?                    |
+| ------------- | ----------------------------------------------------------------------- | ---------------- | --------------------------- |
+| Global        | `~/.hack` / `$XDG_CONFIG_HOME/hack/config` / `$HACK_CONFIG_HOME/config` | n/a (user-level) | Refused                     |
+| Project       | `<repoRoot>/.hack`                                                      | Yes              | Refused (hard error)        |
+| Project-local | `<repoRoot>/.hack.local`                                                | No (gitignored)  | Allowed (only secrets tier) |
+
+Missing file at any tier is not an error — that tier contributes nothing.
+
+### Schema summary
+
+The authoritative schema reference is **PRD §9.7.5** (and `hack config show`, which prints the
+same mapping). The summary below groups the exhaustive `SCHEMA_MAP` rows from
+[`src/config/hack-config.ts`](../src/config/hack-config.ts) by section; see the linked env-var
+subsections for the per-key semantics.
+
+| `[section]`         | Keys (summary)                                                                                        | Maps to env vars / CLI flags (sample)                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `[models]`          | `high`, `balanced`, `fast`                                                                            | `PRP_MODEL_HIGH` / `_BALANCED` / `_FAST`                                                          |
+| `[endpoint]`        | `base_url`                                                                                            | `PRP_API_BASE_URL`                                                                                |
+| `[harness]`         | `name`                                                                                                | `PRP_AGENT_HARNESS` (`pi` \| `claude-code`)                                                       |
+| `[pipeline]`        | `parallel_research`, `research_depth`, `research_timeout_seconds`, `issue_retry_max`, `commit_format` | `PARALLEL_RESEARCH`, `RESEARCH_DEPTH`, `RESEARCH_TIMEOUT`, `ISSUE_RETRY_MAX`, `PRP_COMMIT_FORMAT` |
+| `[commit]`          | `retry_max`, `retry_delay_ms`, `retry_delay_cap_ms`, `classifier_retry_max`                           | `COMMIT_RETRY_MAX` / `_DELAY` / `_DELAY_CAP`, `CLASSIFIER_RETRY_MAX`                              |
+| `[bug_hunt]`        | `finder_agent`, `results_file`, `fix_scope`                                                           | `BUG_FINDER_AGENT`, `BUG_RESULTS_FILE`, `BUGFIX_SCOPE`                                            |
+| `[validation]`      | `agent`, `timeout_seconds`                                                                            | `VALIDATION_AGENT`, `VALIDATION_TIMEOUT`                                                          |
+| `[distributed_prd]` | `include_max_depth`, `include_markers`                                                                | `PRD_INCLUDE_MAX_DEPTH`, `PRD_INCLUDE_MARKERS`                                                    |
+| `[tasks_lock]`      | `stale_ms`, `timeout_ms`, `poll_ms`                                                                   | `TASKS_LOCK_STALE_MS` / `_TIMEOUT_MS` / `_POLL_MS`                                                |
+| `[concurrency]`     | `research_queue`, `parallelism`                                                                       | `RESEARCH_QUEUE_CONCURRENCY`                                                                      |
+| `[api]`             | `timeout_ms`                                                                                          | `API_TIMEOUT_MS`                                                                                  |
+| `[monitor]`         | `task_interval`, `interval_ms`, `enabled`                                                             | `MONITOR_TASK_INTERVAL`                                                                           |
+| `[cli]`             | `mode` (and the other Commander defaults)                                                             | `--mode` (CLI default only; some keys are CLI-only, no env var)                                   |
+
+> **Env-over-file rule (PRD §9.2.1):** `.hack` tiers seed `process.env` **only** when the key
+> is `undefined`. A real env var (shell or `.env`) — even an empty one — is already "set" and
+> therefore wins over the file value. `.hack` fills gaps; it never overrides real env. A `[cli]`
+> key sets the **default** for the matching Commander option, so an explicit flag on the command
+> line still wins.
+>
+> **Secrets policy (PRD §9.7.6):** committable `.hack` (global + project tiers) refuses
+> secret-bearing keys (any key ending `_key`/`_token`/`_secret`/`_password`) — a non-empty
+> secret there is a **hard error** (exit 1). `.hack.local` (gitignored) is the only `.hack` tier
+> permitted to hold secrets. Unknown sections/keys emit a stderr **warning** and are ignored
+> (catches typos); type/range/enum mismatches are hard errors.
+
+### `hack config` subcommand
+
+The `hack config` subcommand manages `.hack` files (PRD §9.7.8):
+
+| Command                         | Description                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `hack config init [--force]`    | Write a commented `.hack` template (also adds `.hack.local` to `.gitignore`) |
+| `hack config show [--src]`      | Print the effective merged config with resolved values (secrets masked)      |
+| `hack config validate [<file>]` | Lint `.hack` + `.hack.local` (CI gate; exit 1 on errors)                     |
+| `hack config path`              | Print the global / project / local config paths consulted                    |
+
+See [CLI Reference](./CLI_REFERENCE.md) for the exhaustive `hack config` reference, and
+[Configuration Priority](#configuration-priority) for how the tiers compose with env/CLI.
 
 ---
 
@@ -152,17 +230,17 @@ Control pipeline execution behavior.
 
 Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.3 (delta-classifier retry), §4.5 (issue-driven re-planning), and §9.2.2.
 
-| Variable                 | Required | Default       | Description                                                                                                                                                                                                                           |
-| ------------------------ | -------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RESEARCH_TIMEOUT`       | No       | `1800`        | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2.                                                                                                           |
-| `PARALLEL_RESEARCH`      | No       | `false`       | Enable background (parallel) PRP research. Set to `true` (literal). Forwarded to the bugfix sub-pipeline. CLI: `-r`/`--parallel-research`. See PRD §4.2, §4.4.                                                                        |
-| `RESEARCH_DEPTH`         | No       | `2`           | How many items ahead the background research supervisor prefetches as a chain. Forwarded to the bugfix sub-pipeline. See PRD §4.2, §4.4.                                                                                              |
-| `ISSUE_RETRY_MAX`        | No       | `3`           | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                                                                                                                                      |
-| `COMMIT_RETRY_MAX`       | No       | `5`           | Maximum number of stagecoach commit-message-generation attempts before falling back (total attempts: initial + retries). See PRD §5.1.                                                                                                |
-| `COMMIT_RETRY_DELAY`     | No       | `10000`       | Base delay in milliseconds between stagecoach commit-message-generation retries (exponential, doubling). See PRD §5.1.                                                                                                                |
-| `COMMIT_RETRY_DELAY_CAP` | No       | `120000`      | Maximum delay cap in milliseconds for stagecoach commit-message-generation backoff. See PRD §5.1.                                                                                                                                     |
-| `CLASSIFIER_RETRY_MAX`   | No       | `4`           | Maximum number of LLM change/artifact-classifier attempts before failing to the protective/conservative default (treat as SUBSTANTIVE/DIRTY). Total attempt count (initial + retries), like the `COMMIT_RETRY_*` knobs. See PRD §4.3. |
-| `PRP_COMMIT_FORMAT`      | No       | `task-prefix` | Commit-message format mode. `task-prefix` (DEFAULT) layers the `<phase>.<milestone>.<task>.<subtask>:` position prefix; `plain` opts out (no prefix). Any other value (including empty) falls back to `task-prefix`. See PRD §5.1.    |
+| Variable                 | Required | Default       | Description                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------ | -------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEARCH_TIMEOUT`       | No       | `1800`        | Deadline in seconds for background (parallel) research before falling back to synchronous re-research inline. See PRD §4.2.                                                                                                                                                                                                                                                                          |
+| `PARALLEL_RESEARCH`      | No       | `false`       | Enable background (parallel) PRP research. Set to `true` (literal). Forwarded to the bugfix sub-pipeline. CLI: `-r`/`--parallel-research`. See PRD §4.2, §4.4.                                                                                                                                                                                                                                       |
+| `RESEARCH_DEPTH`         | No       | `2`           | How many items ahead the background research supervisor prefetches as a chain. Forwarded to the bugfix sub-pipeline. See PRD §4.2, §4.4.                                                                                                                                                                                                                                                             |
+| `ISSUE_RETRY_MAX`        | No       | `3`           | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                                                                                                                                                                                                                                                                                                     |
+| `COMMIT_RETRY_MAX`       | No       | `5`           | Maximum number of stagecoach commit-message-generation attempts before falling back (total attempts: initial + retries). See PRD §5.1.                                                                                                                                                                                                                                                               |
+| `COMMIT_RETRY_DELAY`     | No       | `10000`       | Base delay in milliseconds between stagecoach commit-message-generation retries (exponential, doubling). See PRD §5.1.                                                                                                                                                                                                                                                                               |
+| `COMMIT_RETRY_DELAY_CAP` | No       | `120000`      | Maximum delay cap in milliseconds for stagecoach commit-message-generation backoff. See PRD §5.1.                                                                                                                                                                                                                                                                                                    |
+| `CLASSIFIER_RETRY_MAX`   | No       | `4`           | Maximum number of LLM change/artifact-classifier attempts before failing to the protective/conservative default (treat as SUBSTANTIVE/DIRTY). Total attempt count (initial + retries), like the `COMMIT_RETRY_*` knobs. See PRD §4.3.                                                                                                                                                                |
+| `PRP_COMMIT_FORMAT`      | No       | `task-prefix` | Commit-message format mode. `task-prefix` (DEFAULT) layers the `<phase>.<milestone>.<task>.<subtask>:` position prefix; `plain` opts out (no prefix). Any other value (including empty) falls back to `task-prefix`. See PRD §5.1. **`.hack` key:** `[pipeline] commit_format` (see [.hack Configuration File](#hack-configuration-file)); already live via `constants.ts` / `getPrpCommitFormat()`. |
 
 ### Distributed PRDs
 
@@ -404,12 +482,29 @@ The legacy aliases are slated for removal in a future major version.
 
 ## Configuration Priority
 
-Configuration is loaded from multiple sources in the following priority order (highest to lowest):
+Configuration is resolved through a strictly ordered layering: **each layer overrides the
+one below it, and for any given key the highest-precedence layer that provides a value wins**
+(PRD §9.2.1). Sources, from highest to lowest precedence:
 
-1. **Shell Environment** - Environment variables set in your shell or parent process
-2. **`.env` File** - Local project configuration file
-3. **Runtime Overrides** - Explicit environment variable settings in code
-4. **Default Values** - Hardcoded defaults in TypeScript code
+1. **CLI flags** — `--prd`, `--mode`, `--parallel-research`, `--log-level`, etc. (Commander;
+   highest precedence).
+2. **Shell environment** — real exported env vars (CI overrides, ad-hoc `FOO=bar hack`).
+   **Even an empty env var wins over a `.hack` file value.**
+3. **`.env` file** — `<repoRoot>/..env`, the credentials/secrets channel.
+4. **`.hack.local`** — `<repoRoot>/.hack.local` (gitignored; the only `.hack` tier permitted to
+   hold secrets).
+5. **`.hack`** — `<repoRoot>/.hack` (committable; refuses secrets).
+6. **Global `.hack`** — `~/.hack` / `$XDG_CONFIG_HOME/hack/config` / `$HACK_CONFIG_HOME/config`
+   (user-level defaults across every project).
+7. **Default values** — the `DEFAULT_*` constants in [`src/config/constants.ts`](../src/config/constants.ts).
+
+> **Env-over-file rule (PRD §9.2.1):** the `.hack` tiers (layers 4–6) seed `process.env`
+> **only** when the key is `undefined`. A real env var (shell or `.env`) — even an empty one — is
+> already "set" and therefore wins over the file value. This is the standard convention so CI
+> and temporary `VAR=val hack` overrides work without editing files, and it is what makes `.hack`
+> safe to commit: a teammate's personal shell config can never be silently overridden by the
+> project file. To make a `.hack` value take effect, unset the conflicting env var. See
+> [.hack Configuration File](#hack-configuration-file) for the schema and tier discovery.
 
 ### Example: Priority in Action
 
@@ -692,6 +787,29 @@ export PRP_MODEL_BALANCED="zai/glm-5.2"
 # export PRP_MODEL_BALANCED="anthropic/claude-sonnet-4-20250514"
 # — also requires disabling the z.ai endpoint safeguard (PRD §9.2.4)
 ```
+
+---
+
+## Task & Status Commands
+
+The `hack status` / `hack task` / `hack task next` subcommands read the resolved session's
+`tasks.json`. Their exit codes distinguish three states (PRD §5.3):
+
+| State                                                           | `hack status` behavior                                                                                | Exit code |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------- |
+| Normal — `tasks.json` present                                   | Prints the backlog / next task as usual                                                               | `0`       |
+| Breakdown-in-progress — session dir exists, `tasks.json` absent | Calm stderr notice; `--output json` emits `{ "status": "awaiting_breakdown", "session": "NNN_hash" }` | `0`       |
+| Explicit `--file <path>` missing                                | Hard error "file not found" (explicit override is not softened)                                       | non-zero  |
+| No sessions at all                                              | Hard error "No sessions found" (distinct empty state)                                                 | non-zero  |
+
+> **Breakdown-in-progress (PRD §5.3):** there is a legitimate window between session creation
+> (the `plan/NNN_hash/` directory is stamped with `.prd_hash`) and the Architect Agent finishing
+> decomposition (writing `tasks.json`). During that window the directory exists but `tasks.json`
+> does not. For an **auto-resolved** (discovered) tasks file this is reported as a calm notice
+> with **exit `0`** — an observation of a valid transient state, not a failure — so shell scripts
+> and CI loops that poll `hack status` while a run warms up do not break. This is distinct from
+> the §5.1 corruption-recovery path (present-but-broken files) and the `--file` / no-sessions
+> hard errors above. See [CLI Reference](./CLI_REFERENCE.md) for the subcommand syntax.
 
 ---
 

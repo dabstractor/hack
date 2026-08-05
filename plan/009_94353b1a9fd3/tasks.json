@@ -310,28 +310,28 @@
       "type": "Phase",
       "id": "P4",
       "title": "Sync Changeset-Level Documentation (Mode B)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Cross-cutting documentation that only makes sense once the whole delta lands. Per-file Mode A docs ride with their implementing subtasks in Phases 1-3 and are NOT duplicated here. Runs LAST; depends on every implementing subtask in Phases 1-3.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P4.M1",
           "title": "Changeset-level doc sweep",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Update README.md, docs/ARCHITECTURE.md, and docs/CONFIGURATION.md to coherently describe the .hack config file, repo-root resolution, and breakdown-in-progress handling as integrated features.",
           "tasks": [
             {
               "type": "Task",
               "id": "P4.M1.T1",
               "title": "README, ARCHITECTURE, and CONFIGURATION updates",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Sweep changeset-level documentation: README (new Configuration section + Running from anywhere), ARCHITECTURE (bootstrap-layer ordering), CONFIGURATION (.hack as primary mechanism + schema reference).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S1",
                   "title": "README.md + docs/ARCHITECTURE.md + docs/CONFIGURATION.md changeset-level sync",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

@@ -11,6 +11,7 @@
 ## Table of Contents
 
 - [System Overview](#system-overview)
+- [Bootstrap Layer](#bootstrap-layer)
 - [Resolved-Document Invariant (Distributed PRDs)](#resolved-document-invariant-distributed-prds)
 - [Four Core Processing Engines](#four-core-processing-engines)
 - [Groundswell Framework Integration](#groundswell-framework-integration)
@@ -78,6 +79,67 @@ The PRP Pipeline follows a systematic flow from requirements to implementation:
 8. **Fix Cycle**: If bugs are found, they trigger a fix cycle that re-executes affected tasks
 
 Throughout the process, the Session Manager maintains state persistence, enabling resumable sessions and delta workflows.
+
+---
+
+## Bootstrap Layer
+
+The **bootstrap layer** runs before any of the four processing engines (PRD §3, §8): it parses
+the CLI, resolves and `chdir`s to the repository root, loads the layered `.hack` configuration,
+then configures the environment, harness, and auth preflight before the pipeline runs. It is
+the chronological first thing `main()` does, and it is what makes "run from anywhere" and the
+committed `.hack` defaults work.
+
+**Location**: [`src/index.ts`](../src/index.ts) (`main()`).
+
+```mermaid
+graph TD
+    A[parseCLIArgs] --> B[resolveRepositoryRoot + chdir]
+    B --> C[loadHackConfig]
+    C --> D[configureEnvironment]
+    D --> E[configureHarness]
+    E --> F[runAuthPreflight]
+    F --> G[pipeline.run]
+
+    style A fill:#e3f2fd
+    style B fill:#fff9c4
+    style C fill:#fff9c4
+    style G fill:#c8e6c9
+```
+
+| Step | Action                                                                                | Source                      | PRD §           |
+| ---- | ------------------------------------------------------------------------------------- | --------------------------- | --------------- |
+| 1    | `parseCLIArgs()` (`--help`/`--version`/usage short-circuit here)                      | `src/cli/index.ts`          | §4.1            |
+| 2    | Capture `INVOCATION_CWD = process.cwd()` before any chdir                             | `src/index.ts`              | §9.8            |
+| 3    | `resolveRepositoryRoot(INVOCATION_CWD, {explicit?})` + `process.chdir(repoRoot)`      | `src/utils/repo-root.ts`    | §9.8.2 / §9.8.3 |
+| 4    | `PRD.md` exists-check against the now-correct cwd                                     | `src/index.ts`              | §4.1            |
+| 5    | `loadHackConfig(repoRoot)` — 3-tier discovery + merge + env-seed                      | `src/config/hack-config.ts` | §9.7 / §9.7.9   |
+| 6    | `configureEnvironment()` — reads seeded + shell env                                   | `src/index.ts`              | §9.2.1          |
+| 7    | `configureHarness()` (singular) + `runAuthPreflight()` + `ensureHarnessInitialized()` | `src/index.ts`              | §9.4 / §9.2.7   |
+| 8    | `new PRPPipeline(...)` + `pipeline.run()`                                             | `src/index.ts`              | §4.1            |
+
+> **Repo-root resolver** ([`src/utils/repo-root.ts`](../src/utils/repo-root.ts), PRD §9.8):
+> walks upward from `INVOCATION_CWD` to the nearest `.git` entry — a **directory** (normal
+> clone) **or a file** (worktree/submodule `gitdir:` pointer, §9.8.4) — and the **nearest
+> ancestor wins** (an inner repo beats an outer one, §9.8.2). `realpathSync` canonicalizes the
+> root. Reaching the filesystem root without a `.git` ancestor throws `NotARepositoryError`
+> (§9.8.5), whose message bakes the `--repo-root <path>` remediation. `--repo-root` (§9.8.6)
+> skips the walk and pins an explicit root. The resolved root is cached in module singletons
+> (`getRepoRoot()` / `getInvocationCwd()`).
+>
+> **`.hack` loader** ([`src/config/hack-config.ts`](../src/config/hack-config.ts), PRD §9.7):
+> three-tier discovery (global `~/.hack` / XDG → project `<repoRoot>/.hack` committable →
+> project-local `<repoRoot>/.hack.local` gitignored, §9.7.3), merged lowest-to-highest. It loads
+> **after** the `chdir` (project files live at `repoRoot`) and **before** `configureEnvironment()`
+> (§9.7.9) so seeded values are visible to the env resolver. The env-over-file rule (§9.2.1)
+> means merged file values seed `process.env` **only** for `undefined` keys — real shell env,
+> even empty, still wins. Committable tiers refuse secret-bearing keys (hard error, §9.7.6);
+> `.hack.local` is the only secrets-allowed tier.
+
+For the full `.hack` schema, see
+[Configuration → .hack Configuration File](./CONFIGURATION.md#hack-configuration-file)
+(ARCHITECTURE.md does not duplicate that table). For harness configuration, see
+[Agent Creation](#agent-creation) below.
 
 ---
 
