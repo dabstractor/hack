@@ -41,10 +41,7 @@ import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
 import { CacheCommand, type CacheOptions } from './commands/cache.js';
 import { ConfigCommand, type ConfigOptions } from './commands/config.js';
-import {
-  resolveRepositoryRoot,
-  bootstrapRepoRoot,
-} from '../utils/repo-root.js';
+import { bootstrapRepoRoot, getRepoRoot } from '../utils/repo-root.js';
 import * as os from 'node:os';
 import ms from 'ms';
 
@@ -601,17 +598,9 @@ export function parseCLIArgs():
     .option('-o, --output <format>', 'Output format (table, json)', 'table')
     .action(async (action, file, options) => {
       try {
-        // Subcommand dispatch runs BEFORE the bootstrap chdir (src/index.ts main():
-        // parseCLIArgs → subcommand early-return → [later] resolveRepositoryRoot +
-        // chdir), so process.cwd() here === INVOCATION_CWD and getRepoRoot() THROWS
-        // (singleton unset). Resolve repoRoot ourselves (default upward traversal).
-        // Commander passes declared positional args in order, then the parsed
-        // options object: (action, file, options).
-        const explicit = (program.opts() as { repoRoot?: string }).repoRoot;
-        const { repoRoot } = resolveRepositoryRoot(
-          process.cwd(),
-          explicit ? { explicit } : undefined
-        );
+        // The preAction hook already resolved the repo root + chdir'd (PRD §9.8.3);
+        // read the hook-bootstrapped singleton.
+        const repoRoot = getRepoRoot();
         await new ConfigCommand(repoRoot).execute(
           action,
           options,
