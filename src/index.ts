@@ -56,16 +56,12 @@ import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
 import { getLogger, type Logger } from './utils/logger.js';
 import { PRDValidator } from './utils/prd-validator.js';
-import {
-  resolveRepositoryRoot,
-  NotARepositoryError,
-} from './utils/repo-root.js';
+import { getRepoRoot, NotARepositoryError } from './utils/repo-root.js';
 import { existsSync } from 'node:fs';
 
-// Captured at module scope (evaluated at import — strictly before main() runs) so it reflects
-// the true invocation cwd before any bootstrap `process.chdir`. Used by the repository-root
-// bootstrap below; exposed to consumers via getInvocationCwd() (PRD §9.8.7).
-const INVOCATION_CWD = process.cwd();
+// The invocation cwd is captured inside resolveRepositoryRoot() (src/utils/repo-root.ts) and
+// exposed to consumers via getInvocationCwd() (PRD §9.8.7). The repo-root bootstrap now runs
+// in the preAction hook (src/cli/index.ts) during program.parse(), so main() reads getRepoRoot().
 
 // ============================================================================
 // GLOBAL ERROR HANDLERS
@@ -136,18 +132,13 @@ async function main(): Promise<number> {
   // Otherwise, use the regular CLI args for pipeline execution
   const args: ValidatedCLIArgs = parseResult;
 
-  // Bootstrap: resolve repository root + chdir BEFORE configureEnvironment() (PRD §9.8.3 / §9.7.9).
-  // Placed AFTER parseCLIArgs() so --help/--version/usage errors short-circuit first (Commander
-  // process.exit during parse, before this point). A single process.chdir(repoRoot) makes every
-  // downstream process.cwd()/resolve(...) site resolve to the repo root with zero per-site changes.
-  // --repo-root <path> short-circuits the upward search (§9.8.6): the resolver resolves <path>
-  // against INVOCATION_CWD, realpathSyncs, and verifies .git (else NotARepositoryError). When
-  // omitted, undefined → S1's default upward traversal.
-  const { repoRoot } = resolveRepositoryRoot(
-    INVOCATION_CWD,
-    args.repoRoot ? { explicit: args.repoRoot } : undefined
-  );
-  process.chdir(repoRoot);
+  // Bootstrap repo-root resolution + chdir BEFORE configureEnvironment() (PRD §9.8.3 / §9.7.9).
+  // The preAction hook registered in parseCLIArgs() (src/cli/index.ts) already ran
+  // bootstrapRepoRoot() — resolveRepositoryRoot + process.chdir — during program.parse(), for the
+  // default path (root's no-op .action) AND every subcommand. Read the singleton here. INVOCATION_CWD
+  // is still captured at module scope (above) for the --prd pre-resolution logic in parseCLIArgs.
+  // A hook-thrown NotARepositoryError propagates to main().catch()'s dedicated clean arm below.
+  const repoRoot = getRepoRoot();
 
   // PRD §9.8.3: validate the PRD exists against the NOW-correct cwd. args.prd is absolute
   // (explicit --prd, pre-resolved against INVOCATION_CWD in parseCLIArgs) or relative './PRD.md'

@@ -23,6 +23,24 @@ import {
 const originalArgv = process.argv;
 const originalExit = process.exit;
 
+// S2 (P1.M1.T1.S2): parseCLIArgs now registers a preAction hook that calls bootstrapRepoRoot
+// (resolve + chdir). Mock the whole repo-root module so the hook is a no-op during option-parsing
+// tests (no real chdir / NotARepositoryError throw). The real chdir behavior is verified by the
+// integration suite + S1's repo-root unit tests. Hoisted so the spy exists before parseCLIArgs runs.
+const { mockBootstrapRepoRoot } = vi.hoisted(() => ({
+  mockBootstrapRepoRoot: vi.fn(),
+}));
+vi.mock('../../../src/utils/repo-root.js', () => ({
+  // resolveRepositoryRoot is still used by the `config` subcommand handler; return a valid shape so
+  // its destructure (`const { repoRoot } = resolveRepositoryRoot(...)`) doesn't throw.
+  resolveRepositoryRoot: vi.fn(() => ({
+    repoRoot: '/mock-repo',
+    invocationCwd: '/mock-invocation',
+  })),
+  bootstrapRepoRoot: mockBootstrapRepoRoot,
+  getRepoRoot: vi.fn(() => '/mock-repo'),
+}));
+
 // Mock the node:fs module (existsSync is overridden per-test; readFileSync
 // is preserved so parseCLIArgs can read package.json for --version).
 vi.mock('node:fs', async importOriginal => {
@@ -103,6 +121,9 @@ describe('cli/index', () => {
 
     // Default: minimal valid backlog for the task/status handler
     mockReadFileFn.mockResolvedValue(JSON.stringify({ backlog: [] }));
+
+    // Reset the preAction hook spy (S2: the hook calls bootstrapRepoRoot on every parseCLIArgs)
+    mockBootstrapRepoRoot.mockClear();
 
     // Clear mock logger calls
     mockLogger.info.mockClear();
@@ -433,6 +454,38 @@ describe('cli/index', () => {
 
         // VERIFY: repoRoot flows through (undefined when omitted; the resolver consumes it in main).
         expect(args.repoRoot).toBe('/some/repo');
+      });
+    });
+
+    describe('preAction hook (PRD §9.8.3/§9.8.7)', () => {
+      // S2: a single preAction hook calls bootstrapRepoRoot before ANY action handler (root
+      // default + all subcommands), so subcommand .action() bodies see process.cwd() === repoRoot.
+      // bootstrapRepoRoot is mocked (above) so the hook is a no-op here; these tests assert the
+      // hook WIRING (it fires with the right args), not the real chdir (covered by the integration suite).
+
+      it('fires bootstrapRepoRoot with undefined when --repo-root is omitted (default traversal)', () => {
+        setArgv([]);
+
+        parseCLIArgs();
+
+        // VERIFY: hook fired once with (INVOCATION_CWD, undefined) → default upward traversal.
+        expect(mockBootstrapRepoRoot).toHaveBeenCalledTimes(1);
+        expect(mockBootstrapRepoRoot).toHaveBeenCalledWith(
+          process.cwd(),
+          undefined
+        );
+      });
+
+      it('passes --repo-root through to bootstrapRepoRoot as { explicit } (short-circuits search)', () => {
+        setArgv(['--repo-root', '/explicit/repo']);
+
+        parseCLIArgs();
+
+        // VERIFY: hook forwarded the explicit --repo-root → { explicit } → skips the .git search.
+        expect(mockBootstrapRepoRoot).toHaveBeenCalledTimes(1);
+        expect(mockBootstrapRepoRoot).toHaveBeenCalledWith(process.cwd(), {
+          explicit: '/explicit/repo',
+        });
       });
     });
 

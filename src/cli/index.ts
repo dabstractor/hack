@@ -41,7 +41,10 @@ import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
 import { CacheCommand, type CacheOptions } from './commands/cache.js';
 import { ConfigCommand, type ConfigOptions } from './commands/config.js';
-import { resolveRepositoryRoot } from '../utils/repo-root.js';
+import {
+  resolveRepositoryRoot,
+  bootstrapRepoRoot,
+} from '../utils/repo-root.js';
 import * as os from 'node:os';
 import ms from 'ms';
 
@@ -848,6 +851,22 @@ export function parseCLIArgs():
     .option('--session <hash>', 'Inspect specific session by hash')
     .option('-o, --output <format>', 'Output format (table, json)', 'table')
     .action(taskAction);
+
+  // PRD §9.8.3/§9.8.7: bootstrap repo-root resolution + chdir for ALL action handlers (root
+  // default AND subcommands) via a single preAction hook. Subcommand .action() handlers run
+  // INSIDE program.parse() — before main()'s chdir — so without this hook they resolve plan/PRD.md
+  // against INVOCATION_CWD. The hook fires AFTER options are parsed (program.opts() has --repo-root)
+  // and BEFORE the action body. _bootstrapped (in bootstrapRepoRoot) makes the program+subcommand
+  // double-fire a no-op. A NotARepositoryError throw propagates through program.parse() to
+  // main().catch()'s dedicated clean arm (no stack trace). --help/--version short-circuit during
+  // parse before any action, so the hook does NOT fire for them (they work anywhere).
+  program.hook('preAction', () => {
+    const opts = program.opts() as { repoRoot?: string };
+    bootstrapRepoRoot(
+      process.cwd(), // === INVOCATION_CWD (no chdir has happened yet at hook time)
+      opts.repoRoot ? { explicit: opts.repoRoot } : undefined // --repo-root short-circuits the search (§9.8.6)
+    );
+  });
 
   // Parse arguments
   program.parse(process.argv);
