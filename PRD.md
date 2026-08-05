@@ -45,6 +45,8 @@ The new system must implement four distinct processing engines:
 3.  **Agent Runtime:** Drives the agent loop through a pluggable **harness** (default `pi` / pi.dev; `claude-code` optional) that is orthogonal to the LLM provider, to run specific personas (Architect, Researcher, Coder, QA). See §9.4.
 4.  **Pipeline Controller:** The main loop handling the sequence of operations, parallelization, and error recovery.
 
+Preceding all of these is a **bootstrap layer** that runs before any engine: it resolves the repository root by upward `.git` traversal and `chdir`s to it (§9.8; git is a hard prerequisite), then loads layered configuration from `~/.hack`, `<repoRoot>/.hack`, and `<repoRoot>/.hack.local` (§9.7) into the §9.2.1 precedence stack.
+
 ## 4. User Workflows
 
 ### 4.1 Initialization & Breakdown
@@ -374,7 +376,7 @@ To implement this PRD, the following self-bootstrapping sequence is recommended:
 2.  **Orchestrator:** Implement the logic to iterate through the JSON hierarchy.
 3.  **Prompts:** Port the HEREDOC prompts into a template engine (e.g., Jinja2).
 4.  **Agent Interface:** Build the wrapper to send these prompts to the LLM.
-5.  **CLI:** Build the entry point to trigger the pipeline.
+5.  **CLI:** Build the entry point to trigger the pipeline. Bootstrap ordering is load-bearing: `parseCLIArgs()` (so `--help`/`--version` short-circuit first) → **repository-root resolution + `chdir`** (§9.8; git is a hard prerequisite) → **`.hack` config load** (§9.7) → environment/harness/preflight → pipeline.
 
 ## 9. Technical Specification (Groundswell Implementation)
 
@@ -394,11 +396,21 @@ The system uses a layered environment configuration strategy with proper fallbac
 
 #### 9.2.1 Configuration Source Priority
 
-Configuration is loaded in the following order (later sources override earlier ones):
+Configuration is resolved through a strictly ordered layering: **each layer overrides the one below it, and for any given key the highest-precedence layer that provides a value wins.** Layers, from lowest to highest precedence:
 
-1. **Shell Environment**: Inherited environment variables
-2. **`.env` File**: Local project configuration (automatically loaded by test setup)
-3. **Runtime Overrides**: Explicit environment variable settings
+1. **Built-in defaults** — the `DEFAULT_*` constants in `config/constants.ts` (e.g. `DEFAULT_BASE_URL`, `DEFAULT_HARNESS`, the model-tier defaults).
+2. **Global user config** — `~/.hack` (or `$XDG_CONFIG_HOME/hack/config`), so a developer can set personal defaults (harness, model tiers, commit format) once across every project (§9.7).
+3. **Project config** — `<repoRoot>/.hack`, the version-controlled, team-wide project defaults (§9.7).
+4. **Project local config** — `<repoRoot>/.hack.local`, a gitignored per-developer override file (the only file layer permitted to hold secrets; §9.7).
+5. **`.env` file** — `<repoRoot>/.env`, the credentials/secrets channel (today loaded externally via direnv/`.envrc` in the shell and via the `n` package in tests; see §9.7 for app-level loading).
+6. **Shell environment** — inherited/exported `process.env` (CI overrides, ad-hoc `FOO=bar hack`).
+7. **Explicit CLI flags** — `--prd`, `--mode`, `--parallel-research`, `--log-level`, etc. Highest precedence.
+
+**Env-over-file rule.** Real environment variables (layers 5–6) take precedence over file configuration (layers 2–4). This is the standard convention so CI and temporary `VAR=val hack` overrides work without editing files; to make a `.hack` value take effect, unset the conflicting env var (or remove the conflicting direnv/`.envrc` export). This rule is what makes `.hack` safe to commit: a teammate's personal shell config can never be silently overridden by the project file, and a CI run can always force a value.
+
+**Repo-root awareness.** Layers 3–5 are read from the **repository root**, which is located by an upward `.git` traversal from the invocation directory (§9.8) — so the same `.hack`, `.env`, `PRD.md`, and `plan/` are found regardless of which subdirectory `hack` is launched from. Layer 2 (`~/.hack`) is independent of the repo. The load sequence at startup is therefore: resolve the repo root via upward traversal (§9.8) → `process.chdir(repoRoot)` → load global `~/.hack` → project `.hack` → `.hack.local` → `.env` → already-present shell env (untouched, it simply sits above the files) → CLI flags re-applied as the top layer. (`--help`/`--version`/usage errors short-circuit during `parseCLIArgs()` before any of this runs, so they work with no repo and no config files.)
+
+**Scope.** This section governs _where configuration values come from and in what order_. The `.hack` file format, schema, validation, and tooling are specified fully in §9.7; the repo-root traversal that locates the project layers (and the hard requirement that one exists) is specified in §9.8.
 
 #### 9.2.2 Required Environment Variables
 
@@ -674,6 +686,8 @@ configureHarnesses({
 1.  **Project Setup**:
     - Initialize TypeScript project.
     - Link `groundswell` (`npm link ~/projects/groundswell`).
+    - Implement **repository-root resolution** (§9.8) as the first bootstrap step after `parseCLIArgs()`: upward `.git` traversal (dir or file; worktree/submodule aware) → hard-error if none found → `process.chdir(repoRoot)`; capture `INVOCATION_CWD` first so explicit `--prd`/`--file` paths resolve against the invocation dir while default paths re-root to the repo.
+    - Implement the **`.hack` configuration loader** (§9.7): TOML parse of global `~/.hack` → project `<repoRoot>/.hack` → gitignored `<repoRoot>/.hack.local`, layered per §9.2.1; refuse secrets in the committable `.hack`; seed `process.env` for unset keys (env-over-file rule). Add the `hack config` subcommand (`init`/`show`/`validate`/`path`).
     - Implement the **provider-agnostic auth bootstrap** (§9.2.6): resolve the selected provider's credential via override → provider env var (`ZAI_API_KEY` for `zai`) → `~/.pi/agent/auth.json`; forward a non-empty override only.
     - Implement the **fail-fast auth preflight** (§9.2.7): abort before any agent run with an actionable error when no credential is resolvable for the selected harness + provider/model.
     - **Cross-repo:** switch the `pi` harness to a file-backed `AuthStorage` (`AuthStorage.create()`) in `~/projects/groundswell` `src/harnesses/pi-harness.ts` so `~/.pi/agent/auth.json` is honored.
@@ -755,3 +769,302 @@ Components running in the same process should derive their loggers from a single
 - No `getLogger(...)` call exists at module top-level scope in `src/`. (Verification: `rg -n "^(export )?(const|let) \w+ = getLogger\(" src/` must return zero hits.)
 - No `transport:` key appears in any logger configuration under `src/`; pretty-printing is delivered via a synchronous stream destination.
 - A syscall-level trace of `hack --help` shows no multi-second blocking `epoll_pwait`/`futex` attributable to process exit.
+
+### 9.7 The `.hack` Configuration File
+
+Cross-cutting requirement for a **project-local, version-controllable configuration file** that captures _all_ user-tunable defaults — both the environment-variable-style settings of §9.2.2 and the CLI flags of §5.3 / `parseCLIArgs()` — so a user does not have to re-export env vars or re-pass CLI parameters on every invocation. This is the file-backed counterpart to the layered precedence defined in §9.2.1.
+
+#### 9.7.1 Problem
+
+Today every tunable is an environment variable or a CLI flag, and there is **no application-level config file at all**:
+
+- The `dotenv` dependency is listed in `package.json` but is **never imported in `src/`**; `.env` is only loaded externally (direnv via `.envrc` in the shell, the `n` package in `tests/setup.ts`). A user who does not use direnv has no app-level way to persist settings.
+- All defaults live in `config/constants.ts` and can only be overridden per-invocation (`export VAR=…` or `--flag`). Repetitive invocations (`npm run dev -- --prd ./PRD.md --mode bug-hunt --parallel-research --log-level debug`) are the norm.
+- There is no team-wide, version-controlled way to share pipeline configuration (model tiers, commit format, research tuning). Every developer re-derives their own `.envrc`/exports, which drift.
+- CLI flags cannot be defaulted at all — a user who always wants `--mode bug-hunt` must type it every time.
+
+The `.hack` file fills all four gaps with one mechanism.
+
+#### 9.7.2 Goals & Non-Goals
+
+**Goals.**
+
+- Provide a single, human-editable file that can express **every** tunable default (env-style settings **and** CLI flags), per the user requirement “all possible config defaults so the user doesn't have to keep passing in env vars or cli parameters every time.”
+- Support a **three-tier file layering** — global user, project (committable), project-local (gitignored) — that composes cleanly with the existing shell-env / `.env` / CLI precedence (§9.2.1).
+- Keep **secrets out of version control** by construction: the committable project file refuses secret-bearing keys.
+- Locate the project file via the **same upward `.git` traversal** that locates `PRD.md`/`plan/` (§9.8), so `hack` run from any subdirectory resolves the identical configuration.
+- Ship with tooling: a generator (`hack config init`), an effective-config inspector (`hack config show`), and a linter (`hack config validate`).
+
+**Non-goals.**
+
+- Replacing `~/.pi/agent/auth.json` or the provider-native credential env vars (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`) as the _primary_ auth channel (§9.2.6). The `.hack` file may name an explicit override key in the gitignored `.hack.local` only; it is never the recommended auth path.
+- Replacing the `.env` file for users who already rely on direnv/`.envrc`. `.env` remains a supported layer (§9.2.1 layer 5).
+- Hot-reloading. Config is read once at startup; editing `.hack` mid-run has no effect until the next invocation.
+- A GUI or interactive configuration wizard. `hack config init` emits a commented template; editing is manual.
+
+#### 9.7.3 Discovery, Layering & File Locations
+
+Three files are searched, each optional. They are layered lowest-to-highest as §9.2.1 layers 2–4:
+
+| Layer | Path | Purpose | Git-tracked? | Secrets allowed? |
+| ----- | ---- | ------- | ------------ | ---------------- |
+| Global user | `$HACK_CONFIG_HOME/config` if set, else `$XDG_CONFIG_HOME/hack/config`, else `~/.hack` | Personal defaults applied to _every_ project (e.g. always use the `pi` harness, a preferred model tier). | N/A (outside repos) | Discouraged (lives in `$HOME`); if present, treated like `.hack.local`. |
+| Project | `<repoRoot>/.hack` | Team-wide project defaults, reviewed in PRs alongside code. | **Yes** (intended to be committed). | **No** — refused (§9.7.6). |
+| Project local | `<repoRoot>/.hack.local` | Per-developer overrides and personal secrets. | **No** — MUST be in `.gitignore`. | **Yes** (it is local-only). |
+
+**Discovery rules.**
+
+- The project files (`.hack`, `.hack.local`) are read from the **repository root** located by the §9.8 traversal, never from the invocation directory. This guarantees a developer running `hack` from `src/deep/nested/` resolves the same files as one running from the root.
+- The global file resolves against `$HOME`-rooted paths (or their env overrides) and is independent of the repo.
+- A missing file at any tier is **not an error**; that tier simply contributes nothing.
+- `.hack.local` MUST be added to `.gitignore` by `hack config init` (and documented in `.env.example` / README). If `.hack.local` is ever tracked by git, `hack config validate` MUST warn loudly (secrets may have leaked) and point the user at `git rm --cached .hack.local`.
+- The files are parsed in tier order (global → project → project-local); each key from a higher tier overwrites the same key from a lower tier, and the merged result is then seeded into `process.env` _only for keys not already set by a higher §9.2.1 layer_ (so real shell env still wins, §9.2.1 env-over-file rule). Equivalently: the merged file value is the default, and env/CLI override it.
+
+#### 9.7.4 Format
+
+- **Format:** TOML (specifically TOML 1.0, parsed via a dependency such as `@iarna/toml` or `smol-toml`). TOML is chosen over YAML/JSON/INI for: unambiguous types (no YAML `yes`/`no`/Norway problems), line comments (`#`) that make a heavily-commented template readable, native arrays/tables for the nested CLI-flag group, and widespread familiarity from `pyproject.toml`/`Cargo.toml`.
+- **Encoding:** UTF-8; a leading byte-order mark is rejected with a clear error.
+- **Single document per file**; no multi-file includes (the project file is intentionally one curated artifact; PRD-level `@include` directives of §2.3 do not apply here).
+- **Comments** are preserved by `hack config init` (the template is heavily commented) and ignored at parse time.
+- All keys are **lowercase snake_case** within their section; env-var names are uppercased when a file key is mapped to its corresponding env var (§9.7.5).
+
+#### 9.7.5 Schema Reference
+
+Every tunable maps to exactly one `[section].key`. The table below is exhaustive; `hack config show` prints the same mapping. “Env var” is the §9.2.2 name the key seeds into `process.env`; “CLI flag” is the `parseCLIArgs()` option it defaults. A key with both an env var and a CLI flag seeds both (the CLI default is derived from the seeded env var, preserving §9.2.1 precedence).
+
+| TOML key | Env var | CLI flag | Type | Default |
+| -------- | ------- | -------- | ---- | ------- |
+| `[models] high` | `PRP_MODEL_HIGH` | — | string (bare model id) | `glm-5.2` |
+| `[models] balanced` | `PRP_MODEL_BALANCED` | — | string | `glm-5.2` |
+| `[models] fast` | `PRP_MODEL_FAST` | — | string | `glm-5-turbo` |
+| `[endpoint] base_url` | `PRP_API_BASE_URL` | — | URL | `https://api.z.ai/api/anthropic` (zai only) |
+| `[harness] name` | `PRP_AGENT_HARNESS` | — | `pi` \| `claude-code` | `pi` |
+| `[pipeline] parallel_research` | `PARALLEL_RESEARCH` | `-r/--parallel-research` | bool | `false` |
+| `[pipeline] research_depth` | `RESEARCH_DEPTH` | — | int ≥ 1 | `2` |
+| `[pipeline] research_timeout_seconds` | `RESEARCH_TIMEOUT` | — | int > 0 | `1800` |
+| `[pipeline] issue_retry_max` | `ISSUE_RETRY_MAX` | — | int ≥ 0 | `3` |
+| `[pipeline] commit_format` | `PRP_COMMIT_FORMAT` | — | `task-prefix` \| `plain` | `task-prefix` |
+| `[commit] retry_max` | `COMMIT_RETRY_MAX` | — | int ≥ 1 | `5` |
+| `[commit] retry_delay_ms` | `COMMIT_RETRY_DELAY` | — | int ≥ 0 | `10000` |
+| `[commit] retry_delay_cap_ms` | `COMMIT_RETRY_DELAY_CAP` | — | int ≥ `retry_delay_ms` | `120000` |
+| `[commit] classifier_retry_max` | `CLASSIFIER_RETRY_MAX` | — | int ≥ 1 | `4` |
+| `[bug_hunt] finder_agent` | `BUG_FINDER_AGENT` | — | string | `pizr` |
+| `[bug_hunt] results_file` | `BUG_RESULTS_FILE` | — | string | `TEST_RESULTS.md` |
+| `[bug_hunt] fix_scope` | `BUGFIX_SCOPE` | — | string | `subtask` |
+| `[validation] agent` | `VALIDATION_AGENT` | — | string | `pizr` |
+| `[validation] timeout_seconds` | `VALIDATION_TIMEOUT` | — | int > 0 | `7200` |
+| `[distributed_prd] include_max_depth` | `PRD_INCLUDE_MAX_DEPTH` | — | int ≥ 1 | `10` |
+| `[distributed_prd] include_markers` | `PRD_INCLUDE_MARKERS` | — | bool | `false` |
+| `[tasks_lock] stale_ms` | `TASKS_LOCK_STALE_MS` | — | int > 0 | `30000` |
+| `[tasks_lock] timeout_ms` | `TASKS_LOCK_TIMEOUT_MS` | — | int > 0 | `30000` |
+| `[tasks_lock] poll_ms` | `TASKS_LOCK_POLL_MS` | — | int > 0 | `50` |
+| `[concurrency] research_queue` | `RESEARCH_QUEUE_CONCURRENCY` | `--research-concurrency` | int 1–10 | `3` |
+| `[concurrency] parallelism` | — | `--parallelism` | int 1–10 | `2` |
+| `[api] timeout_ms` | `API_TIMEOUT_MS` | — | int > 0 | `60000` |
+| `[monitor] task_interval` | `MONITOR_TASK_INTERVAL` | `--monitor-task-interval` | int 1–100 | `1` |
+| `[monitor] interval_ms` | — | `--monitor-interval` | int 1000–60000 | `30000` |
+| `[monitor] enabled` | — | `--no-resource-monitor` | bool | `true` |
+| `[cli] mode` | — | `-m/--mode` | `normal`\|`delta`\|`bug-hunt`\|`validate` | `normal` |
+| `[cli] scope` | — | `-s/--scope` | string | unset |
+| `[cli] log_level` | `HACKY_LOG_LEVEL` | `--log-level` | trace…fatal | `info` |
+| `[cli] machine_readable` | — | `--machine-readable` | bool | `false` |
+| `[cli] continue_on_error` | — | `--continue-on-error` | bool | `false` |
+| `[cli] cache_enabled` | — | `--no-cache` | bool | `true` |
+| `[cli] max_tasks` | — | `--max-tasks` | int > 0 | unset |
+| `[cli] max_duration_ms` | — | `--max-duration` | int > 0 | unset |
+
+**Mapping semantics.**
+
+- A `[cli]` key sets the **default** for the matching Commander option. An explicit flag on the command line still wins (§9.2.1 layer 7), so `[cli] mode = "bug-hunt"` is overridden by `--mode validate`.
+- For booleans exposed as negating flags (`--no-cache`, `--no-resource-monitor`), the TOML key names the _positive_ state (`cache_enabled`, `monitor.enabled`); `false` is equivalent to passing the `--no-*` form.
+- Where a single concept is reachable both as an env var and a CLI flag with the same default (`RESEARCH_QUEUE_CONCURRENCY` / `--research-concurrency`, `HACKY_LOG_LEVEL` / `--log-level`, `MONITOR_TASK_INTERVAL` / `--monitor-task-interval`, `PARALLEL_RESEARCH` / `-r`), the TOML key seeds the env var and the CLI option reads through it; only **one** TOML key exists per concept (no duplicate `[cli]`/`[pipeline]` pair), avoiding the ambiguity of two keys racing for the same value.
+- Model-id values are written **bare** (`glm-5.2`) and provider-qualified at read time by the existing `qualifyModel()` path (§9.2.3); an already-qualified value (`zai/glm-5.2`) is accepted and left intact.
+
+**Example project `.hack` (committable, no secrets):**
+
+```toml
+# <repoRoot>/.hack — team-wide PRP pipeline defaults
+# Generated/refreshed by `hack config init`. Safe to commit.
+
+[harness]
+name = "pi"             # vendor-neutral default (§9.1)
+
+[models]
+high     = "glm-5.2"    # Architect agent
+balanced = "glm-5.2"    # planning & research roles
+fast     = "glm-5-turbo" # implementation role
+
+[endpoint]
+# base_url left unset: defaults to z.ai for the `zai` provider (§9.2.4)
+
+[pipeline]
+parallel_research        = true   # background PRP research (§4.2)
+research_depth           = 3
+research_timeout_seconds = 1800
+commit_format            = "task-prefix"  # §5.1
+
+[validation]
+timeout_seconds = 7200     # full test suites legitimately need hours (§4.4)
+
+[distributed_prd]
+include_max_depth = 10     # §2.3
+
+[cli]
+mode          = "normal"
+log_level     = "info"
+max_tasks     = 20         # cap every run
+```
+
+**Example `.hack.local` (gitignored, may hold secrets):**
+
+```toml
+# <repoRoot>/.hack.local — personal overrides; NEVER commit.
+
+[cli]
+log_level = "debug"        # I like verbose output
+
+[harness]
+name = "claude-code"       # I'm spending an Anthropic coding-plan quota today
+
+[models]
+balanced = "anthropic/claude-sonnet-4"
+fast     = "anthropic/claude-haiku-4"
+
+[auth]
+override_key = "sk-ant-..."  # explicit override (§9.2.6 layer 1); prefer ZAI_API_KEY/auth.json instead
+```
+
+#### 9.7.6 Secrets Policy
+
+- **The committable project `.hack` MUST refuse secret-bearing keys.** If any of the following keys is present in `.hack` (not `.hack.local`), the loader MUST emit a hard error naming the file, the offending key, and the remediation (move it to `.hack.local` or an env var), and abort startup before any agent runs: `[auth] override_key`, `[auth] zai_api_key`, `[auth] anthropic_api_key`, `[auth] anthropic_auth_token`, or any key whose name ends in `_key`/`_token`/`_secret`/`_password`.
+- `.hack.local` (gitignored) is the **only** file tier permitted to hold secrets, and even there the canonical auth channels of §9.2.6 (`~/.pi/agent/auth.json`, `ZAI_API_KEY`, provider env vars) are preferred. `[auth] override_key` in `.hack.local` maps to `PRP_API_KEY` (the §9.2.6 layer-1 explicit override).
+- An empty/whitespace-only secret value is treated as “not configured,” consistent with §9.2.7’s empty-string policy; it is never forwarded into harness options.
+- `hack config validate` MUST flag a `.hack.local` that is tracked by git (potential secret leak) and a `.hack` that contains any secret-bearing key.
+
+#### 9.7.7 Validation & Error Handling
+
+- **Unknown section:** warn once (`unknown section [foo] in .hack; ignored`) and continue. lenient, so forward-compatible additions in newer `hack` versions don’t break older parsers and vice versa.
+- **Unknown key in a known section:** warn once with the file, section, and key, and ignore the key. (Catch typos like `[pipeline] reseaerch_depth`.)
+- **Type mismatch / out-of-range value (e.g. `[tasks_lock] poll_ms = -5`, `[harness] name = "foo"`, `[cli] mode = "fast"`):** **hard error** at startup naming the file, key, offending value, expected type/range, and the accepted values; abort before any agent run. This mirrors the fail-fast philosophy of the §9.2.7 auth preflight — a misconfigured `.hack` must not surface as a deep runtime error mid-pipeline.
+- **Parse error (malformed TOML):** hard error naming the file and the parser’s line/column; abort.
+- **Duplicate key:** TOML itself rejects duplicate keys; surface the parser error verbatim with the file path.
+- All warnings/errors go to **stderr** synchronously (§9.6-compliant), because the pino logger is configured _after_ config loading (it needs the resolved `--log-level`, which may itself come from `.hack`).
+- **Effective-config trace:** when `--log-level debug` (resolved after the file is read) is in effect, the loader logs each key with its _source layer_ (global/project/local/env/cli) and final resolved value, except for secret-bearing keys whose values are masked (`override_key = "<redacted>"`).
+
+#### 9.7.8 The `hack config` Subcommand
+
+A new `config` subcommand exposes the file feature:
+
+```bash
+hack config init [--force]            # write a commented <repoRoot>/.hack template
+hack config show [--src]              # print effective resolved config; --src annotates each value with its source layer
+hack config validate [<file>]         # lint .hack (+ .hack.local); exit 1 on errors, warn on unknowns
+hack config path [--global|--local]   # print the resolved path(s) actually consulted
+```
+
+- `init` refuses to overwrite an existing `.hack` unless `--force`; it appends `.hack.local` to `.gitignore` (creating `.gitignore` if absent) and prints next-step guidance.
+- `show` is the primary debugging aid: it merges all layers (including env/CLI) and prints every key with its resolved value, _masked secrets_, and (with `--src`) the winning layer. It runs without invoking any agent, so it is safe to use for diagnosing auth/config issues.
+- `validate` is CI-friendly (exit code distinguishes errors from warnings) so a repo can gate PRs on a clean `.hack`.
+
+#### 9.7.9 Interaction with Existing Subsystems
+
+- **§9.2.1 precedence:** `.hack`/`.hack.local`/global are layers 2–4; env (5–6) and CLI (7) override them. The loader seeds `process.env` only for keys not already set, preserving the env-over-file rule.
+- **§9.2.6 auth model:** `[auth] override_key` (`.hack.local` only) maps to `PRP_API_KEY` (layer-1 explicit override); all other auth resolution is unchanged. The `.hack` file never displaces `auth.json`/`ZAI_API_KEY` as the primary path.
+- **§9.2.7 preflight:** runs _after_ `.hack` is loaded, so a key sourced from `.hack` (e.g. `[harness] name`, `[models] balanced`) flows correctly into the harness/provider resolution the preflight checks.
+- **§9.2.8 deprecation:** legacy `ANTHROPIC_*` aliases are _not_ exposed as `.hack` keys; users set canonical `PRP_*`-equivalent TOML keys, and the existing canonical-first loader handles any legacy env vars as before.
+- **§9.4 harness selection:** `[harness] name` seeds `PRP_AGENT_HARNESS`; the harness↔provider compatibility check (§9.4.3) still runs and still surfaces mismatches at `initialize()`.
+- **§9.2.5 nested execution:** child `hack` processes (bugfix sub-pipelines) inherit `process.env` from the parent (which already ran the file loader and `chdir`), so they see the same resolved configuration; children do **not** re-read `.hack` differently because the repo root is identical (§9.8.7).
+- **Bootstrap ordering (see §9.8.3):** `parseCLIArgs()` (so `--help` exits early) → **§9.8 repo-root resolution + `chdir`** → **§9.7 `.hack` load (global → project → local)** → existing `.env`/`configureEnvironment()` → `configureHarness()` → `runAuthPreflight()` → pipeline. The `.hack` load happens _after_ the repo root is known (the project files live there) and _before_ anything that reads the resolved values.
+
+#### 9.7.10 Acceptance Criteria
+
+- A user can place a committable `<repoRoot>/.hack` setting `[cli] mode = "bug-hunt"`, `[pipeline] parallel_research = true`, and `[models] balanced = "glm-5.2"`, then run bare `hack` from any subdirectory and observe all three applied — with **no** env vars exported and **no** flags passed.
+- `hack config init` writes a commented `.hack`, ensures `.hack.local` is gitignored, and refuses to clobber an existing `.hack` without `--force`.
+- `hack config show --src` prints every tunable with its resolved value and winning layer; secret values are masked.
+- A `.hack` containing `[auth] zai_api_key = "…"` aborts startup with a hard error; the same key in `.hack.local` is accepted and seeds `PRP_API_KEY`.
+- An out-of-range/typo value (e.g. `[tasks_lock] poll_ms = -5`, `[harness] name = "foo"`) aborts startup with an actionable message before any agent runs.
+- An unknown key/section produces a stderr warning and otherwise proceeds.
+- The §9.2.1 env-over-file rule holds: with `PARALLEL_RESEARCH=false hack` and `[pipeline] parallel_research = true` in `.hack`, the run uses `false` (env wins).
+- `hack` run from `src/deep/nested/` resolves the same `.hack`, `.env`, `PRD.md`, and `plan/` as a run from the repo root (jointly satisfied with §9.8).
+- No secret value is ever written to stdout/logs unmasked by `hack config show`, effective-config debug logging, or an error message.
+
+### 9.8 Repository Root Resolution (Upward `.git` Traversal)
+
+Cross-cutting requirement that `hack` **locate the repository root by walking up from the invocation directory to the nearest directory containing `.git`, and re-root all path resolution there** — so the pipeline can be run from _anywhere_ within a repository, not only from the root. A git repository is a **hard prerequisite** for the tool to function.
+
+#### 9.8.1 Problem
+
+Today every relative path is resolved against `process.cwd()`, and the entry point **never calls `process.chdir()`**:
+
+- `resolve('PRD.md')` and `resolve('plan')` appear at ~20 call sites (`src/cli/index.ts`, every `src/cli/commands/*` constructor default, `session-manager`, `session-utils`, `prp-pipeline`).
+- `repoRoot = process.cwd()` is hard-coded in `task-orchestrator`, `cleanup-runner`, and `git-commit` (Smart Commit, `restore_critical_files`).
+- `git-mcp.ts`’s `validateRepositoryPath` checks for `.git` only at the _given_ path — no upward traversal.
+
+Consequence: `hack` **must** be launched from the repository root. Running it from `src/` or `docs/` resolves `PRD.md`/`plan/` against the wrong directory, silently reading a non-existent `PRD.md` or scribbling a stray `plan/` in a subdirectory. There is no “run from anywhere in the repo” UX, and the `.hack` file (§9.7) — which lives at the repo root — could not be located from a subdirectory without this traversal.
+
+#### 9.8.2 Resolution Algorithm
+
+1. Capture `INVOCATION_CWD = process.cwd()` at the very top of `main()`, **before** any path resolution or `chdir`.
+2. Beginning at `INVOCATION_CWD`, walk upward: at each directory, test whether it contains a child entry named `.git` (a directory **or** a file — see §9.8.4). If it does, that directory is the **repo root**.
+3. If the current directory has no `.git`, ascend to its parent and repeat.
+4. Stop with success at the first directory containing `.git` (nearest ancestor wins — this is the working-tree root, correct for worktrees and submodules per §9.8.4).
+5. If the filesystem root is reached without finding `.git`, **fail hard** per §9.8.5.
+6. On success: canonicalize with `realpathSync(repoRoot)` (collapse symlinks), then `process.chdir(repoRoot)` so every subsequent `resolve(...)`/`process.cwd()`/`repoRoot` call site resolves against the repo root without per-site changes.
+- The walk is bounded by the filesystem root and performs a constant number of `stat` calls (one or two per level), so it is effectively free.
+
+#### 9.8.3 Implementation Strategy & Explicit-Path Semantics
+
+- **Strategy: `process.chdir(repoRoot)` once at bootstrap.** This is preferred over threading an explicit `repoRoot` through ~20 call sites because it makes every existing `resolve('PRD.md')`/`resolve('plan')`/`process.cwd()` site correct with **zero** per-site edits, and because spawned agent subprocesses inherit `cwd = repoRoot`, which is the desired behavior (agents operate inside the repo). The `chdir` happens **after** `parseCLIArgs()` (so `--help`/`--version`/usage errors short-circuit during parse and work with no repo) and **before** the `.hack`/`.env` load and `configureEnvironment()` (so the project files are read from the repo root).
+- **`INVOCATION_CWD` is captured first and retained** so that explicit user-supplied paths can be resolved against _where the user was_, not the new cwd:
+  - **Explicit `--prd <path>` / `--file <path>` / `--session <id>` / `--repo-root <path>`** resolve relative to **`INVOCATION_CWD`** (the directory the user typed the command in). Most intuitive: the path you type is relative to where you are.
+  - **Default paths** (`./PRD.md`, `./plan/`) resolve relative to the **new** `process.cwd()` (the repo root) — i.e. `<repoRoot>/PRD.md`, `<repoRoot>/plan/`. This is what makes “run from anywhere” work: from `src/deep/`, the default PRD is still `<repoRoot>/PRD.md`.
+- The resolved repo root and `INVOCATION_CWD` are exposed (read-only) to the rest of the codebase for diagnostics and for the few call sites that genuinely need the original invocation directory.
+
+#### 9.8.4 `.git` Directory vs `.git` File (Worktrees & Submodules)
+
+- A directory is a repo root if it contains `.git` as **either** a directory (normal clone) **or** a file (git worktree or submodule, where `.git` is a `gitdir: <path>` pointer).
+- **Worktrees:** in a linked worktree, the `.git` _file_ sits at the worktree root. The traversal stops there, so the “repo root” for `hack`’s purposes is the **worktree root** (where `PRD.md`/`plan/` live), _not_ the common dir’s main checkout. This is correct: `hack` operates on the working tree it was invoked in.
+- **Submodules:** a submodule has its own `.git` (file or dir). The traversal stops at the **submodule root**, not the superproject root — each submodule is treated as its own repository, which matches how the pipeline’s git operations and `plan/` directories are scoped.
+- Parsing the `gitdir:` pointer is **not** required for root detection; only the _presence_ of `.git` (dir or file) matters. (Future work MAY follow the pointer for advanced worktree-relative logic, but it is out of scope here.)
+- Bare repositories (`.git` with no working tree) are not supported working directories for `hack`; invoking from within a bare repo’s directory is treated like any other dir and the traversal continues upward.
+
+#### 9.8.5 No-Repository Behavior (Hard Error)
+
+**Git is a hard prerequisite for this project to function** — the pipeline commits via Smart Commit (§5.1), reads/writes `plan/` alongside the repo, and runs git-backed recovery (§5.1 `tasks.json` Restore, `restore_critical_files`). Therefore:
+
+- If the §9.8.2 walk reaches the filesystem root without finding `.git`, the tool **MUST abort with a hard error and exit code 1**, _before_ creating any session, reading `.hack`/`.env`, or invoking any agent.
+- The error message MUST be actionable, naming: the invocation directory searched from, the fact that no ancestor contains `.git`, and the remediation — either run from within a git repository, or pass `--repo-root <path>` (§9.8.6) to pin a root explicitly.
+- This mirrors the §9.2.7 fail-fast preflight philosophy: a missing prerequisite is caught at startup with one clear message, not deep inside the first git operation.
+- **`--help`/`--version`/invalid-flag usage errors are exempt** — they are handled by Commander during `parseCLIArgs()` and `process.exit()` _before_ the traversal runs, so `hack --help` works anywhere even though git is otherwise mandatory. This is the only intentional exception and it falls out naturally from the bootstrap ordering (parse before traverse).
+
+#### 9.8.6 The `--repo-root <path>` Override
+
+- `--repo-root <path>` skips the upward search and uses `<path>` as the repo root (resolved against `INVOCATION_CWD`, then `realpathSync`’d, then `chdir`’d to).
+- It MUST verify that `<path>` contains `.git` (dir or file); if not, it fails with the same hard error as §9.8.5 (git is required even when the root is explicit).
+- Use cases: unusual layouts where the nearest `.git` is not the intended root (e.g. a monorepo where the PRP project lives in a subdir but should operate against the outer repo — though note `PRD.md`/`plan/` would then resolve against the outer root), test harnesses that pin a temp repo, and CI that wants to be explicit.
+- `--repo-root` is also the escape hatch if the automatic walk ever picks the wrong ancestor (e.g. nested repos).
+
+#### 9.8.7 Effect on Subcommands & Child Processes
+
+- **All subcommands benefit automatically.** Because the fix is a single bootstrap `chdir`, every command — the main pipeline _and_ `hack task`/`status`, `hack artifacts`, `hack cache`, `hack inspect`, `hack validate-state`, `hack config` — resolves `PRD.md`/`plan/`/`.hack` at the repo root when launched from any subdirectory. No per-command changes are required.
+- **Child processes (bugfix sub-pipelines, §4.4 / §9.2.5):** the parent `chdir`s to the repo root before spawning children, so children inherit `cwd = repoRoot`. A child that itself walks up from a `plan/…/bugfix/…` directory would re-discover the same repo root; either way the result is identical. The nested-execution guard (§9.2.5) semantics are unchanged — it inspects `PLAN_DIR`/`SKIP_BUG_FINDING`, not cwd.
+- **Agent subprocesses:** inherit `cwd = repoRoot`, so file/shell tools inside agents operate against the repo root, which is the intended behavior (agents work on the repo, not the invocation subdir).
+
+#### 9.8.8 Interaction with `.hack` Discovery & Other Subsystems
+
+- **Shared traversal with §9.7:** the project `.hack` / `.hack.local` / `.env` are read from the repo root located by _this_ walk — there is exactly one upward walk at startup, and it simultaneously locates `.git` (the repo root) and the project config files that live there. The global `~/.hack` (§9.7.3) is independent of the walk.
+- **§9.2.4 endpoint safeguard / §9.2.7 preflight:** unaffected; they read `process.env`, which is populated from `.hack` (loaded after the `chdir`) and the shell. The `chdir` does not alter env.
+- **§4.3 delta detection / §5.1 Smart Commit / `restore_critical_files`:** these call git against `process.cwd()`, which is now guaranteed to be the repo root, so they operate correctly from any launch directory (previously they would have run against the invocation subdir).
+- **`PRD.md` hashing (§4.1) and include expansion (§2.3):** the default `PRD.md` is now `<repoRoot>/PRD.md`; include directives remain project-root-relative to the entry PRD’s directory (§2.3), which is the repo root for the default case — consistent with the existing contract.
+
+#### 9.8.9 Acceptance Criteria
+
+- `hack` launched from `src/`, `docs/`, or any nested subdirectory resolves `PRD.md`, `plan/`, `.hack`, and `.env` at the repository root exactly as a root-launched run does; `process.cwd()` during the run equals the repo root.
+- `hack --help` and `hack --version` succeed with exit 0 from a directory that is **not** inside any git repository (they short-circuit before traversal).
+- Any operational invocation of `hack` (including `--validate-prd`, `--dry-run`, `hack task`, `hack config show`) from outside any git repository exits 1 with a single actionable “not a git repository” message naming the invocation directory and the `--repo-root` remediation; no session directory is created and no agent is invoked.
+- A git **worktree** is correctly detected via its `.git` _file_; the repo root resolves to the worktree root and `PRD.md`/`plan/` are read/written there.
+- A git **submodule** resolves to the submodule root, not the superproject root.
+- `--repo-root /explicit/path` pins the root and skips the search; it errors if `/explicit/path` lacks `.git`.
+- An explicit `--prd ./relative/PRD.md` is resolved against the **invocation** directory, while an omitted `--prd` resolves to `<repoRoot>/PRD.md`.
+- A bugfix child process spawned from a `plan/…/bugfix/…` directory resolves the same repo root and `.hack` as its parent.
+- Smart Commit (§5.1) and `restore_critical_files` invoked during a run launched from a subdirectory operate against the repository root (no stray commits or `plan/` directories in subdirectories).
