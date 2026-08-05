@@ -269,28 +269,28 @@
       "type": "Phase",
       "id": "P3",
       "title": "Tasks-Not-Yet-Generated Window (Breakdown-in-Progress) — §5.3",
-      "status": "Researching",
+      "status": "Complete",
       "description": "When a discovered (auto-resolved) tasks.json is absent solely because the session directory exists but the Architect Agent has not finished decomposition, the read commands degrade to a calm notice (exit 0) instead of crashing with ENOENT. This is the read-only observation path and is distinct from corruption-recovery (§5.1) and interrupted-bugfix re-entry (§4.4).",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P3.M1",
           "title": "Graceful Degradation for Auto-Resolved Missing tasks.json",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Implement breakdown-in-progress detection in the shared taskAction handler, emit a calm notice (or structured JSON) and exit 0, while keeping explicit --file and no-sessions paths as hard errors.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "Detection, messaging, exit code, and scope rules",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Add breakdown-in-progress detection in the taskAction handler for task (list), status (alias), and task next — inserting an existence check before readFile, classifying the state, and emitting the appropriate notice/JSON/exit code.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Breakdown-in-progress detection + calm notice across all discovery-based actions",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/009_94353b1a9fd3/architecture/session-and-tasks-json.md §3-§4 and system_context.md §4. The shared taskAction handler is at src/cli/index.ts:554-723. Tasks file resolution: --file override (line 580, explicit path) vs auto-discovery else-branch (lines 582-612: --session prefix match or findLatestSession, then findLatestBugfixTasksFile → main tasks.json fallback). The readFile call is at line 622 with NO existence check before it. sourceNote printing is at lines 614-620 (to stderr, suppressed for --output json). The catch block (lines 717-723) logs the error and exits 1 for ALL error conditions including ENOENT. findLatestSession (session-manager.ts:1573-1596) returns null when no sessions exist → the handler throws 'No sessions found...' at line 596. The session directory existing is the signal for breakdown-in-progress (SessionManager creates the dir + .prd_hash before tasks.json is written). This is INDEPENDENT of Phases 1-2 but benefits from Phase 1's repo-root chdir.\n2. INPUT: None (independent of Phases 1-2; the taskAction handler already works, it just needs a pre-readFile existence check).\n3. LOGIC: In src/cli/index.ts taskAction handler, AFTER the target session is resolved and the auto-discovered tasksFile is set (the ELSE branch of the --file/--session discovery — do NOT soften the explicit --file path at line 580) and BEFORE readFile(tasksFile) at line 622: insert an existence check. Use existsSync(tasksFile) (from node:fs — import existsSync alongside existsSync from the existing 'node:fs' import at the top of cli/index.ts). IF tasksFile does not exist AND the session directory DOES exist (existsSync(sessionPath)): classify the state as breakdown-in-progress (§5.3 Detection). Behavior: (a) SUPPRESS the sourceNote for this state (do not print 'Using main tasks: …' — it would be self-contradictory since the file doesn't exist). (b) If options.output === 'json': emit structured object to STDOUT: console.log(JSON.stringify({ status: 'awaiting_breakdown', session: '<session-id>' }, null, 2)). (c) Else: emit a single calm human-readable notice to STDERR (process.stderr.write): name the session and explain 'tasks.json is generated during PRD breakdown and is not available yet — re-run shortly, or run hack --continue to (re)generate it.' (d) Exit code 0 (process.exit(0)). (e) For the 'next' action under this state: the notice should say 'no tasks available yet (breakdown in progress)'. For JSON: { status: 'awaiting_breakdown', session: '<id>' }. LEAVE the existing 'No sessions found' path (findLatestSession returns null → throws at line 596) UNCHANGED — it still exits non-zero via the catch block, so the two empty states are distinguished. DO NOT trigger §5.1 corruption-recovery (keyed off present-but-broken file) or §4.4 interrupted-bugfix re-entry. Add tests: (1) hack status against session-without-tasks.json prints notice to stderr, exits 0, no ERROR/ENOENT/stack-trace on stdout; (2) --output json emits awaiting_breakdown object to stdout, exits 0; (3) --file /nonexistent still exits non-zero (explicit override not softened); (4) no-sessions-at-all still exits non-zero; (5) hack task and hack task next behave identically for the same state.\n4. OUTPUT: Breakdown-in-progress handling across task/status/task next in src/cli/index.ts. Completes Milestone P3.M1 and Phase P3.\n5. MOCKING: Use real temp session directories (create plan/NNN_hash/ dir with .prd_hash but no tasks.json). Mock SessionManager.findLatestSession for unit tests.\n6. DOCS: [Mode A] Document the breakdown-in-progress state and its exit code 0 in docs/CLI_REFERENCE.md (task/status section). Note that explicit --file and no-sessions paths remain hard errors.",
@@ -310,28 +310,28 @@
       "type": "Phase",
       "id": "P4",
       "title": "Sync Changeset-Level Documentation (Mode B)",
-      "status": "Researching",
+      "status": "Ready",
       "description": "Cross-cutting documentation that only makes sense once the whole delta lands. Per-file Mode A docs ride with their implementing subtasks in Phases 1-3 and are NOT duplicated here. Runs LAST; depends on every implementing subtask in Phases 1-3.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P4.M1",
           "title": "Changeset-level doc sweep",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Update README.md, docs/ARCHITECTURE.md, and docs/CONFIGURATION.md to coherently describe the .hack config file, repo-root resolution, and breakdown-in-progress handling as integrated features.",
           "tasks": [
             {
               "type": "Task",
               "id": "P4.M1.T1",
               "title": "README, ARCHITECTURE, and CONFIGURATION updates",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Sweep changeset-level documentation: README (new Configuration section + Running from anywhere), ARCHITECTURE (bootstrap-layer ordering), CONFIGURATION (.hack as primary mechanism + schema reference).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S1",
                   "title": "README.md + docs/ARCHITECTURE.md + docs/CONFIGURATION.md changeset-level sync",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

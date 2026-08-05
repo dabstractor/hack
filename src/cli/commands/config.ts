@@ -35,12 +35,8 @@
  * ```
  */
 
-import {
-  appendFileSync,
-  existsSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import chalk from 'chalk';
 import Table from 'cli-table3';
@@ -243,17 +239,70 @@ export class ConfigCommand {
   }
 
   /**
-   * Ensure `<repoRoot>/.gitignore` contains a `.hack.local` line (create the
-   * file if absent; dedup the exact line so repeated `init` doesn't duplicate it).
+   * Ensure `<repoRoot>/.gitignore` contains `.hack.local` under a comment header
+   * (PRD §9.7.6 / §9.7.10). Idempotent (dedup wins over placement), creates the
+   * file if absent, and places the block near the `# Environment files` section
+   * when that header exists (else appends at end).
+   *
+   * @remarks
+   * This is a read → compose → `writeFileSync` rewrite (NOT an `appendFileSync`),
+   * because section insertion edits the middle of the file. The full composed
+   * content is written once. Dedup wins over placement: a bare `.hack.local` line
+   * from a prior init is left as-is (the comment is only added on the first init
+   * into a fresh `.gitignore`) so `init` stays idempotent + predictable.
    */
   #ensureGitignoreHasHackLocal(repoRoot: string): void {
     const gi = join(repoRoot, '.gitignore');
+    const LINE = '.hack.local';
+    const BLOCK = `# .hack local overrides (never commit)\n${LINE}\n`;
     const existing = existsSync(gi) ? readFileSync(gi, 'utf8') : '';
-    if (existing.split('\n').some(l => l.trim() === '.hack.local')) {
-      return; // already present
+    const lines = existing.split(/\r?\n/);
+    if (lines.some(l => l.trim() === LINE)) {
+      return; // idempotent dedup — leave any existing (bare) line untouched
     }
-    const prefix = existing && !existing.endsWith('\n') ? '\n' : '';
-    appendFileSync(gi, `${prefix}.hack.local\n`, 'utf8');
+    let next: string;
+    const envHeaderIdx = lines.findIndex(l =>
+      /^#\s*Environment files\s*$/im.test(l)
+    );
+    if (!existing) {
+      next = BLOCK; // create-if-absent
+    } else if (envHeaderIdx >= 0) {
+      const out = [...lines];
+      out.splice(envHeaderIdx + 1, 0, BLOCK.trimEnd());
+      next = out.join('\n') + '\n';
+    } else {
+      next =
+        (existing.endsWith('\n') ? existing : existing + '\n') + '\n' + BLOCK;
+    }
+    writeFileSync(gi, next, 'utf8');
+  }
+
+  /**
+   * Warn loudly on stderr when `.hack.local` is tracked by git (a potential
+   * secret leak — PRD §9.7.6). Advisory only: it does NOT change the validate
+   * exit code (§9.7.10 — validate exits 0 on warnings-only).
+   *
+   * @remarks
+   * `git ls-files --error-unmatch` exits non-zero when `.hack.local` is
+   * untracked OR when the cwd is not a git repo (and `spawnSync` returns a
+   * null `status` if the `git` binary is absent) — all of which are treated as
+   * "no warning" (only `status === 0` ⇒ tracked in the index). A staged-but-
+   * uncommitted file (`git add` with no `git commit`) IS tracked for this check,
+   * which keeps the test hermetic (no `user.email` config needed).
+   */
+  #warnIfHackLocalTracked(repoRoot: string): void {
+    const hackLocal = join(repoRoot, '.hack.local');
+    if (!existsSync(hackLocal)) return; // nothing on disk to leak
+    const r = spawnSync('git', ['ls-files', '--error-unmatch', '.hack.local'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (r.status === 0) {
+      console.error(
+        `[hack] WARNING: ${hackLocal} is tracked by git — potential secret leak (PRD §9.7.6). ` +
+          `Untrack it with: git rm --cached .hack.local`
+      );
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -431,6 +480,7 @@ export class ConfigCommand {
       : [join(this.#repoRoot, '.hack'), join(this.#repoRoot, '.hack.local')];
 
     _resetValidationWarnings(); // fresh per-file warning dedup
+    this.#warnIfHackLocalTracked(this.#repoRoot); // advisory (exit code unchanged)
     const errors: string[] = [];
 
     for (const file of files) {

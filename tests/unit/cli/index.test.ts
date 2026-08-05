@@ -65,6 +65,29 @@ vi.mock('../../../src/cli/commands/config.js', () => ({
   },
 }));
 
+// Mock SessionManager (dynamically imported by the task/status handler) so the
+// breakdown-in-progress + no-sessions paths are deterministic. Hoisted so
+// per-test override (mockFindLatestSession.mockResolvedValue(null), etc.) works.
+const { mockFindLatestSession, mockListSessions } = vi.hoisted(() => ({
+  mockFindLatestSession: vi.fn(),
+  mockListSessions: vi.fn(),
+}));
+vi.mock('../../../src/core/session-manager.js', () => ({
+  SessionManager: Object.assign(class {}, {
+    findLatestSession: mockFindLatestSession,
+    listSessions: mockListSessions,
+  }),
+}));
+
+// Mock findLatestBugfixTasksFile (dynamically imported by the task/status
+// handler). Defaults to null (no bugfix tasks.json → main-session fallback).
+const { mockFindLatestBugfixTasksFile } = vi.hoisted(() => ({
+  mockFindLatestBugfixTasksFile: vi.fn(async () => null),
+}));
+vi.mock('../../../src/core/session-utils.js', () => ({
+  findLatestBugfixTasksFile: mockFindLatestBugfixTasksFile,
+}));
+
 import { existsSync } from 'node:fs';
 import { readFile as mockReadFile } from 'node:fs/promises';
 
@@ -881,6 +904,205 @@ describe('cli/index', () => {
       // The mocked ConfigCommand.execute was invoked with the default 'show'.
       expect(mockConfigExecute).toHaveBeenCalled();
       expect(mockConfigExecute.mock.calls[0][0]).toBe('show');
+    });
+  });
+
+  describe('breakdown-in-progress (PRD §5.3)', () => {
+    /** Helper to set process.argv for testing (scoped to this block). */
+    const setArgv = (args: string[] = []) => {
+      process.argv = ['node', '/path/to/script.js', ...args];
+    };
+
+    // The taskAction handler runs asynchronously after parseCLIArgs() returns.
+    // We use a NO-OP exit mock for ALL cases here (mirroring the 'prd status
+    // alias' block): breakdown cases assert exit(0); hard-error cases assert
+    // exit(1) (the catch block's process.exit(1) is captured, not thrown — so
+    // no unhandled rejection leaks into a later test). The source's `return`
+    // after process.exit(0) prevents fall-through to readFile.
+    let bdExit: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      // Default discovery state: latest session exists, no bugfix tasks file,
+      // tasks.json absent (breakdown in progress), session dir present.
+      mockFindLatestSession.mockResolvedValue({
+        path: '/plan/001_abc',
+        id: '001_abc',
+        hash: 'abc',
+      });
+      mockListSessions.mockResolvedValue([
+        { path: '/plan/001_abc', id: '001_abc', hash: 'abc' },
+      ]);
+      mockFindLatestBugfixTasksFile.mockResolvedValue(null);
+      // tasks.json absent; session dir (dirname) present.
+      mockExistsSync.mockImplementation((p: string) =>
+        p.endsWith('tasks.json') ? false : true
+      );
+      // Default: readFile returns a valid backlog (used by the normal-path case).
+      mockReadFileFn.mockResolvedValue(JSON.stringify({ backlog: [] }));
+
+      bdExit = vi.fn();
+      process.exit = bdExit as any;
+    });
+
+    it('hack status (breakdown) → calm stderr notice, exit 0, no scary ERROR/ENOENT/stack on stdout', async () => {
+      // SETUP — capture stderr (the notice channel) + stdout (must stay clean)
+      const stderrSpy = vi
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+      const stdoutSpy = vi
+        .spyOn(console, 'log')
+        .mockImplementation(() => undefined);
+
+      setArgv(['status']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — exit 0 (the graceful breakdown path)
+      expect(bdExit).toHaveBeenCalledWith(0);
+      // VERIFY — the calm notice went to stderr, naming the session + breakdown
+      const stderrText = stderrSpy.mock.calls.flat().join(' ');
+      expect(stderrText).toContain('001_abc');
+      expect(stderrText).toContain('breakdown');
+      expect(stderrText).toContain(
+        'tasks.json is generated during PRD breakdown'
+      );
+      // VERIFY — NO scary error/ENOENT/stack leaked to stdout
+      const stdoutText = stdoutSpy.mock.calls.flat().join(' ');
+      expect(stdoutText).not.toMatch(/ENOENT|ERROR|stack|Trace/);
+
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    });
+
+    it('hack status --output json → { status: awaiting_breakdown, session } on stdout, exit 0', async () => {
+      // SETUP — capture stdout (JSON channel)
+      const stdoutSpy = vi
+        .spyOn(console, 'log')
+        .mockImplementation(() => undefined);
+
+      setArgv(['status', '--output', 'json']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — exit 0
+      expect(bdExit).toHaveBeenCalledWith(0);
+      // VERIFY — the exact JSON object (parsed, to allow pretty-print whitespace)
+      expect(stdoutSpy).toHaveBeenCalled();
+      const emitted = JSON.parse(stdoutSpy.mock.calls[0][0]);
+      expect(emitted).toEqual({
+        status: 'awaiting_breakdown',
+        session: '001_abc',
+      });
+
+      stdoutSpy.mockRestore();
+    });
+
+    it('hack status --file /nonexistent/tasks.json → STILL a hard error (exit non-zero; not softened)', async () => {
+      // SETUP — explicit --file override: the breakdown check is gated off
+      // (!options.file is FALSE). readFile rejects ENOENT → catch → exit 1.
+      // NO-OP exit captures the catch's exit(1) without throwing.
+      mockReadFileFn.mockRejectedValue(
+        Object.assign(
+          new Error("ENOENT: no such file, open '/nonexistent/tasks.json'"),
+          { code: 'ENOENT' }
+        )
+      );
+
+      setArgv(['status', '--file', '/nonexistent/tasks.json']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — hard error preserved (NOT softened): exit 1, not 0.
+      expect(bdExit).toHaveBeenCalledWith(1);
+      expect(bdExit).not.toHaveBeenCalledWith(0);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Task command failed')
+      );
+    });
+
+    it('no sessions at all → STILL a hard error with "No sessions found" (distinct empty state)', async () => {
+      // SETUP — findLatestSession returns null → throws ABOVE the breakdown
+      // check → catch → exit 1.
+      mockFindLatestSession.mockResolvedValue(null);
+
+      setArgv(['status']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — hard error, distinct from the breakdown state (exit 1, not 0)
+      expect(bdExit).toHaveBeenCalledWith(1);
+      expect(bdExit).not.toHaveBeenCalledWith(0);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('No sessions found')
+      );
+    });
+
+    it('hack task (breakdown) → exit 0 with the list/status wording (not the "next" wording)', async () => {
+      // SETUP
+      const stderrSpy = vi
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      setArgv(['task']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — exit 0, list/status wording (not "no tasks available yet")
+      expect(bdExit).toHaveBeenCalledWith(0);
+      const stderrText = stderrSpy.mock.calls.flat().join(' ');
+      expect(stderrText).toContain(
+        'tasks.json is generated during PRD breakdown'
+      );
+      expect(stderrText).not.toContain('no tasks available yet');
+
+      stderrSpy.mockRestore();
+    });
+
+    it('hack task next (breakdown) → exit 0 with the "next" wording variant', async () => {
+      // SETUP — drive the action === 'next' wording branch
+      const stderrSpy = vi
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      setArgv(['task', 'next']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — exit 0, the "next"-specific wording
+      expect(bdExit).toHaveBeenCalledWith(0);
+      const stderrText = stderrSpy.mock.calls.flat().join(' ');
+      expect(stderrText).toContain(
+        'no tasks available yet (breakdown in progress)'
+      );
+
+      stderrSpy.mockRestore();
+    });
+
+    it('(coverage) normal path: tasks.json EXISTS → breakdown check skipped → readFile → handler completes', async () => {
+      // SETUP — tasks.json PRESENT → the breakdown check's existsSync(tasksFile)
+      // returns true → the `!existsSync(tasksFile)` branch is FALSE → normal
+      // path runs (sourceNote prints, readFile returns the backlog, the action
+      // branch emits and the handler returns without exit).
+      mockExistsSync.mockReturnValue(true); // tasks.json exists → skip breakdown
+      mockReadFileFn.mockResolvedValue(JSON.stringify({ backlog: [] }));
+      const stdoutSpy = vi
+        .spyOn(console, 'log')
+        .mockImplementation(() => undefined);
+
+      setArgv(['status']);
+      parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      // VERIFY — breakdown check was skipped: readFile WAS called (the normal
+      // read path was reached, not the breakdown early-exit), and the normal
+      // status output was emitted (NOT the breakdown JSON object). The normal
+      // path also calls exit(0) at the end of taskAction — that's expected;
+      // the key distinction is readFile was reached + no awaiting_breakdown.
+      expect(mockReadFileFn).toHaveBeenCalled();
+      const stdoutText = stdoutSpy.mock.calls.flat().join(' ');
+      expect(stdoutText).not.toContain('awaiting_breakdown');
+
+      stdoutSpy.mockRestore();
     });
   });
 });

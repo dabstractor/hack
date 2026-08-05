@@ -198,6 +198,17 @@ hack status
 hack status next -o json
 ```
 
+**Breakdown-in-progress state.** If the latest session's directory exists but
+`tasks.json` has not been generated yet (the Architect Agent is still
+decomposing the PRD, or a breakdown run was interrupted), `hack task` /
+`hack status` / `hack task next` print a calm notice to **stderr** and exit **0**
+— this is a normal transient state, not an error. Under `--output json` they
+emit `{ "status": "awaiting_breakdown", "session": "NNN_hash" }`. Re-run
+shortly, or run `hack --continue` to (re)generate `tasks.json`. Note that an
+explicit `--file <path>` pointing at a missing file, and the no-sessions-at-all
+state, remain **hard errors** (exit non-zero) — only auto-resolved (discovered)
+tasks files get the graceful path. See PRD §5.3.
+
 ---
 
 ### Configuration Management
@@ -234,6 +245,27 @@ over file values) → `default` (schema default). The `cli` layer is not reporte
 permitted in `.hack.local`; `validate` rejects a secret found in a committable
 file. `show` runs **without invoking any agent**, so it is safe to run even
 with broken auth.
+
+**`init` + `.gitignore` (PRD §9.7.6):** `hack config init` also adds
+`.hack.local` to `<repoRoot>/.gitignore` (under a
+`# .hack local overrides (never commit)` comment, placed near the
+`# Environment files` section when one exists; idempotent across repeated runs;
+creates `.gitignore` if absent) so personal overrides and secrets are never
+committed. A bare pre-existing `.hack.local` line is left untouched (dedup
+wins over placement), so `init` is always a safe no-op for the gitignore.
+
+**`validate` + tracked-`.hack.local` warning (PRD §9.7.6):** if
+`.hack.local` is tracked by git (e.g. it was accidentally `git add`-ed),
+`hack config validate` prints a loud **stderr** WARNING naming the file, the
+potential secret leak, and the remediation:
+
+```bash
+git rm --cached .hack.local
+```
+
+This is a **non-fatal warning** — `validate` still exits **0** when only
+warnings occurred (the warning never flips the exit code). It stays silent when
+`.hack.local` is absent, untracked, or the cwd is not a git repo.
 
 ```bash
 # Onboard a fresh repo with a commented .hack

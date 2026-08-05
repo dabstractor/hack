@@ -27,8 +27,8 @@
 
 import { Command } from 'commander';
 import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
-import { readFileSync } from 'node:fs';
-import { resolve, relative } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, relative, dirname, basename } from 'node:path';
 import chalk from 'chalk';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { InspectCommand, type InspectorOptions } from './commands/inspect.js';
@@ -665,6 +665,40 @@ export function parseCLIArgs():
           tasksFile = resolve(sessionPath, 'tasks.json');
           sourceNote = `Using main tasks: ${relative(planDir, tasksFile)}`;
         }
+      }
+
+      // PRD §5.3 "Tasks-Not-Yet-Generated Window": if the AUTO-RESOLVED tasks
+      // file is absent solely because the session dir exists but tasks.json
+      // hasn't been generated yet (breakdown in progress / interrupted
+      // breakdown), emit a calm notice and exit 0 instead of a scary ENOENT
+      // error. Gated on the DISCOVERY path only — an explicit --file override
+      // pointing at a missing file remains a hard error (real user mistake).
+      // dirname(tasksFile) is the session dir for both the main-session
+      // fallback and the bugfix tier, so this works uniformly without
+      // sessionPath-scoping gymnastics.
+      if (
+        !options.file &&
+        !existsSync(tasksFile) &&
+        existsSync(dirname(tasksFile))
+      ) {
+        const sessionId = basename(dirname(tasksFile)); // 'NNN_hash'
+        if (options.output === 'json') {
+          console.log(
+            JSON.stringify(
+              { status: 'awaiting_breakdown', session: sessionId },
+              null,
+              2
+            )
+          );
+        } else {
+          const notice =
+            action === 'next'
+              ? `[hack] Session ${sessionId}: no tasks available yet (breakdown in progress).`
+              : `[hack] Session ${sessionId}: tasks.json is generated during PRD breakdown and is not available yet — re-run shortly, or run \`hack --continue\` to (re)generate it.`;
+          process.stderr.write(`${chalk.cyan(notice)}\n`);
+        }
+        process.exit(0);
+        return; // unreachable in prod; stops no-op-exit test fall-through
       }
 
       // Print the source note (PRD §5.3) to stderr, above the listing. It is
