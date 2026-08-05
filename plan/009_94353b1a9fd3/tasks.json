@@ -4,21 +4,21 @@
       "type": "Phase",
       "id": "P1",
       "title": "Repository Root Resolution (Upward .git Traversal) — §9.8",
-      "status": "Planned",
+      "status": "Researching",
       "description": "Make `hack` runnable from any subdirectory of a repository by walking up to the nearest `.git`, `chdir`-ing there, and resolving all default paths (PRD.md, plan/, .hack, .env) against that root. Git is a hard prerequisite: a missing repo aborts at startup. This phase runs FIRST in the bootstrap sequence because the .hack project layers (Phase 2) live at the repo root.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Resolver Engine, Bootstrap Wiring & CLI Override",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Implement the upward .git traversal resolver, wire it into main() bootstrap with chdir + INVOCATION_CWD capture, add the --repo-root CLI override, and verify hard-error behavior and child-process inheritance.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Core resolver, bootstrap chdir, and INVOCATION_CWD semantics",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Create the resolveRepositoryRoot function with upward .git traversal (dir-or-file detection), wire it into main() after parseCLIArgs() and before configureEnvironment(), capture INVOCATION_CWD, and perform process.chdir(repoRoot).",
               "subtasks": [
                 {
@@ -42,7 +42,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "--repo-root <path> flag + explicit-path vs default-path semantics",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -61,14 +61,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Hard-error behavior, child-process inheritance, and acceptance verification",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Verify that NotARepositoryError produces a single actionable exit-1 message before any session/agent work, that --help/--version work outside a repo, and that child processes inherit cwd=repoRoot. Add acceptance tests for all §9.8.9 criteria.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "No-repository hard error + child/agent inheritance + acceptance tests",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

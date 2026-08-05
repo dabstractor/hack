@@ -27,7 +27,7 @@
 
 import { Command } from 'commander';
 import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
 import { getLogger, type Logger } from '../utils/logger.js';
@@ -92,6 +92,13 @@ const taskStatusColor = (status: string): ((text: string) => string) =>
 export interface CLIArgs {
   /** Path to PRD markdown file */
   prd: string;
+
+  /**
+   * Explicit repository root (PRD §9.8.6). Skips the upward `.git` search; `<path>` is resolved
+   * against INVOCATION_CWD and MUST contain a `.git` entry (dir or file), else startup
+   * hard-errors. Undefined → automatic upward traversal (§9.8.2).
+   */
+  repoRoot?: string;
 
   /** Optional scope to limit execution (e.g., "P3.M4") */
   scope?: string;
@@ -311,6 +318,10 @@ export function parseCLIArgs():
     // Required options
     .option('-p, --prd <path>', 'Path to PRD markdown file', './PRD.md')
     // Optional options
+    .option(
+      '--repo-root <path>',
+      'Explicit repository root (skips .git search; must contain .git)'
+    )
     .option('-s, --scope <scope>', 'Scope identifier (e.g., P3.M4, P3.M4.T2)')
     // Mode with choices
     .addOption(
@@ -808,11 +819,13 @@ export function parseCLIArgs():
   // Get typed options for default pipeline execution
   const options = program.opts<CLIArgs>();
 
-  // Validate PRD file exists
-  if (!existsSync(options.prd)) {
-    logger().error(`PRD file not found: ${options.prd}`);
-    logger().error('Please provide a valid PRD file path using --prd');
-    process.exit(1);
+  // PRD §9.8.3: an EXPLICIT --prd resolves against INVOCATION_CWD (where the user typed the
+  // command), NOT the post-chdir repo root. process.cwd() here === INVOCATION_CWD (S1's chdir runs
+  // AFTER parseCLIArgs returns), so resolve() now is INVOCATION_CWD-relative. The DEFAULT
+  // './PRD.md' is left relative → resolved against repoRoot post-chdir. Distinguish via
+  // Commander's value source ('cli' = explicit; 'default' = omitted).
+  if (program.getOptionValueSource('prd') === 'cli') {
+    options.prd = resolve(options.prd);
   }
 
   // Validate scope format if provided

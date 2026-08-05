@@ -52,6 +52,7 @@ import { parseScope, type Scope } from './core/scope-resolver.js';
 import { getLogger, type Logger } from './utils/logger.js';
 import { PRDValidator } from './utils/prd-validator.js';
 import { resolveRepositoryRoot } from './utils/repo-root.js';
+import { existsSync } from 'node:fs';
 
 // Captured at module scope (evaluated at import — strictly before main() runs) so it reflects
 // the true invocation cwd before any bootstrap `process.chdir`. Used by the repository-root
@@ -131,9 +132,24 @@ async function main(): Promise<number> {
   // Placed AFTER parseCLIArgs() so --help/--version/usage errors short-circuit first (Commander
   // process.exit during parse, before this point). A single process.chdir(repoRoot) makes every
   // downstream process.cwd()/resolve(...) site resolve to the repo root with zero per-site changes.
-  // S2 will pass { explicit: args.repoRoot } once the --repo-root CLI flag lands.
-  const { repoRoot } = resolveRepositoryRoot(INVOCATION_CWD);
+  // --repo-root <path> short-circuits the upward search (§9.8.6): the resolver resolves <path>
+  // against INVOCATION_CWD, realpathSyncs, and verifies .git (else NotARepositoryError). When
+  // omitted, undefined → S1's default upward traversal.
+  const { repoRoot } = resolveRepositoryRoot(
+    INVOCATION_CWD,
+    args.repoRoot ? { explicit: args.repoRoot } : undefined
+  );
   process.chdir(repoRoot);
+
+  // PRD §9.8.3: validate the PRD exists against the NOW-correct cwd. args.prd is absolute
+  // (explicit --prd, pre-resolved against INVOCATION_CWD in parseCLIArgs) or relative './PRD.md'
+  // (default → resolves against repoRoot here). One check covers both semantics. (Moved out of
+  // parseCLIArgs, which ran pre-chdir and rejected the default from a subdir.)
+  if (!existsSync(args.prd)) {
+    console.error(`PRD file not found: ${args.prd}`);
+    console.error('Please provide a valid PRD file path using --prd');
+    return 1;
+  }
 
   // Setup global error handlers (preserve console.error for uncaught exceptions)
   setupGlobalHandlers(args.verbose);

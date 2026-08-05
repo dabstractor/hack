@@ -12,6 +12,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolve, isAbsolute } from 'node:path';
 import {
   parseCLIArgs,
   isCLIArgs,
@@ -168,8 +169,8 @@ describe('cli/index', () => {
         // EXECUTE
         const args = parseArgs();
 
-        // VERIFY: Custom PRD path is used
-        expect(args.prd).toBe('./custom/PRD.md');
+        // VERIFY: Custom PRD path is used (S2: explicit --prd pre-resolved against INVOCATION_CWD → absolute)
+        expect(args.prd).toBe(resolve(process.cwd(), './custom/PRD.md'));
       });
 
       it('should parse scope option', () => {
@@ -329,8 +330,8 @@ describe('cli/index', () => {
         // EXECUTE
         const args = parseArgs();
 
-        // VERIFY: All options are parsed correctly
-        expect(args.prd).toBe('./custom/PRD.md');
+        // VERIFY: All options are parsed correctly (S2: explicit --prd pre-resolved → absolute)
+        expect(args.prd).toBe(resolve(process.cwd(), './custom/PRD.md'));
         expect(args.scope).toBe('P1.M2.T3');
         expect(args.mode).toBe('bug-hunt');
         expect(args.continue).toBe(true);
@@ -339,59 +340,63 @@ describe('cli/index', () => {
       });
     });
 
-    describe('PRD file validation', () => {
-      it('should exit with code 1 when PRD file does not exist', () => {
-        // SETUP: File does not exist
-        mockExistsSync.mockReturnValue(false);
-        setArgv(['--prd', './nonexistent.md']);
+    describe('PRD path handling (no parse-time existence check)', () => {
+      // S2 (P1.M1.T1.S2) moved the PRD existence check out of parseCLIArgs into main()
+      // post-chdir (it ran pre-chdir and rejected the default './PRD.md' from a subdir).
+      // parseCLIArgs now just passes --prd through (pre-resolving an EXPLICIT --prd against
+      // INVOCATION_CWD). The post-chdir existence check is covered by the integration suite.
 
-        // EXECUTE & VERIFY: Should throw process.exit error
-        expect(() => parseCLIArgs()).toThrow('process.exit(1)');
-        expect(mockExit).toHaveBeenCalledWith(1);
-      });
-
-      it('should display error message when PRD file not found', () => {
-        // SETUP: File does not exist
+      it('does NOT call existsSync or exit for a missing PRD (check moved to main)', () => {
+        // SETUP: File does not exist — but parseCLIArgs no longer checks.
         mockExistsSync.mockReturnValue(false);
         setArgv(['--prd', './missing.md']);
 
-        // EXECUTE & VERIFY: Should throw process.exit error
-        expect(() => parseCLIArgs()).toThrow('process.exit(1)');
+        // EXECUTE: passes through without exiting.
+        const args = parseArgs();
 
-        // VERIFY: Error message was logged
-        expect(mockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining('PRD file not found')
-        );
-        expect(mockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining('./missing.md')
-        );
+        // VERIFY: process.exit NOT called; existsSync NOT consulted at parse time.
+        expect(mockExit).not.toHaveBeenCalled();
+        expect(mockExistsSync).not.toHaveBeenCalled();
+        // Default --prd is left relative (resolved against repoRoot post-chdir).
+        expect(args.prd).toBe(resolve(process.cwd(), './missing.md'));
       });
 
-      it('should show help text with PRD file path in error', () => {
-        // SETUP: File does not exist
-        mockExistsSync.mockReturnValue(false);
-        setArgv(['--prd', './missing.md']);
-
-        // EXECUTE & VERIFY: Should throw process.exit error
-        expect(() => parseCLIArgs()).toThrow('process.exit(1)');
-
-        // VERIFY: Help text includes --prd usage
-        expect(mockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining('--prd')
-        );
-      });
-
-      it('should not exit when PRD file exists', () => {
-        // SETUP: File exists
+      it('pre-resolves an EXPLICIT --prd against INVOCATION_CWD (absolute)', () => {
+        // SETUP: explicit --prd resolves against process.cwd() (=== INVOCATION_CWD at parse time).
         mockExistsSync.mockReturnValue(true);
-        setArgv(['--prd', './existing.md']);
+        setArgv(['--prd', './custom/prd.md']);
 
         // EXECUTE
         const args = parseArgs();
 
-        // VERIFY: process.exit was NOT called
-        expect(mockExit).not.toHaveBeenCalled();
-        expect(args.prd).toBe('./existing.md');
+        // VERIFY: --prd is absolute (INVOCATION_CWD-relative); survives the later chdir.
+        expect(args.prd).toBe(resolve(process.cwd(), './custom/prd.md'));
+        expect(require('node:path').isAbsolute(args.prd)).toBe(true);
+      });
+
+      it('leaves the DEFAULT ./PRD.md relative (resolved against repoRoot post-chdir)', () => {
+        // SETUP: no --prd → default './PRD.md' (Commander supplies it).
+        mockExistsSync.mockReturnValue(true);
+        setArgv([]);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: default stays relative (NOT pre-resolved) → resolves against repoRoot later.
+        expect(args.prd).toBe('./PRD.md');
+        expect(isAbsolute(args.prd)).toBe(false);
+      });
+
+      it('parses --repo-root and flows it through to ValidatedCLIArgs', () => {
+        // SETUP: explicit --repo-root.
+        mockExistsSync.mockReturnValue(true);
+        setArgv(['--repo-root', '/some/repo']);
+
+        // EXECUTE
+        const args = parseArgs();
+
+        // VERIFY: repoRoot flows through (undefined when omitted; the resolver consumes it in main).
+        expect(args.repoRoot).toBe('/some/repo');
       });
     });
 
