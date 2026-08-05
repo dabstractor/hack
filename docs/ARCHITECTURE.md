@@ -85,17 +85,23 @@ Throughout the process, the Session Manager maintains state persistence, enablin
 ## Bootstrap Layer
 
 The **bootstrap layer** runs before any of the four processing engines (PRD §3, §8): it parses
-the CLI, resolves and `chdir`s to the repository root, loads the layered `.hack` configuration,
-then configures the environment, harness, and auth preflight before the pipeline runs. It is
-the chronological first thing `main()` does, and it is what makes "run from anywhere" and the
-committed `.hack` defaults work.
+the CLI, resolves and `chdir`s to the repository root **during** `program.parse()` (via a
+`preAction` hook that fires before each action handler), loads the layered `.hack` configuration,
+then configures the environment, harness, and auth preflight before the pipeline runs. Because
+the `chdir` happens _inside_ parse — before every subcommand's `.action()` handler, not after
+`parseCLIArgs()` returns — it is what makes "run from anywhere" work for **all** subcommands and
+the default pipeline alike, and the committed `.hack` defaults work.
 
-**Location**: [`src/index.ts`](../src/index.ts) (`main()`).
+**Location**: [`src/cli/index.ts`](../src/cli/index.ts) (`parseCLIArgs()` registers the
+`preAction` hook) + [`src/index.ts`](../src/index.ts) (`main()` reads the cached `getRepoRoot()`
+singleton).
 
 ```mermaid
 graph TD
-    A[parseCLIArgs] --> B[resolveRepositoryRoot + chdir]
+    A[parseCLIArgs] -->|"preAction hook (every action handler)"| B[resolveRepositoryRoot + chdir]
+    A -->|"after parse returns"| H["main(): getRepoRoot() (cached singleton)"]
     B --> C[loadHackConfig]
+    H --> C
     C --> D[configureEnvironment]
     D --> E[configureHarness]
     E --> F[runAuthPreflight]
@@ -107,16 +113,17 @@ graph TD
     style G fill:#c8e6c9
 ```
 
-| Step | Action                                                                                | Source                      | PRD §           |
-| ---- | ------------------------------------------------------------------------------------- | --------------------------- | --------------- |
-| 1    | `parseCLIArgs()` (`--help`/`--version`/usage short-circuit here)                      | `src/cli/index.ts`          | §4.1            |
-| 2    | Capture `INVOCATION_CWD = process.cwd()` before any chdir                             | `src/index.ts`              | §9.8            |
-| 3    | `resolveRepositoryRoot(INVOCATION_CWD, {explicit?})` + `process.chdir(repoRoot)`      | `src/utils/repo-root.ts`    | §9.8.2 / §9.8.3 |
-| 4    | `PRD.md` exists-check against the now-correct cwd                                     | `src/index.ts`              | §4.1            |
-| 5    | `loadHackConfig(repoRoot)` — 3-tier discovery + merge + env-seed                      | `src/config/hack-config.ts` | §9.7 / §9.7.9   |
-| 6    | `configureEnvironment()` — reads seeded + shell env                                   | `src/index.ts`              | §9.2.1          |
-| 7    | `configureHarness()` (singular) + `runAuthPreflight()` + `ensureHarnessInitialized()` | `src/index.ts`              | §9.4 / §9.2.7   |
-| 8    | `new PRPPipeline(...)` + `pipeline.run()`                                             | `src/index.ts`              | §4.1            |
+| Step | Action                                                                                                                                                                                                                                                                  | Source                                            | PRD §                    |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------ |
+| 1    | `parseCLIArgs()` registers a `program.hook('preAction', …)` and calls `program.parse()` — `--help`/`--version`/usage short-circuit here                                                                                                                                 | `src/cli/index.ts`                                | §4.1                     |
+| 1a   | **`preAction` hook fires** (after options parsed, before each action body): `bootstrapRepoRoot(process.cwd(), {explicit?})` → `resolveRepositoryRoot` + `process.chdir(repoRoot)`; idempotent (`_bootstrapped`). Applies to the root default path AND every subcommand. | `src/cli/index.ts:852` + `src/utils/repo-root.ts` | §9.8.2 / §9.8.3 / §9.8.7 |
+| 1b   | Subcommand `.action()` handlers run AFTER the chdir → they resolve `plan/`/`PRD.md`/`.hack`/`.env` at `repoRoot`.                                                                                                                                                       | `src/cli/index.ts`                                | §9.8.7 / §9.8.9          |
+| 2    | `main()` reads the cached `getRepoRoot()` singleton (the chdir already ran during parse); `INVOCATION_CWD` was captured at module scope for `--prd` pre-resolution.                                                                                                     | `src/index.ts`                                    | §9.8                     |
+| 3    | `PRD.md` exists-check against the now-correct cwd                                                                                                                                                                                                                       | `src/index.ts`                                    | §4.1                     |
+| 4    | `loadHackConfig(repoRoot)` — 3-tier discovery + merge + env-seed                                                                                                                                                                                                        | `src/config/hack-config.ts`                       | §9.7 / §9.7.9            |
+| 5    | `configureEnvironment()` — reads seeded + shell env                                                                                                                                                                                                                     | `src/index.ts`                                    | §9.2.1                   |
+| 6    | `configureHarness()` (singular) + `runAuthPreflight()` + `ensureHarnessInitialized()`                                                                                                                                                                                   | `src/index.ts`                                    | §9.4 / §9.2.7            |
+| 7    | `new PRPPipeline(...)` + `pipeline.run()`                                                                                                                                                                                                                               | `src/index.ts`                                    | §4.1                     |
 
 > **Repo-root resolver** ([`src/utils/repo-root.ts`](../src/utils/repo-root.ts), PRD §9.8):
 > walks upward from `INVOCATION_CWD` to the nearest `.git` entry — a **directory** (normal
@@ -124,7 +131,11 @@ graph TD
 > ancestor wins** (an inner repo beats an outer one, §9.8.2). `realpathSync` canonicalizes the
 > root. Reaching the filesystem root without a `.git` ancestor throws `NotARepositoryError`
 > (§9.8.5), whose message bakes the `--repo-root <path>` remediation. `--repo-root` (§9.8.6)
-> skips the walk and pins an explicit root. The resolved root is cached in module singletons
+> skips the walk and pins an explicit root. The resolve+`chdir` is wrapped in
+> `bootstrapRepoRoot()` and invoked from the `preAction` hook so **all** subcommands inherit the
+> correct cwd; a `NotARepositoryError` thrown in the hook propagates through `program.parse()` to
+> `main().catch()`'s dedicated clean arm (single `❌` line, no stack trace). The resolved root is
+> cached in module singletons
 > (`getRepoRoot()` / `getInvocationCwd()`).
 >
 > **`.hack` loader** ([`src/config/hack-config.ts`](../src/config/hack-config.ts), PRD §9.7):

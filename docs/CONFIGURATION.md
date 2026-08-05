@@ -113,6 +113,18 @@ subsections for the per-key semantics.
 > secret there is a **hard error** (exit 1). `.hack.local` (gitignored) is the only `.hack` tier
 > permitted to hold secrets. Unknown sections/keys emit a stderr **warning** and are ignored
 > (catches typos); type/range/enum mismatches are hard errors.
+>
+> **Relational constraint (PRD §9.7.5):** `[commit] retry_delay_cap_ms` must be **≥**
+> `retry_delay_ms` (the exponential-backoff cap can't be below the base delay). Both keys are
+> individually validated as `int >= 0`; their cross-key relationship is enforced in
+> `validateHackTier` (`src/config/hack-config.ts`) and rejected as a hard error (exit 1) at
+> startup and by `hack config validate`. The check is **per-tier** (per-file); only a tier that
+> sets both keys is checked.
+>
+> **Error rendering (§9.2.7 fail-fast):** a misconfigured `.hack` (type/range/enum/secrets/BOM or
+> the relational violation) surfaces at startup as a single actionable `❌ <message>` line — no
+> stack trace — via a dedicated clean arm, so a typo like `[tasks_lock] poll_ms = -5` reads as a
+> clear user error rather than a deep runtime failure mid-pipeline.
 
 ### `hack config` subcommand
 
@@ -238,7 +250,7 @@ Tune execution-loop resilience knobs. See PRD §4.2 (deadline & fallback), §4.3
 | `ISSUE_RETRY_MAX`        | No       | `3`           | Maximum number of issue-driven re-planning attempts per item before it hard-fails. See PRD §4.5.                                                                                                                                                                                                                                                                                                     |
 | `COMMIT_RETRY_MAX`       | No       | `5`           | Maximum number of stagecoach commit-message-generation attempts before falling back (total attempts: initial + retries). See PRD §5.1.                                                                                                                                                                                                                                                               |
 | `COMMIT_RETRY_DELAY`     | No       | `10000`       | Base delay in milliseconds between stagecoach commit-message-generation retries (exponential, doubling). See PRD §5.1.                                                                                                                                                                                                                                                                               |
-| `COMMIT_RETRY_DELAY_CAP` | No       | `120000`      | Maximum delay cap in milliseconds for stagecoach commit-message-generation backoff. See PRD §5.1.                                                                                                                                                                                                                                                                                                    |
+| `COMMIT_RETRY_DELAY_CAP` | No       | `120000`      | Maximum delay cap in milliseconds for stagecoach commit-message-generation backoff. Must be ≥ `COMMIT_RETRY_DELAY` (the relational cap≥delay constraint, PRD §9.7.5; enforced at startup and by `hack config validate`). See PRD §5.1.                                                                                                                                                               |
 | `CLASSIFIER_RETRY_MAX`   | No       | `4`           | Maximum number of LLM change/artifact-classifier attempts before failing to the protective/conservative default (treat as SUBSTANTIVE/DIRTY). Total attempt count (initial + retries), like the `COMMIT_RETRY_*` knobs. See PRD §4.3.                                                                                                                                                                |
 | `PRP_COMMIT_FORMAT`      | No       | `task-prefix` | Commit-message format mode. `task-prefix` (DEFAULT) layers the `<phase>.<milestone>.<task>.<subtask>:` position prefix; `plain` opts out (no prefix). Any other value (including empty) falls back to `task-prefix`. See PRD §5.1. **`.hack` key:** `[pipeline] commit_format` (see [.hack Configuration File](#hack-configuration-file)); already live via `constants.ts` / `getPrpCommitFormat()`. |
 

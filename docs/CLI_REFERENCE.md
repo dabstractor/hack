@@ -209,6 +209,18 @@ explicit `--file <path>` pointing at a missing file, and the no-sessions-at-all
 state, remain **hard errors** (exit non-zero) — only auto-resolved (discovered)
 tasks files get the graceful path. See PRD §5.3.
 
+**Run from anywhere (PRD §9.8.7 / §9.8.9).** Every `hack` subcommand — `task`, `status`,
+`cache`, `inspect`, `artifacts`, `validate-state`, and `config` — resolves `plan/`, `PRD.md`,
+`.hack`, and `.env` at the **repository root**, regardless of the directory you invoke it from.
+At startup `hack` walks up from your current directory to the nearest `.git` entry (a directory
+for a normal clone, or a file for a worktree/submodule) and `chdir`s to that root via a
+`preAction` hook that runs _before_ each action handler, so the same command works identically
+from the repo root or a deep subdirectory. Pass `--repo-root <path>` (§9.8.6) to pin an explicit
+root and skip the upward search. Invoking `hack` outside any git repository exits 1 with a
+single `NotARepositoryError` (§9.8.5) naming the directory it searched from and the `--repo-root`
+remediation. See [Running from Anywhere](../README.md#running-from-anywhere) and [Bootstrap
+Layer](./ARCHITECTURE.md#bootstrap-layer).
+
 ---
 
 ### Configuration Management

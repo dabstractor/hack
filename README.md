@@ -111,7 +111,10 @@ You don't have to `cd` to the repository root. At startup `hack` walks upward fr
 current directory to the nearest `.git` entry (a directory for a normal clone, or a file for
 a worktree/submodule) and `chdir`s to that repository root before doing anything else
 (PRD §9.8). The session directory, `PRD.md`, `.hack`, `.env`, and `plan/` are all resolved
-relative to that root, so the same invocation works from anywhere inside the repo.
+relative to that root, so the same invocation works from anywhere inside the repo. This applies
+to **every** subcommand — `task`, `status`, `cache`, `inspect`, `artifacts`, `validate-state`,
+and `config` — not just the default pipeline run, because `hack` resolves and `chdir`s to the
+root before each subcommand's action handler runs.
 
 ```bash
 # Invoked from a deep subdirectory — resolves to the repo root automatically

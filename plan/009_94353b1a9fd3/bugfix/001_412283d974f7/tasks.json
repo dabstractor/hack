@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "CLI Subcommand Resolution & Config Validation Bug Fixes",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Fix three bugs identified in end-to-end testing of the §9.8 (repo-root), §9.7 (.hack config), and §5.3 (breakdown-in-progress) delta: (1) BUG-001 Critical — 6 of 7 subcommands resolve plan/ & PRD.md against the invocation dir instead of the repo root because action handlers run during program.parse() before main()'s chdir; (2) BUG-002 Minor — .hack validation/secrets errors render with a full stack trace via the default catch arm instead of the clean single-message arms used for typed errors; (3) BUG-003 Minor — the documented commit.retry_delay_cap_ms >= commit.retry_delay_ms relational constraint is not enforced. All fixes use existing infrastructure (Commander preAction hooks, typed-error pattern, per-key validation framework). No new dependencies.",
       "milestones": [
         {
@@ -175,7 +175,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "BUG-003: Enforce relational constraint + changeset-level documentation sync",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add a post-per-key cross-key relational check in validateHackTier that throws when commit.retry_delay_cap_ms < commit.retry_delay_ms (both present). Remove the acknowledged-gap comments. Then sync all changeset-level documentation (README.md, docs/) to reflect the three bug fixes.",
           "tasks": [
             {
@@ -207,14 +207,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Final documentation sweep for the entire changeset. Update README.md, docs/CONFIGURATION.md, docs/CLI_REFERENCE.md, and docs/ARCHITECTURE.md to reflect the three bug fixes: subcommands now correctly resolve from anywhere (BUG-001), config validation errors render cleanly (BUG-002), and the retry_delay_cap_ms relational constraint is enforced (BUG-003).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Update README.md, docs/CONFIGURATION.md, docs/CLI_REFERENCE.md, docs/ARCHITECTURE.md",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
