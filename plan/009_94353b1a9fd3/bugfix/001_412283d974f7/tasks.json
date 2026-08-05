@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BUG-001: Fix subcommand repo-root resolution (Critical)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Fix the root cause where 6 of 7 subcommands (task, status, cache, inspect, artifacts, validate-state) resolve plan/ and PRD.md against INVOCATION_CWD instead of the repo root. Only the `config` subcommand was patched (src/cli/index.ts:608). The fix uses a Commander preAction hook (supported in commander@14.0.2) to resolve the repo root + chdir before ANY action handler runs, making all subcommands inherit correct cwd with a single-point change. See architecture/bug_001_fix_strategy.md for the detailed design.",
           "tasks": [
             {
@@ -72,14 +72,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Integration tests — subcommand resolution from subdirectories",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add integration tests that verify all 6 previously-unpatched subcommands resolve plan/ and PRD.md at the repo root when invoked from a nested subdirectory, and that NotARepositoryError renders cleanly when invoked outside any git repository. The current test suite tests the resolver in isolation and missed the action-handler timing gap.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Integration tests: subcommands from nested subdir + outside repo",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S3"
