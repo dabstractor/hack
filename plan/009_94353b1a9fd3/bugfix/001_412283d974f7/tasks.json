@@ -182,14 +182,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Cross-key relational validation in validateHackTier",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Implement the commit.retry_delay_cap_ms >= commit.retry_delay_ms cross-key check at the end of validateHackTier, after the per-key loop. Both runtime paths (hack config validate CLI + loadHackConfig startup) funnel through validateHackTier, so a single edit fixes both. Remove the two DOCUMENTED GAP comments.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Implement commit relational check + remove gap comments + tests",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"

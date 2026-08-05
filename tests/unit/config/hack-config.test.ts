@@ -826,6 +826,53 @@ describe('hack-config: secrets & validation', () => {
     expect(() => loadHackConfig(repoRoot)).toThrow(/research_queue/);
   });
 
+  // --- Relational cross-key (§9.7.5: commit.retry_delay_cap_ms ≥ retry_delay_ms) -
+
+  it('SHOULD throw when [commit] retry_delay_cap_ms < retry_delay_ms (§9.7.5 relational)', () => {
+    // SETUP — cap (100) below base delay (200000): both individually valid ints, but cap < delay.
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-rel-throws'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-rel-throws-'));
+    const hackFile = join(repoRoot, '.hack');
+    writeFileSync(
+      hackFile,
+      '[commit]\nretry_delay_ms = 200000\nretry_delay_cap_ms = 100\n'
+    );
+
+    // EXECUTE & VERIFY — throws naming section + key + file + both values + 'less than'.
+    expect(() => loadHackConfig(repoRoot)).toThrow(/retry_delay_cap_ms/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(/less than/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(/retry_delay_ms/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(hackFile);
+    expect(() => loadHackConfig(repoRoot)).toThrow(/200000/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(/100/);
+  });
+
+  it('SHOULD accept [commit] retry_delay_cap_ms ≥ retry_delay_ms (§9.7.5 relational satisfied)', () => {
+    // SETUP — cap (10000) ≥ base delay (1000): the constraint is satisfied.
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-rel-ok'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-rel-ok-'));
+    const hackFile = join(repoRoot, '.hack');
+    writeFileSync(
+      hackFile,
+      '[commit]\nretry_delay_ms = 1000\nretry_delay_cap_ms = 10000\n'
+    );
+
+    // EXECUTE & VERIFY — no throw; the commit values merged through.
+    expect(() => loadHackConfig(repoRoot)).not.toThrow();
+  });
+
+  it('SHOULD NOT fire the relational check when only one of the two [commit] keys is present', () => {
+    // SETUP — only retry_delay_ms present; retry_delay_cap_ms omitted → the relational
+    // check (which requires BOTH keys in THIS tier) is skipped.
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-rel-one'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-rel-one-'));
+    const hackFile = join(repoRoot, '.hack');
+    writeFileSync(hackFile, '[commit]\nretry_delay_ms = 1000\n');
+
+    // EXECUTE & VERIFY — no throw (relational check requires BOTH keys).
+    expect(() => loadHackConfig(repoRoot)).not.toThrow();
+  });
+
   // --- Debug trace (§9.7.10) -------------------------------------------------
 
   it('SHOULD emit a masked effective-config trace at HACKY_LOG_LEVEL=debug', () => {

@@ -599,8 +599,8 @@ export interface HackConfigFieldSpec {
  * secret-bearing and are governed by the secrets policy (§9.7.6) BEFORE any type check. Does
  * NOT overlap S2's `HACK_KEY_TO_ENV` (env-var seeding) or P2.M2.T1.S1 (constants.ts reconciliation).
  *
- * The relational `commit.retry_delay_cap_ms >= commit.retry_delay_ms` cross-key check is a
- * DOCUMENTED GAP (P2.M2 may harden); `retry_delay_cap_ms` validates as `int >= 0` only.
+ * The relational `commit.retry_delay_cap_ms >= commit.retry_delay_ms` cross-key check is enforced
+ * in `validateHackTier` (post-per-key, per-tier).
  */
 const HACK_CONFIG_SCHEMA: Readonly<
   Record<string, Readonly<Record<string, HackConfigFieldSpec>>>
@@ -622,7 +622,7 @@ const HACK_CONFIG_SCHEMA: Readonly<
   commit: {
     retry_max: { type: 'int', min: 1 },
     retry_delay_ms: { type: 'int', min: 0 },
-    retry_delay_cap_ms: { type: 'int', min: 0 }, // relational cap>=delay deferred (cross-key)
+    retry_delay_cap_ms: { type: 'int', min: 0 }, // relational cap>=delay enforced in validateHackTier
     classifier_retry_max: { type: 'int', min: 1 },
   },
   bug_hunt: {
@@ -792,6 +792,25 @@ export function validateHackTier(
       }
       // (d) type/range/enum (§9.7.7) — HARD error.
       validateFieldValue(file, section, key, value, spec);
+    }
+  }
+  // ── Cross-key relational check (PRD §9.7.5: commit.retry_delay_cap_ms ≥ retry_delay_ms) ──
+  // Both keys are individually valid (per-key type/range checks ran in the loop above); verify
+  // their relationship. Only fires when BOTH keys are present in THIS tier (a single-key tier is
+  // always valid). Per-tier (per-file) — cross-tier (delay in .hack, cap in .hack.local) is a
+  // KNOWN, ACCEPTED limitation (PRD §9.7.7 frames validation as per-file; defaults satisfy it).
+  const commit = parsed.commit;
+  if (
+    commit &&
+    commit.retry_delay_ms !== undefined &&
+    commit.retry_delay_cap_ms !== undefined
+  ) {
+    const delay = commit.retry_delay_ms as number;
+    const cap = commit.retry_delay_cap_ms as number;
+    if (cap < delay) {
+      throw new HackConfigError(
+        `[commit] retry_delay_cap_ms in ${file}: ${cap} is less than retry_delay_ms (${delay}); the cap must be ≥ the base delay.`
+      );
     }
   }
 }
