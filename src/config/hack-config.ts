@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse, TomlError } from 'smol-toml';
 import { PRP_API_KEY } from './constants.js';
+import { HackConfigError } from './types.js';
 
 /**
  * A scalar value in a parsed `.hack` file.
@@ -80,16 +81,15 @@ export function parseHackFile(filePath: string): ParsedHackConfig {
       buffer[1] === 0xbb &&
       buffer[2] === 0xbf
     ) {
-      throw new Error(
+      throw new HackConfigError(
         `BOM detected in ${filePath}; remove it and re-save as UTF-8 without BOM`
       );
     }
     return parse(buffer.toString('utf8')) as unknown as ParsedHackConfig;
   } catch (error) {
     if (error instanceof TomlError) {
-      throw new Error(
-        `Failed to parse ${filePath}: ${error.message} (line ${error.line}, column ${error.column})`,
-        { cause: error }
+      throw new HackConfigError(
+        `Failed to parse ${filePath}: ${error.message} (line ${error.line}, column ${error.column})`
       );
     }
     throw error; // BOM Error / ENOENT / etc. — already carry the path; rethrow as-is
@@ -732,8 +732,9 @@ function warnOnceValidation(message: string, dedupKey: string): void {
  * Validate a single parsed `.hack` tier file (PRD §9.7.6 secrets + §9.7.7 validation).
  *
  * @remarks Runs per-tier, immediately after {@link parseHackFile} and BEFORE merging, so error
- * messages can name the exact file. Hard errors THROW a plain `Error` (rendered by
- * `main().catch()`'s default arm → exit 1); warnings go to stderr via {@link warnOnceValidation}.
+ * messages can name the exact file. Hard errors THROW a `HackConfigError` (rendered by
+ * `main().catch()`'s dedicated `HackConfigError` arm → a clean `❌ <message>` line + exit 1);
+ * warnings go to stderr via {@link warnOnceValidation}.
  * Secrets are checked FIRST: a non-empty secret in a committable tier (global/project) is a HARD
  * error (§9.7.6); an empty/whitespace secret is "not configured" (§9.2.7) and is skipped; a secret
  * in `project-local` is allowed and skips type validation (its value is never echoed). Unknown
@@ -771,7 +772,7 @@ export function validateHackTier(
       if (isSecretKey(key)) {
         if (typeof value === 'string' && value.trim() === '') continue; // empty == not configured (§9.2.7)
         if (tier !== 'project-local') {
-          throw new Error(
+          throw new HackConfigError(
             `Secret-bearing key [${section}] ${key} is not permitted in the committable file ${file} ` +
               `(PRD §9.7.6). Move it to .hack.local (gitignored) or an environment variable, then retry.`
           );
@@ -798,8 +799,9 @@ export function validateHackTier(
 /**
  * Type/range/enum check for a known key (PRD §9.7.7). Throws on mismatch.
  *
- * @remarks A plain `throw new Error` reaches `main().catch()`'s default arm (index.ts:401) →
- * exit 1. The message names the file + section + key + offending value + expected
+ * @remarks A `throw new HackConfigError` reaches `main().catch()`'s dedicated `HackConfigError`
+ * arm → a clean `❌ <message>` line + exit 1 (mirroring NotARepositoryError/AuthPreflightError;
+ * PRD §9.7.7/§9.2.7). The message names the file + section + key + offending value + expected
  * type/range (for int) / accepted values (for enum). TOML int = JS number +
  * `Number.isInteger`; bool = JS boolean; string = JS string. A TOML `poll_ms = true` is a
  * TYPE mismatch (boolean where int expected), not a range error.
@@ -812,29 +814,29 @@ function validateFieldValue(
   spec: HackConfigFieldSpec
 ): void {
   if (spec.type === 'boolean' && typeof value !== 'boolean') {
-    throw new Error(
+    throw new HackConfigError(
       `[${section}] ${key} in ${file}: expected boolean, got ${typeof value} (${JSON.stringify(value)}).`
     );
   }
   if (spec.type === 'string' && typeof value !== 'string') {
-    throw new Error(
+    throw new HackConfigError(
       `[${section}] ${key} in ${file}: expected string, got ${typeof value} (${JSON.stringify(value)}).`
     );
   }
   if (spec.type === 'int') {
     if (typeof value !== 'number' || !Number.isInteger(value)) {
-      throw new Error(
+      throw new HackConfigError(
         `[${section}] ${key} in ${file}: expected integer, got ${typeof value} (${JSON.stringify(value)}).`
       );
     }
     const range = `expected integer in [${spec.min ?? '-∞'}, ${spec.max ?? '+∞'}]`;
     if (spec.min !== undefined && value < spec.min) {
-      throw new Error(
+      throw new HackConfigError(
         `[${section}] ${key} in ${file}: ${value} is out of range (${range}).`
       );
     }
     if (spec.max !== undefined && value > spec.max) {
-      throw new Error(
+      throw new HackConfigError(
         `[${section}] ${key} in ${file}: ${value} is out of range (${range}).`
       );
     }
@@ -844,7 +846,7 @@ function validateFieldValue(
     spec.enum !== undefined &&
     !spec.enum.includes(value as string)
   ) {
-    throw new Error(
+    throw new HackConfigError(
       `[${section}] ${key} in ${file}: ${JSON.stringify(value)} is not one of the accepted values ` +
         `[${spec.enum.join(', ')}].`
     );

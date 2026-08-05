@@ -234,6 +234,23 @@ export class AuthPreflightError extends Error {
 }
 
 /**
+ * Error thrown when a `.hack` configuration file fails validation
+ * (PRD §9.7.6/§9.7.7: BOM, TOML parse, secrets policy, type/range/enum).
+ *
+ * @remarks
+ * Surfaced as a clean startup error via `main().catch()`'s dedicated `HackConfigError`
+ * arm (P1.M2.T2.S1), mirroring {@link NotARepositoryError}/{@link AuthPreflightError}
+ * (§9.2.7 fail-fast philosophy). Thrown by `parseHackFile`/`validateHackTier`/
+ * `validateFieldValue` in `hack-config.ts`.
+ */
+export class HackConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HackConfigError';
+  }
+}
+
+/**
  * Build the PRD §9.2.7 actionable preflight failure message.
  *
  * @remarks
