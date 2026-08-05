@@ -41,6 +41,19 @@ vi.mock('../../../src/core/session-manager.js', () => ({
   SessionManager: vi.fn(),
 }));
 
+// Mock the change classifier (BUG-002 Part B): decomposePRD's delta branch
+// guards the generated delta_prd.md via classifyArtifactWithRetry (PRD §4.3
+// "never proceed unprotected"). Without this mock the REAL classifier runs, and
+// under the unit-test mock graph (no LLM available) it exhausts retries and
+// fails to its protective default 'DIRTY' → the breakdown aborts BEFORE the
+// architect is invoked → createArchitectPrompt is never called. A bare vi.fn()
+// returns undefined (!== 'DIRTY') so the delta content flows to the architect,
+// which is what these decomposePRD-delta-branch tests exercise.
+vi.mock('../../../src/core/change-classifier.js', () => ({
+  classifyChangeWithRetry: vi.fn(),
+  classifyArtifactWithRetry: vi.fn(),
+}));
+
 // Mock DeltaAnalysisWorkflow / BugHuntWorkflow / FixCycleWorkflow (constructor
 // side effects avoided).
 vi.mock('../../../src/workflows/delta-analysis-workflow.js', () => ({

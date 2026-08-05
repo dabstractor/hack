@@ -86,6 +86,20 @@ vi.mock('../../../src/core/session-manager.js', () => ({
   SessionManager: vi.fn(),
 }));
 
+// Mock the change classifier (BUG-002 Part B): the full handleDelta →
+// spawnDeltaSession → decomposePRD path now guards the generated delta_prd.md
+// via classifyArtifactWithRetry (PRD §4.3 "never proceed unprotected").
+// Without this mock the REAL classifier runs under a mocked agent graph (no
+// LLM), exhausts retries, fails to its protective default 'DIRTY', and aborts
+// the breakdown BEFORE the architect is invoked → createArchitectPrompt is
+// never called and no new tasks are produced. A bare vi.fn() returns undefined
+// (!== 'DIRTY') so the delta content flows to the architect, which is what
+// these integration tests exercise (the renumber-and-append merge wiring).
+vi.mock('../../../src/core/change-classifier.js', () => ({
+  classifyChangeWithRetry: vi.fn(),
+  classifyArtifactWithRetry: vi.fn(),
+}));
+
 // Mock DeltaAnalysisWorkflow (constructor → { run } returning a DeltaAnalysis with an 'added'
 // change among modified + removed). spawnDeltaSession does `new DeltaAnalysisWorkflow(...)` then
 // `await workflow.run()`.

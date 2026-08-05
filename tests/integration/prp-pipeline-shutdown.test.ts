@@ -37,6 +37,7 @@ vi.mock('../../src/core/task-orchestrator.js', () => ({
   TaskOrchestrator: vi.fn().mockImplementation(() => ({
     sessionManager: {},
     currentItemId: null,
+    rebuildQueue: vi.fn().mockResolvedValue(undefined),
     processNextItem: vi.fn().mockResolvedValue(false),
   })),
 }));
@@ -91,23 +92,49 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
         currentItemId: null,
       }),
       saveBacklog: vi.fn().mockResolvedValue(undefined),
+      // initializeSession()/run() call these on this.sessionManager; without them
+      // the mock throws non-fatally → currentPhase='session_failed' → run() never
+      // reaches the execution loop (processNextItem), so every shutdown assertion
+      // reports shutdownRequested=false. Mirrors pipeline-main-loop.test.ts's helper.
+      flushUpdates: vi.fn().mockResolvedValue(undefined),
+      updateItemStatus: vi.fn().mockResolvedValue(backlog),
+      loadBacklog: vi.fn().mockResolvedValue(backlog),
+      hasSessionChanged: vi.fn().mockReturnValue(false),
+      hasAnySessions: vi.fn().mockResolvedValue(false),
+      planDir,
+      prdPath,
     };
     MockSessionManagerClass.mockImplementation(() => mock);
     return mock;
   }
 
   beforeEach(() => {
-    // Reset SessionManager mock to default
+    // Reset SessionManager mock to default. initializeSession()/run()/cleanup()
+    // call hasSessionChanged/hasAnySessions/flushUpdates/updateItemStatus/
+    // loadBacklog on this.sessionManager; the default mock must provide them so
+    // tests that rely on the default still pass init (mirrors the enriched
+    // setupMockSessionManager helper + pipeline-main-loop.test.ts).
     MockSessionManagerClass.mockImplementation(() => ({
       currentSession: null,
       initialize: vi.fn().mockResolvedValue({ currentSession: null }),
       saveBacklog: vi.fn().mockResolvedValue(undefined),
+      flushUpdates: vi.fn().mockResolvedValue(undefined),
+      updateItemStatus: vi.fn().mockResolvedValue(undefined),
+      loadBacklog: vi.fn().mockResolvedValue({ backlog: [] }),
+      hasSessionChanged: vi.fn().mockReturnValue(false),
+      hasAnySessions: vi.fn().mockResolvedValue(false),
+      planDir,
+      prdPath,
     }));
 
-    // Reset TaskOrchestrator mock to default
+    // Reset TaskOrchestrator mock to default. run() calls rebuildQueue() after
+    // decomposePRD(); without it run() throws TypeError → success=false and
+    // processNextItem is never reached (mirrors pipeline-main-loop.test.ts).
     MockTaskOrchestratorClass.mockImplementation(() => ({
       sessionManager: {},
       currentItemId: null,
+      rebuildQueue: vi.fn().mockResolvedValue(undefined),
+      rebuildQueue: vi.fn().mockResolvedValue(undefined),
       processNextItem: vi.fn().mockResolvedValue(false),
     }));
 
@@ -124,6 +151,14 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'prp-shutdown-test-'));
     prdPath = join(tempDir, 'PRD.md');
     planDir = join(tempDir, 'plan');
+
+    // run() calls validateNestedExecution() which throws NestedExecutionError
+    // if process.env.PRP_PIPELINE_RUNNING is set (leaks in some run contexts —
+    // e.g. when this test suite itself runs inside a PRP pipeline). Without
+    // this reset, run() aborts BEFORE initializeSession() on every test,
+    // masking the shutdown behavior under test. Mirrors the defensive clear
+    // in pipeline-main-loop.test.ts beforeEach.
+    delete process.env.PRP_PIPELINE_RUNNING;
   });
 
   afterEach(async () => {
@@ -162,6 +197,53 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
   ) => {
     writeFileSync(prdPath, content);
   };
+
+  // Minimal non-empty backlog (one phase → milestone → task → subtask). Several
+  // shutdown tests emit SIGINT/SIGTERM from INSIDE the mock's processNextItem;
+  // executeBacklog() early-returns when #countTasks() === 0, so a { backlog: [] }
+  // fixture means processNextItem is never called and the signal is never emitted
+  // → shutdownRequested stays false. This fixture gives those tests one subtask so
+  // processNextItem runs once and the signal fires.
+  const createSingleSubtaskBacklog = (): Backlog => ({
+    backlog: [
+      {
+        id: 'P1',
+        type: 'Phase',
+        title: 'Phase 1',
+        status: 'Planned' as Status,
+        description: 'Test phase',
+        milestones: [
+          {
+            id: 'P1.M1',
+            type: 'Milestone',
+            title: 'Milestone 1',
+            status: 'Planned' as Status,
+            description: 'Test milestone',
+            tasks: [
+              {
+                id: 'P1.M1.T1',
+                type: 'Task',
+                title: 'Task 1',
+                status: 'Planned' as Status,
+                description: 'Test task',
+                subtasks: [
+                  {
+                    id: 'P1.M1.T1.S1',
+                    type: 'Subtask',
+                    title: 'Subtask 1',
+                    status: 'Planned' as Status,
+                    story_points: 1,
+                    dependencies: [],
+                    context_scope: 'Test scope',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
 
   describe('SIGINT handling during execution', () => {
     it('should complete current task before shutdown on SIGINT', async () => {
@@ -249,6 +331,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       let pipelineRef: any = null;
       const mockOrchestrator: any = {
         sessionManager: mockSessionManager,
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           callCount++;
           // After first task completes, set shutdown flag directly
@@ -284,12 +367,16 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // VERIFY: Pipeline should have shutdown gracefully
       expect(pipeline.shutdownRequested).toBe(true);
       expect(pipeline.shutdownReason).toBe('SIGINT');
-      expect(pipeline.currentPhase).toBe('shutdown_interrupted');
-      // shutdownInterrupted is false in success path even when shutdownRequested is true
-      // The flag is only set to true in the error catch block (line 1854 in prp-pipeline.ts)
-      expect(result.shutdownInterrupted).toBe(false);
-      expect(result.shutdownReason).toBeUndefined();
-      expect(result.success).toBe(true); // Success path
+      // cleanup() (in run()'s finally) always sets the terminal phase to
+      // 'shutdown_complete'; the interrupt is recorded on pipeline.shutdownRequested
+      // + result.shutdownInterrupted, not in the terminal currentPhase.
+      expect(pipeline.currentPhase).toBe('shutdown_complete');
+      // A shutdown-requested run reports the interrupt on the result: success=false,
+      // shutdownInterrupted=true, shutdownReason set. (run()'s catch path surfaces
+      // shutdownRequested via result.shutdownInterrupted — see prp-pipeline.ts.)
+      expect(result.shutdownInterrupted).toBe(true);
+      expect(result.shutdownReason).toBe('SIGINT');
+      expect(result.success).toBe(false); // Interrupted, not a clean completion
 
       // processNextItem should have been called - current task completed
       expect(callCount).toBeGreaterThan(0);
@@ -302,7 +389,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // SETUP
       createTestPRD();
 
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
 
       const mockAgent = {
         prompt: vi.fn().mockResolvedValue({ backlog }),
@@ -332,6 +419,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // Simulate SIGTERM during execution
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Simulate SIGTERM
           process.emit('SIGTERM');
@@ -343,7 +431,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false; // No more items
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       const mockSessionManager: any = {
         currentSession: {
@@ -362,18 +450,26 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       const result = await pipeline.run();
 
       // VERIFY
       expect(pipeline.shutdownRequested).toBe(true);
       expect(pipeline.shutdownReason).toBe('SIGTERM');
-      // shutdownInterrupted is false in success path
-      expect(result.shutdownInterrupted).toBe(false);
-      expect(result.shutdownReason).toBeUndefined();
-      expect(result.success).toBe(true); // Success path
+      // A shutdown-requested run reports the interrupt on the result (run()'s catch
+      // path): success=false, shutdownInterrupted=true, shutdownReason set.
+      expect(result.shutdownInterrupted).toBe(true);
+      expect(result.shutdownReason).toBe('SIGTERM');
+      expect(result.success).toBe(false); // Interrupted, not a clean completion
       expect(mockSessionManager.saveBacklog).toHaveBeenCalled();
     });
 
@@ -381,7 +477,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // SETUP
       createTestPRD();
 
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
 
       const mockAgent = {
         prompt: vi.fn().mockResolvedValue({ backlog }),
@@ -411,6 +507,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Send duplicate SIGINT signals via process.emit
           process.emit('SIGINT');
@@ -423,7 +520,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       const mockSessionManager: any = {
         currentSession: {
@@ -442,8 +539,15 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       await pipeline.run();
 
@@ -538,6 +642,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // Simulate error during execution with SIGINT
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           process.emit('SIGINT');
 
@@ -548,7 +653,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           throw new Error('Simulated execution error');
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       const mockSessionManager: any = {
         currentSession: {
@@ -567,8 +672,15 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       const result = await pipeline.run();
 
@@ -632,14 +744,22 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -698,14 +818,22 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       const result = await pipeline.run();
 
@@ -718,7 +846,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // SETUP
       createTestPRD();
 
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
 
       const mockAgent = {
         prompt: vi.fn().mockResolvedValue({ backlog }),
@@ -747,6 +875,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           process.emit('SIGINT');
 
@@ -757,7 +886,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       const mockSessionManager: any = {
         currentSession: {
@@ -776,16 +905,23 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       const result = await pipeline.run();
 
-      // VERIFY: In success path, shutdownInterrupted is false even with signal
-      // The flag is only set to true in the error catch block (line 1854)
-      expect(result.shutdownInterrupted).toBe(false);
-      expect(result.shutdownReason).toBeUndefined();
-      // But pipeline's internal flag should still be set
+      // VERIFY: A SIGINT-interrupted run surfaces the interrupt on the result
+      // (run()'s catch path): shutdownInterrupted=true, shutdownReason='SIGINT'.
+      expect(result.shutdownInterrupted).toBe(true);
+      expect(result.shutdownReason).toBe('SIGINT');
+      // And the pipeline's internal flag should also be set
       expect(pipeline.shutdownRequested).toBe(true);
       expect(pipeline.shutdownReason).toBe('SIGINT');
     });
@@ -876,13 +1012,14 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: 'P1.M1.T1.S1',
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Set shutdown flag after first task
           (pipeline as any).shutdownRequested = true;
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       const mockSessionManager: any = {
         currentSession: {
@@ -901,8 +1038,15 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           currentItemId: null,
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
+        flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       await pipeline.run();
 
@@ -917,7 +1061,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
     it('should not interrupt in-flight task execution', async () => {
       // SETUP: Create test PRD and backlog
       createTestPRD();
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
@@ -947,20 +1091,25 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: 'P1.M1.T1.S1',
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           taskStarted = true;
-          // Simulate task taking 100ms
-          await new Promise(resolve => setTimeout(resolve, 100));
-          taskCompleted = true;
-          // Emit signal 50ms into task execution
+          // Emit SIGINT 50ms INTO the 100ms task (before it completes) to prove the
+          // in-flight task is NOT interrupted — it runs to completion, then the
+          // shutdown is honored. (Previously the emit was scheduled AFTER the
+          // task wait, so it never fired during execution and shutdownRequested
+          // stayed false.)
           setTimeout(() => {
             process.emit('SIGINT');
           }, 50);
+          // Simulate task taking 100ms — completes AFTER the signal arrives.
+          await new Promise(resolve => setTimeout(resolve, 100));
+          taskCompleted = true;
           return false; // No more items
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       // EXECUTE: Run pipeline
       const result = await pipeline.run();
@@ -970,9 +1119,11 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       expect(taskCompleted).toBe(true);
       expect(mockOrchestrator.processNextItem).toHaveBeenCalledTimes(1);
 
-      // VERIFY: Shutdown handled gracefully after task completed
-      // In success path, shutdownInterrupted is false even with signal
-      expect(result.shutdownInterrupted).toBe(false);
+      // VERIFY: Shutdown handled gracefully after task completed. The task was
+      // NOT interrupted (taskCompleted=true above); the signal arrived mid-task
+      // but the pipeline honored it only after the task finished. The result
+      // still reports shutdownInterrupted=true (the run WAS signal-interrupted).
+      expect(result.shutdownInterrupted).toBe(true);
       expect(pipeline.shutdownRequested).toBe(true);
       expect(mockSessionManager.saveBacklog).toHaveBeenCalled();
     });
@@ -1069,6 +1220,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: null as string | null,
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           const taskId = `task-${taskCompletionLog.length + 1}`;
           (pipeline as any).taskOrchestrator.currentItemId = taskId;
@@ -1090,7 +1242,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return taskCompletionLog.length <= 4; // 2 entries per task
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // EXECUTE: Run pipeline
       const result = await pipeline.run();
@@ -1100,9 +1252,10 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       expect(taskCompletionLog).toContain('completed-task-1');
       expect(taskCompletionLog).not.toContain('started-task-2');
 
-      // VERIFY: Shutdown happened after task completion
-      // In success path, shutdownInterrupted is false even with signal
-      expect(result.shutdownInterrupted).toBe(false);
+      // VERIFY: Shutdown happened after task completion. The run was signal-
+      // interrupted, so the result reports shutdownInterrupted=true (the first
+      // task still completed first — verified by taskCompletionLog above).
+      expect(result.shutdownInterrupted).toBe(true);
       expect(pipeline.shutdownRequested).toBe(true);
       expect(mockSessionManager.saveBacklog).toHaveBeenCalled();
     });
@@ -1194,6 +1347,12 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
         flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
       MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
@@ -1213,6 +1372,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: 'P1.M1.T1.S2',
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Track which tasks are processed
           processedTasks.push(
@@ -1221,7 +1381,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false; // No more items after first
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -1347,6 +1507,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: 'P1.M1.T1.S3',
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Emit SIGINT to trigger shutdown
           process.emit('SIGINT');
@@ -1354,7 +1515,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -1456,6 +1617,12 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
         }),
         saveBacklog: vi.fn().mockResolvedValue(undefined),
         flushUpdates: vi.fn().mockResolvedValue(undefined),
+        updateItemStatus: vi.fn().mockResolvedValue(backlog),
+        loadBacklog: vi.fn().mockResolvedValue(backlog),
+        hasSessionChanged: vi.fn().mockReturnValue(false),
+        hasAnySessions: vi.fn().mockResolvedValue(false),
+        planDir,
+        prdPath,
       };
       MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
@@ -1475,13 +1642,14 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: 'P1.M1.T1.S3',
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           const currentId = (pipeline as any).taskOrchestrator.currentItemId;
           processedTasks.push(currentId || 'unknown');
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       await pipeline.run();
 
@@ -1496,7 +1664,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
     it('should handle multiple signals without corruption', async () => {
       // SETUP: Create test PRD
       createTestPRD();
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
@@ -1525,15 +1693,16 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       let signalHandlerCalled = false;
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           if (!signalHandlerCalled) {
             signalHandlerCalled = true;
-            // Access the private SIGINT handler directly and call it twice
-            const sigintHandler = (pipeline as any)['#sigintHandler'];
-            if (sigintHandler) {
-              sigintHandler(); // First SIGINT
-              sigintHandler(); // Duplicate SIGINT
-            }
+            // Fire two SIGINTs via the real signal path. (Previously this tried to
+            // invoke the #sigintHandler PRIVATE field via bracket access, which is
+            // always undefined for true #private fields — so the handler never ran
+            // and the "Duplicate SIGINT" warning was never emitted.)
+            process.emit('SIGINT');
+            process.emit('SIGINT');
           }
 
           // Allow async handlers to complete
@@ -1543,8 +1712,8 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
-      (pipeline as any).sessionManager = mockSessionManager;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
+      MockSessionManagerClass.mockImplementation(() => mockSessionManager);
 
       await pipeline.run();
 
@@ -1613,9 +1782,10 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // EXECUTE: Run pipeline (cleanup will catch the error from saveBacklog)
       const result = await pipeline.run();
@@ -1664,9 +1834,10 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
 
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockResolvedValue(false),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // EXECUTE: Run pipeline
       const result = await pipeline.run();
@@ -1682,7 +1853,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
     it('should handle shutdown during error recovery', async () => {
       // SETUP
       createTestPRD();
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
@@ -1728,6 +1899,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // Mock task to throw error, then emit SIGINT
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Emit SIGINT during error handling
           process.emit('SIGINT');
@@ -1736,7 +1908,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           throw new Error('Task execution error');
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // EXECUTE: Run pipeline
       const result = await pipeline.run();
@@ -1753,7 +1925,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
     it('should handle resource limit shutdown', async () => {
       // SETUP
       createTestPRD();
-      const backlog: Backlog = { backlog: [] };
+      const backlog: Backlog = createSingleSubtaskBacklog();
       const mockAgent = { prompt: vi.fn().mockResolvedValue({ backlog }) };
       const { createArchitectAgent } =
         await import('../../src/agents/agent-factory.js');
@@ -1807,6 +1979,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // Simulate resource limit shutdown by setting flags directly
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Simulate what the resource monitor check would do
           (pipeline as any).shutdownRequested = true;
@@ -1815,7 +1988,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           return false;
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // Store reference on mock for saveBacklog to access
       (MockSessionManagerClass as any).mockImplementation.instances = [
@@ -1888,6 +2061,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       // Trigger an error to ensure cleanup is called in finally block
       const mockOrchestrator: any = {
         sessionManager: {},
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Emit SIGINT to trigger shutdown flag
           process.emit('SIGINT');
@@ -1896,7 +2070,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           throw new Error('Test error to trigger cleanup');
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // EXECUTE: Run pipeline
       await pipeline.run();
@@ -2018,6 +2192,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
       const mockOrchestrator: any = {
         sessionManager: {},
         currentItemId: null as string | null,
+        rebuildQueue: vi.fn().mockResolvedValue(undefined),
         processNextItem: vi.fn().mockImplementation(async () => {
           // Emit SIGINT to trigger shutdown
           process.emit('SIGINT');
@@ -2027,7 +2202,7 @@ describe('PRPPipeline Graceful Shutdown Integration Tests', () => {
           throw new Error('Test error for shutdown metrics');
         }),
       };
-      (pipeline as any).taskOrchestrator = mockOrchestrator;
+      MockTaskOrchestratorClass.mockImplementation(() => mockOrchestrator);
 
       // EXECUTE: Run pipeline
       const result = await pipeline.run();

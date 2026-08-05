@@ -467,7 +467,12 @@ export class PRPExecutor {
         success: allPassed,
         outcome: allPassed ? 'success' : 'fail',
         validationResults,
-        artifacts: [], // TODO: Extract artifacts from Coder Agent output
+        // Artifacts list is intentionally empty: the executor does not parse
+        // file paths out of the Coder Agent's free-form output. The files
+        // themselves land on disk via the session's task workspace
+        // (architecture/, prps/, artifacts/); this field is reserved for a
+        // future structured-output contract.
+        artifacts: [],
         error: allPassed
           ? undefined
           : 'Validation failed after all fix attempts',

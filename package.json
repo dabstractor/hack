@@ -35,6 +35,7 @@
     "test:watch": "vitest watch",
     "test:coverage": "vitest run --coverage",
     "test:bail": "vitest run --bail=1",
+    "bench": "vitest bench --config vitest.bench.config.ts",
     "=== Lint ===": "",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",

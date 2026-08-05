@@ -50,12 +50,25 @@ vi.mock('../../../src/core/scope-resolver.js', () => ({
   parseScope: vi.fn(),
 }));
 
-// Mock the git-commit module for smartCommit tests
-vi.mock('../../../src/utils/git-commit.js', () => ({
-  smartCommit: vi.fn(),
-  filterProtectedFiles: vi.fn((files: string[]) => files),
-  formatCommitMessage: vi.fn((msg: string) => msg),
-}));
+// Mock the git-commit module for smartCommit tests.
+// IMPORTANT: use `importOriginal` so the mock REPLACES only `smartCommit`/
+// `filterProtectedFiles`/`formatCommitMessage` while preserving the module's OTHER
+// exports — notably `parseItemPosition`, which `executeSubtask` calls inline in
+// the survival-commit `{ position: parseItemPosition(subtask.id) }` arg. Without
+// `importOriginal`, the whole module is stubbed and `parseItemPosition` becomes
+// `undefined`; the resulting `TypeError` is swallowed by executeSubtask's commit
+// try/catch ("Smart commit failed"), so `smartCommit` is never reached and every
+// two-phase-commit / skip-recovery assertion reports "called 0 times".
+vi.mock('../../../src/utils/git-commit.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/utils/git-commit.js')>();
+  return {
+    ...actual,
+    smartCommit: vi.fn(),
+    filterProtectedFiles: vi.fn((files: string[]) => files),
+    formatCommitMessage: vi.fn((msg: string) => msg),
+  };
+});
 
 // Mock the git-mcp module for the skip-recovery HEAD check (gitReadFileAtCommit).
 // Use importOriginal to preserve other exports (e.g. GitMCP) consumed transitively
@@ -906,12 +919,16 @@ describe('TaskOrchestrator', () => {
 
         // VERIFY: two-phase commit — exactly TWO smartCommit calls, both with
         // { generateMessage: true }: survival commit then post-cleanup commit.
+        // The survival commit also carries `position` (BUG-003 task-prefix wiring).
         expect(mockSmartCommit).toHaveBeenCalledTimes(2);
         expect(mockSmartCommit).toHaveBeenNthCalledWith(
           1,
           '/plan/001_14b9dc2a33c7',
           'P1.M1.T1.S1: Test Subtask',
-          { generateMessage: true }
+          {
+            generateMessage: true,
+            position: { phase: 1, milestone: 1, task: 1, subtask: 1 },
+          }
         );
         expect(mockSmartCommit).toHaveBeenNthCalledWith(
           2,
@@ -1143,7 +1160,10 @@ describe('TaskOrchestrator', () => {
           1,
           '/plan/001_14b9dc2a33c7',
           'P1.M1.T1.S1: Test Subtask',
-          { generateMessage: true }
+          {
+            generateMessage: true,
+            position: { phase: 1, milestone: 1, task: 1, subtask: 1 },
+          }
         );
         expect(mockSmartCommit).toHaveBeenNthCalledWith(
           2,
@@ -1169,11 +1189,15 @@ describe('TaskOrchestrator', () => {
         ).resolves.toBeUndefined();
 
         // VERIFY: survival commit ran (once), post-cleanup commit SKIPPED.
+        // The survival commit carries `position` (BUG-003 task-prefix wiring).
         expect(mockSmartCommit).toHaveBeenCalledTimes(1);
         expect(mockSmartCommit).toHaveBeenCalledWith(
           '/plan/001_14b9dc2a33c7',
           'P1.M1.T1.S1: Test Subtask',
-          { generateMessage: true }
+          {
+            generateMessage: true,
+            position: { phase: 1, milestone: 1, task: 1, subtask: 1 },
+          }
         );
         // The swallowed throw was logged as a warning.
         expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -1463,7 +1487,10 @@ describe('TaskOrchestrator', () => {
       expect(mockSmartCommit).toHaveBeenCalledWith(
         '/plan/001_14b9dc2a33c7',
         expect.stringContaining('skip-recovery'),
-        { generateMessage: true }
+        {
+          generateMessage: true,
+          position: { phase: 1, milestone: 1, task: 1, subtask: 1 },
+        }
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         { subtaskId: 'P1.M1.T1.S1' },
@@ -1484,11 +1511,15 @@ describe('TaskOrchestrator', () => {
       );
 
       // VERIFY: not-found ⇒ stranded ⇒ recovery commit runs once.
+      // The recovery commit carries `position` (BUG-003 task-prefix wiring).
       expect(mockSmartCommit).toHaveBeenCalledTimes(1);
       expect(mockSmartCommit).toHaveBeenCalledWith(
         '/plan/001_14b9dc2a33c7',
         expect.stringContaining('skip-recovery'),
-        { generateMessage: true }
+        {
+          generateMessage: true,
+          position: { phase: 1, milestone: 1, task: 1, subtask: 1 },
+        }
       );
     });
 

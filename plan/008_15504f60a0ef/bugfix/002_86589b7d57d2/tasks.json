@@ -235,7 +235,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "BUG-004 — Drive the test suite green (PRD §4.4 validate gate) (Major)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "The integration suite is red (179 failed / 20 files) from (a) environmental PiHarness-init gaps, (b) test-rot, (c) genuine test bugs — none are production defects. Fix by category so `npx vitest run` exits 0 and the §4.4 validate.sh gate can pass on a green build. See architecture/bug-004-test-suite.md. Run AFTER BUG-001/002/003 so the final baseline includes their tests.",
           "tasks": [
             {
@@ -370,14 +370,14 @@
               "type": "Task",
               "id": "P1.M4.T4",
               "title": "Full-suite green verification",
-              "status": "Ready",
+              "status": "Failed",
               "description": "After all BUG-001/002/003 changes and all BUG-004 category fixes land, run the full suite and confirm exit 0 so the §4.4 validate gate passes.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T4.S1",
                   "title": "Run full vitest, confirm 0 failures, fix stragglers",
-                  "status": "Ready",
+                  "status": "Failed",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S3",

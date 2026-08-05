@@ -284,10 +284,10 @@ export interface ValidatedCLIArgs extends Omit<
  * await pipeline.run();
  *
  * // Or use inspect subcommand
- * // CLI: prp-pipeline inspect
+ * // CLI: prd inspect
  *
  * // Or use artifacts subcommand
- * // CLI: prp-pipeline artifacts list
+ * // CLI: prd artifacts list
  * ```
  */
 export function parseCLIArgs():
@@ -301,7 +301,7 @@ export function parseCLIArgs():
 
   // Configure program
   program
-    .name('prp-pipeline')
+    .name('prd')
     .description('PRD to PRP Pipeline - Automated software development')
     .version(
       JSON.parse(
@@ -623,10 +623,15 @@ export function parseCLIArgs():
       const data = JSON.parse(content);
 
       if (action === 'next') {
-        // Find next executable task (first Planned subtask)
+        // Find next executable task. `Planned` is the orchestrator's fresh-pick
+        // status, but for a user inspecting an in-progress session we also
+        // surface `Ready` (research-complete, ready to implement) and `Failed`
+        // (retry-eligible) so the command never silently reports "no tasks"
+        // while actionable work exists.
+        const NEXT_STATUSES = new Set(['Planned', 'Ready', 'Failed']);
         const findNext = (items: any[]): any => {
           for (const item of items) {
-            if (item.type === 'Subtask' && item.status === 'Planned') {
+            if (item.type === 'Subtask' && NEXT_STATUSES.has(item.status)) {
               return item;
             }
             if (item.subtasks) {

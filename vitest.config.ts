@@ -16,7 +16,10 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['tests/**/*.{test,spec}.ts'],
-    exclude: ['**/dist/**', '**/node_modules/**'],
+    // Exclude benchmark suites from the default test run: tinybench loops
+    // are slow and memory-heavy, and the macOS `lsof` code path can OOM-kill
+    // a worker on non-macOS hosts. Run them on demand via `npm run bench`.
+    exclude: ['**/dist/**', '**/node_modules/**', '**/*.bench.test.ts'],
     setupFiles: ['./tests/setup.ts'],
     // Pool configuration to prevent OOM on large test files
     pool: 'forks',

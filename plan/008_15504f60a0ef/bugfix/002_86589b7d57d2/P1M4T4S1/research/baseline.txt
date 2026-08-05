@@ -1,0 +1,23 @@
+# P1.M4.T4.S1 — Real pre-gate baseline (Task 0)
+
+Captured AFTER T1+T2+T3 all landed (T1/T2/T3 + T3.S3 = Complete).
+
+Command: `npx vitest run --reporter=dot`
+VITEST_REAL_EXIT=1  (NOT green)
+
+## Summary
+ Test Files  5 failed | 194 passed | 1 skipped (201)
+      Tests  36 failed | 6736 passed | 71 skipped (6851)
+     Errors  1 error (Worker exited unexpectedly — tinypool)
+
+ Duration  ~246s
+
+## 5 failed files (36 failures total)
+1. tests/integration/core/delta-breakdown-integration.test.ts     (4 fails)
+2. tests/integration/prp-pipeline-shutdown.test.ts                (13 fails)
+3. tests/unit/agent-context-injection.test.ts                     (2 fails)
+4. tests/unit/core/delta-prd.test.ts                              (1 fail)
+5. tests/unit/core/task-orchestrator.test.ts                      (16 fails)
+
+NOTE: the architecture-doc baseline (179 failed / 20 files) predates T1/T2/T3.
+This live capture is the AUTHORITATIVE pre-gate state for this item.

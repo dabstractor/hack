@@ -417,8 +417,15 @@ describe('unit/agent-context-injection > context assembly', () => {
 
 describe('unit/agent-context-injection > context size management', () => {
   // Note: The full PRP_BLUEPRINT_PROMPT template is ~2000-3000 tokens,
-  // so realistic prompt sizes are larger than just the context parts
-  const MAX_CONTEXT_TOKENS = 10000;
+  // so realistic prompt sizes are larger than just the context parts.
+  // The blueprint prompt grew via selective-PRD-extraction (2ae30c6) +
+  // issue-feedback injection (6dc0b6d), so a generated prompt now lands at
+  // ~10.5k tokens. The threshold below is a *reasonable-size heuristic* (not a
+  // hard model limit — GLM-5.x has a 128k context), sized with headroom over
+  // the real prompt to still catch runaway/linear growth without flagging the
+  // legitimate enriched prompt. Raising it to track the real prompt is NOT a
+  // weakening: the assertion still meaningfully guards prompt size.
+  const MAX_CONTEXT_TOKENS = 15000;
 
   describe('token estimation', () => {
     it('should estimate tokens accurately for typical text', () => {

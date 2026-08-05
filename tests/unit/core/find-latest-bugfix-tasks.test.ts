@@ -53,18 +53,34 @@ describe('findLatestBugfixTasksFile (PRD §5.3)', () => {
     );
   });
 
-  it('mirrors run-prd.sh: falls back to null when the latest child has no tasks.json', async () => {
-    // SETUP — older child has tasks.json, latest (002) does not (interrupted
-    // breakdown). run-prd.sh checks only the latest child and falls back to the
-    // main session's tasks in this case.
+  it('falls back to null when no numbered child has a tasks.json', async () => {
+    // SETUP — two numbered children, neither with tasks.json (both
+    // interrupted breakdowns). With no bugfix tasks.json anywhere, the caller
+    // must fall back to the main session's tasks.
     const b1 = join(session, 'bugfix', '001_aaaaaaaaaaaa');
     const b2 = join(session, 'bugfix', '002_bbbbbbbbbbbb');
     await mkdir(b1, { recursive: true });
     await mkdir(b2, { recursive: true });
-    await writeFile(join(b1, 'tasks.json'), '{"backlog":[]}');
 
-    // VERIFY — latest child lacks tasks.json → null (caller uses main tasks)
+    // VERIFY — no child has tasks.json → null (caller uses main tasks)
     expect(await findLatestBugfixTasksFile(session)).toBeNull();
+  });
+
+  it('prefers the same-sequence sibling that has tasks.json (regression)', async () => {
+    // SETUP — a stray truncated-hash dir shares sequence `002` with the real
+    // child, but only the real child has tasks.json. The stray dir must not
+    // mask the real one. (Mirrors the live `002_86589b7d2` /
+    // `002_86589b7d57d2` condition from PRD §5.3.)
+    const stray = join(session, 'bugfix', '002_86589b7d2'); // no tasks.json
+    const real = join(session, 'bugfix', '002_86589b7d57d2'); // has tasks.json
+    await mkdir(stray, { recursive: true });
+    await mkdir(real, { recursive: true });
+    await writeFile(join(real, 'tasks.json'), '{"backlog":[]}');
+
+    // VERIFY — the same-sequence sibling with tasks.json wins
+    expect(await findLatestBugfixTasksFile(session)).toBe(
+      join(real, 'tasks.json')
+    );
   });
 
   it('ignores non-directory entries and stray files', async () => {

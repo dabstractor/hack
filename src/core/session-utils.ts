@@ -929,26 +929,44 @@ export async function findLatestBugfixTasksFile(
     throw error; // non-ENOENT → propagate (unexpected)
   }
 
-  // Most recent NNN_* child (highest sequence), mirroring `sort -n | tail -1`.
-  const latest = entries
+  // Numbered NNN_* children, most recent first (highest sequence), mirroring
+  // `sort -n | tail -1`. Within equal sequences, longer dir names sort first
+  // so the full-length (canonical 12-hex) hash wins over a truncated-hash
+  // sibling left behind by an interrupted run (e.g. `002_86589b7d57d2` over a
+  // stray `002_86589b7d2`).
+  const children = entries
     .filter(e => e.isDirectory() && BUGFIX_DIR_PATTERN.test(e.name))
     .map(e => ({
       dir: resolve(bugfixDir, e.name),
       seq: parseInt(e.name.slice(0, 3), 10),
+      name: e.name,
     }))
-    .sort((a, b) => b.seq - a.seq)[0];
+    .sort((a, b) => b.seq - a.seq || b.name.localeCompare(a.name));
 
-  if (!latest) {
+  if (children.length === 0) {
     return null; // bugfix/ exists but has no numbered children
   }
 
-  const tasksPath = resolve(latest.dir, 'tasks.json');
-  try {
-    await stat(tasksPath);
-    return tasksPath; // latest bugfix child has a tasks.json → use it
-  } catch {
-    return null; // latest child has no tasks.json → fall back to main
+  // Pick the highest-sequence child that actually has a tasks.json. This is
+  // resilient to a same-sequence sibling lacking tasks.json (e.g. an
+  // interrupted run that left a truncated-hash dir behind): we only fall back
+  // to a lower sequence when *no* child at the top sequence has tasks.json.
+  const maxSeq = children[0].seq;
+  for (const child of children) {
+    const tasksPath = resolve(child.dir, 'tasks.json');
+    try {
+      await stat(tasksPath);
+      if (child.seq === maxSeq) {
+        return tasksPath; // top-sequence child with tasks.json → use it
+      }
+      // Reached a lower sequence: no top-sequence child had a tasks.json.
+      return null;
+    } catch {
+      // This child has no tasks.json; keep scanning same-sequence siblings.
+      continue;
+    }
   }
+  return null; // no child at the top sequence has a tasks.json → fall back to main
 }
 
 export async function writeTasksJSON(
