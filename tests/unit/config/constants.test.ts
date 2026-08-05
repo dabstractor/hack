@@ -32,6 +32,13 @@ import {
   DEFAULT_VALIDATION_AGENT,
   DEFAULT_VALIDATION_TIMEOUT_SECONDS,
   DEFAULT_BUG_FINDER_AGENT,
+  BUGFIX_SCOPE,
+  BUGFIX_SCOPE_VALUES,
+  DEFAULT_BUGFIX_SCOPE,
+  getBugfixScope,
+  API_TIMEOUT_MS,
+  DEFAULT_API_TIMEOUT_MS,
+  getApiTimeoutMs,
 } from '../../../src/config/constants.js';
 import type { ModelTier } from '../../../src/config/types.js';
 
@@ -275,5 +282,69 @@ describe('config/constants: DEFAULT_BUG_FINDER_AGENT (pizr)', () => {
 describe('config/constants: DEFAULT_VALIDATION_TIMEOUT_SECONDS (7200)', () => {
   it('SHOULD be 7200 (PRD §4.4/§9.2.2 — 2h; validation runs full suites)', () => {
     expect(DEFAULT_VALIDATION_TIMEOUT_SECONDS).toBe(7200);
+  });
+});
+
+// ===========================================================================
+// BUGFIX_SCOPE — runtime consumer for .hack [bug_hunt] fix_scope (Finding 2)
+// ===========================================================================
+describe('config/constants: BUGFIX_SCOPE (getBugfixScope)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('exposes the BUGFIX_SCOPE env-var name + accepted values + default', () => {
+    expect(BUGFIX_SCOPE).toBe('BUGFIX_SCOPE');
+    expect(BUGFIX_SCOPE_VALUES).toEqual(['subtask', 'task']);
+    expect(DEFAULT_BUGFIX_SCOPE).toBe('subtask');
+  });
+
+  it('returns the default (subtask) when unset', () => {
+    vi.stubEnv('BUGFIX_SCOPE', '');
+    expect(getBugfixScope()).toBe('subtask');
+  });
+
+  it('returns the configured value for a recognized scope', () => {
+    vi.stubEnv('BUGFIX_SCOPE', 'task');
+    expect(getBugfixScope()).toBe('task');
+  });
+
+  it('falls back to the default for an unrecognized value', () => {
+    vi.stubEnv('BUGFIX_SCOPE', 'milestone');
+    expect(getBugfixScope()).toBe('subtask');
+  });
+});
+
+// ===========================================================================
+// API_TIMEOUT_MS — runtime consumer for .hack [api] timeout_ms (Finding 2)
+// ===========================================================================
+describe('config/constants: API_TIMEOUT_MS (getApiTimeoutMs)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('exposes the API_TIMEOUT_MS env-var name + default', () => {
+    expect(API_TIMEOUT_MS).toBe('API_TIMEOUT_MS');
+    expect(DEFAULT_API_TIMEOUT_MS).toBe(60000);
+  });
+
+  it('returns the default (60000) when unset', () => {
+    vi.stubEnv('API_TIMEOUT_MS', '');
+    expect(getApiTimeoutMs()).toBe(60000);
+  });
+
+  it('returns the configured value for a valid positive integer', () => {
+    vi.stubEnv('API_TIMEOUT_MS', '120000');
+    expect(getApiTimeoutMs()).toBe(120000);
+  });
+
+  it('falls back to the default on non-numeric input', () => {
+    vi.stubEnv('API_TIMEOUT_MS', 'oops');
+    expect(getApiTimeoutMs()).toBe(60000);
+  });
+
+  it('falls back to the default on non-positive input', () => {
+    vi.stubEnv('API_TIMEOUT_MS', '0');
+    expect(getApiTimeoutMs()).toBe(60000);
   });
 });

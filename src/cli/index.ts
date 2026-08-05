@@ -26,6 +26,11 @@
  */
 
 import { Command } from 'commander';
+import {
+  type MergedHackConfig,
+  type HackConfigValue,
+  SCHEMA_MAP,
+} from '../config/hack-config.js';
 import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, relative, dirname, basename } from 'node:path';
@@ -42,6 +47,18 @@ import ms from 'ms';
 
 let _logger: Logger | undefined;
 const logger = (): Logger => (_logger ??= getLogger('CLI'));
+
+/**
+ * The set of Commander option names (e.g. `'mode'`, `'maxTasks'`) that the user
+ * EXPLICITLY passed on the command line during the most recent `parseCLIArgs()`
+ * invocation (source `'cli'`). Captured by `parseCLIArgs()` so that
+ * {@link applyHackCliDefaults} — invoked later in `main()` AFTER `.hack` is
+ * loaded — can apply `.hack`-sourced CLI-only defaults to ONLY those flags the
+ * user did not explicitly set (PRD §9.7.10 acceptance criterion).
+ *
+ * @remarks Reset at the start of every `parseCLIArgs()` call.
+ */
+let _explicitCliOptions: ReadonlySet<string> = new Set();
 
 /**
  * Completion-based status color for `hack status` / `hack task` output (PRD §5.4).
@@ -835,6 +852,29 @@ export function parseCLIArgs():
   // Parse arguments
   program.parse(process.argv);
 
+  // Capture which options were EXPLICITLY passed (source 'cli') on this
+  // invocation, BEFORE subcommand early-returns or the default-pipeline
+  // return. applyHackCliDefaults() (called later in main(), after .hack is
+  // loaded) uses this to apply .hack CLI-only defaults to ONLY the unset flags
+  // (PRD §9.7.10 — env-over-file / cli-over-file: an explicit flag wins).
+  //
+  // Uses o.attributeName() (camelCase, e.g. 'maxTasks') — NOT o.name()
+  // (kebab-case 'max-tasks') — because getOptionValueSource() and the
+  // HACK_CLI_FLAG_BINDING map key on the attribute name. For --no-X negated
+  // flags the attribute name drops the 'no-' prefix (e.g. '--no-cache' → 'cache'),
+  // which is why those bindings declare the NON-negated attribute name plus a
+  // `negated: true` marker (the value stored on ValidatedCLIArgs is the
+  // negation, but source-tracking uses the base attribute).
+  _explicitCliOptions = new Set(
+    program.options
+      .filter(
+        o =>
+          o.long !== undefined &&
+          program.getOptionValueSource(o.attributeName()) === 'cli'
+      )
+      .map(o => o.attributeName())
+  );
+
   // Check if a subcommand was invoked
   const args = process.argv.slice(2);
   if (args.length > 0 && args[0] === 'inspect') {
@@ -1260,4 +1300,161 @@ export function isCLIArgs(
   args: ValidatedCLIArgs | { subcommand: string; options: unknown }
 ): args is ValidatedCLIArgs {
   return !('subcommand' in args);
+}
+
+/**
+ * Map each §9.7.5 schema entry that has a `cliFlag` to the metadata needed to
+ * re-apply its `.hack`-sourced value onto a parsed {@link ValidatedCLIArgs}
+ * object: the Commander option `name()` and how the flag relates to its value
+ * (direct, or negated — `--no-cache`/`--no-resource-monitor`).
+ *
+ * @remarks The mapping is keyed by `"section.key"` (the same key used in
+ * {@link MergedHackConfig}). Only entries WITHOUT an `envVar` need this path —
+ * env-linked CLI flags (e.g. `cli.log_level → HACKY_LOG_LEVEL`) already flow
+ * through `process.env` via the loader's seeding and Commander's
+ * `.default(process.env.X ?? …)`. The 10 CLI-only keys are enumerated here.
+ */
+interface CliFlagBinding {
+  /**
+   * The field name on {@link ValidatedCLIArgs} to read/write (camelCase).
+   * For negated flags this is the NEGATED field (e.g. `noCache` for `cache_enabled`).
+   */
+  target: string;
+  /**
+   * The Commander option ATTRIBUTE NAME used for source-tracking
+   * (`getOptionValueSource`). For a direct flag this equals `target`; for a
+   * `--no-X` negated flag Commander tracks source under the BASE name (it
+   * strips the `no-` prefix), so e.g. `--no-cache` is tracked under `'cache'`
+   * while `target` is `'noCache'`.
+   */
+  sourceName: string;
+  /** If true, the boolean field stores the NEGATION of the .hack value (e.g. --no-cache ↔ cache_enabled). */
+  negated?: boolean;
+}
+
+const HACK_CLI_FLAG_BINDING: Readonly<Record<string, CliFlagBinding>> = {
+  // concurrency
+  'concurrency.parallelism': {
+    target: 'parallelism',
+    sourceName: 'parallelism',
+  },
+  // monitor
+  'monitor.interval_ms': {
+    target: 'monitorInterval',
+    sourceName: 'monitorInterval',
+  },
+  'monitor.enabled': {
+    target: 'noResourceMonitor',
+    sourceName: 'resourceMonitor', // Commander tracks --no-resource-monitor under 'resourceMonitor'
+    negated: true,
+  },
+  // cli
+  'cli.mode': { target: 'mode', sourceName: 'mode' },
+  'cli.scope': { target: 'scope', sourceName: 'scope' },
+  'cli.machine_readable': {
+    target: 'machineReadable',
+    sourceName: 'machineReadable',
+  },
+  'cli.continue_on_error': {
+    target: 'continueOnError',
+    sourceName: 'continueOnError',
+  },
+  'cli.cache_enabled': {
+    target: 'noCache',
+    sourceName: 'cache', // Commander tracks --no-cache under 'cache'
+    negated: true,
+  },
+  'cli.max_tasks': { target: 'maxTasks', sourceName: 'maxTasks' },
+  'cli.max_duration_ms': { target: 'maxDuration', sourceName: 'maxDuration' },
+};
+
+/**
+ * Apply CLI-only `.hack` defaults to a parsed {@link ValidatedCLIArgs} object
+ * for flags the user did NOT explicitly pass (PRD §9.7.10 acceptance criterion).
+ *
+ * @remarks
+ * `parseCLIArgs()` runs BEFORE `.hack` is loaded (bootstrap order:
+ * `parseCLIArgs → chdir → loadHackConfig`), so the 10 CLI-only schema keys
+ * (those without an `envVar`) — `cli.mode`, `cli.scope`, `cli.max_tasks`,
+ * `cli.max_duration_ms`, `cli.machine_readable`, `cli.continue_on_error`,
+ * `cli.cache_enabled`, `concurrency.parallelism`, `monitor.interval_ms`,
+ * `monitor.enabled` — have no path to the CLI. This function is the consumer
+ * that closes the gap: it runs in `main()` AFTER `loadHackConfig()` and
+ * overwrites ONLY those option fields whose source was `'default'` (i.e. the
+ * user did not pass the corresponding flag).
+ *
+ * **Precedence (PRD §9.2.1 cli > env > file):** an explicitly-passed flag
+ * always wins (its source is `'cli'`, so it is skipped here); a `.hack` value
+ * fills the gap when no flag was passed. Env-linked CLI flags are unaffected —
+ * they already resolve via the loader's env-seeding + Commander `.default()`.
+ *
+ * Type coercion mirrors the field's declared type on `ValidatedCLIArgs`:
+ * booleans set directly (accounting for the `--no-*` negation); ints parsed
+ * with `parseInt`; strings assigned as-is. Values are validated in-place
+ * (range/enum guards) and invalid `.hack` values are WARNED and skipped so a
+ * bad file value never crashes the run (the file already passed
+ * `validateHackTier` at load, but `scope`/`max_tasks`/`max_duration_ms` have
+ * no §9.7.5 default and are type-checked defensively here).
+ *
+ * @param args - The validated CLI args (mutated in place for unset flags).
+ * @param merged - The merged `.hack` config returned by `loadHackConfig()`.
+ * @returns The same `args` object (for chaining), with CLI-only defaults applied.
+ */
+export function applyHackCliDefaults(
+  args: ValidatedCLIArgs,
+  merged: MergedHackConfig
+): ValidatedCLIArgs {
+  for (const entry of SCHEMA_MAP) {
+    // Only CLI-only keys (no envVar) need this path; env-linked flags already
+    // resolve via process.env seeding + Commander .default().
+    if (entry.envVar !== undefined) continue;
+    const qualifiedKey = `${entry.section}.${entry.key}`;
+    const binding = HACK_CLI_FLAG_BINDING[qualifiedKey];
+    if (binding === undefined) continue;
+
+    // Skip if the user explicitly passed the corresponding flag (cli > file).
+    if (_explicitCliOptions.has(binding.sourceName)) continue;
+
+    // Read the merged .hack value for this key (absent → nothing to apply).
+    const section = (merged[entry.section] ?? {}) as Record<
+      string,
+      HackConfigValue
+    >;
+    const fileValue = section[entry.key];
+    if (fileValue === undefined) continue;
+
+    const target = binding.target;
+
+    if (entry.type === 'boolean') {
+      if (typeof fileValue !== 'boolean') {
+        logger().warn(
+          `[hack] ${qualifiedKey} in .hack is not a boolean (${JSON.stringify(fileValue)}); ignored`
+        );
+        continue;
+      }
+      // Negated bindings store the NEGATION of the .hack value
+      // (--no-cache ↔ cache_enabled, --no-resource-monitor ↔ monitor.enabled).
+      (args as unknown as Record<string, unknown>)[target] = binding.negated
+        ? !fileValue
+        : fileValue;
+    } else if (entry.type === 'int') {
+      if (typeof fileValue !== 'number' || !Number.isInteger(fileValue)) {
+        logger().warn(
+          `[hack] ${qualifiedKey} in .hack is not an integer (${JSON.stringify(fileValue)}); ignored`
+        );
+        continue;
+      }
+      (args as unknown as Record<string, unknown>)[target] = fileValue;
+    } else {
+      // string
+      if (typeof fileValue !== 'string') {
+        logger().warn(
+          `[hack] ${qualifiedKey} in .hack is not a string (${JSON.stringify(fileValue)}); ignored`
+        );
+        continue;
+      }
+      (args as unknown as Record<string, unknown>)[target] = fileValue;
+    }
+  }
+  return args;
 }

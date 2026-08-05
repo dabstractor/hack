@@ -18,6 +18,7 @@ import { TestResultsSchema } from '../../core/models.js';
 
 // PATTERN: Import system prompt from sibling prompts file
 import { BUG_HUNT_PROMPT, PRD_PREMERGED_DECLARATION } from '../prompts.js';
+import { getBugfixScope } from '../../config/constants.js';
 
 /**
  * Construct the user prompt with PRD and completed tasks
@@ -59,6 +60,14 @@ function constructUserPrompt(prd: string, completedTasks: Task[]): string {
           .join('\n')
       : 'No completed tasks yet';
 
+  // Bug-fix granularity directive (PRD §9.7.5 `[bug_hunt] fix_scope` / §9.2.2).
+  // Surfaces the configured fix-scope so the QA agent emits bug reports at the
+  // correct granularity (`subtask` → per-subtask fixes; `task` → coarser
+  // per-task fixes). This is the runtime consumer of the BUGFIX_SCOPE env var
+  // seeded by the `.hack` loader (closes the "seeded but never read" gap).
+  const scope = getBugfixScope();
+  const fixScopeDirective = `## Fix Granularity\n\nReport bugs at **${scope}** granularity (configured via [bug_hunt] fix_scope): each reported bug should map to a fix scoped to a single ${scope}.`;
+
   // Construct the complete user prompt
   return `
 ${PRD_PREMERGED_DECLARATION}
@@ -70,6 +79,8 @@ ${prd}
 ## Completed Tasks
 
 ${tasksList}
+
+${fixScopeDirective}
 
 ---
 

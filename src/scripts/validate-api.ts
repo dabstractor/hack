@@ -23,6 +23,7 @@ import {
   getModel,
 } from '../config/environment.js';
 import { checkProviderEndpoint } from '../config/endpoint-guard.js';
+import { getApiTimeoutMs } from '../config/constants.js';
 
 // ============================================================================
 // LOGGING UTILITIES
@@ -195,7 +196,7 @@ async function testEndpointAvailability(): Promise<ValidationResult> {
       {
         method: 'GET',
       },
-      10000
+      getApiTimeoutMs()
     );
 
     log.info(`Root endpoint status: ${rootResponse.status}`);
@@ -208,7 +209,7 @@ async function testEndpointAvailability(): Promise<ValidationResult> {
       {
         method: 'HEAD',
       },
-      10000
+      getApiTimeoutMs()
     );
 
     log.info(`Messages endpoint status: ${messagesResponse.status}`);
@@ -291,7 +292,7 @@ async function testAuthentication(): Promise<ValidationResult> {
         },
         body: JSON.stringify(payload),
       },
-      30000
+      getApiTimeoutMs()
     );
 
     log.info(`Response status: ${response.status}`);
@@ -359,7 +360,7 @@ async function testMessageCompletion(): Promise<ValidationResult> {
         },
         body: JSON.stringify(payload),
       },
-      30000
+      getApiTimeoutMs()
     );
 
     log.info(`Response status: ${response.status}`);

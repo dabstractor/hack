@@ -981,6 +981,86 @@ export function getBugFinderAgent(): string {
 }
 
 /**
+ * Environment variable name: granularity for bug-fix tasks (PRD §9.7.5 `[bug_hunt] fix_scope` / §9.2.2).
+ *
+ * @remarks
+ * Controls whether the bug-hunt/fix-cycle produces fix tasks at `subtask` or `task`
+ * granularity. Seeded into `process.env` from `.hack` `[bug_hunt] fix_scope` by the config
+ * loader (PRD §9.2.1 env-over-file). Read at runtime via {@link getBugfixScope}.
+ */
+export const BUGFIX_SCOPE = 'BUGFIX_SCOPE';
+
+/**
+ * Accepted values for {@link BUGFIX_SCOPE} (PRD §9.7.5).
+ */
+export const BUGFIX_SCOPE_VALUES = ['subtask', 'task'] as const;
+
+/**
+ * Default bug-fix granularity when `BUGFIX_SCOPE` is unset/invalid (PRD §9.7.5).
+ */
+export const DEFAULT_BUGFIX_SCOPE: (typeof BUGFIX_SCOPE_VALUES)[number] =
+  'subtask';
+
+/**
+ * Read the BUGFIX_SCOPE env var (PRD §9.7.5 `[bug_hunt] fix_scope` / §9.2.2).
+ *
+ * @returns The configured bug-fix granularity (`'subtask'` or `'task'`), or
+ *          {@link DEFAULT_BUGFIX_SCOPE} (`'subtask'`) when unset or unrecognized.
+ *
+ * @remarks
+ * The `.hack` loader seeds `BUGFIX_SCOPE` from `[bug_hunt] fix_scope`; this getter is the
+ * runtime consumer that closes the "seeded but never read" gap (validation finding). An
+ * unrecognized value falls back to the default rather than crashing — `.hack` type/enum
+ * validation is lenient here (`fix_scope` has no enum constraint in HACK_CONFIG_SCHEMA) so
+ * an arbitrary string is tolerated gracefully.
+ */
+export function getBugfixScope(): (typeof BUGFIX_SCOPE_VALUES)[number] {
+  const raw = process.env[BUGFIX_SCOPE];
+  if (raw === undefined) return DEFAULT_BUGFIX_SCOPE;
+  const trimmed = raw.trim();
+  return BUGFIX_SCOPE_VALUES.includes(
+    trimmed as (typeof BUGFIX_SCOPE_VALUES)[number]
+  )
+    ? (trimmed as (typeof BUGFIX_SCOPE_VALUES)[number])
+    : DEFAULT_BUGFIX_SCOPE;
+}
+
+/**
+ * Environment variable name: per-call API request timeout in milliseconds (PRD §9.7.5 `[api] timeout_ms`).
+ *
+ * @remarks
+ * Bounds individual outbound HTTP calls to the model provider endpoint. Seeded into
+ * `process.env` from `.hack` `[api] timeout_ms` by the config loader (PRD §9.2.1
+ * env-over-file). Read at runtime via {@link getApiTimeoutMs}. Distinct from the per-phase
+ * agent timeouts (`RESEARCH_TIMEOUT`, `VALIDATION_TIMEOUT`) — this is the low-level fetch
+ * deadline for a single request.
+ */
+export const API_TIMEOUT_MS = 'API_TIMEOUT_MS';
+
+/**
+ * Default per-call API timeout when `API_TIMEOUT_MS` is unset/invalid (PRD §9.7.5).
+ */
+export const DEFAULT_API_TIMEOUT_MS = 60000;
+
+/**
+ * Read the API_TIMEOUT_MS env var (PRD §9.7.5 `[api] timeout_ms`).
+ *
+ * @returns The configured per-call API timeout in milliseconds, or
+ *          {@link DEFAULT_API_TIMEOUT_MS} (`60000`) when unset, non-numeric, or non-positive.
+ *
+ * @remarks
+ * The `.hack` loader seeds `API_TIMEOUT_MS` from `[api] timeout_ms`; this getter is the
+ * runtime consumer that closes the "seeded but never read" gap (validation finding).
+ */
+export function getApiTimeoutMs(): number {
+  const raw = Number(process.env[API_TIMEOUT_MS] ?? DEFAULT_API_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_API_TIMEOUT_MS;
+  }
+  return Math.floor(raw);
+}
+
+/**
  * Environment variable name: max recursion depth for PRD `@`-include expansion (PRD §2.3).
  *
  * @remarks

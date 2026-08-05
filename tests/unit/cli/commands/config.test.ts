@@ -252,6 +252,53 @@ describe('cli/commands/config', () => {
       expect(harnessRow.value).toBe('pi');
     });
 
+    it('preserves scalar type fidelity in JSON output (Finding 3)', async () => {
+      // Booleans emit as JSON booleans, ints as JSON numbers — NOT strings.
+      // This is the machine-readable surface (PRD §9.7.8); losing fidelity
+      // makes a boolean indistinguishable from a string-valued enum in jq.
+      writeFileSync(
+        join(repoRoot, '.hack'),
+        '[pipeline]\nparallel_research = true\nresearch_depth = 7\n' +
+          '[distributed_prd]\ninclude_markers = false\n'
+      );
+      const { stdout } = await run('show', { output: 'json' });
+      const parsed = JSON.parse(stdout) as Array<{
+        key: string;
+        value: unknown;
+      }>;
+      const parallelResearch = parsed.find(
+        r => r.key === 'pipeline.parallel_research'
+      );
+      const researchDepth = parsed.find(
+        r => r.key === 'pipeline.research_depth'
+      );
+      const includeMarkers = parsed.find(
+        r => r.key === 'distributed_prd.include_markers'
+      );
+      // boolean → JSON boolean (not "true")
+      expect(parallelResearch?.value).toBe(true);
+      expect(typeof parallelResearch?.value).toBe('boolean');
+      // int → JSON number (not "7")
+      expect(researchDepth?.value).toBe(7);
+      expect(typeof researchDepth?.value).toBe('number');
+      // false boolean stays a boolean (not "false")
+      expect(includeMarkers?.value).toBe(false);
+      expect(typeof includeMarkers?.value).toBe('boolean');
+    });
+
+    it('emits JSON null for an unset key with no default', async () => {
+      // cli.scope / cli.max_tasks have no §9.7.5 default → JSON null (not "").
+      const { stdout } = await run('show', { output: 'json' });
+      const parsed = JSON.parse(stdout) as Array<{
+        key: string;
+        value: unknown;
+      }>;
+      const scope = parsed.find(r => r.key === 'cli.scope');
+      const maxTasks = parsed.find(r => r.key === 'cli.max_tasks');
+      expect(scope?.value).toBeNull();
+      expect(maxTasks?.value).toBeNull();
+    });
+
     it('includes Source field in JSON output when --src is set', async () => {
       writeFileSync(join(repoRoot, '.hack'), '[harness]\nname = "pi"\n');
       const { stdout } = await run('show', { output: 'json', src: true });

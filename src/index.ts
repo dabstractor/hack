@@ -47,7 +47,11 @@ import {
   HarnessProviderMismatchError,
   UnsupportedHarnessError,
 } from './config/types.js';
-import { parseCLIArgs, type ValidatedCLIArgs } from './cli/index.js';
+import {
+  parseCLIArgs,
+  applyHackCliDefaults,
+  type ValidatedCLIArgs,
+} from './cli/index.js';
 import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
 import { getLogger, type Logger } from './utils/logger.js';
@@ -162,7 +166,18 @@ async function main(): Promise<number> {
   // (project files live at repoRoot) and BEFORE configureEnvironment() (so seeded values are
   // visible to the env resolver). Env-over-file: seeding fills ONLY undefined env keys, so
   // shell/.env still win (§9.2.1). Secrets/type validation (§9.7.6/§9.7.7) are P2.M1.T2.S1.
-  loadHackConfig(repoRoot);
+  // The returned merged config is captured (not discarded) so the CLI-only keys (those without
+  // an envVar — cli.mode, cli.scope, cli.max_tasks, concurrency.parallelism, monitor.*) can be
+  // applied to `args` for flags the user did NOT explicitly pass (PRD §9.7.10 — the env-linked
+  // keys already flow through process.env seeding + Commander .default()).
+  const mergedHackConfig = loadHackConfig(repoRoot);
+
+  // PRD §9.7.10: apply .hack CLI-only defaults to flags the user did NOT pass explicitly.
+  // parseCLIArgs() runs BEFORE .hack is loaded (bootstrap order), so the 10 CLI-only schema
+  // keys had no path to the CLI at parse time; this closes the gap. An explicit flag always
+  // wins (cli > file, §9.2.1). Runs before dry-run/verbose logging so the reported values are
+  // the effective ones.
+  applyHackCliDefaults(args, mergedHackConfig);
 
   // CRITICAL: Configure environment before any API operations
   configureEnvironment();

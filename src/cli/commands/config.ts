@@ -336,14 +336,24 @@ export class ConfigCommand {
     // (3) Resolve value + source per SCHEMA_MAP entry.
     interface ShowRow {
       key: string;
-      value: string;
+      // Typed value for JSON output (boolean|number|string|null). `null`
+      // represents an unset key (no default) so machine consumers can
+      // distinguish "absent" from the literal string "" (PRD §9.7.8 —
+      // `show -o json` is the machine-readable surface).
+      value: HackConfigValue | null;
+      // Stringified value for table output (secrets masked, undefined→"").
+      display: string;
+      // Whether the value's key name is secret-bearing (for JSON masking).
+      secret: boolean;
       source?: ShowSource;
     }
     const rows: ShowRow[] = SCHEMA_MAP.map(e => {
       const { value, source } = this.#resolveEntry(e, merged, preEnv);
       const row: ShowRow = {
         key: `${e.section}.${e.key}`,
-        value: ConfigCommand.displayValue(e.key, value),
+        value: value ?? null,
+        display: ConfigCommand.displayValue(e.key, value),
+        secret: isSecretKey(e.key),
       };
       if (options.src) {
         row.source = source;
@@ -353,7 +363,19 @@ export class ConfigCommand {
 
     // (4) Render.
     if (options.output === 'json') {
-      console.log(JSON.stringify(rows, null, 2));
+      // JSON output preserves scalar type fidelity: booleans emit as JSON
+      // booleans, ints as JSON numbers, strings as JSON strings, and unset
+      // keys as JSON null (PRD §9.7.8 — machine-readable surface). Secrets are
+      // masked as the literal string "<redacted>" (§9.7.10 — never echoed).
+      const jsonRows = rows.map(r => {
+        const out: Record<string, unknown> = {
+          key: r.key,
+          value: r.secret ? '<redacted>' : r.value,
+        };
+        if (options.src) out.source = r.source;
+        return out;
+      });
+      console.log(JSON.stringify(jsonRows, null, 2));
       return;
     }
 
@@ -381,9 +403,9 @@ export class ConfigCommand {
     });
     for (const r of rows) {
       if (options.src) {
-        table.push([r.key, r.value, r.source ?? '']);
+        table.push([r.key, r.display, r.source ?? '']);
       } else {
-        table.push([r.key, r.value]);
+        table.push([r.key, r.display]);
       }
     }
     console.log('\n' + table.toString());
