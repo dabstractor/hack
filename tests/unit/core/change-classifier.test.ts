@@ -88,6 +88,58 @@ function createDiffFixture(): DiffSummary {
 }
 
 /**
+ * Build a DiffSummary whose only differences are markdown table column-padding + separator
+ * re-alignment (session 010's actual §9.7.3/§9.7.5 cosmetic-delta pattern). Two 'modified'
+ * sections, padding-only oldContent/newContent. Used by the table-realignment COSMETIC case
+ * to document that classifier wiring path (DiffSummary is section-based — parsePRDSections
+ * splits on '#' headers, so the realistic fixture is per-section, not raw table rows).
+ */
+function createCosmeticTableDiffFixture(): DiffSummary {
+  return {
+    changes: [
+      {
+        type: 'modified',
+        sectionTitle: '9.7.3 Discovery, Layering & File Locations',
+        lineNumber: 832,
+        oldContent:
+          '| Layer | Path | Purpose |\n' +
+          '| ----- | ---- | ------- |\n' +
+          '| Project | `<repoRoot>/.hack` | Team-wide defaults. |',
+        newContent:
+          '| Layer   | Path                | Purpose             |\n' +
+          '| ------- | ------------------ | ------------------- |\n' +
+          '| Project | `<repoRoot>/.hack` | Team-wide defaults. |',
+        impact: 'none',
+      },
+      {
+        type: 'modified',
+        sectionTitle: '9.7.5 Schema Reference',
+        lineNumber: 858,
+        oldContent:
+          '| TOML key | Env var |\n' +
+          '| -------- | ------- |\n' +
+          '| `[models] high` | `PRP_MODEL_HIGH` |',
+        newContent:
+          '| TOML key        | Env var          |\n' +
+          '| --------------- | ---------------- |\n' +
+          '| `[models] high` | `PRP_MODEL_HIGH` |',
+        impact: 'none',
+      },
+    ],
+    summaryText: '2 sections modified (table formatting only)',
+    stats: {
+      totalAdded: 0,
+      totalModified: 2,
+      totalRemoved: 0,
+      sectionsAffected: [
+        '9.7.3 Discovery, Layering & File Locations',
+        '9.7.5 Schema Reference',
+      ],
+    },
+  };
+}
+
+/**
  * Configure the mock QA agent's prompt() to resolve with the given AgentResponse.
  */
 function mockAgentResponse(response: Record<string, unknown>): void {
@@ -148,6 +200,31 @@ describe('change-classifier (PRD §4.3)', () => {
 
       // VERIFY
       expect(result).toBe('COSMETIC');
+    });
+
+    it('classifies a whitespace-only markdown-table-realignment DiffSummary as COSMETIC', async () => {
+      // The agent is MOCKED — this proves the classifier WIRING returns COSMETIC for a
+      // table-realignment DiffSummary, not that a real LLM always will (classifyChange is
+      // LLM-driven per PRD §4.3: it passes the DiffSummary to a QA agent and validates the
+      // response; this test controls that response). Documents the session-010 cosmetic path.
+
+      // SETUP — two 'modified' sections whose only difference is table column padding.
+      const fixture = createCosmeticTableDiffFixture();
+      mockAgentResponse({
+        status: 'success',
+        data: 'COSMETIC',
+        error: null,
+        metadata: {},
+      });
+
+      // EXECUTE
+      const result = await classifyChange(fixture);
+
+      // VERIFY — COSMETIC returned AND the fixture was threaded verbatim into the prompt.
+      expect(result).toBe('COSMETIC');
+      expect(mockCreateChangeClassificationPrompt).toHaveBeenCalledWith(
+        fixture
+      );
     });
 
     it('SHOULD throw a transient AgentError on status:"error"', async () => {

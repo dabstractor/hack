@@ -2,12 +2,121 @@
   "version": "1.0",
   "checkpoints": [
     {
-      "id": "P1.M3.T3.S2_1785951260048_failed_44e7f0bf",
+      "id": "P1.M3.T3.S2_1785957082107_validation-gate-2_850384e7",
       "taskId": "P1.M3.T3.S2",
-      "label": "Task failed",
+      "label": "After validation gate 2",
       "state": {
         "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "failed",
+        "stage": "validation-gate-2",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
+        "coderResult": {
+          "result": "success",
+          "message": "Implementation complete"
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Echo test",
+            "success": true,
+            "command": "echo \"Hello from stdout\"",
+            "stdout": "Hello from stdout\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 2,
+            "description": "Unit tests",
+            "success": true,
+            "command": "echo \"Tests passed\"",
+            "stdout": "Tests passed\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          }
+        ],
+        "timestamp": "2026-08-05T19:11:22.107Z"
+      },
+      "createdAt": "2026-08-05T19:11:22.107Z"
+    },
+    {
+      "id": "P1.M3.T3.S2_1785957082108_complete_0a9738ee",
+      "taskId": "P1.M3.T3.S2",
+      "label": "Task completed successfully",
+      "state": {
+        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
+        "stage": "complete",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
+        "coderResult": {
+          "result": "success",
+          "message": "Implementation complete"
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Echo test",
+            "success": true,
+            "command": "echo \"Hello from stdout\"",
+            "stdout": "Hello from stdout\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 2,
+            "description": "Unit tests",
+            "success": true,
+            "command": "echo \"Tests passed\"",
+            "stdout": "Tests passed\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          }
+        ],
+        "timestamp": "2026-08-05T19:11:22.108Z"
+      },
+      "createdAt": "2026-08-05T19:11:22.108Z"
+    },
+    {
+      "id": "P1.M3.T3.S2_1785957082109_pre-execution_b08b24b5",
+      "taskId": "P1.M3.T3.S2",
+      "label": "Before Coder Agent execution",
+      "state": {
+        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
+        "stage": "pre-execution",
+        "validationResults": [],
+        "timestamp": "2026-08-05T19:11:22.109Z"
+      },
+      "createdAt": "2026-08-05T19:11:22.109Z"
+    },
+    {
+      "id": "P1.M3.T3.S2_1785957082110_coder-response_ae149105",
+      "taskId": "P1.M3.T3.S2",
+      "label": "After Coder Agent response",
+      "state": {
+        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
+        "stage": "coder-response",
+        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
+        "coderResult": {
+          "result": "success",
+          "message": "Implementation complete"
+        },
+        "validationResults": [],
+        "timestamp": "2026-08-05T19:11:22.110Z"
+      },
+      "createdAt": "2026-08-05T19:11:22.110Z"
+    },
+    {
+      "id": "P1.M3.T3.S2_1785957082122_validation-gate-2_384c60e7",
+      "taskId": "P1.M3.T3.S2",
+      "label": "After validation gate 2",
+      "state": {
+        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
+        "stage": "validation-gate-2",
         "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
         "coderResult": {
           "result": "success",
@@ -37,120 +146,10 @@
             "timedOut": false
           }
         ],
-        "fixAttempt": 2,
-        "timestamp": "2026-08-05T17:34:20.048Z"
+        "timestamp": "2026-08-05T19:11:22.122Z"
       },
-      "createdAt": "2026-08-05T17:34:20.048Z"
-    },
-    {
-      "id": "P1.M3.T3.S2_1785951260050_pre-execution_6c6883e1",
-      "taskId": "P1.M3.T3.S2",
-      "label": "Before Coder Agent execution",
-      "state": {
-        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "pre-execution",
-        "validationResults": [],
-        "timestamp": "2026-08-05T17:34:20.050Z"
-      },
-      "createdAt": "2026-08-05T17:34:20.050Z"
-    },
-    {
-      "id": "P1.M3.T3.S2_1785951260051_coder-response_6f396c37",
-      "taskId": "P1.M3.T3.S2",
-      "label": "After Coder Agent response",
-      "state": {
-        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "coder-response",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
-        "coderResult": {
-          "result": "success",
-          "message": "Implementation complete"
-        },
-        "validationResults": [],
-        "timestamp": "2026-08-05T17:34:20.051Z"
-      },
-      "createdAt": "2026-08-05T17:34:20.051Z"
-    },
-    {
-      "id": "P1.M3.T3.S2_1785951260057_validation-gate-4_d056f8bd",
-      "taskId": "P1.M3.T3.S2",
-      "label": "After validation gate 4",
-      "state": {
-        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "validation-gate-4",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
-        "coderResult": {
-          "result": "success",
-          "message": "Implementation complete"
-        },
-        "validationResults": [
-          {
-            "level": 1,
-            "description": "Syntax check",
-            "success": true,
-            "command": "echo \"Level 1 passed\"",
-            "stdout": "Level 1 passed\n",
-            "stderr": "",
-            "exitCode": 0,
-            "skipped": false,
-            "timedOut": false
-          },
-          {
-            "level": 4,
-            "description": "Manual review",
-            "success": true,
-            "command": null,
-            "stdout": "",
-            "stderr": "",
-            "exitCode": null,
-            "skipped": true,
-            "timedOut": false
-          }
-        ],
-        "timestamp": "2026-08-05T17:34:20.057Z"
-      },
-      "createdAt": "2026-08-05T17:34:20.057Z"
-    },
-    {
-      "id": "P1.M3.T3.S2_1785951260058_complete_f4236773",
-      "taskId": "P1.M3.T3.S2",
-      "label": "Task completed successfully",
-      "state": {
-        "prpPath": "/tmp/test-session/prps/P1M3T3S2.md",
-        "stage": "complete",
-        "coderResponse": "{\"result\":\"success\",\"message\":\"Implementation complete\"}",
-        "coderResult": {
-          "result": "success",
-          "message": "Implementation complete"
-        },
-        "validationResults": [
-          {
-            "level": 1,
-            "description": "Syntax check",
-            "success": true,
-            "command": "echo \"Level 1 passed\"",
-            "stdout": "Level 1 passed\n",
-            "stderr": "",
-            "exitCode": 0,
-            "skipped": false,
-            "timedOut": false
-          },
-          {
-            "level": 4,
-            "description": "Manual review",
-            "success": true,
-            "command": null,
-            "stdout": "",
-            "stderr": "",
-            "exitCode": null,
-            "skipped": true,
-            "timedOut": false
-          }
-        ],
-        "timestamp": "2026-08-05T17:34:20.058Z"
-      },
-      "createdAt": "2026-08-05T17:34:20.058Z"
+      "createdAt": "2026-08-05T19:11:22.122Z"
     }
   ],
-  "lastModified": "2026-08-05T17:34:20.058Z"
+  "lastModified": "2026-08-05T19:11:22.122Z"
 }
