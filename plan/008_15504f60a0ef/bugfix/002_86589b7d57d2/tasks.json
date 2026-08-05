@@ -370,14 +370,14 @@
               "type": "Task",
               "id": "P1.M4.T4",
               "title": "Full-suite green verification",
-              "status": "Failed",
+              "status": "Complete",
               "description": "After all BUG-001/002/003 changes and all BUG-004 category fixes land, run the full suite and confirm exit 0 so the §4.4 validate gate passes.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T4.S1",
                   "title": "Run full vitest, confirm 0 failures, fix stragglers",
-                  "status": "Failed",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S3",
