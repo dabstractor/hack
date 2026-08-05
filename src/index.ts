@@ -51,7 +51,10 @@ import { PRPPipeline } from './workflows/prp-pipeline.js';
 import { parseScope, type Scope } from './core/scope-resolver.js';
 import { getLogger, type Logger } from './utils/logger.js';
 import { PRDValidator } from './utils/prd-validator.js';
-import { resolveRepositoryRoot } from './utils/repo-root.js';
+import {
+  resolveRepositoryRoot,
+  NotARepositoryError,
+} from './utils/repo-root.js';
 import { existsSync } from 'node:fs';
 
 // Captured at module scope (evaluated at import — strictly before main() runs) so it reflects
@@ -387,6 +390,10 @@ void main()
     }
     if (error instanceof UnsupportedHarnessError) {
       console.error(`\n❌ ${error.message}`); // actionable: unsupported harness id + supported list
+      process.exit(1);
+    }
+    if (error instanceof NotARepositoryError) {
+      console.error(`\n❌ ${error.message}`); // §9.8.5: searchedFrom + no-.git-ancestor + --repo-root remediation (fires before any session/.env/agent)
       process.exit(1);
     }
     console.error('\n❌ Fatal error in main():', error);

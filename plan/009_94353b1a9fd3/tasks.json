@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Repository Root Resolution (Upward .git Traversal) — §9.8",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Make `hack` runnable from any subdirectory of a repository by walking up to the nearest `.git`, `chdir`-ing there, and resolving all default paths (PRD.md, plan/, .hack, .env) against that root. Git is a hard prerequisite: a missing repo aborts at startup. This phase runs FIRST in the bootstrap sequence because the .hack project layers (Phase 2) live at the repo root.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Resolver Engine, Bootstrap Wiring & CLI Override",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Implement the upward .git traversal resolver, wire it into main() bootstrap with chdir + INVOCATION_CWD capture, add the --repo-root CLI override, and verify hard-error behavior and child-process inheritance.",
           "tasks": [
             {
@@ -61,14 +61,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Hard-error behavior, child-process inheritance, and acceptance verification",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Verify that NotARepositoryError produces a single actionable exit-1 message before any session/agent work, that --help/--version work outside a repo, and that child processes inherit cwd=repoRoot. Add acceptance tests for all §9.8.9 criteria.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "No-repository hard error + child/agent inheritance + acceptance tests",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -93,7 +93,7 @@
       "type": "Phase",
       "id": "P2",
       "title": "The .hack Configuration File — §9.7",
-      "status": "Researching",
+      "status": "Planned",
       "description": "A single TOML config file capturing every tunable default (§9.2.2 env-style settings and §5.3 CLI flags), with three-tier layering (global ~/.hack → project <repoRoot>/.hack → gitignored <repoRoot>/.hack.local), a secrets policy that keeps secrets out of version control, validation, and a hack config subcommand. This phase realizes the §9.2.1 7-layer precedence model and the env-over-file rule. Depends on Phase 1 (project layers are read from the resolved repo root).",
       "milestones": [
         {
@@ -114,7 +114,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "TOML parser dependency + parse/validate module",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/009_94353b1a9fd3/architecture/system_context.md §3.1-§3.2 and config-system-and-constants.md. smol-toml@1.6.1 is ALREADY in node_modules as a transitive dep of markdownlint-cli but NOT in package.json dependencies. It must be promoted to a direct dependency: `\"smol-toml\": \"^1.6.1\"` in package.json dependencies. smol-toml exports `parse(string)` and `stringify(object)`, is ESM-native, TOML 1.0 compliant. It does NOT handle BOM — the loader must detect/reject a leading BOM manually (check first 3 bytes for 0xEF 0xBB 0xBF). All keys in .hack are lowercase snake_case per §9.7.4.\n2. INPUT: None (foundational config module — no dependency on repo-root since the parse function takes an absolute path).\n3. LOGIC: Add `smol-toml` to package.json dependencies (it's already installed). Create src/config/hack-config.ts with: (a) `parseHackFile(filePath: string): ParsedHackConfig` (§9.7.4): read file UTF-8, reject a leading BOM with a clear error (e.g. 'BOM detected in <file>; remove it and re-save as UTF-8 without BOM'), parse via `smol-toml.parse()`, catch parse errors and re-throw with file path + parser line/col, return a typed ParsedHackConfig object (a plain object keyed by [section] → key → value, with type info preserved). Define the ParsedHackConfig type and a HackConfigValue union (string | number | boolean). All keys are lowercase snake_case within their section (TOML tables map to [section]). The return type is `{ [section: string]: { [key: string]: HackConfigValue } }`.\n4. OUTPUT: smol-toml in package.json dependencies; src/config/hack-config.ts with parseHackFile + ParsedHackConfig type. Consumed by P2.M1.T1.S2.\n5. MOCKING: No external services to mock — TOML parsing is pure. Test with real TOML strings and temp files.\n6. DOCS: [Mode A] JSDoc on parseHackFile documenting the format (TOML 1.0, UTF-8, BOM rejection), key casing (lowercase snake_case), and the return type. Note smol-toml as the parser dependency.",

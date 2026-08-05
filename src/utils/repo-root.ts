@@ -42,9 +42,11 @@ export interface ResolveRepoOpts {
  * @remarks
  * Follows the typed-error convention used by {@linkcode SessionFileError}: `this.name` is set
  * in the constructor (so `error instanceof NotARepositoryError` + clean rendering work), and the
- * searched-from directory + `--repo-root` remediation are baked into the message. The clean
- * render arm + exit code + child-inheritance UX in `main().catch()` lands in P1.M1.T2.S1; until
- * then this error renders via the generic catch arm.
+ * searched-from directory + `--repo-root` remediation are baked into the message. Rendered by a
+ * dedicated `main().catch()` arm as a single actionable `❌` message + exit 1, BEFORE any session is
+ * created, `.hack`/`.env` is read, or any agent is invoked (the resolver runs after `parseCLIArgs()`
+ * so `--help`/`--version`/usage errors short-circuit first). The message names the searched-from
+ * directory, the fact that no ancestor contains `.git`, and the `--repo-root <path>` remediation.
  *
  * @example
  * ```typescript
