@@ -186,14 +186,14 @@
               "type": "Task",
               "id": "P2.M2.T1",
               "title": "Exhaustive schema mapping and canonical-name resolution",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Implement the complete schema in hack-config.ts mapping every [section].key from §9.7.5 to exactly one env var and/or CLI flag, resolving the dual-config-surface ambiguities and handling bare-model-id qualification.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M2.T1.S1",
                   "title": "Full schema map (all tunables) with env-var + CLI-flag seeding",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S2",
@@ -214,14 +214,14 @@
               "type": "Task",
               "id": "P2.M2.T2",
               "title": "hack config subcommand (init / show / validate / path)",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Add the `config` subcommand to src/cli/index.ts with four actions: init (writes commented template + .gitignore), show (prints effective config with --src and masked secrets), validate (CI-friendly lint), and path (prints resolved file paths).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M2.T2.S1",
                   "title": "Register config subcommand + implement init/show/validate/path actions",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M2.T1.S1"

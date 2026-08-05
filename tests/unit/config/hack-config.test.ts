@@ -35,6 +35,8 @@ import {
 import {
   loadHackConfig,
   parseHackFile,
+  SCHEMA_MAP,
+  SCHEMA_BY_KEY,
   _resetValidationWarnings,
 } from '../../../src/config/hack-config.js';
 
@@ -407,6 +409,168 @@ describe('config/hack-config: loadHackConfig', () => {
     // EXECUTE & VERIFY — the BOM error propagates (file path + "BOM")
     expect(() => loadHackConfig(repoRoot)).toThrow(/BOM/);
     expect(() => loadHackConfig(repoRoot)).toThrow(/\.hack/);
+  });
+});
+
+describe('hack-config: SCHEMA_MAP', () => {
+  // P2.M2.T1.S1: exhaustive §9.7.5 schema reference (dual-surface env/CLI/default map).
+  // Pure-data assertions on SCHEMA_MAP / SCHEMA_BY_KEY + an env-seeding regression that
+  // exercises the derived HACK_KEY_TO_ENV (filter() of CLI-only keys). The schema map is
+  // static + two derivations → zero runtime branches → 100% coverage trivially.
+
+  let dir: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'hack-schema-'));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('SCHEMA_MAP has all 38 §9.7.5 rows', () => {
+    // VERIFY: exhaustive coverage of the §9.7.5 schema reference table
+    expect(SCHEMA_MAP.length).toBe(38);
+  });
+
+  it('every §9.7.5 [section].key is present in SCHEMA_BY_KEY', () => {
+    // VERIFY: a representative sample across all 13 sections resolves via the lookup index
+    const sample = [
+      'models.high',
+      'models.balanced',
+      'models.fast',
+      'endpoint.base_url',
+      'harness.name',
+      'pipeline.parallel_research',
+      'pipeline.research_depth',
+      'pipeline.commit_format',
+      'commit.retry_max',
+      'bug_hunt.finder_agent',
+      'validation.agent',
+      'distributed_prd.include_max_depth',
+      'tasks_lock.poll_ms',
+      'concurrency.parallelism',
+      'api.timeout_ms',
+      'monitor.enabled',
+      'cli.mode',
+      'cli.scope',
+      'cli.log_level',
+      'cli.cache_enabled',
+      'cli.max_tasks',
+      'cli.max_duration_ms',
+    ];
+    for (const k of sample) {
+      expect(SCHEMA_BY_KEY[k]).toBeDefined();
+    }
+  });
+
+  it('SCHEMA_BY_KEY is a complete lookup index (38 keys, every entry reachable)', () => {
+    // VERIFY: the derived index has exactly one entry per SCHEMA_MAP row
+    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(38);
+    for (const entry of SCHEMA_MAP) {
+      expect(SCHEMA_BY_KEY[`${entry.section}.${entry.key}`]).toBe(entry);
+    }
+  });
+
+  it('dual-surface concepts appear exactly once (one TOML key per concept)', () => {
+    // VERIFY: the 4 dual-surface concepts each have BOTH envVar AND cliFlag, and appear once
+    const dualSurface = [
+      'concurrency.research_queue',
+      'cli.log_level',
+      'monitor.task_interval',
+      'pipeline.parallel_research',
+    ];
+    for (const k of dualSurface) {
+      const occurrences = SCHEMA_MAP.filter(e => `${e.section}.${e.key}` === k);
+      expect(occurrences.length).toBe(1);
+      expect(occurrences[0].envVar).toBeDefined();
+      expect(occurrences[0].cliFlag).toBeDefined();
+    }
+  });
+
+  it('negating flags name the POSITIVE state (default true, --no-* form)', () => {
+    // VERIFY: cache_enabled + monitor.enabled default to true and use the --no-* flag
+    expect(SCHEMA_BY_KEY['cli.cache_enabled'].defaultValue).toBe(true);
+    expect(SCHEMA_BY_KEY['cli.cache_enabled'].cliFlag).toBe('--no-cache');
+    expect(SCHEMA_BY_KEY['monitor.enabled'].defaultValue).toBe(true);
+    expect(SCHEMA_BY_KEY['monitor.enabled'].cliFlag).toBe(
+      '--no-resource-monitor'
+    );
+  });
+
+  it('model-id defaults are BARE (qualified at read time, not in schema)', () => {
+    // VERIFY: no 'zai/' prefix in the schema defaults; qualifyModel() qualifies at read time
+    expect(SCHEMA_BY_KEY['models.high'].defaultValue).toBe('glm-5.2');
+    expect(SCHEMA_BY_KEY['models.balanced'].defaultValue).toBe('glm-5.2');
+    expect(SCHEMA_BY_KEY['models.fast'].defaultValue).toBe('glm-5-turbo');
+  });
+
+  it('acceptedValues match the §9.7.5 enums', () => {
+    // VERIFY: enum-bearing entries carry the §9.7.5 accepted-values
+    expect(SCHEMA_BY_KEY['harness.name'].acceptedValues).toEqual([
+      'pi',
+      'claude-code',
+    ]);
+    expect(SCHEMA_BY_KEY['pipeline.commit_format'].acceptedValues).toEqual([
+      'task-prefix',
+      'plain',
+    ]);
+    expect(SCHEMA_BY_KEY['cli.mode'].acceptedValues).toEqual([
+      'normal',
+      'delta',
+      'bug-hunt',
+      'validate',
+    ]);
+    expect(SCHEMA_BY_KEY['cli.log_level'].acceptedValues).toEqual([
+      'trace',
+      'debug',
+      'info',
+      'warn',
+      'error',
+      'fatal',
+    ]);
+  });
+
+  it('the 3 unset CLI keys have no defaultValue', () => {
+    // VERIFY: [cli] scope / max_tasks / max_duration_ms are unset (no §9.7.5 default)
+    expect(SCHEMA_BY_KEY['cli.scope'].defaultValue).toBeUndefined();
+    expect(SCHEMA_BY_KEY['cli.max_tasks'].defaultValue).toBeUndefined();
+    expect(SCHEMA_BY_KEY['cli.max_duration_ms'].defaultValue).toBeUndefined();
+  });
+
+  it('[auth] is ABSENT (secret-bearing → T2.S1 secrets policy; never env-seeded)', () => {
+    // VERIFY: no [auth] rows leak into SCHEMA_MAP (seeding secrets to env would be WRONG)
+    expect(SCHEMA_MAP.filter(e => e.section === 'auth').length).toBe(0);
+  });
+
+  it('HACK_KEY_TO_ENV regression: env-linked key seeds process.env; CLI-only key does not', () => {
+    // SETUP — a .hack with an env-linked key ([pipeline] research_depth → RESEARCH_DEPTH)
+    // AND a CLI-only key ([cli] mode, which has NO envVar → must NOT seed anything).
+    // This exercises the derived HACK_KEY_TO_ENV's filter() (CLI-only keys absent).
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-here-seed'));
+    delete process.env.RESEARCH_DEPTH; // real .env value would skip seeding (false pass)
+    const repoRoot = mkdtempSync(join(dir, 'repo-seed-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[pipeline]\nresearch_depth = 7\n\n[cli]\nmode = "bug-hunt"\n'
+    );
+
+    // EXECUTE
+    loadHackConfig(repoRoot);
+
+    // VERIFY — env-linked key seeds process.env (stringified per §9.2.1); CLI-only does NOT.
+    expect(process.env.RESEARCH_DEPTH).toBe('7');
+    // [cli] mode has no envVar → derived HACK_KEY_TO_ENV skips it → seedProcessEnv never
+    // writes it under any name. Assert no process.env var carries the [cli] mode value
+    // ('bug-hunt') as a result of this load (robust against vitest's own MODE/NODE_ENV).
+    const modeValueVars = Object.entries(process.env)
+      .filter(([, v]) => v === 'bug-hunt')
+      .map(([k]) => k);
+    expect(modeValueVars).toEqual([]);
   });
 });
 
