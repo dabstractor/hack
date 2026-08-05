@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Cosmetic Delta Verification & Documentation Sync",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Session 010 is a delta session from session 009. The PRD diff is 100% cosmetic: markdown table column re-alignment in §9.7.3 (Discovery, Layering & File Locations) and §9.7.5 (Schema Reference), plus one trailing blank line. No semantic content changed. This phase verifies the delta has zero implementation impact and ensures documentation does not drift.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Verify Cosmetic Delta and Confirm Zero Implementation Work",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Confirm the PRD delta is purely cosmetic (markdown table formatting), verify the change classifier would classify it as COSMETIC, and confirm no source code, configuration, test, or documentation changes are required.",
           "tasks": [
             {
@@ -42,14 +42,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Mode B documentation sweep. Verify that README.md, docs/CONFIGURATION.md, docs/ARCHITECTURE.md, and .env.example do not require updates for this cosmetic-only markdown formatting delta. The docs use their own presentation format (grouped-by-section in CONFIGURATION.md, not the PRD's per-row table), so no formatting sync is expected — but this verification is mandatory per the two-mode documentation rule.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Verify README, CONFIGURATION, ARCHITECTURE, and .env.example need no updates for cosmetic delta",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
