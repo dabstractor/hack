@@ -107,7 +107,7 @@
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "TOML parse, three-tier discovery/merge, and env-over-file seeding",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Add the TOML parser dependency, create the parseHackFile function, implement the three-tier discovery/layered-merge loader that seeds process.env for unset keys, and wire it into main() after the Phase 1 chdir.",
               "subtasks": [
                 {
@@ -129,7 +129,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Three-tier discovery, layered merge, env-over-file seeding",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1",
