@@ -41,7 +41,11 @@ import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
 import { CacheCommand, type CacheOptions } from './commands/cache.js';
 import { ConfigCommand, type ConfigOptions } from './commands/config.js';
-import { bootstrapRepoRoot, getRepoRoot } from '../utils/repo-root.js';
+import {
+  bootstrapRepoRoot,
+  getRepoRoot,
+  getInvocationCwd,
+} from '../utils/repo-root.js';
 import * as os from 'node:os';
 import ms from 'ms';
 
@@ -962,13 +966,15 @@ export function parseCLIArgs():
   // Get typed options for default pipeline execution
   const options = program.opts<CLIArgs>();
 
-  // PRD §9.8.3: an EXPLICIT --prd resolves against INVOCATION_CWD (where the user typed the
-  // command), NOT the post-chdir repo root. process.cwd() here === INVOCATION_CWD (S1's chdir runs
-  // AFTER parseCLIArgs returns), so resolve() now is INVOCATION_CWD-relative. The DEFAULT
-  // './PRD.md' is left relative → resolved against repoRoot post-chdir. Distinguish via
+  // PRD §9.8.3/§9.8.9: an EXPLICIT --prd resolves against INVOCATION_CWD (where the user typed
+  // the command), NOT the post-chdir repo root. The preAction hook already ran bootstrapRepoRoot()
+  // during program.parse() — which captured INVOCATION_CWD into the repo-root module singleton AND
+  // process.chdir()'d to repoRoot — so process.cwd() here is the REPO ROOT, not INVOCATION_CWD.
+  // Use getInvocationCwd() (captured before the chdir) to pre-resolve the explicit path correctly.
+  // The DEFAULT './PRD.md' is left relative → resolved against repoRoot post-chdir. Distinguish via
   // Commander's value source ('cli' = explicit; 'default' = omitted).
   if (program.getOptionValueSource('prd') === 'cli') {
-    options.prd = resolve(options.prd);
+    options.prd = resolve(getInvocationCwd(), options.prd);
   }
 
   // Validate scope format if provided

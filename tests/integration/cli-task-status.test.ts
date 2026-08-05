@@ -11,10 +11,12 @@
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { parseCLIArgs } from '../../src/cli/index.js';
+import { _resetBootstrap } from '../../src/utils/repo-root.js';
 
 // Silence the CLI logger so its output does not interfere with console spies.
 const { mockLogger } = vi.hoisted(() => ({
@@ -113,8 +115,25 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
     logSpy.mockRestore();
     errSpy.mockRestore();
     if (process.cwd() !== origCwd) process.chdir(origCwd);
+    // Reset the repo-root bootstrap guard so the next test re-resolves from its own (git-init'd)
+    // tmpdir rather than reusing this test's chdir'd root (the preAction hook sets it once).
+    _resetBootstrap();
     if (cwd) await rm(cwd, { recursive: true, force: true });
   });
+
+  /** Create a fresh tmpdir that is a real git repo (so the preAction hook's repo-root bootstrap
+   * does not throw NotARepositoryError — PRD §9.8.5). Caller cleans up in afterEach. */
+  const mkRepoTmp = async (): Promise<string> => {
+    const d = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    const r = spawnSync('git', ['init', '-q', d]);
+    if (r.status !== 0) {
+      await rm(d, { recursive: true, force: true });
+      throw new Error(
+        `git init failed: ${r.stderr ?? 'unknown error'} (is git installed?)`
+      );
+    }
+    return d;
+  };
 
   /** Wait for the detached async action handler to call process.exit. */
   const waitForExit = async (timeoutMs = 1000): Promise<void> => {
@@ -152,7 +171,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   };
 
   it('prefers the bugfix child and prints the bugfix source note to stderr', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession({ withBugfix: true });
 
@@ -163,7 +182,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('falls back to main tasks and prints the main source note when no bugfix exists', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession({ withBugfix: false });
 
@@ -175,7 +194,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('suppresses the source note for machine-readable -o json output', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession({ withBugfix: true });
 
@@ -186,7 +205,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('skips discovery (no note) for an explicit --file override', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession({ withBugfix: true });
     const file = join(cwd, 'custom.json');
@@ -201,7 +220,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('color-codes the default listing by completion status (tsk mapping)', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession();
 
@@ -217,7 +236,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('color-codes the `next` action output by completion status', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession();
 
@@ -231,7 +250,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('color-codes the `status` summary action labels by completion status', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession();
 
@@ -244,7 +263,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('renders unknown statuses via the white fallback (PRD §5.4)', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
     await makeSession({ backlog: BACKLOG_UNKNOWN_STATUS });
 
@@ -257,7 +276,7 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
   });
 
   it('exits with code 1 when no sessions are found', async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'hack-cli-'));
+    cwd = await mkRepoTmp();
     process.chdir(cwd);
 
     await run(['status']);

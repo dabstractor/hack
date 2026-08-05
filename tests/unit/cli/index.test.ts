@@ -39,6 +39,7 @@ vi.mock('../../../src/utils/repo-root.js', () => ({
   })),
   bootstrapRepoRoot: mockBootstrapRepoRoot,
   getRepoRoot: vi.fn(() => '/mock-repo'),
+  getInvocationCwd: vi.fn(() => process.cwd()),
 }));
 
 // Mock the node:fs module (existsSync is overridden per-test; readFileSync

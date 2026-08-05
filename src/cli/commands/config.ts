@@ -517,7 +517,11 @@ export class ConfigCommand {
           basename(file) === '.hack.local' ? 'project-local' : 'project'
         );
       } catch (e) {
-        errors.push(`${file}: ${e instanceof Error ? e.message : String(e)}`);
+        // The thrown message (HackConfigError / parse error) already embeds the file path
+        // (e.g. "[commit] retry_delay_cap_ms in <file>: ..."), so we do NOT prepend `${file}:`
+        // here — doing so would duplicate the path (PRD F-3 polish). Mirrors the startup
+        // path's clean single-line rendering.
+        errors.push(e instanceof Error ? e.message : String(e));
       }
     }
 

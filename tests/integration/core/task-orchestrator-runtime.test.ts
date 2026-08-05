@@ -242,6 +242,12 @@ describe('TaskOrchestrator Runtime Integration Tests', () => {
     // Wire the research seam before each test constructs the orchestrator.
     // (afterEach runs vi.clearAllMocks(), so re-wire per test here.)
     wireMockPRPGenerator({ PRPGenerator: vi.mocked(PRPGenerator) });
+    // Test isolation (Finding F-4): clear .hack-overlapping env vars so the
+    // orchestrator's effective config is reproducible regardless of the dev
+    // shell (env-over-file is spec-correct; the code is fine).
+    delete process.env.RESEARCH_DEPTH;
+    delete process.env.RESEARCH_QUEUE_CONCURRENCY;
+    delete process.env.PARALLEL_RESEARCH;
   });
 
   afterEach(() => {

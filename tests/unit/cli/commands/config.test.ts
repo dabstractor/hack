@@ -69,6 +69,13 @@ describe('cli/commands/config', () => {
     process.exit = ((code?: number) => {
       exitCalls.push(code ?? 0);
     }) as unknown as typeof process.exit;
+    // Test isolation (Finding F-4): clear .hack-overlapping env vars so file-only
+    // values are observed deterministically regardless of the dev shell. afterEach
+    // restores the original environment (env-over-file is spec-correct; the code is
+    // fine — these tests just never established a clean env baseline).
+    delete process.env.RESEARCH_DEPTH;
+    delete process.env.RESEARCH_QUEUE_CONCURRENCY;
+    delete process.env.PARALLEL_RESEARCH;
   });
 
   afterEach(() => {
