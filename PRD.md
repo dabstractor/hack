@@ -290,6 +290,29 @@ prd task -f <file>    # Override with specific file
 1. Incomplete bugfix session tasks (`SESSION_DIR/bugfix/NNN_hash/tasks.json`)
 2. Main session tasks (`SESSION_DIR/tasks.json`)
 
+**Tasks-Not-Yet-Generated Window (Breakdown-in-Progress):**
+
+There is a necessary, legitimate window during §4.1 Initialization & Breakdown in which the Session Manager has already created the session directory (`plan/NNN_hash/`, stamped with `.prd_hash` and friends) but the Architect Agent has not yet finished decomposition and written `tasks.json`. During this window `SESSION_DIR/` exists while `SESSION_DIR/tasks.json` does not. The same absence arises when a breakdown run was interrupted before `tasks.json` was written. This is a normal transient state, not an error.
+
+**Problem.** The `task` / `status` subcommand (and any consumer of the Task File Discovery Priority above) resolves the latest session, derives the `tasks.json` path, prints its `Using main tasks: …` source note, then `readFile(tasksFile)` throws `ENOENT`. Today this surfaces as a scary `ERROR: … Task command failed: ENOENT: no such file or directory, open '…/tasks.json'` complete with a request id and stack trace — implying breakage during what is actually ordinary pre-breakdown progress.
+
+**Requirement.** When a _discovered_ (auto-resolved) tasks file is absent solely because the session directory exists but its `tasks.json` has not been generated yet, the command MUST treat this as the “breakdown-in-progress” state and inform the user instead of erroring:
+
+- **Detection.** After resolving the target session but _before_ parsing, if the resolved tasks file (`SESSION_DIR/tasks.json`, or the bugfix fallback when the discovery priority selects it) does not exist (`ENOENT`) **and the session directory itself does exist**, classify the state as breakdown-in-progress. (When `findLatestSession` returns no session at all, the existing “No sessions found” path applies unchanged — see the acceptance criteria for how the two empty states are distinguished.)
+- **Message.** Emit a single, calm, human-readable notice to **stderr** naming the session and explaining that `tasks.json` is generated during PRD breakdown and is not available yet — re-run shortly, or run the pipeline (`hack --continue`) to (re)generate it. This notice **replaces** the `Using main tasks: …` source note for this state (printing both would be self-contradictory). Under `--output json`, emit a structured object instead, e.g. `{ "status": "awaiting_breakdown", "session": "NNN_hash" }`, so scripts get clean stdout.
+- **Exit code.** `0`. This is an observation of a valid transient state, not a failure; a non-zero exit would break shell scripts, prompts, and aliases that poll `hack status` while a run warms up.
+- **Scope — discovery only.** This graceful behavior applies exclusively to _auto-resolved_ tasks files (the Task File Discovery Priority above). An explicit `--file <path>` override that points at a non-existent file remains a **hard error** — the user asked for a specific file, so a missing one is a real mistake, not a transient state.
+- **All discovery-based actions.** `task` (list), `status` (alias), and `task next` MUST all degrade gracefully for this state; in particular `next` reports “no tasks available yet (breakdown in progress)” rather than crashing.
+- **Distinct from recovery.** This is the read-only observation path; it MUST NOT trigger the §5.1 `tasks.json` corruption-recovery (that path is for parse/validation failures and git-history restore, keyed off a _present-but-broken_ file) nor the §4.4 interrupted-bugfix-breakdown re-entry (scoped to bugfix children that have a `TEST_RESULTS.md`). A simply-absent `tasks.json` on a read-only `status` query is _reported_, not “repaired.”
+
+**Acceptance criteria.**
+
+- `hack status` run against a session whose directory exists but whose `tasks.json` is absent prints the calm “tasks not generated yet / breakdown in progress” notice naming the session and exits `0` — no `ERROR`, no `ENOENT`, no request id, no stack trace.
+- `hack task` and `hack task next` behave identically for the same state.
+- `hack status --output json` emits the structured `awaiting_breakdown` object and exits `0`.
+- `hack status --file /nonexistent/tasks.json` still exits non-zero with a clear “file not found” error (explicit override is not softened).
+- `hack status` with _no_ sessions at all still exits non-zero with the existing “No sessions found” message — the two empty states (“no sessions” vs “session exists, no `tasks.json` yet”) are distinguished, not collapsed.
+
 ## 6. Critical Prompts & Personas
 
 The system relies on specific, highly-engineered prompts. These must be preserved in the rewrite.
