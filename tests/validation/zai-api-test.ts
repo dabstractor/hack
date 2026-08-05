@@ -15,6 +15,8 @@ import {
   validateEnvironment,
   EnvironmentValidationError,
 } from '../../src/config/environment.js';
+import { getResolvedProvider } from '../../src/config/environment.js';
+import { resolveApiKeyForProvider } from '../../src/config/harness.js';
 import { checkProviderEndpoint } from '../../src/config/endpoint-guard.js';
 
 // ANSI color codes for terminal output
@@ -95,6 +97,8 @@ function isAnthropicMessageResponse(
 class ZAiValidator {
   private baseURL: string = '';
   private apiKey: string = '';
+  /** Bare model name (default glm-5.2) used for the live /v1/messages tests. */
+  private testModel: string = 'glm-5.2';
   private results: TestResult[] = [];
 
   constructor() {
@@ -113,21 +117,31 @@ class ZAiValidator {
       // Configure environment
       configureEnvironment();
 
-      // Check ANTHROPIC_API_KEY
-      if (!process.env.ANTHROPIC_API_KEY) {
-        fail('ANTHROPIC_API_KEY not set');
+      // Provider-aware credential resolution (PRD §9.2.6). The default path
+      // authenticates via `ZAI_API_KEY` or pi's file-backed AuthStorage
+      // (~/.pi/agent/auth.json) — NOT `ANTHROPIC_API_KEY`. An explicit override
+      // (`PRP_API_KEY`) or `ANTHROPIC_API_KEY` may also satisfy it. Returns
+      // undefined when only auth.json is configured (the key is forwarded to
+      // the harness by pi natively, so a live run still works).
+      const provider = getResolvedProvider();
+      const resolvedKey = resolveApiKeyForProvider(provider);
+      if (!resolvedKey) {
+        fail(
+          `No API key resolved for provider "${provider}". Configure one of: PRP_API_KEY (override), ZAI_API_KEY (zai provider), or run \`pi /login\` (~/.pi/agent/auth.json).`
+        );
         return {
           name: 'Environment Configuration',
           passed: false,
           duration: Date.now() - startTime,
-          error: 'ANTHROPIC_API_KEY not set after configureEnvironment()',
+          error: `No API key resolved for provider "${provider}" (override → provider-native env → auth.json)`,
         };
       }
-      success('ANTHROPIC_API_KEY is configured');
+      success(`API key resolved for provider "${provider}"`);
 
       // Mask API key for display
-      const maskedKey = `${process.env.ANTHROPIC_API_KEY.slice(0, 10)}...`;
+      const maskedKey = `${resolvedKey.slice(0, 10)}...`;
       info(`API Key: ${maskedKey}`);
+      this.apiKey = resolvedKey;
 
       // Check ANTHROPIC_BASE_URL
       if (!process.env.ANTHROPIC_BASE_URL) {
@@ -142,8 +156,12 @@ class ZAiValidator {
       success(`ANTHROPIC_BASE_URL: ${process.env.ANTHROPIC_BASE_URL}`);
       this.baseURL = process.env.ANTHROPIC_BASE_URL;
 
-      // Store API key for later tests
-      this.apiKey = process.env.ANTHROPIC_API_KEY;
+      // Resolve the model used for the live /v1/messages round-trip tests:
+      // the bare high-tier model (default glm-5.2 per PRD §9.2.8). Stored on
+      // the instance so Tests 4/5/6 send the actually-configured model instead
+      // of a stale hardcoded name.
+      this.testModel = getModel('high').split('/').pop()!;
+      info(`Live-test model: ${this.testModel}`);
 
       // Validate environment
       try {
@@ -193,29 +211,38 @@ class ZAiValidator {
       const balancedModel = getModel('balanced');
       const fastModel = getModel('fast');
 
+      // getModel() returns provider-qualified strings (e.g. 'zai/glm-5.2');
+      // compare against the bare model name for the tier check.
+      const bareHigh = highModel.split('/').pop()!;
+      const bareBalanced = balancedModel.split('/').pop()!;
+      const bareFast = fastModel.split('/').pop()!;
+
       info(`Opus model:   ${highModel}`);
       info(`Sonnet model: ${balancedModel}`);
       info(`Haiku model:  ${fastModel}`);
 
       const checks: boolean[] = [];
 
-      if (highModel === 'GLM-4.7') {
-        success('Opus model is GLM-4.7');
+      // Defaults per src/config/environment.ts: high=glm-5.2, balanced=glm-5.2,
+      // fast=glm-5-turbo (PRD §9.2.8). A canonical override (PRP_MODEL_*) may
+      // change these, so warn (not hard-fail) on a mismatch.
+      if (bareHigh === 'glm-5.2') {
+        success('Opus model is glm-5.2');
         checks.push(true);
       } else {
-        warn(`Opus model is ${highModel}, expected GLM-4.7`);
+        warn(`Opus model is ${highModel}, expected glm-5.2`);
         checks.push(false);
       }
 
-      if (balancedModel === 'GLM-4.7') {
-        success('Sonnet model is GLM-4.7');
+      if (bareBalanced === 'glm-5.2') {
+        success('Sonnet model is glm-5.2');
         checks.push(true);
       } else {
-        warn(`Sonnet model is ${balancedModel}, expected GLM-4.7`);
+        warn(`Sonnet model is ${balancedModel}, expected glm-5.2`);
         checks.push(false);
       }
 
-      if (fastModel === 'glm-5-turbo') {
+      if (bareFast === 'glm-5-turbo') {
         success('Haiku model is glm-5-turbo');
         checks.push(true);
       } else {
@@ -306,7 +333,7 @@ class ZAiValidator {
   }
 
   /**
-   * Test 4: Message API with GLM-4.7
+   * Test 4: Message API
    */
   async testMessageAPI(): Promise<TestResult> {
     const startTime = Date.now();
@@ -318,7 +345,7 @@ class ZAiValidator {
       info(`POST ${url}`);
 
       const requestBody = {
-        model: 'GLM-4.7',
+        model: this.testModel,
         max_tokens: 10,
         messages: [
           {
@@ -364,7 +391,7 @@ class ZAiValidator {
         fail(`API request failed with HTTP ${response.status}`);
         log('', 'reset');
         return {
-          name: 'Message API (GLM-4.7)',
+          name: 'Message API',
           passed: false,
           duration: Date.now() - startTime,
           error: `HTTP ${response.status}: ${JSON.stringify(responseBody)}`,
@@ -455,7 +482,7 @@ class ZAiValidator {
 
       log('', 'reset');
       return {
-        name: 'Message API (GLM-4.7)',
+        name: 'Message API',
         passed: checks.every(c => c),
         duration: Date.now() - startTime,
         details: { response: responseBody },
@@ -466,7 +493,7 @@ class ZAiValidator {
       );
       log('', 'reset');
       return {
-        name: 'Message API (GLM-4.7)',
+        name: 'Message API',
         passed: false,
         duration: Date.now() - startTime,
         error: String(error),
@@ -496,7 +523,7 @@ class ZAiValidator {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'GLM-4.7',
+          model: this.testModel,
           max_tokens: 5,
           messages: [{ role: 'user', content: 'test' }],
         }),
@@ -594,7 +621,7 @@ class ZAiValidator {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'GLM-4.7',
+          model: this.testModel,
           max_tokens: 10,
           messages: [{ role: 'user', content: 'test' }],
         }),
@@ -708,10 +735,13 @@ class ZAiValidator {
     if (failedTests > 0) {
       log('\n❌ Some validation tests failed.\n', 'red');
       log('Review the errors above and ensure:', 'red');
-      log('  1. ANTHROPIC_AUTH_TOKEN is set correctly', 'gray');
+      log(
+        '  1. A credential is set (PRP_API_KEY, ZAI_API_KEY, or run `pi /login`)',
+        'gray'
+      );
       log('  2. ANTHROPIC_BASE_URL is correct', 'gray');
       log('  3. z.ai API is accessible from your network', 'gray');
-      log('  4. Models GLM-4.7 and glm-5-turbo are available', 'gray');
+      log('  4. Models glm-5.2 and glm-5-turbo are available', 'gray');
       log('', 'reset');
       process.exit(1);
     } else {

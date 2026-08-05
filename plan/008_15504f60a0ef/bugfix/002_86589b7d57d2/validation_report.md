@@ -1,207 +1,115 @@
-# Validation Report — PRP Development Pipeline (hacky-hack)
+# Validation Report — hacky-hack (PRP Pipeline)
 
-**Generated:** comprehensive static + dynamic validation
-**Scope:** full codebase vs. PRD requirements; safe E2E CLI workflows only (the live agent pipeline was NOT invoked — per `AGENTS.md`, running it here would corrupt the in-progress dogfooding session).
+**Project:** `hacky-hack` — Autonomous PRP Development Pipeline (TypeScript / Node.js 20+ / Groundswell)
+**Validator:** Validation agent (read-only; no pipeline execution, no `plan/` mutation per repo `AGENTS.md`)
+**Date:** 2025-08-04
+**Validation script:** [`./validate.sh`](./validate.sh) (executable; run `./validate.sh --help` for usage)
 
 ---
 
 ## 1. Executive Summary
 
-The codebase is in strong shape. Every PRD-mandated subsystem I verified is implemented and wired correctly: the distributed-PRD include resolver (§2.3), provider-neutral config + deprecation fallback (§9.2.8), three model roles with `xhigh` reasoning budgets (§9.2.3), the fail-fast auth preflight honoring file-backed `auth.json` (§9.2.6/§9.2.7), the z.ai endpoint guard (§9.2.4), `flock`-guarded `tasks.json` + `restore_critical_files` + `NO_ISSUES_FOUND` (§5.1/§4.4), the two-phase `stagecoach` commit (§4.2.4), and the lazy-logger / no-transport logging architecture (§9.6 — `--help` runs in ~0.6 s).
+The codebase is in **strong shape**: the standard toolchain gates (lint, type-check, format, full test suite, build, groundswell link) **all pass**, the documented **credential-free and read-only CLI workflows all operate correctly**, and the cross-cutting requirements I could verify mechanically (PRD §9.6 lazy-logger / synchronous-destination logging, the `[PRP Auto]` banner removal of PRD §5.1, provider-neutral `PRP_*` config with `ANTHROPIC_*` legacy fallback) are correctly implemented.
 
-**Type-check, lint, format, build, groundswell validation, and docs-check all pass.** All 6 772 unit/integration/e2e tests pass when run in their normal groups.
+However, validation surfaced **6 issues** (1 medium-functional, 1 medium, 1 medium-docs/usability, 3 low). The most material is that the **configured 100 % coverage gate is non-functional** — `npm run test:coverage` exits `0` at ~90 % actual coverage, so coverage regressions slip through silently. Two documentation defects (a failing `docs:check` and a `prd`-vs-`hack` binary-name mismatch) are the only failures an automated run will actually flag.
 
-**However, two HIGH-severity issues block a green "100 % confidence" run:**
+**Overall verdict:** ⚠️ **Pass with caveats** — safe to develop against; the coverage-gate and docs/link defects should be addressed before relying on them as release gates.
 
-1. **The canonical `npm run test:run` exits 1** — a benchmark test forces the macOS `lsof` code path on Linux, OOM-killing a worker (§3, Issue #1).
-2. **Bugfix task discovery is broken** — a stray duplicate-sequence directory defeats `findLatestBugfixTasksFile`, so `prd task`/`prd task next`/`prd status` hide an in-progress bugfix session in plain sight, violating §5.3 (§3, Issue #2).
-
-| Phase                                                  | Result                                                |
-| ------------------------------------------------------ | ----------------------------------------------------- |
-| Type checking (`tsc --noEmit`, strict)                 | ✅ PASS                                               |
-| Lint (`eslint`)                                        | ✅ PASS (6 `any` warnings, 0 errors)                  |
-| Format (`prettier --check`)                            | ✅ PASS                                               |
-| Build (`tsc -p tsconfig.build.json`)                   | ✅ PASS (`dist/index.js` executable)                  |
-| Groundswell validation (incl. file-backed `auth.json`) | ✅ PASS                                               |
-| Docs structural check                                  | ✅ PASS (1 capitalization warning)                    |
-| Logging architecture §9.6 REQ-L1/REQ-L2                | ✅ PASS (no module-scope loggers, no pino transports) |
-| CLI performance §9.6.3 (`--help` < 2 s)                | ✅ PASS (~0.6 s)                                      |
-| E2E CLI workflows (all safe subcommands)               | ✅ PASS (22/22 checks)                                |
-| Project config-completeness sweep                      | ✅ PASS (16/16 knobs present)                         |
-| **Test suite — full `npm run test:run`**               | ❌ **FAIL — exit 1 (OOM)**                            |
-| Test suite — grouped (unit/integration/e2e)            | ✅ PASS (6 772 tests)                                 |
+| Gate | Result |
+| --- | --- |
+| Lint (eslint) | ✅ PASS — 0 errors, 6 `no-explicit-any` warnings |
+| Type check (`tsc --noEmit`) | ✅ PASS |
+| Format check (prettier) | ✅ PASS |
+| Test suite (vitest run) | ✅ PASS — **6773 passed / 71 skipped** (199 files) |
+| Coverage gate (`test:coverage`) | ⚠️ **NON-FUNCTIONAL** — ~90 % actual, exits 0 (see I-1) |
+| Build (`tsc -p tsconfig.build.json`) | ✅ PASS — `dist/index.js` emitted |
+| Docs consistency (`docs:check`) | ❌ **FAIL** — 2 broken links (see I-2) |
+| Groundswell validation | ✅ PASS — §9.2.6 file-backed auth fix is live |
+| PRD §9.6 logging criteria | ✅ PASS — 0 module-scope loggers, 0 `transport:` configs |
+| CLI smoke tests (16) | ✅ PASS — all credential-free / read-only workflows |
 
 ---
 
-## 2. What was validated (method)
+## 2. The Validation Script — `./validate.sh`
 
-- **Static:** `tsc`, `eslint`, `prettier`, `tsc` emit, targeted `rg` audits of every PRD-mandated constant/flag/primitive, logging-architecture invariants.
-- **Dynamic (safe CLI only):** `--help`, `-h`, `--version`, invalid flag, `--dry-run`, `--validate-prd`, and every subcommand (`inspect`, `validate-state`, `task`, `task next`, `task status`, `status` alias, `cache stats`, `artifacts list`). The live pipeline (`npm run dev`, agent runs, session creation) was deliberately **not** invoked.
-- **Tests:** vitest full run + per-group runs to isolate failures.
-- **Dogfooding state inspected (read-only):** `plan/008_15504f60a0ef` sessions and `bugfix/` children.
+A self-contained, dependency-light bash script that runs **every safe, non-pipeline validation phase** in the repo. It never runs the pipeline and never touches `plan/` (repo `AGENTS.md` compliance): every CLI invocation is either **credential-free** (`--help`, `--version`, `--dry-run`, `--validate-prd`, error-path arg validation) or a **strictly read-only query** (`inspect`, `validate-state`, `task`, `status`) against an existing session.
 
----
+**Phases:** preflight → lint → type-check → format → test suite → coverage gate (100 %; skippable) → build → docs consistency → groundswell validation → PRD §9.6 logging checks → 16 CLI smoke tests.
 
-## 3. Issues Found
-
-### 🔴 Issue #1 — `npm run test:run` exits 1: benchmark test OOM-kills the worker _(HIGH)_
-
-**Symptom.** The canonical test command fails:
-
-```
-$ npm run test:run   # → exit 1
-FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
-Error: Worker exited unexpectedly
- Test Files  199 passed | 1 skipped (201)
-      Tests  6772 passed | 71 skipped (6851)
-     Errors  1 error
+**Usage:**
+```bash
+./validate.sh                 # all phases, fail-fast
+./validate.sh --keep-going    # run all phases, report every failure at end
+./validate.sh --no-coverage   # skip the slow coverage phase
+./validate.sh --smoke-only    # fast: only the 16 CLI smoke tests
 ```
 
-All 6 772 actual tests pass, but **one test file is lost to a worker crash** and vitest returns exit 1. This is deterministic (reproduced twice).
-
-**Root cause.** `tests/benchmark/resource-monitoring.bench.test.ts` mocks `process.platform = 'darwin'` and benchmarks `ResourceMonitor` with **`cacheTtl: 0` (uncached)** inside a `tinybench` loop (`time: 2000`). The darwin path of `FileHandleMonitor.getHandleCount()` calls `execSync('lsof …')` on **every iteration** (`src/utils/resource-monitor.ts:241-258`). `lsof` exists on this Linux host, so tinybench spawns it synchronously as fast as possible for seconds. Run in isolation the benchmark hangs beyond a 90 s timeout; run inside the forks pool it pushes a worker over its `memoryLimit: 4096` (MB) and is OOM-killed.
-
-The vitest `include` (`tests/**/*.{test,spec}.ts`) picks the file up because it ends in `.bench.test.ts`; nothing excludes or platform-guards it.
-
-**Impact.** Red CI on any non-macOS runner. The grouped runs (`tests/unit`, `tests/integration`, `tests/e2e`, or `tests/unit tests/integration tests/e2e`) pass cleanly precisely because they exclude the benchmark.
-
-**Fix direction (any one).**
-
-- Platform-guard: ` (process.platform !== 'darwin' ? it.skip : it)(...)` for the lsof-spawning benchmarks.
-- Mock `execSync` rather than spawning a real `lsof`.
-- Exclude `**/*.bench.test.ts` from the default `test.include` (move benchmarks to a separate `npm run bench` script), or raise `poolOptions.forks.memoryLimit`.
+**Authoritative run** (`./validate.sh --no-coverage --keep-going`): **23 PASS · 1 WARN · 1 FAIL** → `Docs consistency` (the only gate an automated run fails on; coverage was skipped in this run and is characterized separately below).
 
 ---
 
-### 🔴 Issue #2 — Bugfix task discovery defeated by a duplicate-sequence directory (PRD §5.3 violation) _(HIGH)_
+## 3. Issues Found (Bug Tracker)
 
-**Symptom.** An in-progress bugfix session has unfinished work, but the documented commands hide it:
+> This is a **reporting** pass — no code was modified. Severities are the validator's judgement, not a fix commitment.
 
-```
-$ node dist/index.js task next
-[hack] Using main tasks: 008_15504f60a0ef/tasks.json
-No tasks remaining.
-```
+### I-1 · Coverage gate is non-functional (configured 100 %, actual ~90 %, exits 0) — **Medium / Functional**
+- **Where:** `vitest.config.ts` declares `coverage.thresholds.global = { statements: 100, branches: 100, functions: 100, lines: 100 }` (the config comment states *"Enforces 100% code coverage thresholds for all source files"*).
+- **Observed:** `npm run test:coverage` reports **`All files | 89.82 % stmts | 90.47 % branches | 94.2 % funcs | 89.82 % lines`** and **exits `0`** — no `does not meet threshold` / threshold-ERROR message is emitted.
+- **Consequence:** The coverage gate that the project clearly *intends* to enforce is a silent no-op. Coverage regressions are not caught; the comment's promise is false. Notable uncovered surface: several files at **0 %** (`src/scripts/validate-api.ts`, `src/workflows/hello-world.ts`, `src/workflows/index.ts`, `src/utils/typecheck-runner.ts`, `src/utils/memory-error-detector.ts`, `src/utils/startup-error-verifier.ts`, `src/utils/package-json-syntax-verifier.ts`, `src/commands/process-code.command.ts`, `src/scripts/validate-groundswell.ts`, `src/scripts/validate-test-suite-p4m3t1s1.ts`) and many well below 100 % (e.g. `token-counter.ts` 75 %, `tree-renderer.ts` 80 %, `resource-monitor.ts` 84 %, `prp-generator.ts` 88 %, `cli/commands/cache.ts` 47 %, `cli/commands/validate-state.ts` 55 %).
+- **Note for `validate.sh`:** because the underlying gate does not fire, the *Coverage* phase in `./validate.sh` (without `--no-coverage`) will report **PASS** even though coverage is ~90 %. Treat a "PASS" there as uninformative until this is fixed.
+- **Suggested look:** vitest 1.6.x + v8 provider threshold enforcement; confirm whether the threshold key path / provider interaction is preventing the check from running, or downgrade the documented threshold to a realistic target.
 
-Yet `plan/008_15504f60a0ef/bugfix/002_86589b7d57d2/tasks.json` contains **non-complete** items: `P1.M4.T4.S1` (**Failed**) and `P1.M5.T1.S1` (**Ready**). Per PRD §5.3 these must be discovered _before_ the main session.
+### I-2 · `docs:check` fails — 2 broken internal links — **Medium / Docs**
+- **Where:** `docs/ARCHITECTURE.md:736` and `docs/ARCHITECTURE.md:852`. `npm run docs:check` → exit `1`.
+- **Cause:** Both lines write `[Configuration](docs/CONFIGURATION.md#resilience-tuning)`. Because `ARCHITECTURE.md` already lives in `docs/`, the relative link resolves to the nonexistent `docs/docs/CONFIGURATION.md`. The anchor `resilience-tuning` *does* exist in `docs/CONFIGURATION.md`.
+- **Fix:** drop the `docs/` prefix → `[Configuration](CONFIGURATION.md#resilience-tuning)`.
+- **Impact:** the shipped `docs:check` gate is red; the two cross-references 404 in rendered docs.
 
-**Root cause.** `findLatestBugfixTasksFile` (`src/core/session-utils.ts:916`) picks the highest-sequence `NNN_*` child and returns its `tasks.json` — **but only if that one child has it**. A stray empty dir shares sequence `002`:
+### I-3 · Binary-name mismatch: docs/CLI say `prd`, but the only binary is `hack` — **Medium / Usability**
+- **Where:**
+  - `package.json` → `"bin": { "hack": "./dist/index.js" }` (no `prd` bin).
+  - `src/cli/index.ts:304` → `program.name('prd')` (only affects help text).
+  - `README.md` and `docs/CLI_REFERENCE.md` document commands as `prd task`, `prd status`, `prd status next -o json`, etc.
+  - The source itself emits a `[hack]` prefix in `task`/`status` output (`src/cli/index.ts` `taskAction`), confirming the real command name is `hack`.
+- **Observed:** `command -v prd` → not found. A user who `npm i -g` this package and follows the docs types `prd task` and gets `command not found`; the working invocation is `hack task` (or `npm run dev -- ...`).
+- **Fix (one of):** register a `prd` bin in `package.json`, **or** correct the docs + `program.name()` to `hack` everywhere. Pick one name and make it consistent.
 
-```
-bugfix/001_9a4fd2467e1a/      (real)
-bugfix/002_86589b7d2/          ← STRAY: 9-hex-char truncated hash, only architecture/*.md, NO tasks.json
-bugfix/002_86589b7d57d2/       ← REAL:  12-hex-char hash, full tasks.json with Failed/Ready items
-```
+### I-4 · Stale manual validation script `tests/validation/zai-api-test.ts` — **Low / Tooling**
+- **Where:** `tests/validation/zai-api-test.ts` (a manual script — filename `*-test.ts` is **not** picked up by vitest's `*.test.ts` glob, so it does not affect the automated suite).
+- **Stale facts:**
+  - Asserts `getModel('high') === 'GLM-4.7'` and `getModel('fast') === 'glm-5-turbo'` — but the configured/default high & balanced model is **`glm-5.2`** (`getModel('high')` returns `glm-5.2`). The "Model Selection" check would warn-and-fail against a correct config.
+  - Requires `process.env.ANTHROPIC_API_KEY` and instructs users to set `ANTHROPIC_AUTH_TOKEN` — contradicting the provider-neutral auth model (PRD §9.2.6): the default path authenticates via `pi /login` (`~/.pi/agent/auth.json`) **or** `ZAI_API_KEY`. A correctly-configured user would fail the "Environment Configuration" step.
+- **Impact:** misleading onboarding tooling. Run `npx tsx tests/validation/zai-api-test.ts` and it reports false failures.
+- **Fix:** update expected models to `glm-5.2` and the auth check to the provider-aware resolution (override → `ZAI_API_KEY` → `~/.pi/agent/auth.json`), or delete it in favour of `src/scripts/validate-api.ts`.
 
-Both match `BUGFIX_DIR_PATTERN = /^(\d{3})_/`; `sort((a,b)=>b.seq-a.seq)` leaves them in readdir (alphabetical) order, so `[0]` selects the stray `002_86589b7d2`, finds no `tasks.json`, and **returns `null`** instead of checking its sequence-equal sibling. Verified directly:
+### I-5 · Hardcoded `Co-Authored-By: Claude <noreply@anthropic.com>` trailer on every commit — **Low / Consistency**
+- **Where:** `src/utils/git-commit.ts:226` (`formatCommitMessage` unconditionally appends `\n\nCo-Authored-By: Claude <noreply@anthropic.com>`); also asserted in `docs/ARCHITECTURE.md:852`.
+- **Why it's stale:** the default harness is now the vendor-neutral `pi` + `zai` provider (PRD §9.1 explicitly downgrades Anthropic to a second-class option). Attributing **every** commit to "Claude" is Anthropic-specific and misleading for `pi`/z.ai runs.
+- **Scope note:** the **task-prefix** commit format itself (`<phase>.<milestone>.<task>[.<subtask>]:`, trailing-elision, `[PRP Auto]` banner stripped, `PRP_COMMIT_FORMAT=plain` opt-out) is implemented **correctly** per PRD §5.1 — only the co-author trailer is the issue.
+- **Fix:** make the trailer harness/provider-aware (or drop it / make it configurable).
 
-```
-findLatestBugfixTasksFile('plan/008_15504f60a0ef')  =>  null
-```
-
-The CLI then falls through to the main session and reports "No tasks remaining."
-
-The existing unit test (`tests/unit/core/find-latest-bugfix-tasks.test.ts`) **explicitly codifies the fragile behavior** ("falls back to null when the latest child has no tasks.json") and has **no case for duplicate-sequence siblings**, so this regression is unguarded.
-
-**Impact.** Direct §5.3 violation. Users cannot see or resume bugfix work through `prd task` / `prd task next` / `prd status`; the in-progress bugfix is invisible.
-
-**Fix direction.** When the max-sequence child lacks `tasks.json`, fall back to the **next** sequence-equal sibling that has one (iterate the sorted list rather than taking only `[0]`); or tie-break equal sequences deterministically (full dir name) and only give up when _no_ child has `tasks.json`. Add a regression test for two same-`NNN` dirs.
-
----
-
-### 🟡 Issue #3 — `prd task next` ignores `Ready` / `Failed` items _(MEDIUM)_
-
-**Symptom.** Pointing `task next` directly at the real bugfix file still yields "No tasks remaining":
-
-```
-$ node dist/index.js task next -f plan/008_.../bugfix/002_86589b7d57d2/tasks.json
-No tasks remaining.
-```
-
-**Root cause.** `findNext` in the `taskAction` handler (`src/cli/index.ts`) matches **only** `status === 'Planned'`. The bugfix's next items are `Ready` (research-complete, ready to implement) and `Failed` (retry-eligible), which are invisible to the command.
-
-This mirrors the orchestrator's fresh-pick logic, so it is internally consistent — but for a _user_ inspecting an in-progress session, "next task" silently reporting nothing while `Ready`/`Failed` work exists is misleading. A practical `task next` should surface `Ready` (and arguably `Failed`) items.
-
-**Fix direction.** Treat `Ready` (and optionally `Failed`) as "next" in the CLI `findNext`, or add a `--include-ready/--include-failed` option and document the default.
+### I-6 · `task next -o json` / `status next -o json` emit non-JSON when no tasks remain — **Low / Robustness**
+- **Where:** `src/cli/index.ts`, `taskAction` "next" branch. When no next task is found it runs `console.log('No tasks remaining.')` **regardless of `--output json`**.
+- **Impact:** `hack task next -o json | jq .` (and the documented `prd status next -o json`) fails on a completed session because the empty-result path prints plain text, not JSON. (The *with-result* path correctly emits JSON.)
+- **Fix:** in the no-result branch, honour `options.output === 'json'` (e.g. print `null` or `{}`).
 
 ---
 
-### 🟡 Issue #4 — Stray / truncated-hash bugfix directory (upstream of Issue #2) _(MEDIUM)_
+## 4. What Was Verified Working (positives)
 
-`bugfix/002_86589b7d2` (9 hex chars, no `tasks.json`) co-exists with the real `bugfix/002_86589b7d57d2` (12 hex chars). `nextBugfixDir` (`src/core/session-utils.ts:847`) computes `sequence = Math.max(existing)+1` with **no guard against hash collisions or sequence reuse**, so two children can land on the same `NNN`. This is the upstream condition that triggers Issue #2's discovery failure.
-
-**Fix direction.** Either reject/repair a sequence collision in `nextBugfixDir`, or make the hash derivation stable enough that the same seed cannot produce two different truncated lengths. (The stray dir's committed `architecture/*.md` files suggest an earlier interrupted run left it behind; a cleanup pass + the discovery fix in Issue #2 together close the hole.)
-
----
-
-### 🟢 Issue #5 — Binary / program / docs command-name mismatch _(LOW)_
-
-- `package.json` `bin` → **`hack`**
-- CLI `program.name('prp-pipeline')` → usage prints **`prp-pipeline`**
-- README.md, PRD §5.3, and docs reference the command as **`prd`** (e.g. `prd task`, `prd status`)
-
-Users following the README would type `prd …`, which is neither the installed binary nor the program name. Pick one canonical CLI name and align `bin`, `program.name()`, and the docs.
+- **Test suite is green and broad:** 199 files, 6773 passed / 71 skipped; includes `tests/unit`, `tests/integration`, `tests/e2e`, mocked-groundswell hermetic E2E, and forbidden-operations / authority / shutdown coverage. (Note: some `ERROR`-level log lines appear during the run — these are *intentional* negative-path exercise, e.g. `tasks.json` corruption/ENOENT recovery and flush-retry exhaustion; the tests asserting those paths pass.)
+- **PRD §9.6 logging architecture** (mechanically verified): zero module-scope `getLogger(...)` declarations in `src/`; zero pino `transport:` configs; `pino-pretty` is wired as a **destination stream** (not a transport). `--help`/`--version` return in well under 2 s with no worker-thread spawn.
+- **PRD §5.1 commit format:** the legacy `[PRP Auto]` banner is correctly **stripped/forbidden** (all in-source references are stripping/forbidding logic, none emit it); task-prefix builder with trailing-level elision and `plain` fallback is in place.
+- **Provider-neutral config (PRD §9.2.8):** `PRP_MODEL_HIGH/BALANCED/FAST` + `PRP_API_BASE_URL` canonical names with `ANTHROPIC_DEFAULT_*` / `ANTHROPIC_BASE_URL` legacy fallback; `docs/CONFIGURATION.md` carries the full deprecation table; `.env.example` documents canonical names only.
+- **Groundswell §9.2.6 fix is live:** `validate-groundswell` confirms `node_modules/groundswell` (registry 1.0.1) uses `AuthStorage.create()` (file-backed), and `PiHarness` resolves an `auth.json`-only `zai` credential.
+- **z.ai endpoint safeguard (PRD §9.2.4):** active in `tests/setup.ts` via `validateProviderEndpoint()` (blocks Anthropic endpoints, warns on non-z.ai).
+- **All credential-free + read-only CLI workflows operate correctly** (16/16 smoke tests): `--help`, `--version`, `--dry-run`, `--validate-prd` (VALID, 0 issues on the real `PRD.md`), invalid-flag/missing-PRD/bad-scope/bad-`--mode` error paths (all exit 1 with clear messages), and read-only `inspect` / `validate-state` / `task` / `status` / `task status` / `task next` against the existing session.
 
 ---
 
-### 🟢 Issue #6 — Docs capitalization warnings _(LOW)_
+## 5. Notes, Scope & Limitations
 
-`npm run docs:check` reports (non-blocking): `typescript`→`TypeScript` and `github`→`GitHub` in `docs/ARCHITECTURE.md` (×3), `docs/CONFIGURATION.md` (×1), `docs/CUSTOM_AGENTS.md` (×4).
-
----
-
-### 🟢 Issue #7 — Test file references a non-existent symbol in its label/JSDoc _(LOW)_
-
-`tests/unit/core/find-latest-bugfix-tasks.test.ts` documents and `describe`s a function named **`ln`** ("Unit tests for ln", `describe('ln (PRD §5.3)')`), but no such export exists — the actual import is `findLatestBugfixTasksFile`. Cosmetic only; the import and assertions are correct.
-
----
-
-### 🟢 Issue #8 — Stale TODO in source _(LOW)_
-
-`src/agents/prp-executor.ts:470`:
-
-```ts
-artifacts: [], // TODO: Extract artifacts from Coder Agent output
-```
-
----
-
-### 🟢 Issue #9 — Active `.env` uses deprecated legacy auth names _(LOW)_
-
-The local `.env` sets `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` (legacy aliases slated for removal, §9.2.8). For the default `zai` path the canonical names are `ZAI_API_KEY` / `PRP_API_BASE_URL`. It happens to work today because `~/.pi/agent/auth.json` resolves the `zai` credential, but the active config is inconsistent with the documented canonical setup. (`.env` is gitignored; this is a local-hygiene note, not a shipped defect.)
-
----
-
-## 4. PRD-conformance spot checks (all PASS)
-
-| Requirement                                                           | Location                                                           | Status |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------ | ------ |
-| Include resolver + idempotency/markers/depth (§2.3)                   | `src/core/session-utils.ts` `resolvePRD`/`resolveIncludes`         | ✅     |
-| Provider-neutral config + legacy fallback + deprecation (§9.2.8)      | `src/config/constants.ts` `MODEL_ENV_VARS`/`LEGACY_MODEL_ENV_VARS` | ✅     |
-| Three model roles + `xhigh` reasoning (§9.2.3/§6.1)                   | `src/agents/agent-factory.ts` `ROLE_CONFIG`/`ModelRole`            | ✅     |
-| Fail-fast auth preflight, file-backed `auth.json` (§9.2.6/§9.2.7)     | `src/config/harness.ts` `runAuthPreflight`                         | ✅     |
-| z.ai endpoint guard blocks `api.anthropic.com` (§9.2.4)               | `src/config/endpoint-guard.ts`                                     | ✅     |
-| `flock` tasks.json mutex + atomic writes (§5.1)                       | `src/core/file-lock.ts` `withLockedTasksJSON`                      | ✅     |
-| `restore_critical_files` in smartCommit (§5.1)                        | `src/utils/git-commit.ts:419`                                      | ✅     |
-| `NO_ISSUES_FOUND.md` marker (§4.4)                                    | `src/workflows/bug-hunt-workflow.ts`                               | ✅     |
-| Two-phase `stagecoach` commit (§4.2.4)                                | `src/core/task-orchestrator.ts:1059`                               | ✅     |
-| Commit task-prefix format, `PRP_COMMIT_FORMAT` opt-out (§5.1)         | `src/utils/git-commit.ts` `buildTaskPrefix`/`formatCommitMessage`  | ✅     |
-| Watchdog kill (exit 124) terminal / not retried (§9.3.2)              | `src/utils/retry.ts` + `BashToolResult.timedOut`                   | ✅     |
-| Lazy loggers / no pino transports / fast teardown (§9.6 REQ-L1/L2/L3) | `src/utils/logger.ts` (audited: 0 hits)                            | ✅     |
-| `prd status` alias of `prd task` (§5.3)                               | `src/cli/index.ts:724`                                             | ✅     |
-
-**Config-knob sweep (all defaults match PRD):** `RESEARCH_DEPTH=2`, `RESEARCH_TIMEOUT=1800`, `VALIDATION_TIMEOUT=7200`, `COMMIT_RETRY_MAX=5` (delay 10 s, cap 120 s), `BUG_FINDER_AGENT=pizr`, `VALIDATION_AGENT=pizr`, `PRD_INCLUDE_MAX_DEPTH=10`.
-
----
-
-## 5. Risk assessment & recommendation
-
-- **Ship-blocking:** Issue #1 (red `npm test`) and Issue #2 (silent §5.3 regression) should be fixed before the next run/merge. Both are localized and low-risk to fix.
-- **Quality-of-life:** Issues #3 and #4 improve the dogfooding UX and prevent recurrence of the stray-dir class of bug.
-- **Cosmetic:** Issues #5–#9 are non-blocking polish.
-
-With Issues #1 and #2 resolved, this codebase passes every gate the project ships plus the full safe-CLI E2E workflow matrix, giving high confidence for production use.
-
----
-
-_This report was produced by a read-only validation pass. No source, `PRD.md`, `plan/`, or `tasks.json` was modified — only `./validate.sh` and `./validation_report.md` were written._
+- **No pipeline execution.** Per repo `AGENTS.md`, the full pipeline (`npm run dev -- --prd …`, `--mode delta|bug-hunt|validate`, `--adopt-prd`, `--continue`, agent-driven breakdown/implementation/bug-hunt) was **not** executed — doing so would create sessions and mutate `plan/`. Those code paths are covered by the (passing) mocked unit/integration/e2e suites rather than a live run here.
+- **Live LLM / z.ai connectivity not exercised.** `src/scripts/validate-api.ts` and `tests/validation/zai-api-test.ts` make real network calls and were not run end-to-end (and I-4 notes the latter is stale); the provider-endpoint *safeguard* and the harness/auth resolution are verified structurally and via `validate-groundswell`.
+- **Coverage verdict is definitive** despite the gate being non-functional: the v8 per-file report (saved during validation) shows real numbers; the global rollup is **89.82 %** statements.
+- **Temporary artifacts:** `./validate.sh` and `./validation_report.md` are validation-only outputs and can be deleted after review.

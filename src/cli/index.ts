@@ -284,10 +284,10 @@ export interface ValidatedCLIArgs extends Omit<
  * await pipeline.run();
  *
  * // Or use inspect subcommand
- * // CLI: prd inspect
+ * // CLI: hack inspect
  *
  * // Or use artifacts subcommand
- * // CLI: prd artifacts list
+ * // CLI: hack artifacts list
  * ```
  */
 export function parseCLIArgs():
@@ -301,7 +301,7 @@ export function parseCLIArgs():
 
   // Configure program
   program
-    .name('prd')
+    .name('hack')
     .description('PRD to PRP Pipeline - Automated software development')
     .version(
       JSON.parse(
@@ -661,7 +661,15 @@ export function parseCLIArgs():
             console.log(`  Status: ${color(next.status)}`);
           }
         } else {
-          console.log('No tasks remaining.');
+          // Honour --output json even on the empty-result path: a pipeline
+          // that pipes `hack task next -o json | jq .` against a completed
+          // session must get valid JSON (null), not plain prose. The human-
+          // readable branch keeps the calm "No tasks remaining." message.
+          if (options.output === 'json') {
+            console.log('null');
+          } else {
+            console.log('No tasks remaining.');
+          }
         }
       } else if (action === 'status') {
         // Count tasks by status

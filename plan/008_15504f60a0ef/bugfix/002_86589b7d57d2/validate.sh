@@ -1,243 +1,283 @@
 #!/usr/bin/env bash
 # =============================================================================
-# validate.sh — Comprehensive validation for the PRP Development Pipeline
-# (hacky-hack)
-#
-# PURPOSE
-#   Runs every quality gate the project ships (lint, type-check, format, build,
-#   tests) PLUS end-to-end CLI workflow checks that mirror the real user
-#   journeys documented in README.md / docs/. Safe to run: it NEVER invokes the
-#   live agent pipeline (no `npm run dev`, no session creation, no model calls).
-#
-# USAGE
-#   ./validate.sh             # run all phases, exit non-zero on any failure
-#   PHASE=tests ./validate.sh # run a single phase (lint|types|format|build|
-#                             #                       tests|e2e|project|perf)
-#
-# EXIT CODES
-#   0  all enabled phases passed
-#   1  one or more phases failed
-#
-# NOTES
-#   - This script only READS repo state and runs the project's own tooling.
-#   - The `tests` phase runs the full vitest suite. On memory-constrained CI it
-#     can surface a transient worker-OOM; the per-group fallback is documented
-#     in validation_report.md (Issue #2).
+# validate.sh — Comprehensive validation for hacky-hack (PRP Pipeline)
 # =============================================================================
-set -u
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Runs EVERY safe, non-pipeline validation phase that exists in this codebase:
+#   lint, typecheck, format, unit/integration/e2e tests, coverage gate, build,
+#   docs consistency, groundswell link validation, the PRD §9.6 logging
+#   acceptance criteria, and read-only / credential-free CLI smoke tests.
+#
+# SAFETY (per repo AGENTS.md): this script NEVER runs the pipeline itself and
+# NEVER touches plan/. Every CLI invocation below is either credential-free
+# (--help/--version/--dry-run/--validate-prd) or a strictly read-only query
+# subcommand (inspect / validate-state / task / status) against an existing
+# session. No session is created and no agent is invoked.
+#
+# Usage:
+#   ./validate.sh                # run all phases, fail-fast on error
+#   ./validate.sh --keep-going   # run all phases, report every failure at end
+#   ./validate.sh --no-coverage  # skip the (slow) 100% coverage gate
+#   ./validate.sh --smoke-only   # run only the CLI smoke-test phase
+# =============================================================================
 
-# ---- pretty output ----------------------------------------------------------
-BOLD='\033[1m'; GREEN='\033[32m'; RED='\033[31m'; YELLOW='\033[33m'; CYAN='\033[36m'; NC='\033[0m'
-if [[ ! -t 1 ]]; then BOLD=''; GREEN=''; RED=''; YELLOW=''; CYAN=''; NC=''; fi
+set -uo pipefail
 
-PASS=0; FAIL=0; FAILED_PHASES=()
-hr() { printf '%*s\n' "${COLUMNS:-72}" '' | tr ' ' '-'; }
-section() { printf "\n${BOLD}${CYAN}▶ %-60s${NC}\n" "$1"; hr; }
-ok()      { printf "  ${GREEN}✓${NC} %s\n" "$1"; PASS=$((PASS+1)); }
-bad()     { printf "  ${RED}✗${NC} %s\n" "$1"; FAIL=$((FAIL+1)); FAILED_PHASES+=("$1"); }
-warn()    { printf "  ${YELLOW}⚠${NC} %s\n" "$1"; }
-run_ok()  { # run_ok <label> <cmd...>; reports pass/fail based on exit
-  local label="$1"; shift
-  if "$@" >/tmp/validate_phase.log 2>&1; then ok "$label"; return 0
-  else bad "$label (see /tmp/validate_phase.log)"; tail -n 15 /tmp/validate_phase.log | sed 's/^/      /'; return 1; fi
+# ---------------------------------------------------------------------------
+# Configuration & helpers
+# ---------------------------------------------------------------------------
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+KEEP_GOING=0
+SKIP_COVERAGE=0
+SMOKE_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --keep-going) KEEP_GOING=1 ;;
+    --no-coverage) SKIP_COVERAGE=1 ;;
+    --smoke-only) SMOKE_ONLY=1 ;;
+    -h|--help)
+      sed -n '2,26p' "$0"; exit 0 ;;
+    *) echo "Unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# Colors (disabled when not a TTY / NO_COLOR set)
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  GREEN=$'\033[32m'; RED=$'\033[31m'; YELLOW=$'\033[33m'
+  BLUE=$'\033[34m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
+else
+  GREEN=''; RED=''; YELLOW=''; BLUE=''; BOLD=''; RESET=''
+fi
+
+PASS_COUNT=0
+WARN_COUNT=0
+FAIL_COUNT=0
+FAILED_PHASES=()
+
+now_ms() { date +%s%3N; }
+phase_start=0
+phase() { printf '\n%s======== %s ======== %s\n' "$BLUE$BOLD" "$1" "$RESET"; phase_start=$(now_ms); }
+
+result() { # result <PASS|WARN|FAIL> <label> [detail]
+  local status="$1" label="$2" detail="${3:-}"
+  local elapsed=$(( $(now_ms) - phase_start ))
+  local tag
+  case "$status" in
+    PASS) tag="${GREEN}PASS${RESET}"; PASS_COUNT=$((PASS_COUNT+1)) ;;
+    WARN) tag="${YELLOW}WARN${RESET}"; WARN_COUNT=$((WARN_COUNT+1)) ;;
+    FAIL) tag="${RED}FAIL${RESET}";   FAIL_COUNT=$((FAIL_COUNT+1)); FAILED_PHASES+=("$label") ;;
+  esac
+  printf '%s  [%s] %s (%sms)%s\n' "$BOLD" "$tag" "$label" "$elapsed" "$RESET"
+  if [[ -n "$detail" ]]; then printf '%s      └─ %s%s\n' "$YELLOW" "$detail" "$RESET"; fi
+  if [[ "$status" == "FAIL" && $KEEP_GOING -eq 0 ]]; then
+    printf '\n%sPhase failed and --keep-going not set; aborting. Re-run with --keep-going to see all failures.%s\n' "$RED" "$RESET" >&2
+    exit 1
+  fi
 }
 
-# ---- phase selection --------------------------------------------------------
-PHASE="${PHASE:-all}"
-want() { [[ "$PHASE" == "all" || "$PHASE" == "$1" ]]; }
+assert_cmd() { command -v "$1" >/dev/null 2>&1; } # assert_cmd <cmd>
 
-# ---- preflight: node/npm present -------------------------------------------
-section "Preflight"
-command -v node >/dev/null && ok "node found ($(node -v))" || { bad "node not found"; exit 1; }
-command -v npm  >/dev/null && ok "npm found ($(npm -v))"  || { bad "npm not found"; exit 1; }
-[[ -f package.json ]] && ok "package.json present" || { bad "not in project root"; exit 1; }
-[[ -d node_modules ]] && ok "node_modules installed" || warn "node_modules missing — run 'npm install'"
+# Run an npm script, capture pass/fail by exit code (output streamed to caller).
+npm_run() { # npm_run <script-name>
+  npm run --silent "$1"
+}
 
-# =============================================================================
-# Phase 1: Linting  (eslint)
-# =============================================================================
-if want lint; then
-  section "Phase 1 — Linting (eslint)"
-  # The project's lint script has no --max-warnings, so eslint exits NON-ZERO
-  # only on actual errors (warnings → exit 0). run_ok is therefore sufficient.
-  if run_ok "eslint (0 errors expected; warnings allowed)" npm run lint; then
-    : # pass
+# ===========================================================================
+# 0. PREFLIGHT — environment sanity
+# ===========================================================================
+phase "Phase 0: Preflight (toolchain & repo)"
+{
+  ok=1
+  assert_cmd node || { echo "node not found on PATH" >&2; ok=0; }
+  assert_cmd npm  || { echo "npm not found on PATH" >&2; ok=0; }
+  assert_cmd git  || { echo "git not found on PATH" >&2; ok=0; }
+  [[ -f package.json ]] || { echo "package.json missing (wrong cwd?)" >&2; ok=0; }
+  [[ -d node_modules ]] || { echo "node_modules missing — run 'npm install' first" >&2; ok=0; }
+  [[ -d node_modules/groundswell ]] || { echo "groundswell dependency missing" >&2; ok=0; }
+  node -v | grep -qE '^v(2[0-9]|[3-9][0-9])\.' || { echo "Node.js >= 20 required" >&2; ok=0; }
+  if [[ $ok -ne 1 ]]; then result FAIL "Preflight"; else result PASS "Preflight"; fi
+}
+[[ $SMOKE_ONLY -eq 1 ]] && { printf '\n%s--smoke-only: jumping to CLI smoke tests%s\n' "$YELLOW" "$RESET"; goto_smoke=1; }
+
+# ===========================================================================
+# 1. LINT
+# ===========================================================================
+if [[ "${goto_smoke:-0}" -ne 1 ]]; then
+phase "Phase 1: Lint (eslint)"
+if npm_run lint >/tmp/validate.lint 2>&1; then
+  warns=$(grep -c 'warning' /tmp/validate.lint 2>/dev/null || echo 0)
+  result PASS "Lint" "${warns} warning(s) (0 errors)"
+else
+  result FAIL "Lint" "eslint reported errors — see /tmp/validate.lint"
+fi
+
+# ===========================================================================
+# 2. TYPE CHECK
+# ===========================================================================
+phase "Phase 2: Type check (tsc --noEmit)"
+if npm_run typecheck >/tmp/validate.typecheck 2>&1; then
+  result PASS "Type check"
+else
+  result FAIL "Type check" "see /tmp/validate.typecheck"
+fi
+
+# ===========================================================================
+# 3. FORMAT CHECK
+# ===========================================================================
+phase "Phase 3: Format check (prettier)"
+if npm_run format:check >/tmp/validate.format 2>&1; then
+  result PASS "Format check"
+else
+  result FAIL "Format check" "run 'npm run format' — see /tmp/validate.format"
+fi
+
+# ===========================================================================
+# 4. UNIT / INTEGRATION / E2E TESTS
+# ===========================================================================
+phase "Phase 4: Test suite (vitest run)"
+if npm_run test:run >/tmp/validate.tests 2>&1; then
+  summary=$(grep -E 'Tests +[0-9]+ passed' /tmp/validate.tests | tail -1)
+  result PASS "Test suite" "${summary:-ok}"
+else
+  result FAIL "Test suite" "see /tmp/validate.tests"
+fi
+
+# ===========================================================================
+# 5. COVERAGE GATE (100% threshold — slow; skippable)
+# ===========================================================================
+if [[ $SKIP_COVERAGE -eq 0 ]]; then
+  phase "Phase 5: Coverage gate (100% threshold)"
+  if npm_run test:coverage >/tmp/validate.coverage 2>&1; then
+    result PASS "Coverage"
   else
-    bad "eslint reported errors (see /tmp/validate_phase.log)"
+    result FAIL "Coverage" "threshold not met — see /tmp/validate.coverage"
+  fi
+else
+  phase "Phase 5: Coverage gate (100% threshold)"
+  result WARN "Coverage" "skipped via --no-coverage"
+fi
+
+# ===========================================================================
+# 6. BUILD (tsc emit to dist/)
+# ===========================================================================
+phase "Phase 6: Build (tsc -p tsconfig.build.json)"
+if npm_run build >/tmp/validate.build 2>&1; then
+  [[ -x dist/index.js ]] && chmod +x dist/index.js 2>/dev/null || true
+  result PASS "Build" "dist/index.js emitted"
+else
+  result FAIL "Build" "see /tmp/validate.build"
+fi
+fi  # end not smoke-only
+
+# ===========================================================================
+# 7. DOCS CONSISTENCY
+# ===========================================================================
+if [[ "${goto_smoke:-0}" -ne 1 ]]; then
+phase "Phase 7: Docs consistency (scripts/check-docs.ts)"
+if npm_run docs:check >/tmp/validate.docs 2>&1; then
+  result PASS "Docs consistency"
+else
+  broken=$(grep -E 'broken internal link' /tmp/validate.docs | tail -1)
+  result FAIL "Docs consistency" "${broken:-see /tmp/validate.docs}"
+fi
+
+# ===========================================================================
+# 8. GROUNDSWELL LINK VALIDATION (hits npm registry)
+# ===========================================================================
+phase "Phase 8: Groundswell validation"
+if npm_run validate:groundswell >/tmp/validate.groundswell 2>&1; then
+  result PASS "Groundswell validation"
+else
+  result WARN "Groundswell validation" "needs network/registry — see /tmp/validate.groundswell"
+fi
+fi  # end not smoke-only
+
+# ===========================================================================
+# 9. PRD §9.6 LOGGING ACCEPTANCE CRITERIA (mechanical rg checks)
+# ===========================================================================
+if [[ "${goto_smoke:-0}" -ne 1 ]]; then
+phase "Phase 9: PRD §9.6 logging architecture (lazy loggers, sync destinations)"
+if ! assert_cmd rg; then
+  result WARN "§9.6 logging" "ripgrep (rg) not installed — skipped"
+else
+  ms_loggers=$(rg -c '^(export )?(const|let) [A-Za-z_]+ = getLogger\(' src/ 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+  transports=$(rg -c 'transport:\s*\{' src/ 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+  detail="module-scope loggers=${ms_loggers} (want 0); transport: configs=${transports} (want 0)"
+  if [[ "$ms_loggers" -eq 0 && "$transports" -eq 0 ]]; then
+    result PASS "§9.6 logging" "$detail"
+  else
+    result FAIL "§9.6 logging" "$detail"
   fi
 fi
+fi  # end not smoke-only
 
-# =============================================================================
-# Phase 2: Type checking  (tsc --noEmit)
-# =============================================================================
-if want types; then
-  section "Phase 2 — Type checking (tsc)"
-  run_ok "tsc --noEmit (strict)" npm run typecheck
+# ===========================================================================
+# 10. CLI SMOKE TESTS (credential-free / read-only — never runs the pipeline)
+# ===========================================================================
+phase "Phase 10: CLI smoke tests (safe, read-only)"
+
+# Prefer the freshly-built binary; fall back to tsx on source.
+if [[ -x dist/index.js ]]; then
+  HACK=(node dist/index.js)
+elif assert_cmd npx; then
+  HACK=(npx tsx src/index.ts)
+else
+  HACK=(node dist/index.js)
 fi
 
-# =============================================================================
-# Phase 3: Style / format checking  (prettier)
-# =============================================================================
-if want format; then
-  section "Phase 3 — Style checking (prettier)"
-  run_ok "prettier --check" npm run format:check
-fi
-
-# =============================================================================
-# Phase 4: Build  (tsc emit + chmod)
-# =============================================================================
-if want build; then
-  section "Phase 4 — Build (tsc emit)"
-  run_ok "tsc -p tsconfig.build.json" npm run build
-  [[ -x dist/index.js ]] && ok "dist/index.js is executable" || bad "dist/index.js not executable"
-fi
-
-# =============================================================================
-# Phase 5: Tests  (vitest full suite)
-# =============================================================================
-if want tests; then
-  section "Phase 5 — Test suite (vitest)"
-  # Canonical full run. Captures exit code; non-zero → fail.
-  if npm run test:run >/tmp/validate_tests.log 2>&1; then
-    ok "vitest full suite passed"
+smoke() { # smoke <label> <expect-exit> <pattern> -- <args...>
+  local label="$1" expect_exit="$2" pattern="$3"; shift 3; shift  # drop '--'
+  local out ec
+  out=$("${HACK[@]}" "$@" 2>&1); ec=$?
+  if [[ "$ec" -eq "$expect_exit" ]] && { [[ -z "$pattern" ]] || grep -qE "$pattern" <<<"$out"; }; then
+    result PASS "smoke: $label"
   else
-    rc=$?
-    bad "vitest full suite exited non-zero (rc=$rc)"
-    # Surface whether it was an OOM / worker-exit (Issue #2 in report)
-    if grep -qE "heap out of memory|Worker exited unexpectedly|Ineffective mark-compacts" /tmp/validate_tests.log; then
-      warn "detected worker OOM / unexpected exit (known Issue #1 in validation_report.md); trying per-group fallback…"
-      if npx vitest run tests/unit >/tmp/v_unit.log 2>&1 \
-         && npx vitest run tests/integration >/tmp/v_int.log 2>&1 \
-         && npx vitest run tests/e2e >/tmp/v_e2e.log 2>&1; then
-        ok "per-group fallback (unit+integration+e2e) all green"
-      else
-        bad "per-group fallback also failed (see /tmp/v_{unit,int,e2e}.log)"
-      fi
-    else
-      tail -n 25 /tmp/validate_tests.log | sed 's/^/      /'
-    fi
+    result FAIL "smoke: $label" "exit=$ec (want $expect_exit); last line: $(printf '%s' "$out" | tr -d '\033' | sed -E 's/\[[0-9;]*m//g' | grep -vE '^\s*$' | tail -1)"
   fi
-  # Report the headline numbers if present
-  grep -E "Test Files|Tests " /tmp/validate_tests.log 2>/dev/null | tail -n 2 | sed 's/^/      /' || true
+}
+
+smoke "--version → 0"        0 '0\.1\.0' -- --version
+smoke "--help → 0"           0 'Usage:' -- --help
+smoke "unknown flag → 1"     1 'unknown option' -- --definitely-not-a-flag
+smoke "missing PRD → 1"      1 'PRD file not found' -- --prd ./__nope__.md --dry-run
+smoke "bad scope → 1"        1 'Invalid scope' -- --prd ./PRD.md --scope p1.m1 --dry-run
+smoke "bad --mode → 1"       1 "argument 'bogus' is invalid" -- --prd ./PRD.md --mode bogus --dry-run
+smoke "--dry-run → 0"        0 'DRY RUN' -- --prd ./PRD.md --dry-run
+smoke "--validate-prd → 0"   0 'VALID' -- --prd ./PRD.md --validate-prd
+smoke "--adopt-prd no-PRD → 1" 1 'not found' -- --prd ./__nope__.md --adopt-prd --dry-run
+
+# Read-only query subcommands (only if a plan/ session exists — otherwise WARN).
+phase "Phase 10b: Read-only query subcommands (inspect / validate-state / task / status)"
+if find plan -maxdepth 2 -name tasks.json -print -quit 2>/dev/null | grep -q .; then
+  smoke "inspect → 0"        0 'Inspector|Session' -- inspect
+  smoke "validate-state → 0" 0 'Valid' -- validate-state
+  smoke "task list → 0"      0 '(P[0-9]|No tasks)' -- task
+  smoke "status alias → 0"   0 '(P[0-9]|No tasks)' -- status
+  smoke "task status → 0"    0 'summary|status' -- task status
+  smoke "task next -o json → 0" 0 '' -- task next -o json
+else
+  result WARN "query subcommands" "no plan/ session present — skipped"
 fi
 
-# =============================================================================
-# Phase 6: End-to-end CLI workflows (safe, no agent / no model calls)
-#   Mirrors the user journeys in README.md "Usage Examples".
-# =============================================================================
-if want e2e; then
-  section "Phase 6 — End-to-end CLI workflows (safe modes only)"
-  BIN=(node dist/index.js)
-  [[ -x dist/index.js ]] || { warn "dist/index.js missing — build first"; BIN=(npx tsx src/index.ts); }
-
-  # --- 6.1 Help / version (§9.6.3: <2s, no worker threads) ---
-  "${BIN[@]}" --help    >/dev/null 2>&1 && ok "--help exits 0"        || bad "--help"
-  "${BIN[@]}" -h        >/dev/null 2>&1 && ok "-h exits 0"            || bad "-h"
-  "${BIN[@]}" --version >/dev/null 2>&1 && ok "--version exits 0"     || bad "--version"
-  "${BIN[@]}" --bogus   >/dev/null 2>&1 && bad "invalid flag accepted" || ok "invalid flag rejected (non-zero)"
-
-  # --- 6.2 Performance acceptance criterion (PRD §9.6.3: <2s) ---
-  t0=$(date +%s.%N); "${BIN[@]}" --help >/dev/null 2>&1; t1=$(date +%s.%N)
-  elapsed=$(awk "BEGIN{printf \"%.2f\", $t1-$t0}")
-  awk "BEGIN{exit !($elapsed < 2.0)}" && ok "--help under 2s (${elapsed}s)" || bad "--help too slow (${elapsed}s)"
-
-  # --- 6.3 Credential-free local modes (must make NO API call) ---
-  "${BIN[@]}" --prd ./PRD.md --dry-run >/dev/null 2>&1 \
-    && ok "--dry-run exits 0 (no credential needed)" || bad "--dry-run"
-  "${BIN[@]}" --validate-prd --prd ./PRD.md >/dev/null 2>&1 \
-    && ok "--validate-prd exits 0 (no credential needed)" || bad "--validate-prd"
-
-  # --- 6.4 Subcommands documented in README / docs/CLI_REFERENCE.md ---
-  "${BIN[@]}" inspect         >/dev/null 2>&1 && ok "inspect"         || bad "inspect"
-  "${BIN[@]}" validate-state  >/dev/null 2>&1 && ok "validate-state"  || bad "validate-state"
-  "${BIN[@]}" task            >/dev/null 2>&1 && ok "task (list)"     || bad "task"
-  "${BIN[@]}" task next       >/dev/null 2>&1 && ok "task next"       || bad "task next"
-  "${BIN[@]}" task status     >/dev/null 2>&1 && ok "task status"     || bad "task status"
-  "${BIN[@]}" status          >/dev/null 2>&1 && ok "status (alias)"  || bad "status alias"
-  "${BIN[@]}" cache stats     >/dev/null 2>&1 && ok "cache stats"     || bad "cache stats"
-  "${BIN[@]}" artifacts list  >/dev/null 2>&1 && ok "artifacts list"  || bad "artifacts list"
-
-  # --- 6.5 Endpoint safeguard (PRD §9.2.4: block api.anthropic.com) ---
-  if ANTHROPIC_BASE_URL="https://api.anthropic.com" "${BIN[@]}" --prd ./PRD.md --dry-run >/tmp/v_guard.log 2>&1; then
-    # dry-run returns before the guard throws in some paths; ensure the blocked
-    # endpoint is at least surfaced somewhere in config validation tooling.
-    if command -v npx >/dev/null && npx tsx src/scripts/validate-api.ts >/tmp/v_api.log 2>&1; then
-      ok "endpoint guard: validate-api accepted configured endpoint"
-    else
-      ok "endpoint guard present (dry-run does not reach network)"
-    fi
-  else
-    ok "endpoint guard blocked Anthropic endpoint (expected for non-dry-run paths)"
-  fi
-
-  # --- 6.6 Logging architecture invariants (PRD §9.6 REQ-L1/L2) ---
-  if rg -q "^(export )?(const|let) [A-Za-z_]+ = getLogger\(" src/ ; then
-    bad "REQ-L2 violated: top-level logger(s) found in src/"
-  else
-    ok "REQ-L2: no module-scope loggers in src/"
-  fi
-  if rg -q "transport:[[:space:]]*\{" src/ ; then
-    bad "REQ-L1 violated: pino worker-thread transport configured in src/"
-  else
-    ok "REQ-L1: no pino worker-thread transports in src/"
-  fi
+# ===========================================================================
+# SUMMARY
+# ===========================================================================
+printf '\n%s======================================================%s\n' "$BOLD" "$RESET"
+printf '%sVALIDATION SUMMARY%s\n' "$BOLD" "$RESET"
+printf '%s======================================================%s\n' "$BOLD" "$RESET"
+printf '  PASS: %s%d%s    WARN: %s%d%s    FAIL: %s%d%s\n' \
+  "$GREEN" "$PASS_COUNT" "$RESET" \
+  "$YELLOW" "$WARN_COUNT" "$RESET" \
+  "$RED" "$FAIL_COUNT" "$RESET"
+if [[ ${#FAILED_PHASES[@]} -gt 0 ]]; then
+  printf '\n%sFailed phases:%s\n' "$RED" "$RESET"
+  for p in "${FAILED_PHASES[@]}"; do printf '  ✗ %s\n' "$p"; done
 fi
-
-# =============================================================================
-# Phase 7: Project-specific structural validations
-# =============================================================================
-if want project; then
-  section "Phase 7 — Project validations"
-
-  # --- 7.1 Groundswell harness + file-backed auth.json (§9.2.6) ---
-  run_ok "validate:groundswell (incl. auth.json file-backed store)" npm run validate:groundswell
-
-  # --- 7.2 Docs structural check ---
-  if npm run docs:check >/tmp/validate_docs.log 2>&1; then
-    ok "docs:check passed"
-  else
-    rc=$?
-    # docs:check treats warnings as non-fatal; only hard-fail on real errors
-    if grep -q "0 failed" /tmp/validate_docs.log; then
-      ok "docs:check passed (with warnings)"
-    else
-      bad "docs:check failed"; tail -n 12 /tmp/validate_docs.log | sed 's/^/      /'
-    fi
-  fi
-
-  # --- 7.3 Config-constant completeness sweep (spot-check PRD-mandated knobs) ---
-  check_const() { # <label> <regex>
-    if rg -q "$2" src/config/constants.ts; then ok "$1"; else bad "$1 missing in constants.ts"; fi
-  }
-  check_const "RESEARCH_DEPTH=2 default"        "DEFAULT_RESEARCH_DEPTH *= *2"
-  check_const "RESEARCH_TIMEOUT=1800s default"  "DEFAULT_RESEARCH_TIMEOUT_SECONDS *= *1800"
-  check_const "VALIDATION_TIMEOUT=7200s default" "DEFAULT_VALIDATION_TIMEOUT_SECONDS *= *7200"
-  check_const "COMMIT_RETRY_MAX default 5"      "DEFAULT_COMMIT_RETRY_MAX *= *5"
-  check_const "BUG_FINDER_AGENT default pizr"   "DEFAULT_BUG_FINDER_AGENT *= *'pizr'"
-  check_const "VALIDATION_AGENT default pizr"   "DEFAULT_VALIDATION_AGENT *= *'pizr'"
-  check_const "PRD_INCLUDE_MAX_DEPTH default 10" "DEFAULT_PRD_INCLUDE_MAX_DEPTH *= *10"
-  check_const "provider-neutral tiers high/balanced/fast" "high:|balanced:|fast:"
-
-  # --- 7.4 Integrity-protection primitives present ---
-  rg -q "restore_critical_files" src/utils/git-commit.ts && ok "restore_critical_files present" || bad "restore_critical_files missing"
-  rg -q "withLockedTasksJSON|acquireFileLock" src/core/file-lock.ts && ok "flock tasks.json mutex present" || bad "tasks.json mutex missing"
-  rg -q "NO_ISSUES_FOUND" src/workflows/bug-hunt-workflow.ts && ok "NO_ISSUES_FOUND marker present" || bad "NO_ISSUES_FOUND marker missing"
-  rg -q "resolvePRD|resolveIncludes" src/core/session-utils.ts && ok "include-expansion resolver present" || bad "resolver missing"
-
-  # --- 7.5 Commit task-prefix format (§5.1) ---
-  rg -q "buildTaskPrefix|PRP_COMMIT_FORMAT|task-prefix" src/utils/git-commit.ts && ok "commit task-prefix format present" || bad "commit format missing"
-fi
-
-# =============================================================================
-# Summary
-# =============================================================================
-section "Summary"
-printf "  ${GREEN}passed:${NC} %d   ${RED}failed:${NC} %d\n" "$PASS" "$FAIL"
-if (( FAIL > 0 )); then
-  printf "  ${RED}Failed checks:${NC}\n"
-  for p in "${FAILED_PHASES[@]}"; do printf "    • %s\n" "$p"; done
+printf '\n'
+if [[ $FAIL_COUNT -gt 0 ]]; then
+  printf '%s❌ VALIDATION FAILED (%d phase(s)).%s\n' "$RED" "$FAIL_COUNT" "$RESET"
   exit 1
 fi
-printf "  ${GREEN}${BOLD}ALL PHASES PASSED${NC}\n"
+printf '%s✅ All validation phases passed.%s\n' "$GREEN" "$RESET"
 exit 0

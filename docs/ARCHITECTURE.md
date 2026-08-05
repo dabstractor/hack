@@ -733,7 +733,7 @@ function computePRDHash(prdPath: string): string {
 
 - Same hash → Load existing session
 - Different hash → Create new session
-- Modified PRD → classified COSMETIC or SUBSTANTIVE by the change classifier (protective default **SUBSTANTIVE**, see [Configuration](docs/CONFIGURATION.md#resilience-tuning) for `CLASSIFIER_RETRY_MAX`):
+- Modified PRD → classified COSMETIC or SUBSTANTIVE by the change classifier (protective default **SUBSTANTIVE**, see [Configuration](CONFIGURATION.md#resilience-tuning) for `CLASSIFIER_RETRY_MAX`):
   - **SUBSTANTIVE** → Create delta session with parent reference
   - **COSMETIC** → Absorbed as the new baseline (`prd_snapshot.md` + `metadata.hash` refreshed) **without** a delta session
 
@@ -849,7 +849,7 @@ Each subtask commits in **two phases** via the Smart Commit tool — `stagecoach
 
 This complements [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery): recovery survives `tasks.json` _corruption_; the two-phase commit survives _interruption_ mid-item.
 
-Commit subjects use the `<phase>.<milestone>.<task>.<subtask>:` **task-prefix** by default (`PRP_COMMIT_FORMAT=task-prefix`; `plain` opts out; non-backlog commits carry no prefix) and **never** carry the legacy auto-generated banner prefix (PRD §5.1). The `Co-Authored-By: Claude <noreply@anthropic.com>` trailer is **preserved** on every commit. See [Configuration](docs/CONFIGURATION.md#resilience-tuning) for the flag.
+Commit subjects use the `<phase>.<milestone>.<task>.<subtask>:` **task-prefix** by default (`PRP_COMMIT_FORMAT=task-prefix`; `plain` opts out; non-backlog commits carry no prefix) and **never** carry the legacy auto-generated banner prefix (PRD §5.1). The `Co-Authored-By: Claude <noreply@anthropic.com>` trailer is **preserved** on every commit. See [Configuration](CONFIGURATION.md#resilience-tuning) for the flag.
 
 ### State Integrity Protections
 

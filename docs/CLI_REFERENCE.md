@@ -174,12 +174,12 @@ Accepts the PRD edits as the new baseline **without** generating a delta session
 The CLI provides task-querying subcommands for inspecting the current session's
 backlog:
 
-| Command           | Description                                               |
-| ----------------- | --------------------------------------------------------- |
-| `prd task`        | List all tasks in the current session (default action)    |
-| `prd task next`   | Show the next executable (Planned) subtask                |
-| `prd task status` | Show a status-counts summary (grouped by status)          |
-| `prd status`      | **Alias of `prd task`** (git muscle memory; see PRD §5.3) |
+| Command            | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
+| `hack task`        | List all tasks in the current session (default action)     |
+| `hack task next`   | Show the next executable (Planned) subtask                 |
+| `hack task status` | Show a status-counts summary (grouped by status)           |
+| `hack status`      | **Alias of `hack task`** (git muscle memory; see PRD §5.3) |
 
 **Options:**
 
@@ -190,12 +190,12 @@ backlog:
 
 ```bash
 # List all tasks
-prd task
+hack task
 # Same thing, git-style
-prd status
+hack status
 
 # Get the next executable subtask (JSON)
-prd status next -o json
+hack status next -o json
 ```
 
 ---

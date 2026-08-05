@@ -260,22 +260,22 @@ as the new baseline **without** spawning a delta session (PRD §4.3). It cancels
 npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
 ```
 
-### Task Status (prd status / prd task)
+### Task Status (hack status / hack task)
 
-`prd status` is an alias of `prd task` (git muscle memory; PRD §5.3) for inspecting the current
+`hack status` is an alias of `hack task` (git muscle memory; PRD §5.3) for inspecting the current
 session's backlog. Bugfix tasks discovered before main-session tasks are surfaced first.
 
 ```bash
 # List all tasks in the current session
-prd status
+hack status
 # Same thing, git-style alias
-prd task
+hack task
 
 # Show the next executable (Planned) subtask
-prd task next
+hack task next
 
 # Status-counts summary (grouped by status)
-prd task status
+hack task status
 ```
 
 ### Resume Interrupted Session

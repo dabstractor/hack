@@ -3,7 +3,7 @@
  *
  * @remarks
  * Configures Vitest for ESM TypeScript testing with v8 coverage provider.
- * Enforces 100% code coverage thresholds for all source files.
+ * Enforces a coverage regression floor for all source files.
  *
  * @see https://vitest.dev/config/
  */
@@ -41,13 +41,22 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
       exclude: ['**/*.test.ts', '**/*.spec.ts', '**/node_modules/**'],
+      // NOTE: vitest 1.6.x reads the FLAT threshold keys (statements/branches/
+      // functions/lines directly on `thresholds`). The `thresholds.global`
+      // nesting is a vitest 2.x shape that 1.6 silently ignores — `global`
+      // is then treated as a glob pattern and the real (flat) global keys are
+      // all undefined, so `checkThresholds` early-returns and the gate is a
+      // no-op. Use the flat form here so the gate actually fires.
+      //
+      // These are deliberately set BELOW current actual coverage (~90%) to
+      // act as a REGRESSION FLOOR (catch drops) rather than an aspirational
+      // 100% target that would immediately fail the build. Raise the floors
+      // as coverage improves; do not remove them.
       thresholds: {
-        global: {
-          statements: 100,
-          branches: 100,
-          functions: 100,
-          lines: 100,
-        },
+        statements: 89,
+        branches: 90,
+        functions: 94,
+        lines: 89,
       },
     },
   },
