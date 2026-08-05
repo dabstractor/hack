@@ -195,3 +195,97 @@ describe('getRepoRoot / getInvocationCwd accessors', () => {
     expect(mod.getInvocationCwd()).toBe('/repo/sub');
   });
 });
+
+// ============================================================================
+// bootstrapRepoRoot — idempotent resolve + chdir wrapper (BUG-001 fix step 1)
+// ============================================================================
+//
+// Mirrors the file's vi.mock('node:fs') + fresh per-test `mod` re-import (so _bootstrapped resets
+// per case). process.chdir is spied with a no-op impl because the mocked-fs paths ('/repo') are
+// not real directories — a real chdir('/repo') would ENOENT.
+
+describe('bootstrapRepoRoot', () => {
+  // Spy process.chdir with a no-op so mocked-fs paths don't ENOENT; restored after each case.
+  let chdirSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    chdirSpy = vi
+      .spyOn(process, 'chdir')
+      .mockImplementation((() => {}) as () => void);
+  });
+
+  afterEach(() => {
+    chdirSpy.mockRestore();
+  });
+
+  it('chdirs to the resolved root on first call and sets the guard', () => {
+    // SETUP — '/repo' has .git; realpath identity (the default from the file-level beforeEach).
+    vi.mocked(existsSync).mockImplementation(p => String(p) === '/repo/.git');
+
+    // EXECUTE
+    const repoRoot = mod.bootstrapRepoRoot('/repo/sub');
+
+    // VERIFY — resolve + chdir ran; returns the canonicalized root; guard set.
+    expect(repoRoot).toBe('/repo');
+    expect(chdirSpy).toHaveBeenCalledTimes(1);
+    expect(chdirSpy).toHaveBeenCalledWith('/repo');
+    expect(mod.getRepoRoot()).toBe('/repo');
+  });
+
+  it('is idempotent — a second call (no reset) is a no-op with no second chdir', () => {
+    // SETUP
+    vi.mocked(existsSync).mockImplementation(p => String(p) === '/repo/.git');
+
+    // EXECUTE — first call resolves + chdirs.
+    const r1 = mod.bootstrapRepoRoot('/repo');
+    // Second call should short-circuit via the guard.
+    const r2 = mod.bootstrapRepoRoot('/repo');
+
+    // VERIFY — same root; chdir still called exactly once (guard short-circuited call #2).
+    expect(r2).toBe(r1);
+    expect(chdirSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('_resetBootstrap allows a re-bootstrap (chdir runs again)', () => {
+    // SETUP
+    vi.mocked(existsSync).mockImplementation(p => String(p) === '/repo/.git');
+
+    // EXECUTE — first bootstrap.
+    mod.bootstrapRepoRoot('/repo');
+    expect(chdirSpy).toHaveBeenCalledTimes(1);
+
+    // Reset → next call re-runs resolve + chdir.
+    mod._resetBootstrap();
+    mod.bootstrapRepoRoot('/repo');
+
+    // VERIFY — chdir call count rose to 2 (the guard no longer short-circuits after reset).
+    expect(chdirSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates NotARepositoryError and stays un-bootstrapped (retryable)', () => {
+    // SETUP — no .git anywhere → resolveRepositoryRoot throws NotARepositoryError.
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    // EXECUTE + VERIFY — the throw propagates.
+    expect(() => mod.bootstrapRepoRoot('/nowhere')).toThrow(
+      mod.NotARepositoryError
+    );
+    // _bootstrapped stayed false: flip existsSync back on and a follow-up call re-runs resolve+chdir.
+    vi.mocked(existsSync).mockImplementation(p => String(p) === '/repo/.git');
+    mod.bootstrapRepoRoot('/repo');
+    expect(chdirSpy).toHaveBeenCalledTimes(1); // the re-run did chdir
+  });
+
+  it('passes opts.explicit through to resolveRepositoryRoot', () => {
+    // SETUP — only the EXPLICIT path '/repo' has .git (the start dir '/start' does not), proving
+    // the explicit branch — not the default upward walk — resolved the root.
+    vi.mocked(existsSync).mockImplementation(p => String(p) === '/repo/.git');
+
+    // EXECUTE
+    const repoRoot = mod.bootstrapRepoRoot('/start', { explicit: '/repo' });
+
+    // VERIFY — used the explicit root.
+    expect(repoRoot).toBe('/repo');
+    expect(chdirSpy).toHaveBeenCalledWith('/repo');
+  });
+});

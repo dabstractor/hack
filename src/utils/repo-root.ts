@@ -89,6 +89,11 @@ export class NotARepositoryError extends Error {
 let _repoRoot: string | undefined;
 let _invocationCwd: string | undefined;
 
+// Idempotency guard for bootstrapRepoRoot (PRD §9.8.3). Commander fires `preAction` per command
+// level — for a subcommand it can fire twice (program + subcommand) — so the guard makes the
+// second call a no-op after the first resolve+chdir. Reset only by _resetBootstrap (test-only).
+let _bootstrapped = false;
+
 /**
  * Resolve the repository root from a starting directory (PRD §9.8.2).
  *
@@ -162,6 +167,61 @@ export function getInvocationCwd(): string {
     );
   }
   return _invocationCwd;
+}
+
+/**
+ * Resolve the repository root and `process.chdir` to it — idempotent (PRD §9.8.3).
+ *
+ * @remarks
+ * Encapsulates the two-step bootstrap (`resolveRepositoryRoot` → `process.chdir`) behind a
+ * `_bootstrapped` guard so it is safe to call more than once. This is the primitive the Commander
+ * `preAction` hook (P1.M1.T1.S2) calls for EVERY command — including subcommands, whose `.action()`
+ * handlers run inside `program.parse()` before `main()`'s chdir — and that `main()`'s default path
+ * also calls. Commander fires `preAction` per command level (program + subcommand → two calls); the
+ * guard makes the second invocation a no-op (no second `chdir`).
+ *
+ * **Side effects** (all intentional, on first call only):
+ * 1. `resolveRepositoryRoot(startDir, opts)` runs — which sets the `_repoRoot`/`_invocationCwd`
+ *    singletons and canonicalizes the root via `realpathSync`.
+ * 2. `process.chdir(repoRoot)` — the single bootstrap chdir that makes every downstream
+ *    `process.cwd()`/`resolve(...)` site resolve to the repo root (§9.8.3).
+ * 3. `_bootstrapped = true` — set AFTER the chdir so a throw from `resolveRepositoryRoot` leaves
+ *    it `false` (a retry re-runs).
+ *
+ * @param startDir - The directory to search from (typically the invocation cwd).
+ * @param opts - Optional {@link ResolveRepoOpts} (`explicit` override — passed straight through).
+ * @returns The canonicalized repository root (same value a follow-up `getRepoRoot()` returns).
+ * @throws {NotARepositoryError} Propagated from {@link resolveRepositoryRoot} when no `.git` entry
+ *         is found; `_bootstrapped` stays `false` so a retry re-runs.
+ *
+ * @example
+ * ```typescript
+ * // Called from a Commander preAction hook (runs before any action handler):
+ * program.hook('preAction', () => bootstrapRepoRoot(process.cwd()));
+ * ```
+ */
+export function bootstrapRepoRoot(
+  startDir: string,
+  opts?: ResolveRepoOpts
+): string {
+  if (_bootstrapped) return getRepoRoot(); // no-op after the first call
+  const { repoRoot } = resolveRepositoryRoot(startDir, opts); // sets singletons; may throw
+  process.chdir(repoRoot); // the single bootstrap chdir (§9.8.3)
+  _bootstrapped = true;
+  return repoRoot;
+}
+
+/**
+ * Reset the `bootstrapRepoRoot` idempotency guard (test-only).
+ *
+ * @remarks
+ * Resets ONLY `_bootstrapped` (not the `_repoRoot`/`_invocationCwd` singletons); a subsequent
+ * `bootstrapRepoRoot` call re-runs `resolveRepositoryRoot`, which overwrites the singletons fresh.
+ * Intended for test isolation (e.g. S2's preAction-hook tests that import the module once rather
+ * than re-importing per case). Not part of the public bootstrap contract.
+ */
+export function _resetBootstrap(): void {
+  _bootstrapped = false;
 }
 
 /**
