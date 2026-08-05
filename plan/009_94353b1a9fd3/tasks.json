@@ -100,7 +100,7 @@
           "type": "Milestone",
           "id": "P2.M1",
           "title": "TOML Loader, Three-Tier Layering, Secrets Policy & Validation",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add the TOML parser dependency, implement the parse module, build the three-tier discovery/merge loader with env-over-file seeding, and enforce the secrets policy + type/range validation with stderr-synchronous warnings/errors.",
           "tasks": [
             {
@@ -150,14 +150,14 @@
               "type": "Task",
               "id": "P2.M1.T2",
               "title": "Secrets policy, validation, and error handling",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Enforce the secrets refusal in committable .hack, implement type/range validation with warn-vs-hard-error semantics, ensure all warnings/errors go to stderr synchronously (§9.6), and add the effective-config debug trace.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T2.S1",
                   "title": "Secrets refusal + type/range validation + error semantics + debug trace",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S2"
@@ -186,14 +186,14 @@
               "type": "Task",
               "id": "P2.M2.T1",
               "title": "Exhaustive schema mapping and canonical-name resolution",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Implement the complete schema in hack-config.ts mapping every [section].key from §9.7.5 to exactly one env var and/or CLI flag, resolving the dual-config-surface ambiguities and handling bare-model-id qualification.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M2.T1.S1",
                   "title": "Full schema map (all tunables) with env-var + CLI-flag seeding",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S2",

@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse, TomlError } from 'smol-toml';
+import { PRP_API_KEY } from './constants.js';
 
 /**
  * A scalar value in a parsed `.hack` file.
@@ -221,6 +222,329 @@ function seedProcessEnv(merged: ParsedHackConfig): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Secrets policy + type/range/enum validation + debug trace (P2.M1.T2.S1)
+// PRD §9.7.6 (Secrets Policy) + §9.7.7 (Validation & Error Handling) +
+// §9.7.10 (masked debug trace). Layered per-tier (after parse, before merge)
+// then auth-seeding + trace (after env seeding).
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-field validation spec for a known §9.7.5 `[section].key`.
+ *
+ * @remarks `type` is the expected TOML primitive (string | int | boolean); `enum`
+ * constrains a string to the accepted values; `min`/`max` are inclusive integer bounds.
+ */
+export interface HackConfigFieldSpec {
+  readonly type: 'string' | 'int' | 'boolean';
+  readonly enum?: readonly string[];
+  readonly min?: number; // inclusive (int)
+  readonly max?: number; // inclusive (int)
+}
+
+/**
+ * Exhaustive §9.7.5 type/range/enum validation schema (PRD §9.7.7).
+ *
+ * @remarks Authoritative for type/range/enum checking. The `[auth]` section is included so
+ * legitimate `.hack.local` secrets do NOT trip the "unknown section" warning; its keys are
+ * secret-bearing and are governed by the secrets policy (§9.7.6) BEFORE any type check. Does
+ * NOT overlap S2's `HACK_KEY_TO_ENV` (env-var seeding) or P2.M2.T1.S1 (constants.ts reconciliation).
+ *
+ * The relational `commit.retry_delay_cap_ms >= commit.retry_delay_ms` cross-key check is a
+ * DOCUMENTED GAP (P2.M2 may harden); `retry_delay_cap_ms` validates as `int >= 0` only.
+ */
+const HACK_CONFIG_SCHEMA: Readonly<
+  Record<string, Readonly<Record<string, HackConfigFieldSpec>>>
+> = {
+  models: {
+    high: { type: 'string' },
+    balanced: { type: 'string' },
+    fast: { type: 'string' },
+  },
+  endpoint: { base_url: { type: 'string' } },
+  harness: { name: { type: 'string', enum: ['pi', 'claude-code'] } },
+  pipeline: {
+    parallel_research: { type: 'boolean' },
+    research_depth: { type: 'int', min: 1 },
+    research_timeout_seconds: { type: 'int', min: 1 },
+    issue_retry_max: { type: 'int', min: 0 },
+    commit_format: { type: 'string', enum: ['task-prefix', 'plain'] },
+  },
+  commit: {
+    retry_max: { type: 'int', min: 1 },
+    retry_delay_ms: { type: 'int', min: 0 },
+    retry_delay_cap_ms: { type: 'int', min: 0 }, // relational cap>=delay deferred (cross-key)
+    classifier_retry_max: { type: 'int', min: 1 },
+  },
+  bug_hunt: {
+    finder_agent: { type: 'string' },
+    results_file: { type: 'string' },
+    fix_scope: { type: 'string' },
+  },
+  validation: {
+    agent: { type: 'string' },
+    timeout_seconds: { type: 'int', min: 1 },
+  },
+  distributed_prd: {
+    include_max_depth: { type: 'int', min: 1 },
+    include_markers: { type: 'boolean' },
+  },
+  tasks_lock: {
+    stale_ms: { type: 'int', min: 1 },
+    timeout_ms: { type: 'int', min: 1 },
+    poll_ms: { type: 'int', min: 1 },
+  },
+  concurrency: {
+    research_queue: { type: 'int', min: 1, max: 10 },
+    parallelism: { type: 'int', min: 1, max: 10 },
+  },
+  api: { timeout_ms: { type: 'int', min: 1 } },
+  monitor: {
+    task_interval: { type: 'int', min: 1, max: 100 },
+    interval_ms: { type: 'int', min: 1000, max: 60000 },
+    enabled: { type: 'boolean' },
+  },
+  cli: {
+    mode: { type: 'string', enum: ['normal', 'delta', 'bug-hunt', 'validate'] },
+    scope: { type: 'string' },
+    log_level: {
+      type: 'string',
+      enum: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
+    },
+    machine_readable: { type: 'boolean' },
+    continue_on_error: { type: 'boolean' },
+    cache_enabled: { type: 'boolean' },
+    max_tasks: { type: 'int', min: 1 },
+    max_duration_ms: { type: 'int', min: 1 },
+  },
+  auth: {
+    // NOT in §9.7.5 tunables table; known section so secrets don't false-warn (§9.7.6)
+    override_key: { type: 'string' },
+    zai_api_key: { type: 'string' },
+    anthropic_api_key: { type: 'string' },
+    anthropic_auth_token: { type: 'string' },
+  },
+};
+
+const SECRET_SUFFIXES = ['_key', '_token', '_secret', '_password'] as const;
+
+/**
+ * True if a `.hack` key NAME is secret-bearing (PRD §9.7.6 suffix rule).
+ *
+ * @remarks Matches the suffix rule `_key`/`_token`/`_secret`/`_password`, which covers the 4
+ * explicit `[auth]` secret keys (`override_key`, `zai_api_key`, `anthropic_api_key`,
+ * `anthropic_auth_token`). Applied to the KEY NAME only — never to the value — so a future
+ * secret-suffixed key in any section is still masked/refused.
+ */
+function isSecretKey(key: string): boolean {
+  return SECRET_SUFFIXES.some(s => key.endsWith(s));
+}
+
+/**
+ * Module-private one-time validation-warning dedup (PRD §9.7.7).
+ *
+ * @remarks Mirrors the `environment.ts` `_deprecatedWarned` pattern: keyed per
+ * (kind,file,location) so an unknown section/key warns ONCE per file even if the same
+ * malformed tier is encountered multiple times. vitest does NOT reset module state between
+ * tests in a file, so tests re-arm it via {@link _resetValidationWarnings}.
+ */
+const _validationWarned = new Set<string>();
+
+/**
+ * Reset the one-time validation-warning dedup.
+ *
+ * @remarks Production code never calls this. Test-only hook (mirrors
+ * `environment.ts` `_resetDeprecationWarnings`) so individual `it()` blocks can re-arm the
+ * dedup `Set`.
+ *
+ * @internal
+ */
+export function _resetValidationWarnings(): void {
+  _validationWarned.clear();
+}
+
+/**
+ * Emit a one-time §9.7.7 validation WARNING to stderr synchronously (PRD §9.6/§9.7.7).
+ *
+ * @remarks Synchronous `console.warn` (stderr, PRD §9.6-compliant) because the pino logger is
+ * configured AFTER config load (it needs the resolved CLI flags) and cannot carry startup
+ * validation warnings reliably. Deduped by `dedupKey` so a repeated unknown section/key warns
+ * once per file. Mirrors `environment.ts` `warnLegacyModelVar`.
+ */
+function warnOnceValidation(message: string, dedupKey: string): void {
+  if (_validationWarned.has(dedupKey)) return;
+  _validationWarned.add(dedupKey);
+  console.warn(`[hack] ${message}`); // stderr, sync — pino configured AFTER config load (§9.6)
+}
+
+/**
+ * Validate a single parsed `.hack` tier file (PRD §9.7.6 secrets + §9.7.7 validation).
+ *
+ * @remarks Runs per-tier, immediately after {@link parseHackFile} and BEFORE merging, so error
+ * messages can name the exact file. Hard errors THROW a plain `Error` (rendered by
+ * `main().catch()`'s default arm → exit 1); warnings go to stderr via {@link warnOnceValidation}.
+ * Secrets are checked FIRST: a non-empty secret in a committable tier (global/project) is a HARD
+ * error (§9.7.6); an empty/whitespace secret is "not configured" (§9.2.7) and is skipped; a secret
+ * in `project-local` is allowed and skips type validation (its value is never echoed). Unknown
+ * sections/keys WARN once and are ignored (lenient, forward-compatible). A type/range/enum mismatch
+ * is a HARD error naming file + section + key + offending value + expected type/range/accepted values.
+ *
+ * **Per-key order matters (research §8):** secrets → unknown-section → unknown-key → type/range.
+ * A secret in an UNKNOWN section must still be refused in committable tiers, so the secret check
+ * precedes the unknown-section short-circuit. Secrets are NEVER passed to {@link validateFieldValue}
+ * (it would JSON.stringify the secret into a thrown message).
+ *
+ * @param parsed - The tier's parsed config.
+ * @param file - Absolute path of the tier file (for error attribution).
+ * @param tier - Which discovery tier (only 'project-local' may hold secrets).
+ * @throws {Error} on a non-empty secret in a committable tier, or on a type/range/enum mismatch.
+ */
+function validateHackTier(
+  parsed: ParsedHackConfig,
+  file: string,
+  tier: HackConfigTier
+): void {
+  for (const [section, keys] of Object.entries(parsed)) {
+    const sectionSchema = HACK_CONFIG_SCHEMA[section];
+    const isKnownSection = sectionSchema !== undefined;
+    if (!isKnownSection) {
+      warnOnceValidation(
+        `unknown section [${section}] in ${file}; ignored`,
+        `section:${file}:${section}`
+      );
+    }
+    for (const [key, value] of Object.entries(keys)) {
+      // (a) SECRETS POLICY (§9.7.6) — checked first, on the KEY NAME, before any value echoing.
+      if (isSecretKey(key)) {
+        if (typeof value === 'string' && value.trim() === '') continue; // empty == not configured (§9.2.7)
+        if (tier !== 'project-local') {
+          throw new Error(
+            `Secret-bearing key [${section}] ${key} is not permitted in the committable file ${file} ` +
+              `(PRD §9.7.6). Move it to .hack.local (gitignored) or an environment variable, then retry.`
+          );
+        }
+        continue; // secret in .hack.local: allowed; never type-check or echo its value.
+      }
+      // (b) unknown section, non-secret key → section already warned; ignore the key.
+      if (!isKnownSection) continue;
+      // (c) unknown key in a known section (§9.7.7) — catch typos like 'reseaerch_depth'.
+      const spec = sectionSchema[key];
+      if (spec === undefined) {
+        warnOnceValidation(
+          `unknown key [${section}] ${key} in ${file}; ignored`,
+          `key:${file}:${section}.${key}`
+        );
+        continue;
+      }
+      // (d) type/range/enum (§9.7.7) — HARD error.
+      validateFieldValue(file, section, key, value, spec);
+    }
+  }
+}
+
+/**
+ * Type/range/enum check for a known key (PRD §9.7.7). Throws on mismatch.
+ *
+ * @remarks A plain `throw new Error` reaches `main().catch()`'s default arm (index.ts:401) →
+ * exit 1. The message names the file + section + key + offending value + expected
+ * type/range (for int) / accepted values (for enum). TOML int = JS number +
+ * `Number.isInteger`; bool = JS boolean; string = JS string. A TOML `poll_ms = true` is a
+ * TYPE mismatch (boolean where int expected), not a range error.
+ */
+function validateFieldValue(
+  file: string,
+  section: string,
+  key: string,
+  value: HackConfigValue,
+  spec: HackConfigFieldSpec
+): void {
+  if (spec.type === 'boolean' && typeof value !== 'boolean') {
+    throw new Error(
+      `[${section}] ${key} in ${file}: expected boolean, got ${typeof value} (${JSON.stringify(value)}).`
+    );
+  }
+  if (spec.type === 'string' && typeof value !== 'string') {
+    throw new Error(
+      `[${section}] ${key} in ${file}: expected string, got ${typeof value} (${JSON.stringify(value)}).`
+    );
+  }
+  if (spec.type === 'int') {
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+      throw new Error(
+        `[${section}] ${key} in ${file}: expected integer, got ${typeof value} (${JSON.stringify(value)}).`
+      );
+    }
+    const range = `expected integer in [${spec.min ?? '-∞'}, ${spec.max ?? '+∞'}]`;
+    if (spec.min !== undefined && value < spec.min) {
+      throw new Error(
+        `[${section}] ${key} in ${file}: ${value} is out of range (${range}).`
+      );
+    }
+    if (spec.max !== undefined && value > spec.max) {
+      throw new Error(
+        `[${section}] ${key} in ${file}: ${value} is out of range (${range}).`
+      );
+    }
+  }
+  if (
+    spec.type === 'string' &&
+    spec.enum !== undefined &&
+    !spec.enum.includes(value as string)
+  ) {
+    throw new Error(
+      `[${section}] ${key} in ${file}: ${JSON.stringify(value)} is not one of the accepted values ` +
+        `[${spec.enum.join(', ')}].`
+    );
+  }
+}
+
+/**
+ * Seed `process.env.PRP_API_KEY` from a `.hack.local` `[auth] override_key` (PRD §9.7.6/§9.7.9).
+ *
+ * @remarks `.hack.local` is the ONLY tier permitted to hold secrets (enforced by
+ * {@link validateHackTier}); by the time this runs, any `override_key` in `merged` therefore
+ * originated in `project-local` (committable tiers with a non-empty secret aborted earlier).
+ * Seeds ONLY when `process.env.PRP_API_KEY` is undefined (§9.2.1 env-over-file) and the value is
+ * non-empty (§9.2.7 empty-string policy — empty/whitespace == not configured, never forwarded).
+ * This is the §9.2.6 layer-1 explicit override that `resolveApiKeyForProvider` reads at
+ * harness.ts:73. S2's `seedProcessEnv` deliberately EXCLUDES `[auth]` (secret-bearing), so this
+ * is a separate dedicated seeding step.
+ */
+function seedAuthOverrideKey(merged: ParsedHackConfig): void {
+  const v = merged.auth?.override_key;
+  if (
+    typeof v === 'string' &&
+    v.trim() !== '' &&
+    process.env[PRP_API_KEY] === undefined
+  ) {
+    process.env[PRP_API_KEY] = v;
+  }
+}
+
+/**
+ * Log the effective merged `.hack` config to stderr when debug logging is in effect (PRD §9.7.7).
+ *
+ * @remarks Fires only when `process.env.HACKY_LOG_LEVEL === 'debug'`. This is authoritative
+ * post-seeding: S2's `seedProcessEnv` seeds `[cli] log_level → HACKY_LOG_LEVEL` (it is in
+ * `HACK_KEY_TO_ENV`) BEFORE this call, with env-over-file (shell wins), so the check captures both
+ * the shell `--log-level debug` and a `.hack` `[cli] log_level = "debug"`. Uses `console.warn`
+ * (stderr, sync) because the pino logger is configured AFTER config load (§9.6). Every secret key's
+ * value is MASKED (§9.7.10: no secret value is ever written to stdout/logs unmasked).
+ */
+function logEffectiveConfigTrace(
+  merged: ParsedHackConfig,
+  sources: Record<string, HackConfigTier>
+): void {
+  if (process.env.HACKY_LOG_LEVEL !== 'debug') return;
+  for (const [section, keys] of Object.entries(merged)) {
+    for (const [key, value] of Object.entries(keys)) {
+      const src = sources[`${section}.${key}`] ?? 'unknown';
+      const display = isSecretKey(key) ? '"<redacted>"' : JSON.stringify(value);
+      console.warn(`[hack] ${section}.${key} = ${display}  (source: ${src})`);
+    }
+  }
+}
+
 /**
  * Discover, merge, and seed `.hack` configuration for a repository (PRD §9.7.3 / §9.2.1).
  *
@@ -273,10 +597,13 @@ export function loadHackConfig(repoRoot: string): MergedHackConfig {
   for (const { tier, file } of tiers) {
     if (!existsSync(file)) continue; // missing tier is not an error (§9.7.3)
     const parsed = parseHackFile(file); // S1 — BOM/malformed rethrows; ENOENT only if it vanishes mid-run
+    validateHackTier(parsed, file, tier); // P2.M1.T2.S1 — §9.7.6 secrets + §9.7.7 validation (per-tier, pre-merge)
     mergeTier(merged, parsed, tier, sources);
   }
 
   seedProcessEnv(merged);
+  seedAuthOverrideKey(merged); // P2.M1.T2.S1 — .hack.local override_key → PRP_API_KEY (§9.7.6; S2 excludes [auth])
+  logEffectiveConfigTrace(merged, sources); // P2.M1.T2.S1 — --log-level debug trace, secrets masked (§9.7.7)
 
   return { ...merged, _sources: sources };
 }
