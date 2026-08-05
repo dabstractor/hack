@@ -93,7 +93,7 @@
       "type": "Phase",
       "id": "P2",
       "title": "The .hack Configuration File — §9.7",
-      "status": "Planned",
+      "status": "Ready",
       "description": "A single TOML config file capturing every tunable default (§9.2.2 env-style settings and §5.3 CLI flags), with three-tier layering (global ~/.hack → project <repoRoot>/.hack → gitignored <repoRoot>/.hack.local), a secrets policy that keeps secrets out of version control, validation, and a hack config subcommand. This phase realizes the §9.2.1 7-layer precedence model and the env-over-file rule. Depends on Phase 1 (project layers are read from the resolved repo root).",
       "milestones": [
         {
@@ -179,7 +179,7 @@
           "type": "Milestone",
           "id": "P2.M2",
           "title": "Schema Mapping, hack config Subcommand & Bootstrap Reconciliation",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Implement the exhaustive schema mapping connecting every [section].key to its env var and/or CLI flag, build the hack config subcommand (init/show/validate/path), manage .gitignore for .hack.local, and run full acceptance tests for §9.7.10.",
           "tasks": [
             {
@@ -214,14 +214,14 @@
               "type": "Task",
               "id": "P2.M2.T2",
               "title": "hack config subcommand (init / show / validate / path)",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Add the `config` subcommand to src/cli/index.ts with four actions: init (writes commented template + .gitignore), show (prints effective config with --src and masked secrets), validate (CI-friendly lint), and path (prints resolved file paths).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M2.T2.S1",
                   "title": "Register config subcommand + implement init/show/validate/path actions",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M2.T1.S1"
@@ -240,14 +240,14 @@
               "type": "Task",
               "id": "P2.M2.T3",
               "title": ".gitignore management, .hack.local-tracked warning, and acceptance",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Ensure hack config init manages .gitignore for .hack.local, add the tracked-.hack.local warning to validate, and run the full §9.7.10 acceptance test suite.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M2.T3.S1",
                   "title": ".gitignore management + tracked-.hack.local warning + §9.7.10 acceptance tests",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M2.T2.S1"

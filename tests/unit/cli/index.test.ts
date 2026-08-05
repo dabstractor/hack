@@ -52,6 +52,19 @@ vi.mock('../../../src/utils/logger.js', () => ({
   getLogger: vi.fn(() => mockLogger),
 }));
 
+// Mock the ConfigCommand so the `config` subcommand's async .action() tail is
+// a no-op (no real config load / process.exit / env mutation) when the sentinel
+// return path is exercised. Hoisted so it is wired before parseCLIArgs runs.
+const { mockConfigExecute } = vi.hoisted(() => ({
+  mockConfigExecute: vi.fn(async () => {}),
+}));
+vi.mock('../../../src/cli/commands/config.js', () => ({
+  ConfigCommand: class {
+    constructor() {}
+    execute = mockConfigExecute;
+  },
+}));
+
 import { existsSync } from 'node:fs';
 import { readFile as mockReadFile } from 'node:fs/promises';
 
@@ -820,6 +833,54 @@ describe('cli/index', () => {
       setArgv(['status', 'status']);
       expect(parseCLIArgs()).toEqual({ subcommand: 'task', options: {} });
       await new Promise(resolve => setImmediate(resolve));
+    });
+  });
+
+  describe('config subcommand sentinel (PRD §9.7.8)', () => {
+    /** Helper to set process.argv for testing (scoped to this block). */
+    const setArgv = (args: string[] = []) => {
+      process.argv = ['node', '/path/to/script.js', ...args];
+    };
+
+    // The `config` .action() runs asynchronously after parseCLIArgs() returns and
+    // calls process.exit(). ConfigCommand is mocked (top of file) to a no-op, and
+    // process.exit is overridden to a no-op so the async tail resolves cleanly.
+    // We assert the synchronous sentinel return of parseCLIArgs().
+    let configExit: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      mockConfigExecute.mockClear();
+      configExit = vi.fn();
+      process.exit = configExit as any;
+    });
+
+    it('should return the config sentinel for `hack config show`', async () => {
+      setArgv(['config', 'show']);
+      const result = parseCLIArgs();
+      // Let the mocked async action tail finish.
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(result).toEqual({
+        subcommand: 'config',
+        options: {
+          output: 'table',
+          force: false,
+          src: false,
+          global: false,
+          local: false,
+        },
+      });
+    });
+
+    it('should default the action to `show` when only `hack config` is passed', async () => {
+      setArgv(['config']);
+      const result = parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(result).toMatchObject({ subcommand: 'config' });
+      // The mocked ConfigCommand.execute was invoked with the default 'show'.
+      expect(mockConfigExecute).toHaveBeenCalled();
+      expect(mockConfigExecute.mock.calls[0][0]).toBe('show');
     });
   });
 });

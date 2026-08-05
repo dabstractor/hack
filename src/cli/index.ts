@@ -35,6 +35,8 @@ import { InspectCommand, type InspectorOptions } from './commands/inspect.js';
 import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
 import { CacheCommand, type CacheOptions } from './commands/cache.js';
+import { ConfigCommand, type ConfigOptions } from './commands/config.js';
+import { resolveRepositoryRoot } from '../utils/repo-root.js';
 import * as os from 'node:os';
 import ms from 'ms';
 
@@ -303,7 +305,8 @@ export function parseCLIArgs():
   | { subcommand: 'artifacts'; options: Record<string, unknown> }
   | { subcommand: 'validate-state'; options: Record<string, unknown> }
   | { subcommand: 'cache'; options: CacheOptions }
-  | { subcommand: 'task'; options: Record<string, unknown> } {
+  | { subcommand: 'task'; options: Record<string, unknown> }
+  | { subcommand: 'config'; options: ConfigOptions } {
   const program = new Command();
 
   // Configure program
@@ -561,6 +564,48 @@ export function parseCLIArgs():
       }
     });
 
+  // Add config subcommand (PRD §9.7.8 — .hack configuration file management)
+  program
+    .command('config')
+    .description('.hack configuration file management')
+    .argument('[action]', 'Action: init, show, validate, path', 'show')
+    .argument('[file]', 'Explicit file to validate (validate action only)')
+    .option('--force', 'Overwrite existing .hack (init only)', false)
+    .option(
+      '--src',
+      'Annotate each value with its source layer (show only)',
+      false
+    )
+    .option('--global', 'Print global config path (path only)', false)
+    .option('--local', 'Print project-local config path (path only)', false)
+    .option('-o, --output <format>', 'Output format (table, json)', 'table')
+    .action(async (action, file, options) => {
+      try {
+        // Subcommand dispatch runs BEFORE the bootstrap chdir (src/index.ts main():
+        // parseCLIArgs → subcommand early-return → [later] resolveRepositoryRoot +
+        // chdir), so process.cwd() here === INVOCATION_CWD and getRepoRoot() THROWS
+        // (singleton unset). Resolve repoRoot ourselves (default upward traversal).
+        // Commander passes declared positional args in order, then the parsed
+        // options object: (action, file, options).
+        const explicit = (program.opts() as { repoRoot?: string }).repoRoot;
+        const { repoRoot } = resolveRepositoryRoot(
+          process.cwd(),
+          explicit ? { explicit } : undefined
+        );
+        await new ConfigCommand(repoRoot).execute(
+          action,
+          options,
+          typeof file === 'string' ? file : undefined
+        );
+        process.exit(0);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger().error(`Config command failed: ${errorMessage}`);
+        process.exit(1);
+      }
+    });
+
   // Shared action handler for `task` and its `status` alias (PRD §5.3).
   // Extracted so both .command('task') and .command('status') share identical
   // behavior without duplicating the body.
@@ -797,6 +842,22 @@ export function parseCLIArgs():
         force: false,
         dryRun: false,
       },
+    };
+  }
+  if (args.length > 0 && args[0] === 'config') {
+    // Config subcommand was invoked and already handled by action()
+    // (PRD §9.7.8). This return is for type safety only — the .action() already
+    // ran and process.exit'd; the placeholder options below must be a valid
+    // ConfigOptions shape but their values are never consumed.
+    return {
+      subcommand: 'config',
+      options: {
+        output: 'table',
+        force: false,
+        src: false,
+        global: false,
+        local: false,
+      } as ConfigOptions,
     };
   }
   if (args.length > 0 && args[0] === 'task') {

@@ -519,8 +519,10 @@ const HACK_KEY_TO_ENV: Readonly<Record<string, string>> = Object.fromEntries(
  * Resolve the global-tier `.hack` path (PRD §9.7.3).
  *
  * @remarks Cascade: `$HACK_CONFIG_HOME/config` → `$XDG_CONFIG_HOME/hack/config` → `~/.hack`.
+ *
+ * Exported for the `hack config` subcommand (P2.M2.T2.S1).
  */
-function globalHackPath(): string {
+export function globalHackPath(): string {
   if (process.env.HACK_CONFIG_HOME) {
     return path.join(process.env.HACK_CONFIG_HOME, 'config');
   }
@@ -682,8 +684,10 @@ const SECRET_SUFFIXES = ['_key', '_token', '_secret', '_password'] as const;
  * explicit `[auth]` secret keys (`override_key`, `zai_api_key`, `anthropic_api_key`,
  * `anthropic_auth_token`). Applied to the KEY NAME only — never to the value — so a future
  * secret-suffixed key in any section is still masked/refused.
+ *
+ * Exported for the `hack config` subcommand (P2.M2.T2.S1).
  */
-function isSecretKey(key: string): boolean {
+export function isSecretKey(key: string): boolean {
   return SECRET_SUFFIXES.some(s => key.endsWith(s));
 }
 
@@ -745,8 +749,10 @@ function warnOnceValidation(message: string, dedupKey: string): void {
  * @param file - Absolute path of the tier file (for error attribution).
  * @param tier - Which discovery tier (only 'project-local' may hold secrets).
  * @throws {Error} on a non-empty secret in a committable tier, or on a type/range/enum mismatch.
+ *
+ * Exported for the `hack config` subcommand (P2.M2.T2.S1).
  */
-function validateHackTier(
+export function validateHackTier(
   parsed: ParsedHackConfig,
   file: string,
   tier: HackConfigTier

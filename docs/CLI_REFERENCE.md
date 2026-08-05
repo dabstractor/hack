@@ -200,6 +200,63 @@ hack status next -o json
 
 ---
 
+### Configuration Management
+
+The `hack config` subcommand (PRD §9.7.8) manages the `.hack` configuration
+file — a TOML file that centralizes pipeline tunables (model ids, retries,
+concurrency, etc.). It exposes four actions:
+
+| Command                         | Description                                                               |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| `hack config init [--force]`    | Write a commented `.hack` template (all schema sections as examples)      |
+| `hack config show [--src]`      | Print the effective (merged) config with resolved values (default action) |
+| `hack config validate [<file>]` | Lint `.hack` + `.hack.local` (or an explicit file); CI-friendly gate      |
+| `hack config path`              | Print the global / project / local config paths actually consulted        |
+
+**Options:**
+
+| Option                  | Description                                                     |
+| ----------------------- | --------------------------------------------------------------- |
+| `--force`               | `init` only: overwrite an existing `.hack` (refuses without it) |
+| `--src`                 | `show` only: annotate each value with its winning layer         |
+| `--global`              | `path` only: print the global config path                       |
+| `--local`               | `path` only: print the project-local config path                |
+| `-o, --output <format>` | Output format: `table` (default) or `json` (`show` and `path`)  |
+
+**Layer precedence (PRD §9.2.1):** `show` merges all tiers and reports the
+winning layer per key — `global` → `project` (`.hack`, committable) →
+`project-local` (`.hack.local`, gitignored) → `env` (shell/exported vars win
+over file values) → `default` (schema default). The `cli` layer is not reported
+(the subcommand does not receive pipeline flags).
+
+**Secrets (PRD §9.7.6/§9.7.10):** `show` masks any secret-suffixed key
+(`_key`/`_token`/`_secret`/`_password`) as `<redacted>`. Secrets are only
+permitted in `.hack.local`; `validate` rejects a secret found in a committable
+file. `show` runs **without invoking any agent**, so it is safe to run even
+with broken auth.
+
+```bash
+# Onboard a fresh repo with a commented .hack
+hack config init
+
+# See the effective merged config (no agent invoked)
+hack config show
+
+# Debug why a value resolved the way it did
+hack config show --src
+
+# Lint as a CI gate (exit 1 on hard errors, 0 on warnings-only)
+hack config validate
+
+# Lint a specific file
+hack config validate ./my-staging.hack
+
+# Find where global/local config lives
+hack config path --global
+```
+
+---
+
 ## Options
 
 ### Required Options
@@ -306,6 +363,10 @@ The pipeline uses specific exit codes to indicate completion status:
   - Agent invocation errors
   - Configuration errors
   - File system errors
+  - `hack config validate` rejecting a `.hack`/`.hack.local` for a hard error
+    (a secret in a committable file per §9.7.6, a type/range/enum mismatch per
+    §9.7.7, or a TOML parse error). `validate` exits **0** when only unknown
+    section/key warnings occurred, so it can gate PRs in CI (errors vs. warnings).
 
 - **2 (VALIDATION_ERROR)**: Configuration validation failed (e.g. invalid environment variable values). Note: `--validate-prd` returns exit code **0 (valid) / 1 (invalid)**, not code 2.
 
