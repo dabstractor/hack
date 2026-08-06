@@ -33,10 +33,10 @@ describe('PRD Validation Integration Tests', () => {
   describe('PRDValidator with real files', () => {
     it('should validate PRD.md from project root', async () => {
       const validator = new PRDValidator();
-      const result = await validator.validate('PRD.md');
+      const result = await validator.validate('spec/SPEC.md');
 
-      // PRD.md should exist and be valid
-      expect(result.prdPath).toContain('PRD.md');
+      // The canonical (distributed) PRD entry should exist and be valid
+      expect(result.prdPath).toContain('SPEC.md');
       expect(result.summary.critical).toBe(0);
     });
 

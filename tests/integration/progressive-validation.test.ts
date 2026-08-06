@@ -24,6 +24,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PRP_BUILDER_PROMPT } from '../../src/agents/prompts.js';
 import { PRPExecutor } from '../../src/agents/prp-executor.js';
 import type { PRPDocument } from '../../src/core/models.js';
@@ -200,10 +203,14 @@ describe('integration: agents/prp-builder-prompt > progressive validation levels
 });
 
 describe('integration: prp-executor > validation gate execution', () => {
-  const sessionPath = process.cwd();
+  // Isolate checkpoint writes in a per-test temp dir so no tracked repo-root
+  // file (artifacts/<taskId>/checkpoints.json) is mutated every run. The
+  // real (non-mocked) CheckpointManager inside PRPExecutor writes here.
+  let sessionPath: string;
   let mockAgent: any;
 
   beforeEach(() => {
+    sessionPath = mkdtempSync(join(tmpdir(), 'hacky-progressive-'));
     mockAgent = {
       prompt: vi.fn(),
     };
@@ -211,6 +218,7 @@ describe('integration: prp-executor > validation gate execution', () => {
   });
 
   afterEach(() => {
+    if (sessionPath) rmSync(sessionPath, { recursive: true, force: true });
     vi.clearAllMocks();
   });
 

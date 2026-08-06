@@ -41,6 +41,7 @@ import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
 import { CacheCommand, type CacheOptions } from './commands/cache.js';
 import { ConfigCommand, type ConfigOptions } from './commands/config.js';
+import { resolveEffectivePrd } from './effective-prd.js';
 import {
   bootstrapRepoRoot,
   getRepoRoot,
@@ -514,7 +515,7 @@ export function parseCLIArgs():
     .action(async (action, options) => {
       try {
         const planDir = resolve('plan');
-        const prdPath = resolve('PRD.md');
+        const prdPath = resolveEffectivePrd();
         const artifactsCommand = new ArtifactsCommand(planDir, prdPath);
         await artifactsCommand.execute(action, options);
         // Exit successfully after artifacts
@@ -573,7 +574,7 @@ export function parseCLIArgs():
     .action(async (action, options) => {
       try {
         const planDir = resolve('plan');
-        const prdPath = resolve('PRD.md');
+        const prdPath = resolveEffectivePrd();
         const cacheCommand = new CacheCommand(planDir, prdPath);
         await cacheCommand.execute(action, options);
         process.exit(0);

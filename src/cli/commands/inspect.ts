@@ -23,6 +23,7 @@ import chalk from 'chalk';
 import type { SessionState, Status, Phase } from '../../core/models.js';
 import type { HierarchyItem } from '../../utils/task-utils.js';
 import { SessionManager } from '../../core/session-manager.js';
+import { resolveEffectivePrd } from '../effective-prd.js';
 import {
   findItem,
   getDependencies,
@@ -141,11 +142,11 @@ export class InspectCommand {
    * Creates a new InspectCommand instance
    *
    * @param planDir - Path to plan directory (default: resolve('plan'))
-   * @param prdPath - Path to PRD file (default: resolve('PRD.md'))
+   * @param prdPath - Path to PRD file (default: effective PRD via `.hack [cli] prd`)
    */
   constructor(
     planDir: string = resolve('plan'),
-    prdPath: string = resolve('PRD.md')
+    prdPath: string = resolveEffectivePrd()
   ) {
     this.#planDir = planDir;
     this.#prdPath = prdPath;

@@ -21,7 +21,7 @@ import { createArchitectPrompt } from '../../src/agents/prompts/architect-prompt
 import { BacklogSchema, type Backlog } from '../../src/core/models.js';
 
 // PATTERN: Test-wide constants
-const PRD_PATH = resolve(process.cwd(), 'PRD.md');
+const PRD_PATH = resolve(process.cwd(), 'spec/SPEC.md');
 const USE_REAL_LLM = process.env.USE_REAL_LLM === 'true'; // Flag for real vs mocked
 
 // PATTERN: Mock createArchitectAgent to avoid MCP registration issues

@@ -31,6 +31,7 @@ import {
   type ColorMode,
 } from '../../utils/display/syntax-highlighter.js';
 import { ArtifactDiffer } from '../../utils/artifact-differ.js';
+import { resolveEffectivePrd } from '../effective-prd.js';
 import { getStatusIndicator } from '../../utils/display/status-colors.js';
 import { getLogger, type Logger } from '../../utils/logger.js';
 
@@ -167,11 +168,11 @@ export class ArtifactsCommand {
    * Creates a new ArtifactsCommand instance
    *
    * @param planDir - Path to plan directory (default: resolve('plan'))
-   * @param prdPath - Path to PRD file (default: resolve('PRD.md'))
+   * @param prdPath - Path to PRD file (default: effective PRD via `.hack [cli] prd`)
    */
   constructor(
     planDir: string = resolve('plan'),
-    prdPath: string = resolve('PRD.md')
+    prdPath: string = resolveEffectivePrd()
   ) {
     this.#planDir = planDir;
     this.#prdPath = prdPath;

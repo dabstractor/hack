@@ -31,6 +31,7 @@ import {
   type StateValidationResult,
 } from '../../core/state-validator.js';
 import { readTasksJSON, writeTasksJSON } from '../../core/session-utils.js';
+import { resolveEffectivePrd } from '../effective-prd.js';
 import { resolve, dirname } from 'node:path';
 import chalk from 'chalk';
 import { createInterface } from 'node:readline';
@@ -80,11 +81,11 @@ export class ValidateStateCommand {
    * Creates a new ValidateStateCommand instance
    *
    * @param planDir - Path to plan directory (default: resolve('plan'))
-   * @param prdPath - Path to PRD file (default: resolve('PRD.md'))
+   * @param prdPath - Path to PRD file (default: effective PRD via `.hack [cli] prd`)
    */
   constructor(
     planDir: string = resolve('plan'),
-    prdPath: string = resolve('PRD.md')
+    prdPath: string = resolveEffectivePrd()
   ) {
     this.#planDir = planDir;
     this.#prdPath = prdPath;

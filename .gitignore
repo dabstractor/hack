@@ -18,6 +18,9 @@ build/
 .env.*.local
 .envrc
 
+# .hack local overrides (secrets — never commit, PRD §9.7.3/§9.7.6)
+.hack.local
+
 # IDE files
 .vscode/
 .idea/
