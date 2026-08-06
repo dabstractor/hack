@@ -1,0 +1,151 @@
+{
+  "backlog": [
+    {
+      "id": "P1",
+      "type": "Phase",
+      "title": "Validation Gate Semantics — Monotonicity & Terminal-State Re-Execution (PRD §9.9)",
+      "status": "Planned",
+      "description": "Implement PRD §9.9 for session 011 (delta from session 010). The delta is a single new functional requirement: validation gates must be monotonic terminal-state assertions, and the executor must deterministically neutralize any cached/legacy non-monotonic gate. Two complementary layers per §9.9.2: REQ-G1 (prompt guardrails that prevent the Researcher/Coder from EMITTING non-monotonic gates) and REQ-G2 (runtime hardening that NEUTRALIZES any non-monotonic gate already in a cached/legacy PRP). Reality check: `[cli] prd` (the only other PRD delta) is already complete (commit f248867), and §9.3.2 watchdog-killed-gate terminal abort is already implemented + tested — neither produces a task. See plan/011_5e3dfdb12bd1/architecture/delta-analysis.md and implementation-status.md for the full research.",
+      "milestones": [
+        {
+          "id": "P1.M1",
+          "type": "Milestone",
+          "title": "Gate-Construction Guardrails (REQ-G1) — prompt layer",
+          "status": "Planned",
+          "description": "Update the Researcher (Blueprint, §6.2) and Coder (Builder, §6.3) system prompts so newly-generated PRPs never contain non-monotonic gates. Covers G1.1 (no negative file/dir-existence gates), G1.2 (scope boundaries as Success Criteria or manual Level-4 gates), G1.3 (cleanup/throwaway deletion is manual, not a shell gate), G1.4 (throwaway artifacts survive the coder's turn), and G1.5 (negated content gates only on the task's own monotonic deliverable). The two prompt bodies are independent and parallelizable.",
+          "tasks": [
+            {
+              "id": "P1.M1.T1",
+              "type": "Task",
+              "title": "Blueprint gate-construction guardrails (G1.1, G1.2, G1.3, G1.5)",
+              "status": "Complete",
+              "description": "Extend the Researcher's gate-construction rules so it cannot author a gate whose pass/fail depends on non-terminal filesystem state or on another task's deliverables not yet existing. Edit the CRITICAL RULES block of PRP_BLUEPRINT_PROMPT.",
+              "subtasks": [
+                {
+                  "id": "P1.M1.T1.S1",
+                  "type": "Subtask",
+                  "title": "Forbid non-monotonic gates in PRP_BLUEPRINT_PROMPT and assert via prompt-text test",
+                  "status": "Complete",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: The runtime Researcher prompt is `PRP_BLUEPRINT_PROMPT` in `src/agents/prompts.ts`. Its gate-construction rules block starts at line 285 (`**Validation Gates**: … CRITICAL RULES for gate commands:`) with bullets at lines 286–292. It already has: ONE command per gate (L286); prefer standard tooling; no mixed-quote grep; no heredocs/`for` loops; and a partial scope-boundary rule at L290 (\"express it as … a success criterion the coder follows rather than a shell gate\"). The legacy `PROMPTS.md` is a doc mirror and is NOT imported at runtime — do NOT edit it here (it is synced in P1.M3.T1.S1). See plan/011_5e3dfdb12bd1/architecture/implementation-status.md §A.1.\n2. INPUT: PRD §9.9.2 REQ-G1 (selectors h4.40) and §9.9.3 acceptance criteria (h4.41) — the exact G1.1–G1.5 wording to encode. Also §6.2 (h3.14) \"validation-gate monotonicity\".\n3. LOGIC: Add bullets to the CRITICAL RULES block (lines 285–292) implementing: (a) G1.1 — explicitly forbid negative file/directory-existence gates, listing the forms `test ! -f|-e|-d <path>`, `! test -f|-e|-d <path>`, `[ ! -f|-e|-d ]`, `! [ -f|-e|-d ]`, with the rationale that file existence is owned by the task graph and is non-monotonic across it; (b) G1.2 — strengthen the existing scope-boundary rule so a \"do not create/modify file X\" / \"do not import Y\" constraint MUST be a Success Criterion OR a `manual: true` Level-4 gate, never a shell gate; (c) G1.3 — for spike/throwaway artifacts, the \"delete the artifact\" step is a cleanup instruction, not a shell gate; a \"the artifact is gone\" check MUST be `manual: true`; (d) G1.5 — a negated CONTENT gate (`! grep -q …`) is permitted ONLY on this task's own deliverable when the asserted absence is permanent (e.g. no TODOs), never about another task's file. Keep all existing gate rules (one command per gate, standard tooling, no mixed-quote grep, no heredocs). Do NOT change prompt structure elsewhere. MOCKING: none — prompt edits are static text.\n4. OUTPUT: A PRP_BLUEPRINT_PROMPT whose CRITICAL RULES block, verbatim, forbids each of the G1.1/G1.2/G1.3/G1.5 forms. Consumed by P1.M3.T1.S1 (doc mirror) and indirectly by every future Researcher run.\n5. DOCS: none (src/agents/prompts.ts is internal; PROMPTS.md mirror is Mode B in P1.M3.T1.S1).",
+                  "prd_selectors": [
+                    "h4.40",
+                    "h4.41",
+                    "h3.14"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "P1.M1.T2",
+              "type": "Task",
+              "title": "Builder throwaway-survival instruction (G1.4)",
+              "status": "Planned",
+              "description": "Instruct the Coder Agent (Builder prompt) not to delete throwaway/spike artifacts during its own turn, because the executor re-runs every gate as a batch against the terminal filesystem state and a post-delete tree would fail the artifact's existence gates.",
+              "subtasks": [
+                {
+                  "id": "P1.M1.T2.S1",
+                  "type": "Subtask",
+                  "title": "Add throwaway-survival + terminal-state-re-execution guidance to PRP_BUILDER_PROMPT and assert via prompt-text test",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: The runtime Coder prompt is `PRP_BUILDER_PROMPT` in `src/agents/prompts.ts`, spanning lines 675–744. Relevant anchors: `## FORBIDDEN ACTIONS — Critical-File Deletion Protection (PRD §5.1)` at L680; step `4. **Progressive Validation**` at L728–736 (\"Execute the level validation system from the PRP\" / \"Each level must pass before proceeding\"); `**Failure Protocol**` at L744. See plan/011_5e3dfdb12bd1/architecture/implementation-status.md §A.2.\n2. INPUT: PRD §9.9.2 REQ-G1 bullet G1.4 (selector h4.40) and §9.9.1 Problem (h4.39) — the spike create→run→delete lifecycle that makes a post-delete tree fail existence gates. Also §6.3 (h3.15) \"terminal-state re-execution\".\n3. LOGIC: Add two things to PRP_BUILDER_PROMPT: (a) within or right after step 4 (Progressive Validation) / near the Failure Protocol, an instruction that the executor RE-RUNS every validation gate as a BATCH against the FINAL filesystem state after the coder finishes — so gates must be monotonic terminal-state assertions (true once, stays true); (b) G1.4 — the coder MUST NOT delete a throwaway/spike artifact during its own turn; any cleanup happens AFTER validation. Phrase it so it composes with the existing FORBIDDEN ACTIONS block (which already forbids rm/git-rm of PRD.md/PRP.md/plan/) without contradicting it. Do NOT alter the JSON output contract at the end of the prompt. MOCKING: none — static prompt text.\n4. OUTPUT: A PRP_BUILDER_PROMPT that verbatim tells the coder not to delete throwaway artifacts mid-turn and explains the batch terminal-state re-execution. Consumed by P1.M3.T1.S1.\n5. DOCS: none (internal prompt; PROMPTS.md mirror is Mode B in P1.M3.T1.S1).",
+                  "prd_selectors": [
+                    "h4.40",
+                    "h4.39",
+                    "h3.15"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "P1.M2",
+          "type": "Milestone",
+          "title": "Executor Hardening (REQ-G2) — runtime layer",
+          "status": "Planned",
+          "description": "Deterministically neutralize negated file/directory-existence gates at execution time so a cached or legacy PRP that contains a `! test -f X` / `test ! -f X` gate can no longer permanently stall an item. A pure detector (G2.1/G2.2/G2.3) integrated into PRPExecutor.#runValidationGates().",
+          "tasks": [
+            {
+              "id": "P1.M2.T1",
+              "type": "Task",
+              "title": "Negated-existence gate neutralization (detector + executor integration)",
+              "status": "Planned",
+              "description": "Add a pure, conservative detector for negated file/dir-existence gates and wire it into the executor so such gates are skipped/passed (mirroring the existing manual/null-command skip) instead of being executed.",
+              "subtasks": [
+                {
+                  "id": "P1.M2.T1.S1",
+                  "type": "Subtask",
+                  "title": "Add pure isNegatedFileExistenceGate detector with a unit-test table",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: There is no such detector today — a grep for `neutraliz|isNegated|negative.existence` across `src/` returns nothing in the gate path. The executor lives in `src/agents/prp-executor.ts`; `#runValidationGates` is at line 518. The `ValidationGate` model (`src/core/models.ts` L1271) already has `manual: boolean` and `command: string | null` and needs NO schema change. See plan/011_5e3dfdb12bd1/architecture/implementation-status.md §B.\n2. INPUT: PRD §9.9.2 REQ-G2 (selector h4.40) — G2.1 (detect+skip negated existence), G2.2 (negated existence only, never negated content), G2.3 (conservative — ambiguous executes normally).\n3. LOGIC: Add an exported PURE function `isNegatedFileExistenceGate(command: string): boolean` that returns true ONLY for the unambiguous negated-existence forms: leading `!` before `test`/`[` over `-f`/`-e`/`-d` (`! test -f X`, `! [ -f X ]`), and inner `!` inside `test`/`[` (`test ! -f X`, `[ ! -f X ]`). It MUST return false for: negated CONTENT checks (`! grep -q …`), positive existence/content checks, and anything ambiguous (`test foo`, `grep …`, `npm test`). Recommended placement: a co-located export in `src/agents/prp-executor.ts` (sole consumer) OR a tiny `src/agents/gate-semantics.ts` module — either is acceptable. Use a focused regex or a small tokenizer; do not over-match (G2.3). MOCKING: none — pure function. Unit-test the exact behavior table: `! test -f src/hooks/index.ts`→true, `test ! -f x`→true, `! [ -e x ]`→true, `[ ! -d x ]`→true; `! grep -q TODO src/x.ts`→false, `test -f x`→false, `npm test`→false, `grep -q foo x`→false; plus an ambiguous case like `test -n foo`→false.\n4. OUTPUT: An exported `isNegatedFileExistenceGate(command)` with a green unit-test table (place tests in `tests/unit/agents/` next to the executor test or a new `gate-semantics.test.ts`). Consumed by P1.M2.T1.S2.\n5. DOCS: none (internal helper; the contract is behavior + tests).",
+                  "prd_selectors": [
+                    "h4.40",
+                    "h4.41"
+                  ]
+                },
+                {
+                  "id": "P1.M2.T1.S2",
+                  "type": "Subtask",
+                  "title": "Integrate the detector into PRPExecutor.#runValidationGates and add executor integration tests",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M2.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: `PRPExecutor.#runValidationGates(prp)` in `src/agents/prp-executor.ts` starts at line 518. It already (a) skips manual/null-command gates at L528 by pushing `{ success:true, command, exitCode:null, skipped:true, timedOut:false, stdout:'', stderr:'' }` and `continue`-ing, then (b) executes real gates via `this.#bashMCP.execute_bash({ command, cwd: process.cwd(), timeout:120000 })` at L548, and (c) stops on first failure at L568. Pass/fail aggregation in `execute()` is `allPassed = validationResults.every(r => r.success || r.skipped)`, so skipped gates already count as passed — NO change to aggregation. Test patterns live in `tests/unit/agents/prp-executor.test.ts`: `mockExecuteBash = vi.fn()` + `mockBashMCP.mockImplementation(() => ({ execute_bash: mockExecuteBash }))` in beforeEach (~L120); the PRP factory is `createMockPRPDocument(taskId)` (~L92). See plan/011_5e3dfdb12bd1/architecture/implementation-status.md §B.1 and §C.\n2. INPUT: The exported `isNegatedFileExistenceGate(command)` from P1.M2.T1.S1. PRD §9.9.2 REQ-G2 G2.1 (selector h4.40) and §9.9.3 acceptance criteria (h4.41).\n3. LOGIC: In `#runValidationGates`, AFTER the manual/null skip block (L528) and BEFORE the `BashMCP.execute_bash` call (L548), for a non-null command test `isNegatedFileExistenceGate(gate.command)`. If true, push a result IDENTICAL IN SHAPE to the manual-skip result (`{ level, description, success:true, command:gate.command, stdout:'', stderr:'', exitCode:null, skipped:true, timedOut:false }`) and `continue` WITHOUT calling BashMCP. Log at info/warn with a reason string citing §9.9: \"non-monotonic negative-existence gate neutralized — file existence is owned by the task graph / is a cleanup step, not a terminal-state assertion (§9.9)\". Do NOT change the watchdog/terminal-abort logic (§9.3.2, already correct) or the schema. MOCKING: in tests, mock BashMCP exactly as the existing suite does.\n4. OUTPUT: A `#runValidationGates` that neutralizes negated-existence gates. Integration tests in `tests/unit/agents/prp-executor.test.ts`: (a) a PRP whose gate is `! test -f src/hooks/index.ts` → run succeeds (outcome:'success'), that gate's result is skipped:true/success:true/exitCode:null, and `mockExecuteBash` is NOT called for that command (assert via `mockExecuteBash.mock.calls`); (b) a PRP with a negated CONTENT gate `! grep -q TODO src/x.ts` → `mockExecuteBash` IS called for it (executes normally, G2.2); (c) an ambiguous gate (`test -n foo`) executes normally (G2.3). This is the geoform-hack regression fix (§9.9.3 bullet 3).\n5. DOCS: none (internal runtime; §9.9 contract is covered by Mode B in P1.M3.T1.S1).",
+                  "prd_selectors": [
+                    "h4.40",
+                    "h4.41",
+                    "h4.39"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "P1.M3",
+          "type": "Milestone",
+          "title": "Changeset-Level Documentation Sync (Mode B)",
+          "status": "Planned",
+          "description": "Whole-feature/overview documentation that only makes sense once both §9.9 layers land. Per the two-mode rule (§6.1), this is a final Mode B task that depends on every implementing subtask.",
+          "tasks": [
+            {
+              "id": "P1.M3.T1",
+              "type": "Task",
+              "title": "Sync changeset-level docs for §9.9 (README, CONFIGURATION, ARCHITECTURE, PROMPTS.md mirror)",
+              "status": "Planned",
+              "description": "Update the cross-cutting docs that mention PRP/validation-gate semantics so they do not contradict §9.9, and mirror the new G1.x forbidden-form wording into the legacy PROMPTS.md reference so it does not drift from src/agents/prompts.ts.",
+              "subtasks": [
+                {
+                  "id": "P1.M3.T1.S1",
+                  "type": "Subtask",
+                  "title": "Update overview docs and mirror new gate rules into PROMPTS.md",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T2.S1",
+                    "P1.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: `PROMPTS.md` (repo root) is the ported-from reference doc cited by PRD §6 / §9.3.4 and is NOT imported by `src/` at runtime (runtime uses `src/agents/prompts.ts`). It has a \"Validation Gates\" section (~L31–34) and gate-construction rules (~L264, L285) that pre-date §9.9 and still imply gates are a rigid mechanical contract. Overview docs to audit: `README.md`, `docs/CONFIGURATION.md`, `docs/ARCHITECTURE.md` (any PRP/validation-gate semantics section). `.env.example` introduces no new env var for §9.9 — verify and note no change. See plan/011_5e3dfdb12bd1/architecture/implementation-status.md §D and §E.\n2. INPUT: The landed prompt wording from P1.M1.T1.S1 (Blueprint G1.1/G1.2/G1.3/G1.5) and P1.M1.T2.S1 (Builder G1.4), and the neutralization contract from P1.M2.T1.S2 (executor skips negated-existence gates citing §9.9). PRD §9.9.3 acceptance criteria (h4.41).\n3. LOGIC: (a) Mirror the G1.1–G1.5 forbidden-form rules into `PROMPTS.md`'s Validation Gates / gate-construction sections so the reference matches `src/agents/prompts.ts` byte-for-byte in intent; (b) In `README.md` / `docs/ARCHITECTURE.md` / `docs/CONFIGURATION.md`, wherever PRP validation gates are described, ensure the doc states gates are monotonic terminal-state assertions and that the executor neutralizes negated-existence gates (no claim that gates are a rigid mechanical contract should survive); (c) confirm `.env.example` needs no §9.9 change and record that finding. Do NOT edit `PRD.md` (human-owned), `tasks.json`, or `prd_snapshot.md`. MOCKING: none — documentation only.\n4. OUTPUT: Docs consistent with §9.9; `PROMPTS.md` no longer drifts from the runtime prompts.\n5. DOCS: This IS the Mode B documentation-sync task — it updates README.md, docs/CONFIGURATION.md, docs/ARCHITECTURE.md, and PROMPTS.md.",
+                  "prd_selectors": [
+                    "h4.41",
+                    "h3.14",
+                    "h3.15"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

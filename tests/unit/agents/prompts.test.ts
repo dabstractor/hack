@@ -280,6 +280,39 @@ describe('agents/prompts', () => {
     });
   });
 
+  describe('PRP_BLUEPRINT_PROMPT gate monotonicity rules (PRD §9.9 REQ-G1)', () => {
+    it('forbids negative file/directory-existence gates and enumerates the four forms (G1.1)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('G1.1');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('test ! -f|-e|-d');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('! test -f|-e|-d');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('[ ! -f|-e|-d');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('! [ -f|-e|-d');
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/non-monotonic/i);
+    });
+    it('requires scope boundaries as Success Criteria or manual Level-4 gates (G1.2)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('G1.2');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('Success Criterion');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('manual: true');
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/Level-4|Level 4/i);
+    });
+    it('treats cleanup/throwaway deletion as a manual instruction, not a shell gate (G1.3)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('G1.3');
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/cleanup instruction/i);
+      expect(PRP_BLUEPRINT_PROMPT).toContain('manual: true');
+    });
+    it('restricts negated content gates to a permanent own-deliverable absence (G1.5)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('G1.5');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('! grep -q');
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/own deliverable/i);
+    });
+    it('preserves the pre-existing gate rules (one command, standard tooling, mixed-quote grep, heredocs)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('ONE command per gate');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('npx vitest run');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('mixed single/double quotes');
+      expect(PRP_BLUEPRINT_PROMPT).toContain('NEVER embed heredocs');
+    });
+  });
+
   describe('critical-file deletion prohibition (PRD §5.1)', () => {
     // The three prompts that gained the shared-core FORBIDDEN ACTIONS section in
     // this work item. They share an identical core paragraph (verbatim) that uses
