@@ -11,7 +11,7 @@
           "id": "P1.M1",
           "type": "Milestone",
           "title": "Gate-Construction Guardrails (REQ-G1) — prompt layer",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Update the Researcher (Blueprint, §6.2) and Coder (Builder, §6.3) system prompts so newly-generated PRPs never contain non-monotonic gates. Covers G1.1 (no negative file/dir-existence gates), G1.2 (scope boundaries as Success Criteria or manual Level-4 gates), G1.3 (cleanup/throwaway deletion is manual, not a shell gate), G1.4 (throwaway artifacts survive the coder's turn), and G1.5 (negated content gates only on the task's own monotonic deliverable). The two prompt bodies are independent and parallelizable.",
           "tasks": [
             {
@@ -41,14 +41,14 @@
               "id": "P1.M1.T2",
               "type": "Task",
               "title": "Builder throwaway-survival instruction (G1.4)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Instruct the Coder Agent (Builder prompt) not to delete throwaway/spike artifacts during its own turn, because the executor re-runs every gate as a batch against the terminal filesystem state and a post-delete tree would fail the artifact's existence gates.",
               "subtasks": [
                 {
                   "id": "P1.M1.T2.S1",
                   "type": "Subtask",
                   "title": "Add throwaway-survival + terminal-state-re-execution guidance to PRP_BUILDER_PROMPT and assert via prompt-text test",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: The runtime Coder prompt is `PRP_BUILDER_PROMPT` in `src/agents/prompts.ts`, spanning lines 675–744. Relevant anchors: `## FORBIDDEN ACTIONS — Critical-File Deletion Protection (PRD §5.1)` at L680; step `4. **Progressive Validation**` at L728–736 (\"Execute the level validation system from the PRP\" / \"Each level must pass before proceeding\"); `**Failure Protocol**` at L744. See plan/011_5e3dfdb12bd1/architecture/implementation-status.md §A.2.\n2. INPUT: PRD §9.9.2 REQ-G1 bullet G1.4 (selector h4.40) and §9.9.1 Problem (h4.39) — the spike create→run→delete lifecycle that makes a post-delete tree fail existence gates. Also §6.3 (h3.15) \"terminal-state re-execution\".\n3. LOGIC: Add two things to PRP_BUILDER_PROMPT: (a) within or right after step 4 (Progressive Validation) / near the Failure Protocol, an instruction that the executor RE-RUNS every validation gate as a BATCH against the FINAL filesystem state after the coder finishes — so gates must be monotonic terminal-state assertions (true once, stays true); (b) G1.4 — the coder MUST NOT delete a throwaway/spike artifact during its own turn; any cleanup happens AFTER validation. Phrase it so it composes with the existing FORBIDDEN ACTIONS block (which already forbids rm/git-rm of PRD.md/PRP.md/plan/) without contradicting it. Do NOT alter the JSON output contract at the end of the prompt. MOCKING: none — static prompt text.\n4. OUTPUT: A PRP_BUILDER_PROMPT that verbatim tells the coder not to delete throwaway artifacts mid-turn and explains the batch terminal-state re-execution. Consumed by P1.M3.T1.S1.\n5. DOCS: none (internal prompt; PROMPTS.md mirror is Mode B in P1.M3.T1.S1).",

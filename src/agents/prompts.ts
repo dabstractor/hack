@@ -738,6 +738,27 @@ PRPs enable working code on the first attempt through:
 
    **Each level must pass before proceeding to the next.**
 
+   **Terminal-state gate re-execution (PRD §9.9).** The executor does not
+   trust the order in which you ran the levels. Once you finish, it RE-RUNS
+   every validation gate as a single BATCH against the FINAL filesystem state
+   you leave behind. Therefore every gate must be a *monotonic terminal-state
+   assertion* — once true, it stays true against the final tree. A gate whose
+   result flips on intermediate state, or on whether a sibling task's file
+   exists yet, cannot survive that final batch re-run and will permanently
+   fail the item.
+
+   **Do not delete throwaway / spike artifacts during your turn (PRD §9.9 G1.4).**
+   Any spike, scratch file, or throwaway artifact you created to explore or
+   prove something MUST survive on disk until *after* validation — leave it
+   in place when you finish, and run any cleanup only once the gates have
+   passed. Deleting it mid-turn would make the final-tree batch re-run fail
+   the artifact's own existence gates (the artifact would be absent from the
+   terminal state). This composes with — and does not relax — the FORBIDDEN
+   ACTIONS block above: that block still forbids \`rm\` / \`git rm\` /
+   \`git clean\` / \`mv\` on \`PRD.md\`, \`PRP.md\`, and \`plan/\`; here
+   the additional protected class is the *work artifact* you created, which
+   must stay alive until validation completes.
+
 5. **Completion Verification**
    - Work through the Final Validation Checklist in the PRP
    - Verify all Success Criteria from the "What" section are met

@@ -1,0 +1,159 @@
+{
+  "version": "1.0",
+  "checkpoints": [
+    {
+      "id": "P1.M1.T2.S1_1785990983705_pre-execution_b46558da",
+      "taskId": "P1.M1.T2.S1",
+      "label": "Before Coder Agent execution",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M1_T2_S1.md",
+        "stage": "pre-execution",
+        "validationResults": [],
+        "timestamp": "2026-08-06T04:36:23.705Z"
+      },
+      "createdAt": "2026-08-06T04:36:23.705Z"
+    },
+    {
+      "id": "P1.M1.T2.S1_1785991064643_coder-response_37be56c7",
+      "taskId": "P1.M1.T2.S1",
+      "label": "After Coder Agent response",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M1_T2_S1.md",
+        "stage": "coder-response",
+        "coderResponse": "All gates pass.\n\n```json\n{\n  \"result\": \"success\",\n  \"message\": \"P1.M1.T2.S1 implemented successfully. Added two bold sub-paragraphs to PRP_BUILDER_PROMPT step 4 (Progressive Validation) in src/agents/prompts.ts: (a) terminal-state gate re-execution (PRD §9.9) explaining the executor re-runs all gates as a batch on the final filesystem state, and (b) throwaway/spike artifact survival (PRD §9.9 G1.4) instructing the coder not to delete work artifacts mid-turn, composing with the existing FORBIDDEN ACTIONS block. Added a 5-test describe block in tests/unit/agents/prompts.test.ts asserting the new wording, ordering, and pre-existing anchor survival. All validation gates pass: typecheck ✓, 54 tests ✓ (49 baseline + 5 new), lint ✓ (only pre-existing warnings in unrelated files), git diff touches only the two expected files, JSON output contract byte-identical.\"\n}\n```",
+        "coderResult": {
+          "result": "success",
+          "message": "P1.M1.T2.S1 implemented successfully. Added two bold sub-paragraphs to PRP_BUILDER_PROMPT step 4 (Progressive Validation) in src/agents/prompts.ts: (a) terminal-state gate re-execution (PRD §9.9) explaining the executor re-runs all gates as a batch on the final filesystem state, and (b) throwaway/spike artifact survival (PRD §9.9 G1.4) instructing the coder not to delete work artifacts mid-turn, composing with the existing FORBIDDEN ACTIONS block. Added a 5-test describe block in tests/unit/agents/prompts.test.ts asserting the new wording, ordering, and pre-existing anchor survival. All validation gates pass: typecheck ✓, 54 tests ✓ (49 baseline + 5 new), lint ✓ (only pre-existing warnings in unrelated files), git diff touches only the two expected files, JSON output contract byte-identical."
+        },
+        "validationResults": [],
+        "timestamp": "2026-08-06T04:37:44.643Z"
+      },
+      "createdAt": "2026-08-06T04:37:44.643Z"
+    },
+    {
+      "id": "P1.M1.T2.S1_1785991082308_validation-gate-4_2d8faab0",
+      "taskId": "P1.M1.T2.S1",
+      "label": "After validation gate 4",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M1_T2_S1.md",
+        "stage": "validation-gate-4",
+        "coderResponse": "All gates pass.\n\n```json\n{\n  \"result\": \"success\",\n  \"message\": \"P1.M1.T2.S1 implemented successfully. Added two bold sub-paragraphs to PRP_BUILDER_PROMPT step 4 (Progressive Validation) in src/agents/prompts.ts: (a) terminal-state gate re-execution (PRD §9.9) explaining the executor re-runs all gates as a batch on the final filesystem state, and (b) throwaway/spike artifact survival (PRD §9.9 G1.4) instructing the coder not to delete work artifacts mid-turn, composing with the existing FORBIDDEN ACTIONS block. Added a 5-test describe block in tests/unit/agents/prompts.test.ts asserting the new wording, ordering, and pre-existing anchor survival. All validation gates pass: typecheck ✓, 54 tests ✓ (49 baseline + 5 new), lint ✓ (only pre-existing warnings in unrelated files), git diff touches only the two expected files, JSON output contract byte-identical.\"\n}\n```",
+        "coderResult": {
+          "result": "success",
+          "message": "P1.M1.T2.S1 implemented successfully. Added two bold sub-paragraphs to PRP_BUILDER_PROMPT step 4 (Progressive Validation) in src/agents/prompts.ts: (a) terminal-state gate re-execution (PRD §9.9) explaining the executor re-runs all gates as a batch on the final filesystem state, and (b) throwaway/spike artifact survival (PRD §9.9 G1.4) instructing the coder not to delete work artifacts mid-turn, composing with the existing FORBIDDEN ACTIONS block. Added a 5-test describe block in tests/unit/agents/prompts.test.ts asserting the new wording, ordering, and pre-existing anchor survival. All validation gates pass: typecheck ✓, 54 tests ✓ (49 baseline + 5 new), lint ✓ (only pre-existing warnings in unrelated files), git diff touches only the two expected files, JSON output contract byte-identical."
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Level 1 gate",
+            "success": true,
+            "command": "npm run typecheck",
+            "stdout": "\n> hacky-hack@0.1.0 typecheck\n> tsc --noEmit -p tsconfig.build.json\n\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 2,
+            "description": "Level 2 gate",
+            "success": true,
+            "command": "npx vitest run tests/unit/agents/prompts.test.ts",
+            "stdout": "\n RUN  v1.6.1 /home/dustin/projects/hacky-hack\n\nstdout | tests/setup.ts:29:15\n.env file loaded successfully\n\n ✓ tests/unit/agents/prompts.test.ts  (54 tests) 8ms\n\n Test Files  1 passed (1)\n      Tests  54 passed (54)\n   Start at  00:37:46\n   Duration  198ms (transform 51ms, setup 30ms, collect 33ms, tests 8ms, environment 0ms, prepare 35ms)\n\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 3,
+            "description": "Level 3 gate",
+            "success": true,
+            "command": "npm run lint",
+            "stdout": "\n> hacky-hack@0.1.0 lint\n> eslint . --ext .ts\n\n\n/home/dustin/projects/hacky-hack/src/cli/index.ts\n  735:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  735:42  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  780:39  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  801:35  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n\n/home/dustin/projects/hacky-hack/src/utils/logger.ts\n  324:22  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  325:4   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n\n✖ 6 problems (0 errors, 6 warnings)\n\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 4,
+            "description": "Level 4 gate",
+            "success": true,
+            "command": null,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": null,
+            "skipped": true,
+            "timedOut": false
+          }
+        ],
+        "timestamp": "2026-08-06T04:38:02.308Z"
+      },
+      "createdAt": "2026-08-06T04:38:02.308Z"
+    },
+    {
+      "id": "P1.M1.T2.S1_1785991082309_complete_00100971",
+      "taskId": "P1.M1.T2.S1",
+      "label": "Task completed successfully",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M1_T2_S1.md",
+        "stage": "complete",
+        "coderResponse": "All gates pass.\n\n```json\n{\n  \"result\": \"success\",\n  \"message\": \"P1.M1.T2.S1 implemented successfully. Added two bold sub-paragraphs to PRP_BUILDER_PROMPT step 4 (Progressive Validation) in src/agents/prompts.ts: (a) terminal-state gate re-execution (PRD §9.9) explaining the executor re-runs all gates as a batch on the final filesystem state, and (b) throwaway/spike artifact survival (PRD §9.9 G1.4) instructing the coder not to delete work artifacts mid-turn, composing with the existing FORBIDDEN ACTIONS block. Added a 5-test describe block in tests/unit/agents/prompts.test.ts asserting the new wording, ordering, and pre-existing anchor survival. All validation gates pass: typecheck ✓, 54 tests ✓ (49 baseline + 5 new), lint ✓ (only pre-existing warnings in unrelated files), git diff touches only the two expected files, JSON output contract byte-identical.\"\n}\n```",
+        "coderResult": {
+          "result": "success",
+          "message": "P1.M1.T2.S1 implemented successfully. Added two bold sub-paragraphs to PRP_BUILDER_PROMPT step 4 (Progressive Validation) in src/agents/prompts.ts: (a) terminal-state gate re-execution (PRD §9.9) explaining the executor re-runs all gates as a batch on the final filesystem state, and (b) throwaway/spike artifact survival (PRD §9.9 G1.4) instructing the coder not to delete work artifacts mid-turn, composing with the existing FORBIDDEN ACTIONS block. Added a 5-test describe block in tests/unit/agents/prompts.test.ts asserting the new wording, ordering, and pre-existing anchor survival. All validation gates pass: typecheck ✓, 54 tests ✓ (49 baseline + 5 new), lint ✓ (only pre-existing warnings in unrelated files), git diff touches only the two expected files, JSON output contract byte-identical."
+        },
+        "validationResults": [
+          {
+            "level": 1,
+            "description": "Level 1 gate",
+            "success": true,
+            "command": "npm run typecheck",
+            "stdout": "\n> hacky-hack@0.1.0 typecheck\n> tsc --noEmit -p tsconfig.build.json\n\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 2,
+            "description": "Level 2 gate",
+            "success": true,
+            "command": "npx vitest run tests/unit/agents/prompts.test.ts",
+            "stdout": "\n RUN  v1.6.1 /home/dustin/projects/hacky-hack\n\nstdout | tests/setup.ts:29:15\n.env file loaded successfully\n\n ✓ tests/unit/agents/prompts.test.ts  (54 tests) 8ms\n\n Test Files  1 passed (1)\n      Tests  54 passed (54)\n   Start at  00:37:46\n   Duration  198ms (transform 51ms, setup 30ms, collect 33ms, tests 8ms, environment 0ms, prepare 35ms)\n\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 3,
+            "description": "Level 3 gate",
+            "success": true,
+            "command": "npm run lint",
+            "stdout": "\n> hacky-hack@0.1.0 lint\n> eslint . --ext .ts\n\n\n/home/dustin/projects/hacky-hack/src/cli/index.ts\n  735:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  735:42  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  780:39  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  801:35  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n\n/home/dustin/projects/hacky-hack/src/utils/logger.ts\n  324:22  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n  325:4   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any\n\n✖ 6 problems (0 errors, 6 warnings)\n\n",
+            "stderr": "",
+            "exitCode": 0,
+            "skipped": false,
+            "timedOut": false
+          },
+          {
+            "level": 4,
+            "description": "Level 4 gate",
+            "success": true,
+            "command": null,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": null,
+            "skipped": true,
+            "timedOut": false
+          }
+        ],
+        "timestamp": "2026-08-06T04:38:02.309Z"
+      },
+      "createdAt": "2026-08-06T04:38:02.309Z"
+    }
+  ],
+  "lastModified": "2026-08-06T04:38:02.309Z"
+}

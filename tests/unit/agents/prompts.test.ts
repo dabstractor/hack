@@ -356,4 +356,65 @@ describe('agents/prompts', () => {
       );
     });
   });
+
+  describe('PRP_BUILDER_PROMPT throwaway-survival + terminal-state re-execution (PRD §9.9 G1.4)', () => {
+    // Normalize: strip backticks/asterisks and collapse whitespace so the
+    // assertions are immune to the prompt's hard line-wrapping and emphasis.
+    const norm = PRP_BUILDER_PROMPT.replace(/[`*]/g, '').replace(/\s+/g, ' ');
+
+    it('explains the executor re-runs every gate as a batch on the final filesystem state', () => {
+      expect(norm).toMatch(/terminal-state gate re-execution/i);
+      expect(norm).toMatch(/re-runs every validation gate as a single batch/i);
+      expect(norm).toMatch(/final filesystem state/i);
+      expect(norm).toMatch(/monotonic terminal-state assertion/i);
+    });
+
+    it('instructs the coder not to delete throwaway/spike artifacts during its own turn (G1.4)', () => {
+      expect(norm).toContain('G1.4');
+      expect(norm).toMatch(/throwaway/i);
+      expect(norm).toMatch(/spike/i);
+      expect(norm).toMatch(/do not delete throwaway/i);
+      expect(norm).toMatch(/during your turn/i);
+      expect(norm).toMatch(/survive on disk/i);
+      expect(norm).toMatch(/after validation/i);
+    });
+
+    it('composes the G1.4 rule with the existing FORBIDDEN ACTIONS block without contradicting it', () => {
+      expect(norm).toMatch(/composes with/i);
+      expect(norm).toMatch(/does not relax/i);
+      expect(PRP_BUILDER_PROMPT).toContain(
+        'FORBIDDEN ACTIONS — Critical-File Deletion Protection'
+      );
+      expect(PRP_BUILDER_PROMPT).toContain('`rm`');
+      expect(PRP_BUILDER_PROMPT).toContain('`PRD.md`');
+      expect(PRP_BUILDER_PROMPT).toContain('`plan/`');
+    });
+
+    it('places the new guidance after step 4 and before the JSON output contract, leaving the contract unchanged', () => {
+      const eachLevelIdx = PRP_BUILDER_PROMPT.indexOf(
+        'Each level must pass before proceeding to the next'
+      );
+      const guidanceIdx = norm.search(/monotonic terminal-state assertion/i);
+      const contractIdx = PRP_BUILDER_PROMPT.indexOf(
+        'Strictly output your results in this JSON format'
+      );
+      expect(eachLevelIdx).toBeGreaterThan(-1);
+      expect(guidanceIdx).toBeGreaterThan(-1);
+      expect(contractIdx).toBeGreaterThan(-1);
+      expect(eachLevelIdx).toBeLessThan(guidanceIdx);
+      expect(guidanceIdx).toBeLessThan(contractIdx);
+      expect(PRP_BUILDER_PROMPT).toContain(
+        'Strictly output your results in this JSON format'
+      );
+      expect(PRP_BUILDER_PROMPT).toContain('"result"');
+      expect(PRP_BUILDER_PROMPT).toContain('<PRP-README>');
+    });
+
+    it('preserves the pre-existing execution-process and header anchors', () => {
+      expect(PRP_BUILDER_PROMPT).toContain('Execute BASE PRP');
+      expect(PRP_BUILDER_PROMPT).toContain('One-Pass Implementation Success');
+      expect(PRP_BUILDER_PROMPT).toContain('Failure Protocol');
+      expect(PRP_BUILDER_PROMPT).toContain('NOT temporary');
+    });
+  });
 });
