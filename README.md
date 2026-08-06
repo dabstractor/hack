@@ -148,7 +148,7 @@ the **fully-resolved** document, so a split PRD behaves identically to a monolit
 - **QA Bug Hunt**: 3-phase testing (syntax, unit, integration, creative)
 - **Scoped Execution**: Run specific phases, milestones, or tasks
 - **Resumable Sessions**: Pause and resume with Ctrl+C graceful shutdown
-- **4-Level Validation**: Syntax, unit tests, integration tests, and manual validation gates
+- **4-Level Validation**: Syntax, unit tests, integration tests, and manual validation gates — gates are monotonic terminal-state assertions (PRD §9.9): the executor re-runs every gate as a batch on the final tree and neutralizes non-monotonic negative-existence gates.
 - **Smart Git Integration**: Automatic commits with generated messages
 - **Performance Optimizations**: PRP caching, I/O batching, and parallel research
 - **Depth-Chained Parallel Research**: prefetch up to N items ahead with synchronous fallback

@@ -32,6 +32,10 @@ A PRP keeps the goal and justification sections of a PRD yet adds three AI-criti
 
 - Deterministic checks such as pytest, ruff, or static type passes “Shift-left” quality controls catch defects early and are cheaper than late re-work.
   Example: Each new funtion should be individaully tested, Validation gate = all tests pass.
+- Gates are **monotonic terminal-state assertions** (PRD §9.9): once true against the final filesystem
+  state, they stay true. The executor re-runs every gate as a single batch on that final tree, so a
+  gate whose result flips on intermediate state cannot survive. (Negative file-existence gates are
+  forbidden and neutralized at runtime — see §9.9.)
 
 ### PRP Layer Why It Exists
 
@@ -261,7 +265,16 @@ Transform your research findings into the template sections:
 **Goal Section**: Use research to define specific, measurable Feature Goal and concrete Deliverable based on the work item title and description
 **Context Section**: Populate YAML structure with your research findings - specific URLs, file patterns, gotchas
 **Implementation Tasks**: Create dependency-ordered tasks using information-dense keywords from codebase analysis
-**Validation Gates**: Use project-specific validation commands that you've verified work in this codebase
+**Validation Gates**: Use project-specific validation commands that you've verified work in this codebase. **CRITICAL RULES for gate commands (PRD §9.9 REQ-G1):**
+
+- **ONE command per gate.** Do NOT chain multiple checks with semicolons or `&&` into a single gate. Each gate level gets exactly ONE simple command.
+- **Prefer standard tooling**: `npm test`, `npm run typecheck`, `npx vitest run <file>`, `npx eslint <file>`. These are robust and well-tested.
+- **NEVER write `grep` patterns with mixed single/double quotes.** The quoting dance `["'"'']` is malformed shell — it collapses during execution and produces false-positive failures. If you must check file contents, use a simple `grep -q 'pattern' file` with a single-quoted pattern that contains NO single quotes inside it, or use `grep -F` (fixed string).
+- **NEVER embed heredocs, `for` loops, or multi-line scripts** in a gate command. Gates are single-line commands.
+- **NEVER author a negative file/directory-existence gate (PRD §9.9 G1.1).** A gate MUST NOT assert the _absence_ of a path. Forbidden forms include `test ! -f|-e|-d <path>`, `! test -f|-e|-d <path>`, `[ ! -f|-e|-d <path> ]`, and `! [ -f|-e|-d <path> ]`. File/directory existence is owned by the task graph and is non-monotonic across it — a path correctly absent today may be a committed sibling deliverable tomorrow, which would make such a gate permanently unwinnable. (You may still _inspect_ for a file's absence during research; just never encode it as a mechanical gate.)
+- **Scope boundaries are never shell gates (PRD §9.9 G1.2).** A constraint such as "this task must not create or modify file X" or "must not import symbol Y" MUST be expressed either (a) as a **Success Criterion** the coder follows, or (b) as a **`manual: true` Level-4 gate** (Level 4 = Manual/Creative), which the executor skips. Never encode it as a negated-existence shell gate.
+- **Cleanup / throwaway deletion is never a shell gate (PRD §9.9 G1.3).** For spike and throwaway artifacts, the "delete the artifact" step is a _cleanup instruction_, not a mechanical gate; a "the artifact is gone" check MUST be emitted as `manual: true`. A `test ! -f <throwaway>` gate is forbidden by G1.1 and doubly forbidden here.
+- **Negated content gates only on a permanent, own-deliverable absence (PRD §9.9 G1.5).** A negated _content_ check (`! grep -q 'FORBIDDEN' <file>`) is permitted ONLY when `<file>` is this task's own deliverable AND the asserted absence is permanent once fixed (e.g. "no `TODO` markers remain", "no reference to a forbidden symbol"). It MUST NOT assert something about another task's file.
 
 ### Step 4: Information Density Standards
 
@@ -689,6 +702,21 @@ PRPs enable working code on the first attempt through:
    - **Level 4**: Execute specified validation from PRP
 
    **Each level must pass before proceeding to the next.**
+
+   **Terminal-state gate re-execution (PRD §9.9).** The executor does not trust the order in which you
+   ran the levels. Once you finish, it RE-RUNS every validation gate as a single BATCH against the
+   FINAL filesystem state you leave behind. Therefore every gate must be a _monotonic terminal-state
+   assertion_ — once true, it stays true against the final tree. A gate whose result flips on
+   intermediate state, or on whether a sibling task's file exists yet, cannot survive that final
+   batch re-run and will permanently fail the item.
+
+   **Do not delete throwaway / spike artifacts during your turn (PRD §9.9 G1.4).** Any spike, scratch
+   file, or throwaway artifact you created to explore or prove something MUST survive on disk until
+   _after_ validation — leave it in place when you finish, and run any cleanup only once the gates
+   have passed. Deleting it mid-turn would make the final-tree batch re-run fail the artifact's own
+   existence gates (the artifact would be absent from the terminal state). The additional protected
+   class here is the _work artifact_ you created this turn, which must stay alive until validation
+   completes.
 
 5. **Completion Verification**
    - Work through the Final Validation Checklist in the PRP

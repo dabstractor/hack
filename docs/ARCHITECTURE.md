@@ -667,6 +667,15 @@ graph LR
 - Creative edge cases
 - Adversarial testing
 
+**Gate Semantics (PRD §9.9).** Validation gates are _monotonic terminal-state assertions_: once
+true against the final filesystem state, they stay true. `PRPExecutor.#runValidationGates()` re-runs
+**every** gate as a single batch against that final tree (not the incremental order the coder ran
+during its turn). Negative file-existence gates are **forbidden at construction** (REQ-G1: G1.1–G1.5)
+and **neutralized at runtime** (REQ-G2: G2.1–G2.3): a negated-existence gate (`! test -f X`,
+`test ! -f X`, `[ ! -f X ]`, `! [ -f X ]`) is marked `skipped: true / success: true` with a logged
+reason citing §9.9, while negated _content_ gates (`! grep …`) execute normally. This repairs
+cached/legacy PRPs without regeneration.
+
 ---
 
 ## Model Roles & Reasoning Budget

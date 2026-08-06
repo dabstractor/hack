@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Validation Gate Semantics — Monotonicity & Terminal-State Re-Execution (PRD §9.9)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Implement PRD §9.9 for session 011 (delta from session 010). The delta is a single new functional requirement: validation gates must be monotonic terminal-state assertions, and the executor must deterministically neutralize any cached/legacy non-monotonic gate. Two complementary layers per §9.9.2: REQ-G1 (prompt guardrails that prevent the Researcher/Coder from EMITTING non-monotonic gates) and REQ-G2 (runtime hardening that NEUTRALIZES any non-monotonic gate already in a cached/legacy PRP). Reality check: `[cli] prd` (the only other PRD delta) is already complete (commit f248867), and §9.3.2 watchdog-killed-gate terminal abort is already implemented + tested — neither produces a task. See plan/011_5e3dfdb12bd1/architecture/delta-analysis.md and implementation-status.md for the full research.",
       "milestones": [
         {
@@ -113,21 +113,21 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Changeset-Level Documentation Sync (Mode B)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Whole-feature/overview documentation that only makes sense once both §9.9 layers land. Per the two-mode rule (§6.1), this is a final Mode B task that depends on every implementing subtask.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Sync changeset-level docs for §9.9 (README, CONFIGURATION, ARCHITECTURE, PROMPTS.md mirror)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Update the cross-cutting docs that mention PRP/validation-gate semantics so they do not contradict §9.9, and mirror the new G1.x forbidden-form wording into the legacy PROMPTS.md reference so it does not drift from src/agents/prompts.ts.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Update overview docs and mirror new gate rules into PROMPTS.md",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
