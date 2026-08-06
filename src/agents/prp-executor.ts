@@ -20,6 +20,7 @@
 
 // CRITICAL: Import patterns - use .js extensions for ES modules
 import { createCoderAgent } from './agent-factory.js';
+import { isNegatedFileExistenceGate } from './gate-semantics.js';
 import { z } from 'zod';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
@@ -530,6 +531,38 @@ export class PRPExecutor {
           level: gate.level,
           description: gate.description,
           success: true, // Skipped gates count as "passed"
+          command: gate.command,
+          stdout: '',
+          stderr: '',
+          exitCode: null,
+          skipped: true,
+          timedOut: false,
+        });
+        continue;
+      }
+
+      // G2.1 (PRD §9.9): neutralize non-monotonic negated file/directory-
+      // existence gates. File existence is owned by the task graph / is a cleanup
+      // step, not a terminal-state assertion, so a `! test -f X` gate can fail
+      // spuriously when X legitimately exists from another task's completed work
+      // (cached/legacy PRPs). Skip+log rather than hard-fail. (Negated content
+      // `! grep …` and ambiguous commands are NOT matched — they execute normally;
+      // the detector is conservative per G2.2/G2.3.) Result shape mirrors the
+      // manual/null skip so the existing `allPassed = every(r => r.success ||
+      // r.skipped)` aggregation is unchanged.
+      if (isNegatedFileExistenceGate(gate.command)) {
+        this.#logger.info(
+          {
+            level: gate.level,
+            description: gate.description,
+            command: gate.command,
+          },
+          'non-monotonic negative-existence gate neutralized — file existence is owned by the task graph / is a cleanup step, not a terminal-state assertion (§9.9)'
+        );
+        results.push({
+          level: gate.level,
+          description: gate.description,
+          success: true,
           command: gate.command,
           stdout: '',
           stderr: '',

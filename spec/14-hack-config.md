@@ -92,7 +92,7 @@ Every tunable maps to exactly one `[section].key`. The table below is exhaustive
 | `[monitor] task_interval`             | `MONITOR_TASK_INTERVAL`      | `--monitor-task-interval` | int 1–100                                 | `1`                                         |
 | `[monitor] interval_ms`               | —                            | `--monitor-interval`      | int 1000–60000                            | `30000`                                     |
 | `[monitor] enabled`                   | —                            | `--no-resource-monitor`   | bool                                      | `true`                                      |
-| `[cli] prd`                          | —                            | `-p/--prd`                | string (path)                             | `./PRD.md`                                  |
+| `[cli] prd`                           | —                            | `-p/--prd`                | string (path)                             | `./PRD.md`                                  |
 | `[cli] mode`                          | —                            | `-m/--mode`               | `normal`\|`delta`\|`bug-hunt`\|`validate` | `normal`                                    |
 | `[cli] scope`                         | —                            | `-s/--scope`              | string                                    | unset                                       |
 | `[cli] log_level`                     | `HACKY_LOG_LEVEL`            | `--log-level`             | trace…fatal                               | `info`                                      |

@@ -255,6 +255,141 @@ describe('agents/prp-executor', () => {
       expect(level4Result?.command).toBeNull();
     });
 
+    it('neutralizes a negated file-existence gate (G2.1): skipped, execute_bash NOT called, run succeeds', async () => {
+      // SETUP — BUG/REQ-G2 (PRD §9.9): a cached/legacy `! test -f X` gate must be
+      // neutralized at runtime so it never hard-fails when X legitimately exists
+      // from another task's completed work (geoform-hack regression). The REAL
+      // detector (gate-semantics.ts) classifies the command — do NOT mock it.
+      const negCmd = '! test -f src/hooks/index.ts';
+      const prp: PRPDocument = {
+        ...createMockPRPDocument('P1.M3.T1.S1'),
+        validationGates: [
+          {
+            level: 1,
+            description: 'barrel must NOT exist (legacy gate)',
+            command: negCmd,
+            manual: false,
+          },
+          {
+            level: 2,
+            description: 'lint',
+            command: 'npm run lint',
+            manual: false,
+          },
+        ],
+      };
+      const prpPath = '/tmp/test-session/prps/P1M3T1S1.md';
+
+      mockAgent.prompt.mockResolvedValue(
+        JSON.stringify({ result: 'success', message: 'done' })
+      );
+      mockExecuteBash.mockResolvedValue({
+        success: true,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      // EXECUTE
+      const executor = new PRPExecutor(sessionPath);
+      const result = await executor.execute(prp, prpPath);
+
+      // VERIFY: run succeeded (neutralized gate counts as passed via skipped)
+      expect(result.outcome).toBe('success');
+
+      // VERIFY: the negated-existence gate was neutralized (manual-skip shape)
+      const negResult = result.validationResults.find(
+        r => r.command === negCmd
+      );
+      expect(negResult?.skipped).toBe(true);
+      expect(negResult?.success).toBe(true);
+      expect(negResult?.exitCode).toBeNull();
+
+      // VERIFY: execute_bash was NOT called for the neutralized command, but the
+      // real gate still ran.
+      const calledCommands = mockExecuteBash.mock.calls.map(
+        ([args]: any) => args.command
+      );
+      expect(calledCommands).not.toContain(negCmd);
+      expect(calledCommands).toContain('npm run lint');
+    });
+
+    it('executes a negated CONTENT gate normally (G2.2): execute_bash IS called', async () => {
+      // SETUP — G2.2: negated content checks (`! grep …`) are NOT neutralized
+      // (content is a terminal-state assertion). They execute normally.
+      const contentCmd = '! grep -q TODO src/x.ts';
+      const prp: PRPDocument = {
+        ...createMockPRPDocument('P1.M3.T1.S2'),
+        validationGates: [
+          {
+            level: 1,
+            description: 'no TODO markers',
+            command: contentCmd,
+            manual: false,
+          },
+        ],
+      };
+      const prpPath = '/tmp/test-session/prps/P1M3T1S2.md';
+
+      mockAgent.prompt.mockResolvedValue(
+        JSON.stringify({ result: 'success', message: 'done' })
+      );
+      mockExecuteBash.mockResolvedValue({
+        success: true,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      // EXECUTE
+      const executor = new PRPExecutor(sessionPath);
+      await executor.execute(prp, prpPath);
+
+      // VERIFY: the negated content gate WAS executed (G2.2).
+      const calledCommands = mockExecuteBash.mock.calls.map(
+        ([args]: any) => args.command
+      );
+      expect(calledCommands).toContain(contentCmd);
+    });
+
+    it('executes an ambiguous gate normally (G2.3): execute_bash IS called', async () => {
+      // SETUP — G2.3: ambiguous commands (`test -n foo`) are NOT neutralized
+      // (the detector is conservative). They execute normally.
+      const ambCmd = 'test -n foo';
+      const prp: PRPDocument = {
+        ...createMockPRPDocument('P1.M3.T1.S3'),
+        validationGates: [
+          {
+            level: 1,
+            description: 'ambiguous',
+            command: ambCmd,
+            manual: false,
+          },
+        ],
+      };
+      const prpPath = '/tmp/test-session/prps/P1M3T1S3.md';
+
+      mockAgent.prompt.mockResolvedValue(
+        JSON.stringify({ result: 'success', message: 'done' })
+      );
+      mockExecuteBash.mockResolvedValue({
+        success: true,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      // EXECUTE
+      const executor = new PRPExecutor(sessionPath);
+      await executor.execute(prp, prpPath);
+
+      // VERIFY: the ambiguous gate WAS executed (G2.3).
+      const calledCommands = mockExecuteBash.mock.calls.map(
+        ([args]: any) => args.command
+      );
+      expect(calledCommands).toContain(ambCmd);
+    });
+
     it('should return failed result when Coder Agent reports error', async () => {
       // SETUP
       const prp = createMockPRPDocument('P1.M2.T2.S2');
