@@ -300,6 +300,11 @@ describe('agents/prompts', () => {
       expect(PRP_BLUEPRINT_PROMPT).toMatch(/cleanup instruction/i);
       expect(PRP_BLUEPRINT_PROMPT).toContain('manual: true');
     });
+    it('requires the generated PRP to keep throwaway artifacts alive until after validation (G1.4)', () => {
+      expect(PRP_BLUEPRINT_PROMPT).toContain('G1.4');
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/throwaway/i);
+      expect(PRP_BLUEPRINT_PROMPT).toMatch(/survive/i);
+    });
     it('restricts negated content gates to a permanent own-deliverable absence (G1.5)', () => {
       expect(PRP_BLUEPRINT_PROMPT).toContain('G1.5');
       expect(PRP_BLUEPRINT_PROMPT).toContain('! grep -q');
