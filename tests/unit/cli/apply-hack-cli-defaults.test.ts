@@ -4,13 +4,14 @@
  * PRD §9.7.10 acceptance criterion).
  *
  * @remarks
- * The 10 CLI-only schema keys (those without an `envVar` — `cli.mode`,
- * `cli.scope`, `cli.max_tasks`, `cli.max_duration_ms`, `cli.machine_readable`,
- * `cli.continue_on_error`, `cli.cache_enabled`, `concurrency.parallelism`,
- * `monitor.interval_ms`, `monitor.enabled`) have no env-seeding path, so they
- * must be re-applied from the merged `.hack` config AFTER `loadHackConfig()`
- * runs in `main()`. These tests assert the resolved `args.*` values — not just
- * `merged.cli.*` — which is the end-to-end acceptance the prior suite missed.
+ * The 11 CLI-only schema keys (those without an `envVar` — `cli.prd`,
+ * `cli.mode`, `cli.scope`, `cli.max_tasks`, `cli.max_duration_ms`,
+ * `cli.machine_readable`, `cli.continue_on_error`, `cli.cache_enabled`,
+ * `concurrency.parallelism`, `monitor.interval_ms`, `monitor.enabled`) have no
+ * env-seeding path, so they must be re-applied from the merged `.hack` config
+ * AFTER `loadHackConfig()` runs in `main()`. These tests assert the resolved
+ * `args.*` values — not just `merged.cli.*` — which is the end-to-end
+ * acceptance the prior suite missed.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -225,6 +226,42 @@ describe('applyHackCliDefaults (PRD §9.7.10 — CLI-only .hack keys)', () => {
     applyHackCliDefaults(args, merged);
 
     expect(args.noCache).toBe(false);
+  });
+
+  // ==========================================================================
+  // §9.7.5: [cli] prd — the default PRD entry path (the bug this change fixes).
+  // ==========================================================================
+  it('applies [cli] prd to args.prd for a bare invocation (§9.7.5)', () => {
+    setArgv(); // bare: no --prd flag → default './PRD.md'
+    const args = parse();
+    expect(args.prd).toBe('./PRD.md'); // pre-apply default
+
+    const merged = mergedWith({ 'cli.prd': 'spec/SPEC.md' });
+    applyHackCliDefaults(args, merged);
+
+    expect(args.prd).toBe('spec/SPEC.md');
+  });
+
+  it('does NOT overwrite an explicit --prd (cli > file, §9.8.3)', () => {
+    setArgv('--prd', 'PRD.md'); // explicit flag
+    const args = parse();
+    const prdBefore = args.prd; // pre-resolved against INVOCATION_CWD by parseCLIArgs
+    const merged = mergedWith({ 'cli.prd': 'spec/SPEC.md' });
+    applyHackCliDefaults(args, merged);
+
+    // Explicit flag wins: args.prd unchanged, and NOT the .hack value.
+    expect(args.prd).toBe(prdBefore);
+    expect(args.prd).not.toBe('spec/SPEC.md');
+  });
+
+  it('warns and skips a non-string [cli] prd value', () => {
+    setArgv();
+    const args = parse();
+    const merged = mergedWith({ 'cli.prd': 42 });
+    applyHackCliDefaults(args, merged);
+
+    expect(mockLogger.warn).toHaveBeenCalled();
+    expect(args.prd).toBe('./PRD.md'); // keeps parsed default
   });
 
   // ==========================================================================

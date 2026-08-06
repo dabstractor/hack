@@ -805,3 +805,66 @@ describe('§9.7.10 acceptance — `.hack` configuration', () => {
     });
   });
 });
+
+// ==========================================================================
+// §9.7.5 [cli] prd — the default PRD entry path (subprocess regression).
+//
+// Guards the TWO defects that together made `[cli] prd` non-functional:
+//   (A) the key was absent from SCHEMA_MAP → warned-then-ignored by the loader;
+//   (B) main()'s existsSync() guard ran BEFORE .hack was loaded, so the override was
+//       never honored. Verified end-to-end via a real subprocess in a throwaway git
+//       repo. `--dry-run` returns 0 BEFORE auth/harness/pipeline (no API key, no
+//       session), so the only gate it exercises is the PRD existence guard.
+// ==========================================================================
+describe('§9.7.5 [cli] prd — default PRD entry path (subprocess)', () => {
+  it('honors .hack [cli] prd on a bare run; does NOT print "PRD file not found"', () => {
+    const repo = makeRepo();
+    try {
+      // Distributed-PRD layout: spec is pinned via [cli] prd; the default ./PRD.md is ABSENT.
+      mkdirSync(join(repo, 'spec'), { recursive: true });
+      writeFileSync(join(repo, 'spec', 'SPEC.md'), '# Spec entry doc\n');
+      writeFileSync(join(repo, '.hack'), '[cli]\nprd = "spec/SPEC.md"\n');
+
+      // With the bug, the guard ran pre-.hack → "PRD file not found: ./PRD.md" (status 1).
+      // The fix loads .hack first, so the guard resolves to <repoRoot>/spec/SPEC.md and passes.
+      const { status, stdout, stderr } = runCli(['--dry-run'], repo);
+
+      expect(stderr).not.toContain('PRD file not found');
+      expect(status).toBe(0); // dry-run reached its early return → guard passed
+      expect(stdout).toContain('spec/SPEC.md'); // effective PRD path = the .hack override
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves [cli] prd from a NESTED cwd (repo-root-relative, §9.8)', () => {
+    const repo = makeRepo();
+    try {
+      mkdirSync(join(repo, 'spec'), { recursive: true });
+      writeFileSync(join(repo, 'spec', 'SPEC.md'), '# Spec\n');
+      writeFileSync(join(repo, '.hack'), '[cli]\nprd = "spec/SPEC.md"\n');
+      const nested = join(repo, 'src', 'deep');
+      mkdirSync(nested, { recursive: true });
+
+      const { status, stderr } = runCli(['--dry-run'], nested);
+
+      expect(stderr).not.toContain('PRD file not found');
+      expect(status).toBe(0);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('still errors "PRD file not found" when no --prd, [cli] prd, or ./PRD.md exists', () => {
+    const repo = makeRepo();
+    try {
+      // No .hack, no ./PRD.md, no --prd → the default './PRD.md' is absent → guard fires.
+      const { status, stderr } = runCli(['--dry-run'], repo);
+
+      expect(status).toBe(1);
+      expect(stderr).toContain('PRD file not found: ./PRD.md');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});

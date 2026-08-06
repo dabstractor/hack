@@ -142,16 +142,6 @@ async function main(): Promise<number> {
   // A hook-thrown NotARepositoryError propagates to main().catch()'s dedicated clean arm below.
   const repoRoot = getRepoRoot();
 
-  // PRD §9.8.3: validate the PRD exists against the NOW-correct cwd. args.prd is absolute
-  // (explicit --prd, pre-resolved against INVOCATION_CWD in parseCLIArgs) or relative './PRD.md'
-  // (default → resolves against repoRoot here). One check covers both semantics. (Moved out of
-  // parseCLIArgs, which ran pre-chdir and rejected the default from a subdir.)
-  if (!existsSync(args.prd)) {
-    console.error(`PRD file not found: ${args.prd}`);
-    console.error('Please provide a valid PRD file path using --prd');
-    return 1;
-  }
-
   // Setup global error handlers (preserve console.error for uncaught exceptions)
   setupGlobalHandlers(args.verbose);
 
@@ -160,17 +150,32 @@ async function main(): Promise<number> {
   // visible to the env resolver). Env-over-file: seeding fills ONLY undefined env keys, so
   // shell/.env still win (§9.2.1). Secrets/type validation (§9.7.6/§9.7.7) are P2.M1.T2.S1.
   // The returned merged config is captured (not discarded) so the CLI-only keys (those without
-  // an envVar — cli.mode, cli.scope, cli.max_tasks, concurrency.parallelism, monitor.*) can be
-  // applied to `args` for flags the user did NOT explicitly pass (PRD §9.7.10 — the env-linked
-  // keys already flow through process.env seeding + Commander .default()).
+  // an envVar — cli.prd, cli.mode, cli.scope, cli.max_tasks, concurrency.parallelism, monitor.*)
+  // can be applied to `args` for flags the user did NOT explicitly pass (PRD §9.7.10 — the
+  // env-linked keys already flow through process.env seeding + Commander .default()).
   const mergedHackConfig = loadHackConfig(repoRoot);
 
   // PRD §9.7.10: apply .hack CLI-only defaults to flags the user did NOT pass explicitly.
-  // parseCLIArgs() runs BEFORE .hack is loaded (bootstrap order), so the 10 CLI-only schema
+  // parseCLIArgs() runs BEFORE .hack is loaded (bootstrap order), so the 11 CLI-only schema
   // keys had no path to the CLI at parse time; this closes the gap. An explicit flag always
   // wins (cli > file, §9.2.1). Runs before dry-run/verbose logging so the reported values are
   // the effective ones.
   applyHackCliDefaults(args, mergedHackConfig);
+
+  // PRD §9.7.5/§9.8.3: validate the PRD exists AFTER the §9.8 chdir AND after the .hack CLI-only
+  // defaults are applied, so a `[cli] prd` override (e.g. "spec/SPEC.md") takes effect before
+  // this guard. args.prd is now one of: (a) an explicit --prd pre-resolved against INVOCATION_CWD
+  // (§9.8.3, absolute); (b) a .hack `[cli] prd` value (repo-root-relative, applied just above);
+  // or (c) the default './PRD.md' (repo-root-relative). Cases (b)/(c) resolve against process.cwd()
+  // which is repoRoot after the §9.8 chdir. One check covers all three semantics. (BUGFIX: this
+  // guard previously ran BEFORE loadHackConfig()/applyHackCliDefaults(), so a .hack `prd` override
+  // was never honored — a bare `hack` in a repo whose spec lives at spec/SPEC.md failed with
+  // "PRD file not found: ./PRD.md" even though §9.7.5 mandates the override.)
+  if (!existsSync(args.prd)) {
+    console.error(`PRD file not found: ${args.prd}`);
+    console.error('Please provide a valid PRD file path using --prd');
+    return 1;
+  }
 
   // CRITICAL: Configure environment before any API operations
   configureEnvironment();

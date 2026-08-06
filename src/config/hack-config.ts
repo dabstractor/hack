@@ -427,6 +427,18 @@ export const SCHEMA_MAP: readonly HackConfigSchemaEntry[] = [
   },
 
   // --- [cli] (CLI-default group; env-linked only for log_level) ---
+  // [cli] prd — the default PRD entry path (PRD §9.7.5). CLI-only (no envVar); consumed from
+  // MergedHackConfig by applyHackCliDefaults(). Repo-root-relative per §9.7.5/§9.8 — the value is
+  // left relative and resolves against the post-chdir repo root in main()'s existsSync() guard
+  // (process.cwd() === repoRoot after the §9.8 chdir). An explicit -p/--prd still wins (cli > file)
+  // and resolves against the INVOCATION cwd (§9.8.3) via parseCLIArgs()'s pre-resolution.
+  {
+    section: 'cli',
+    key: 'prd',
+    cliFlag: '-p/--prd',
+    type: 'string',
+    defaultValue: './PRD.md',
+  },
   {
     section: 'cli',
     key: 'mode',
@@ -654,6 +666,7 @@ const HACK_CONFIG_SCHEMA: Readonly<
     enabled: { type: 'boolean' },
   },
   cli: {
+    prd: { type: 'string' },
     mode: { type: 'string', enum: ['normal', 'delta', 'bug-hunt', 'validate'] },
     scope: { type: 'string' },
     log_level: {

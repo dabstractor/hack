@@ -1326,7 +1326,7 @@ export function isCLIArgs(
  * {@link MergedHackConfig}). Only entries WITHOUT an `envVar` need this path —
  * env-linked CLI flags (e.g. `cli.log_level → HACKY_LOG_LEVEL`) already flow
  * through `process.env` via the loader's seeding and Commander's
- * `.default(process.env.X ?? …)`. The 10 CLI-only keys are enumerated here.
+ * `.default(process.env.X ?? …)`. The 11 CLI-only keys are enumerated here.
  */
 interface CliFlagBinding {
   /**
@@ -1363,6 +1363,7 @@ const HACK_CLI_FLAG_BINDING: Readonly<Record<string, CliFlagBinding>> = {
     negated: true,
   },
   // cli
+  'cli.prd': { target: 'prd', sourceName: 'prd' },
   'cli.mode': { target: 'mode', sourceName: 'mode' },
   'cli.scope': { target: 'scope', sourceName: 'scope' },
   'cli.machine_readable': {
@@ -1388,8 +1389,8 @@ const HACK_CLI_FLAG_BINDING: Readonly<Record<string, CliFlagBinding>> = {
  *
  * @remarks
  * `parseCLIArgs()` runs BEFORE `.hack` is loaded (bootstrap order:
- * `parseCLIArgs → chdir → loadHackConfig`), so the 10 CLI-only schema keys
- * (those without an `envVar`) — `cli.mode`, `cli.scope`, `cli.max_tasks`,
+ * `parseCLIArgs → chdir → loadHackConfig`), so the 11 CLI-only schema keys
+ * (those without an `envVar`) — `cli.prd`, `cli.mode`, `cli.scope`, `cli.max_tasks`,
  * `cli.max_duration_ms`, `cli.machine_readable`, `cli.continue_on_error`,
  * `cli.cache_enabled`, `concurrency.parallelism`, `monitor.interval_ms`,
  * `monitor.enabled` — have no path to the CLI. This function is the consumer

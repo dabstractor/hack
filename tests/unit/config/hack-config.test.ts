@@ -432,9 +432,9 @@ describe('hack-config: SCHEMA_MAP', () => {
     vi.unstubAllEnvs();
   });
 
-  it('SCHEMA_MAP has all 38 §9.7.5 rows', () => {
+  it('SCHEMA_MAP has all 39 §9.7.5 rows', () => {
     // VERIFY: exhaustive coverage of the §9.7.5 schema reference table
-    expect(SCHEMA_MAP.length).toBe(38);
+    expect(SCHEMA_MAP.length).toBe(39);
   });
 
   it('every §9.7.5 [section].key is present in SCHEMA_BY_KEY', () => {
@@ -456,6 +456,7 @@ describe('hack-config: SCHEMA_MAP', () => {
       'concurrency.parallelism',
       'api.timeout_ms',
       'monitor.enabled',
+      'cli.prd',
       'cli.mode',
       'cli.scope',
       'cli.log_level',
@@ -468,9 +469,9 @@ describe('hack-config: SCHEMA_MAP', () => {
     }
   });
 
-  it('SCHEMA_BY_KEY is a complete lookup index (38 keys, every entry reachable)', () => {
+  it('SCHEMA_BY_KEY is a complete lookup index (39 keys, every entry reachable)', () => {
     // VERIFY: the derived index has exactly one entry per SCHEMA_MAP row
-    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(38);
+    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(39);
     for (const entry of SCHEMA_MAP) {
       expect(SCHEMA_BY_KEY[`${entry.section}.${entry.key}`]).toBe(entry);
     }
@@ -536,10 +537,13 @@ describe('hack-config: SCHEMA_MAP', () => {
   });
 
   it('the 3 unset CLI keys have no defaultValue', () => {
-    // VERIFY: [cli] scope / max_tasks / max_duration_ms are unset (no §9.7.5 default)
+    // VERIFY: [cli] scope / max_tasks / max_duration_ms are unset (no §9.7.5 default).
+    // ([cli] prd IS set to './PRD.md' — the §9.7.5 default PRD entry path — verified below.)
     expect(SCHEMA_BY_KEY['cli.scope'].defaultValue).toBeUndefined();
     expect(SCHEMA_BY_KEY['cli.max_tasks'].defaultValue).toBeUndefined();
     expect(SCHEMA_BY_KEY['cli.max_duration_ms'].defaultValue).toBeUndefined();
+    expect(SCHEMA_BY_KEY['cli.prd'].defaultValue).toBe('./PRD.md');
+    expect(SCHEMA_BY_KEY['cli.prd'].cliFlag).toBe('-p/--prd');
   });
 
   it('[auth] is ABSENT (secret-bearing → T2.S1 secrets policy; never env-seeded)', () => {
@@ -741,6 +745,26 @@ describe('hack-config: secrets & validation', () => {
       );
       expect(keyWarns.length).toBe(1);
     }
+  });
+
+  it('SHOULD accept [cli] prd as a KNOWN §9.7.5 key (no unknown-key warning)', () => {
+    // SETUP — a real distributed-PRD project pins its entry doc via [cli] prd (§9.7.5).
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-prd'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-cli-prd-'));
+    writeFileSync(join(repoRoot, '.hack'), '[cli]\nprd = "spec/SPEC.md"\n');
+
+    // EXECUTE
+    const cfg = loadHackConfig(repoRoot);
+
+    // VERIFY — [cli] prd is NOT treated as an unknown key: no warn, value surfaced in the merge.
+    const prdWarns = warnSpy.mock.calls.filter(([m]) =>
+      /unknown key \[cli\] prd/.test(String(m))
+    );
+    expect(prdWarns.length).toBe(0);
+    expect((cfg.cli as Record<string, unknown> | undefined)?.prd).toBe(
+      'spec/SPEC.md'
+    );
+    expect(cfg._sources['cli.prd']).toBe('project');
   });
 
   // --- Type / range / enum (§9.7.7) — HARD errors ---------------------------
