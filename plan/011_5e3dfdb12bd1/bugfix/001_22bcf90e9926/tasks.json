@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "BUG-001 — G1.4 Throwaway-Survival Blueprint Prompt Compliance",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Fix the literal spec deviation where PRP §9.9.2 G1.4 mandates the throwaway-survival instruction in BOTH the Blueprint and Builder prompts, but only the Builder prompt carries it. The Blueprint (Researcher) prompt's gate-construction CRITICAL RULES block enumerates G1.1, G1.2, G1.3, and G1.5 but skips G1.4. This phase adds the missing G1.4 bullet to the Blueprint prompt, mirrors it into the PROMPTS.md reference doc, adds the corresponding test assertion, and includes the optional executor neutralization test-coverage hardening recommended in the PRD.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "G1.4 Blueprint Prompt Instruction, Docs Sync & Test Hardening",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Add the G1.4 throwaway-survival instruction to PRP_BLUEPRINT_PROMPT, mirror into PROMPTS.md, add the Blueprint G1.4 assertion test, optionally harden executor neutralization test coverage, and verify changeset-level docs accuracy.",
           "tasks": [
             {
@@ -79,14 +79,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Mode B final documentation sweep. Verify that README.md, docs/ARCHITECTURE.md, and any overview docs that reference §9.9 G1.4 or validation gate semantics are consistent with the G1.4 addition to the Blueprint prompt. The PRD Overview notes these docs were already synced to §9.9 in a prior session, so this task is primarily a verification pass — but it must run AFTER the core fix (P1.M1.T1) so any cross-referencing of G1.4 prompt guidance can be confirmed accurate.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Verify README.md and docs/ARCHITECTURE.md §9.9 G1.4 references are accurate post-fix",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M1.T1.S1"
