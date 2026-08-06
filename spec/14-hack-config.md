@@ -72,6 +72,8 @@ Every tunable maps to exactly one `[section].key`. The table below is exhaustive
 | `[pipeline] research_timeout_seconds` | `RESEARCH_TIMEOUT`           | —                         | int > 0                                   | `1800`                                      |
 | `[pipeline] issue_retry_max`          | `ISSUE_RETRY_MAX`            | —                         | int ≥ 0                                   | `3`                                         |
 | `[pipeline] commit_format`            | `PRP_COMMIT_FORMAT`          | —                         | `task-prefix` \| `plain`                  | `task-prefix`                               |
+| `[pipeline] commit_style`             | `PRP_COMMIT_STYLE`           | —                         | `auto`\|`plain`\|`conventional`\|`gitmoji`| `auto`                                      |
+| `[pipeline] commit_style_examples`    | `PRP_COMMIT_STYLE_EXAMPLES`  | —                         | int ≥ 0                                   | `5`                                         |
 | `[commit] retry_max`                  | `COMMIT_RETRY_MAX`           | —                         | int ≥ 1                                   | `5`                                         |
 | `[commit] retry_delay_ms`             | `COMMIT_RETRY_DELAY`         | —                         | int ≥ 0                                   | `10000`                                     |
 | `[commit] retry_delay_cap_ms`         | `COMMIT_RETRY_DELAY_CAP`     | —                         | int ≥ `retry_delay_ms`                    | `120000`                                    |
@@ -131,7 +133,8 @@ fast     = "glm-5-turbo" # implementation role
 parallel_research        = true   # background PRP research (§4.2)
 research_depth           = 3
 research_timeout_seconds = 1800
-commit_format            = "task-prefix"  # §5.1
+commit_format            = "task-prefix"  # §5.1 (position prefix)
+commit_style             = "auto"         # §5.1 (descriptive-message style; auto = learn from last 5)
 
 [validation]
 timeout_seconds = 7200     # full test suites legitimately need hours (§4.4)
