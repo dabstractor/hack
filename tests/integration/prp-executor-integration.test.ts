@@ -363,6 +363,79 @@ describe('integration: agents/prp-executor', () => {
       const level1Result = result.validationResults.find(r => r.level === 1);
       expect(level1Result?.stdout).toContain('Hello from stdout');
     });
+
+    it('should neutralize a negated file-existence gate (G2.1) through the real BashMCP path', async () => {
+      // SETUP: mix a real executable gate, a G2.1 negated-existence gate, a second real gate,
+      // and a manual gate. The negated gate targets package.json (EXISTS at the repo root), so
+      // `! test -f package.json` would EXIT 1 (fail) if it ran — neutralization is the ONLY way
+      // this PRP passes overall. (See PRP research §4 for why an existing-file target matters.)
+      const customValidationGates: PRPDocument['validationGates'] = [
+        {
+          level: 1,
+          description: 'Real executable gate (proves the BashMCP path works)',
+          command: 'echo "real gate executed"',
+          manual: false,
+        },
+        {
+          level: 2,
+          description:
+            'Negated file-existence gate (G2.1 — must be neutralized, never executed)',
+          command: '! test -f package.json',
+          manual: false,
+        },
+        {
+          level: 3,
+          description: 'Second real gate',
+          command: 'echo "second real gate"',
+          manual: false,
+        },
+        {
+          level: 4,
+          description: 'Manual review',
+          command: null,
+          manual: true,
+        },
+      ];
+      const prp = createMockPRPDocument('P1.M2.T2.S2', customValidationGates);
+      const prpPath = '/tmp/test-session/prps/P1M2T2S2.md';
+
+      // Mock Coder Agent to return success (no LLM call; everything else is REAL).
+      mockAgent.prompt.mockResolvedValue(
+        JSON.stringify({
+          result: 'success',
+          message: 'Implementation complete',
+        })
+      );
+
+      const executor = new PRPExecutor(sessionPath);
+
+      // EXECUTE
+      const result = await executor.execute(prp, prpPath);
+
+      // VERIFY (a): overall execution succeeded (the negated gate counted as passed via §9.9).
+      expect(result.success).toBe(true);
+      expect(result.outcome).toBe('success');
+
+      // VERIFY (b): the negated-existence gate (level 2) was NEUTRALIZED — skipped, counted as
+      // passed, never touched BashMCP (exitCode null, empty stdout/stderr). It bypasses the real
+      // path entirely even though the real BashMCP is wired up.
+      const negatedResult = result.validationResults.find(r => r.level === 2);
+      expect(negatedResult?.skipped).toBe(true);
+      expect(negatedResult?.success).toBe(true);
+      expect(negatedResult?.exitCode).toBeNull();
+      expect(negatedResult?.command).toBe('! test -f package.json');
+      expect(negatedResult?.stdout).toBe('');
+      expect(negatedResult?.stderr).toBe('');
+
+      // VERIFY (c): the real gate (level 1) was ACTUALLY executed via the real BashMCP — non-null
+      // exitCode, captured stdout, not skipped. This is the integration proof: a sibling gate runs
+      // for real while the negated gate (b) bypasses BashMCP.
+      const realResult = result.validationResults.find(r => r.level === 1);
+      expect(realResult?.skipped).toBe(false);
+      expect(realResult?.exitCode).not.toBeNull();
+      expect(realResult?.exitCode).toBe(0);
+      expect(realResult?.stdout).toContain('real gate executed');
+    });
   });
 
   describe('error handling with real dependencies', () => {
