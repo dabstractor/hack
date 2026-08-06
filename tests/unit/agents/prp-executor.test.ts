@@ -77,9 +77,28 @@ vi.mock('../../../src/core/checkpoint-manager.js', () => ({
   })),
 }));
 
+// Mock the logger module so the §9.9 neutralization info-log is observable (P1.M1.T2.S1).
+// getLogger returns ONE shared spyable logger (closure); afterEach's clearAllMocks preserves the
+// () => mockLogger implementation, so this survives every test. The executor captures it once in its
+// constructor (this.#logger = getLogger('PRPExecutor')), so getLogger() in a test returns the SAME
+// instance the executor used.
+vi.mock('../../../src/utils/logger.js', () => {
+  const mockLogger = {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    child: vi.fn(() => mockLogger), // returns the same logger (interface-complete; executor never calls child)
+  };
+  return { getLogger: vi.fn(() => mockLogger) };
+});
+
 // Import mocked modules
 import { createCoderAgent } from '../../../src/agents/agent-factory.js';
 import { BashMCP } from '../../../src/tools/bash-mcp.js';
+import { getLogger } from '../../../src/utils/logger.js';
 
 // Cast mocked functions
 const mockCreateCoderAgent = createCoderAgent as any;
@@ -312,6 +331,14 @@ describe('agents/prp-executor', () => {
       );
       expect(calledCommands).not.toContain(negCmd);
       expect(calledCommands).toContain('npm run lint');
+
+      // VERIFY (P1.M1.T2.S1): the §9.9 neutralization reason was logged at info level.
+      // info is called as (contextObj, msgString); assert the neutralized-command context + the reason text.
+      const logger = getLogger('PRPExecutor'); // same mockLogger instance the executor captured in its ctor
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ command: negCmd }),
+        expect.stringContaining('neutralized')
+      );
     });
 
     it('executes a negated CONTENT gate normally (G2.2): execute_bash IS called', async () => {

@@ -42,14 +42,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Optional executor §9.9 neutralization test-coverage hardening",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Per the PRD Recommendations (h2.5): the unit test for the executor's G2.1 gate neutralization currently asserts the skipped/success/exitCode result shape and that BashMCP is NOT called, but does NOT assert that the info-level log message is emitted. Additionally, no integration test exercises the neutralization path through the real BashMCP. This task adds both: (1) a log-reason assertion to the existing neutralization unit test, and (2) one integration test through the real BashMCP path. These harden the existing §9.9 executor coverage.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Add §9.9 neutralization log-reason assertion to executor neutralization unit test",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/011_5e3dfdb12bd1/bugfix/001_22bcf90e9926/architecture/system_context.md. The executor emits the neutralization log at src/agents/prp-executor.ts line 554: this.#logger.info({ level, description, command }, 'non-monotonic negative-existence gate neutralized — file existence is owned by the task graph / is a cleanup step, not a terminal-state assertion (§9.9)'). The logger is getLogger('PRPExecutor') from src/utils/logger.ts (pino-based, Logger interface with info(obj, msg) overloads). The existing neutralization unit test is at tests/unit/agents/prp-executor.test.ts line 258: it('neutralizes a negated file-existence gate (G2.1)...'). That test file does NOT currently mock the logger module.\n2. INPUT: The existing neutralization test setup at tests/unit/agents/prp-executor.test.ts lines 258-316, which already creates a PRP with a '! test -f src/hooks/index.ts' gate and asserts skipped/success/exitCode/execute_bash-not-called.\n3. LOGIC: To assert the log message, the logger must be observable. Add a vi.mock for '../../../src/utils/logger.js' at the top of tests/unit/agents/prp-executor.test.ts that returns a spyable logger from getLogger(). The mock should return an object with jest/vi.fn() methods for info, warn, error, debug, trace, fatal, and a child() method that returns itself. Then in the existing neutralization test (or a new adjacent it() case), after executor.execute(), assert that logger.info was called with a message containing 'neutralized' (use expect.objectContaining or check the second arg of the info call). Alternatively, if the existing module-level mock pattern already spies on logger indirectly, add the assertion there. Ensure all existing tests still pass after adding the logger mock — the mock must be compatible with every test in the file.\n   Run: npx vitest run tests/unit/agents/prp-executor.test.ts — all tests must pass including the new assertion.\n4. OUTPUT: The neutralization test now asserts both the result shape AND that logger.info was called with the §9.9 neutralization reason string. All existing executor unit tests continue to pass.\n5. DOCS: none — no user-facing/config/API surface change. This is test-only hardening of an existing code path.",
@@ -62,7 +62,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Add integration test for G2.1 neutralization through the real BashMCP path",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"
