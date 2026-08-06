@@ -18,7 +18,7 @@
  */
 
 import { configureHarnesses, PiHarness, HarnessRegistry } from 'groundswell';
-import { AuthStorage } from '@earendil-works/pi-coding-agent';
+import { AuthStorage, initTheme } from '@earendil-works/pi-coding-agent';
 import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL_PROVIDER,
@@ -188,6 +188,17 @@ export function configureHarness(): AgentHarness {
  * populated) and before any agent runs.
  */
 export async function ensureHarnessInitialized(): Promise<void> {
+  // Initialize pi's global theme BEFORE any agent runs. pi's tool renderers
+  // (bash/read/write/edit/grep/ls/find) and agent-session read the lazily-backed `theme`
+  // proxy, which throws `"Theme not initialized. Call initTheme() first."` until
+  // initTheme() has run. Groundswell's headless PiHarness drives the SDK without ever
+  // calling it, so without this line every coder-agent tool call throws an unhandled
+  // promise rejection mid-pipeline — which manifests as RESEARCH_TIMEOUT blowups and
+  // unparseable agent output. initTheme() is idempotent, defaults to a bundled theme,
+  // and starts no file watcher (enableWatcher defaults to false), so it is safe in a
+  // non-interactive/programmatic context.
+  initTheme();
+
   const registry = HarnessRegistry.getInstance();
   if (!registry.has('pi')) {
     registry.register(new PiHarness());

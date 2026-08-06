@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "checkpoints": [
+    {
+      "id": "P1.M2.T1.S1_1785991430873_pre-execution_86c51a19",
+      "taskId": "P1.M2.T1.S1",
+      "label": "Before Coder Agent execution",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M2_T1_S1.md",
+        "stage": "pre-execution",
+        "validationResults": [],
+        "timestamp": "2026-08-06T04:43:50.872Z"
+      },
+      "createdAt": "2026-08-06T04:43:50.873Z"
+    },
+    {
+      "id": "P1.M2.T1.S1_1785995034076_coder-response_545123c7",
+      "taskId": "P1.M2.T1.S1",
+      "label": "After Coder Agent response",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M2_T1_S1.md",
+        "stage": "coder-response",
+        "coderResponse": "That's the `tee` capture job finishing — already used its output during validation. Nothing further needed.",
+        "coderResult": {
+          "result": "error",
+          "message": "Failed to parse Coder Agent response: That's the `tee` capture job finishing — already used its output during validation. Nothing further needed."
+        },
+        "validationResults": [],
+        "timestamp": "2026-08-06T05:43:54.076Z"
+      },
+      "createdAt": "2026-08-06T05:43:54.076Z"
+    },
+    {
+      "id": "P1.M2.T1.S1_1785999375722_pre-execution_c629d699",
+      "taskId": "P1.M2.T1.S1",
+      "label": "Before Coder Agent execution",
+      "state": {
+        "prpPath": "/home/dustin/projects/hacky-hack/plan/011_5e3dfdb12bd1/prps/P1_M2_T1_S1.md",
+        "stage": "pre-execution",
+        "validationResults": [],
+        "timestamp": "2026-08-06T06:56:15.722Z"
+      },
+      "createdAt": "2026-08-06T06:56:15.723Z"
+    }
+  ],
+  "lastModified": "2026-08-06T06:56:15.723Z"
+}

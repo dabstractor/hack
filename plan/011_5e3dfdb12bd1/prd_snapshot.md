@@ -1,5 +1,34 @@
 # Product Requirements Document: Autonomous PRP Development Pipeline
 
+> **Distributed specification.** This file is the canonical entry point for the PRP
+> Pipeline specification. The spec is authored across the sibling files in `spec/` and
+> assembled here at load time: each line below that consists of only a path prefixed with
+> the `@` character is an _include directive_ (§2.3) that is replaced inline by that file's
+> contents, producing a single merged document that behaves identically to a monolithic PRD
+> everywhere downstream. Agents receive the already-merged document and must not chase the
+> includes themselves.
+
+## Contents
+
+1. [Executive Summary](01-executive-summary.md)
+2. [Core Philosophy & Concepts](02-core-concepts.md)
+3. [System Architecture](03-architecture.md)
+4. [User Workflows](04-workflows.md)
+5. [Functional Requirements](05-functional-requirements.md)
+6. [Critical Prompts & Personas](06-prompts-personas.md)
+7. [Rewrite Improvements & Bootstrap Roadmap](07-roadmap.md)
+8. [Technical Specification — Overview & Stack](08-tech-spec-overview.md)
+9. [Environment Configuration](09-environment-config.md)
+10. [System Components (Groundswell Mapping)](10-system-components.md)
+11. [Agent Harness System (Runtime Selection)](11-harness-system.md)
+12. [Implementation Roadmap](12-impl-roadmap.md)
+13. [Logging Architecture](13-logging.md)
+14. [The `.hack` Configuration File](14-hack-config.md)
+15. [Repository Root Resolution](15-repo-root.md)
+16. [Validation Gate Semantics](16-validation-gates.md)
+
+---
+
 ## 1. Executive Summary
 
 The **PRP (Product Requirement Prompt) Pipeline** is an agentic software development system designed to convert a high-level Product Requirements Document (PRD) into a fully implemented, tested, and polished codebase with minimal human intervention.
@@ -70,7 +99,7 @@ For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
 3.  **Implementation:**
     - The **Coder Agent** reads the `PRP.md`.
     - Executes the plan.
-    - Must pass 4 levels of "Progressive Validation" defined in the PRP.
+    - Must pass 4 levels of "Progressive Validation" defined in the PRP. Gates are re-executed as a batch against the terminal filesystem state and MUST be monotonic; see §9.9.
 4.  **Cleanup & Commit (two-phase commit):**
     - **Pre-cleanup commit (survival):** Before the (long, interruptible) cleanup agent runs, the orchestrator commits the item's substance — source changes, its `plan/` work directory, and its `Complete` status — via the **Smart Commit** tool (`stagecoach`). Committing before cleanup guarantees a force-interrupt here can no longer leave an item "Complete on disk but uncommitted," the state that orphans `plan/` directories forever (the cleanup agent is forbidden from touching `plan/`; see §5.1).
     - **Cleanup:** Temporary artifacts are removed; documentation is moved to `docs/`.
@@ -285,34 +314,10 @@ prd task -f <file>    # Override with specific file
 
 `prd status` is aliased to `prd task` for git muscle memory (`git status` / `prd status`).
 
-**Task File Discovery Priority** (mirrors the reference `run-prd.sh` `prd task` selector):
+**Task File Discovery Priority:**
 
-1. `--file <path>` explicit override (always wins).
-2. Latest bugfix session tasks (`SESSION_DIR/bugfix/NNN_hash/tasks.json`) — used whenever a numbered bugfix child with a `tasks.json` exists, **regardless of that child's completion status**. A `Complete` or `Failed` bugfix is still the active focus until the next pipeline run, so it must never be skipped in favor of the parent session's tasks.
-3. Main session tasks (`SESSION_DIR/tasks.json`) fallback when no bugfix child exists.
-
-When the bugfix tasks file is selected, `hack status` / `hack task` MUST print a short informational note (to stderr, above the listing) identifying it as a bugfix session and naming the resolved file, e.g. `[hack] Using bugfix tasks: bugfix/NNN_hash/tasks.json`. The note is suppressed in machine-readable output (`-o json`).
-
-### 5.4 CLI Output Formatting
-
-**Terminal-width responsiveness (`hack inspect`).**
-
-`hack inspect` output MUST remain readable on terminal widths down to **30 columns**. Long table cell data (titles, descriptions, file paths, error messages) MUST wrap onto additional lines rather than truncate or push the table past the right edge of the terminal. Every table `inspect` renders — session info, task hierarchy, status counts, current task, artifacts, and errors — MUST size its columns to the actual terminal width and enable word-wrapping. The detected width is clamped to a minimum of 30 columns, and when the width cannot be detected (non-TTY output) a sensible default is used so piped/CI output stays unchanged.
-
-**Completion-based color-coding (`hack status`).**
-
-`hack status` (and the alias `hack task`'s default listing) MUST color-code its output by completion status, mirroring the reference `tsk` tool (`task-processing/scripts/tsk`). On every task line, both the title and the status text are rendered in the status color; the task ID is rendered bold:
-
-| Status | Color |
-| --- | --- |
-| `Planned` | gray |
-| `Researching` | yellow |
-| `Ready` | blue |
-| `Implementing` | magenta |
-| `Complete` | green |
-| `Failed` | red |
-
-Unknown/unlisted statuses default to white. Coloring follows the terminal's capabilities (disabled automatically for non-TTY output or when `NO_COLOR` is set), matching `tsk`'s chalk-based behavior.
+1. Incomplete bugfix session tasks (`SESSION_DIR/bugfix/NNN_hash/tasks.json`)
+2. Main session tasks (`SESSION_DIR/tasks.json`)
 
 **Tasks-Not-Yet-Generated Window (Breakdown-in-Progress):**
 
@@ -360,6 +365,7 @@ The system relies on specific, highly-engineered prompts. These must be preserve
   1.  Codebase Analysis (Find similar patterns).
   2.  Internal/External Research.
   3.  Template Filling (Context, Implementation Steps, Validation Gates).
+- **Validation-gate monotonicity (§9.9):** gate commands MUST be monotonic terminal-state assertions. Negative file-existence gates (`! test -f`, `test ! -f`) and create-then-delete cleanup gates are forbidden; express scope boundaries as Success Criteria or `manual` Level-4 gates, and never delete a throwaway artifact during the coder's turn. The executor neutralizes any non-monotonic gate that slips through.
 - **Output:** A markdown file adhering to a strict template.
 - **Single-PRP default with strict batching gates:** A PRP call writes exactly **ONE** PRP — the one it was asked for — not several batched into one session. Batching is permitted _only_ as an optimization for tightly-coupled items, at a _higher_ bar (not a lower one): before any second PRP is written, the agent must hold the full task-tree and full-PRD context, run 3–5 subagent research calls _per item_ (the research budget is per PRP, so an N-PRP batch needs ~N× the research), pass a per-item "No Prior Knowledge" check, and declare the batch explicitly. **When in doubt, write one.** This prevents the thin, under-researched PRPs that batching produced in the past.
 
@@ -370,6 +376,7 @@ The system relies on specific, highly-engineered prompts. These must be preserve
 - **Logic:**
   - **CRITICAL:** Read PRP first.
   - **Progressive Validation:** Level 1 (Lint/Type), Level 2 (Unit Test), Level 3 (Integration), Level 4 (Manual/Creative).
+  - **Terminal-state re-execution (§9.9):** the executor re-runs every gate as a batch against the final filesystem state after the coder finishes; non-monotonic gates (negative file-existence, cleanup `test ! -f`) are neutralized to skipped.
   - Failure Protocol: Fix and retry until validation passes.
 
 ### 6.4 Delta PRD Generation Prompt
@@ -853,11 +860,11 @@ The `.hack` file fills all four gaps with one mechanism.
 
 Three files are searched, each optional. They are layered lowest-to-highest as §9.2.1 layers 2–4:
 
-| Layer | Path | Purpose | Git-tracked? | Secrets allowed? |
-| ----- | ---- | ------- | ------------ | ---------------- |
-| Global user | `$HACK_CONFIG_HOME/config` if set, else `$XDG_CONFIG_HOME/hack/config`, else `~/.hack` | Personal defaults applied to _every_ project (e.g. always use the `pi` harness, a preferred model tier). | N/A (outside repos) | Discouraged (lives in `$HOME`); if present, treated like `.hack.local`. |
-| Project | `<repoRoot>/.hack` | Team-wide project defaults, reviewed in PRs alongside code. | **Yes** (intended to be committed). | **No** — refused (§9.7.6). |
-| Project local | `<repoRoot>/.hack.local` | Per-developer overrides and personal secrets. | **No** — MUST be in `.gitignore`. | **Yes** (it is local-only). |
+| Layer         | Path                                                                                   | Purpose                                                                                                  | Git-tracked?                        | Secrets allowed?                                                        |
+| ------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
+| Global user   | `$HACK_CONFIG_HOME/config` if set, else `$XDG_CONFIG_HOME/hack/config`, else `~/.hack` | Personal defaults applied to _every_ project (e.g. always use the `pi` harness, a preferred model tier). | N/A (outside repos)                 | Discouraged (lives in `$HOME`); if present, treated like `.hack.local`. |
+| Project       | `<repoRoot>/.hack`                                                                     | Team-wide project defaults, reviewed in PRs alongside code.                                              | **Yes** (intended to be committed). | **No** — refused (§9.7.6).                                              |
+| Project local | `<repoRoot>/.hack.local`                                                               | Per-developer overrides and personal secrets.                                                            | **No** — MUST be in `.gitignore`.   | **Yes** (it is local-only).                                             |
 
 **Discovery rules.**
 
@@ -879,50 +886,52 @@ Three files are searched, each optional. They are layered lowest-to-highest as �
 
 Every tunable maps to exactly one `[section].key`. The table below is exhaustive; `hack config show` prints the same mapping. “Env var” is the §9.2.2 name the key seeds into `process.env`; “CLI flag” is the `parseCLIArgs()` option it defaults. A key with both an env var and a CLI flag seeds both (the CLI default is derived from the seeded env var, preserving §9.2.1 precedence).
 
-| TOML key | Env var | CLI flag | Type | Default |
-| -------- | ------- | -------- | ---- | ------- |
-| `[models] high` | `PRP_MODEL_HIGH` | — | string (bare model id) | `glm-5.2` |
-| `[models] balanced` | `PRP_MODEL_BALANCED` | — | string | `glm-5.2` |
-| `[models] fast` | `PRP_MODEL_FAST` | — | string | `glm-5-turbo` |
-| `[endpoint] base_url` | `PRP_API_BASE_URL` | — | URL | `https://api.z.ai/api/anthropic` (zai only) |
-| `[harness] name` | `PRP_AGENT_HARNESS` | — | `pi` \| `claude-code` | `pi` |
-| `[pipeline] parallel_research` | `PARALLEL_RESEARCH` | `-r/--parallel-research` | bool | `false` |
-| `[pipeline] research_depth` | `RESEARCH_DEPTH` | — | int ≥ 1 | `2` |
-| `[pipeline] research_timeout_seconds` | `RESEARCH_TIMEOUT` | — | int > 0 | `1800` |
-| `[pipeline] issue_retry_max` | `ISSUE_RETRY_MAX` | — | int ≥ 0 | `3` |
-| `[pipeline] commit_format` | `PRP_COMMIT_FORMAT` | — | `task-prefix` \| `plain` | `task-prefix` |
-| `[commit] retry_max` | `COMMIT_RETRY_MAX` | — | int ≥ 1 | `5` |
-| `[commit] retry_delay_ms` | `COMMIT_RETRY_DELAY` | — | int ≥ 0 | `10000` |
-| `[commit] retry_delay_cap_ms` | `COMMIT_RETRY_DELAY_CAP` | — | int ≥ `retry_delay_ms` | `120000` |
-| `[commit] classifier_retry_max` | `CLASSIFIER_RETRY_MAX` | — | int ≥ 1 | `4` |
-| `[bug_hunt] finder_agent` | `BUG_FINDER_AGENT` | — | string | `pizr` |
-| `[bug_hunt] results_file` | `BUG_RESULTS_FILE` | — | string | `TEST_RESULTS.md` |
-| `[bug_hunt] fix_scope` | `BUGFIX_SCOPE` | — | string | `subtask` |
-| `[validation] agent` | `VALIDATION_AGENT` | — | string | `pizr` |
-| `[validation] timeout_seconds` | `VALIDATION_TIMEOUT` | — | int > 0 | `7200` |
-| `[distributed_prd] include_max_depth` | `PRD_INCLUDE_MAX_DEPTH` | — | int ≥ 1 | `10` |
-| `[distributed_prd] include_markers` | `PRD_INCLUDE_MARKERS` | — | bool | `false` |
-| `[tasks_lock] stale_ms` | `TASKS_LOCK_STALE_MS` | — | int > 0 | `30000` |
-| `[tasks_lock] timeout_ms` | `TASKS_LOCK_TIMEOUT_MS` | — | int > 0 | `30000` |
-| `[tasks_lock] poll_ms` | `TASKS_LOCK_POLL_MS` | — | int > 0 | `50` |
-| `[concurrency] research_queue` | `RESEARCH_QUEUE_CONCURRENCY` | `--research-concurrency` | int 1–10 | `3` |
-| `[concurrency] parallelism` | — | `--parallelism` | int 1–10 | `2` |
-| `[api] timeout_ms` | `API_TIMEOUT_MS` | — | int > 0 | `60000` |
-| `[monitor] task_interval` | `MONITOR_TASK_INTERVAL` | `--monitor-task-interval` | int 1–100 | `1` |
-| `[monitor] interval_ms` | — | `--monitor-interval` | int 1000–60000 | `30000` |
-| `[monitor] enabled` | — | `--no-resource-monitor` | bool | `true` |
-| `[cli] mode` | — | `-m/--mode` | `normal`\|`delta`\|`bug-hunt`\|`validate` | `normal` |
-| `[cli] scope` | — | `-s/--scope` | string | unset |
-| `[cli] log_level` | `HACKY_LOG_LEVEL` | `--log-level` | trace…fatal | `info` |
-| `[cli] machine_readable` | — | `--machine-readable` | bool | `false` |
-| `[cli] continue_on_error` | — | `--continue-on-error` | bool | `false` |
-| `[cli] cache_enabled` | — | `--no-cache` | bool | `true` |
-| `[cli] max_tasks` | — | `--max-tasks` | int > 0 | unset |
-| `[cli] max_duration_ms` | — | `--max-duration` | int > 0 | unset |
+| TOML key                              | Env var                      | CLI flag                  | Type                                      | Default                                     |
+| ------------------------------------- | ---------------------------- | ------------------------- | ----------------------------------------- | ------------------------------------------- |
+| `[models] high`                       | `PRP_MODEL_HIGH`             | —                         | string (bare model id)                    | `glm-5.2`                                   |
+| `[models] balanced`                   | `PRP_MODEL_BALANCED`         | —                         | string                                    | `glm-5.2`                                   |
+| `[models] fast`                       | `PRP_MODEL_FAST`             | —                         | string                                    | `glm-5-turbo`                               |
+| `[endpoint] base_url`                 | `PRP_API_BASE_URL`           | —                         | URL                                       | `https://api.z.ai/api/anthropic` (zai only) |
+| `[harness] name`                      | `PRP_AGENT_HARNESS`          | —                         | `pi` \| `claude-code`                     | `pi`                                        |
+| `[pipeline] parallel_research`        | `PARALLEL_RESEARCH`          | `-r/--parallel-research`  | bool                                      | `false`                                     |
+| `[pipeline] research_depth`           | `RESEARCH_DEPTH`             | —                         | int ≥ 1                                   | `2`                                         |
+| `[pipeline] research_timeout_seconds` | `RESEARCH_TIMEOUT`           | —                         | int > 0                                   | `1800`                                      |
+| `[pipeline] issue_retry_max`          | `ISSUE_RETRY_MAX`            | —                         | int ≥ 0                                   | `3`                                         |
+| `[pipeline] commit_format`            | `PRP_COMMIT_FORMAT`          | —                         | `task-prefix` \| `plain`                  | `task-prefix`                               |
+| `[commit] retry_max`                  | `COMMIT_RETRY_MAX`           | —                         | int ≥ 1                                   | `5`                                         |
+| `[commit] retry_delay_ms`             | `COMMIT_RETRY_DELAY`         | —                         | int ≥ 0                                   | `10000`                                     |
+| `[commit] retry_delay_cap_ms`         | `COMMIT_RETRY_DELAY_CAP`     | —                         | int ≥ `retry_delay_ms`                    | `120000`                                    |
+| `[commit] classifier_retry_max`       | `CLASSIFIER_RETRY_MAX`       | —                         | int ≥ 1                                   | `4`                                         |
+| `[bug_hunt] finder_agent`             | `BUG_FINDER_AGENT`           | —                         | string                                    | `pizr`                                      |
+| `[bug_hunt] results_file`             | `BUG_RESULTS_FILE`           | —                         | string                                    | `TEST_RESULTS.md`                           |
+| `[bug_hunt] fix_scope`                | `BUGFIX_SCOPE`               | —                         | string                                    | `subtask`                                   |
+| `[validation] agent`                  | `VALIDATION_AGENT`           | —                         | string                                    | `pizr`                                      |
+| `[validation] timeout_seconds`        | `VALIDATION_TIMEOUT`         | —                         | int > 0                                   | `7200`                                      |
+| `[distributed_prd] include_max_depth` | `PRD_INCLUDE_MAX_DEPTH`      | —                         | int ≥ 1                                   | `10`                                        |
+| `[distributed_prd] include_markers`   | `PRD_INCLUDE_MARKERS`        | —                         | bool                                      | `false`                                     |
+| `[tasks_lock] stale_ms`               | `TASKS_LOCK_STALE_MS`        | —                         | int > 0                                   | `30000`                                     |
+| `[tasks_lock] timeout_ms`             | `TASKS_LOCK_TIMEOUT_MS`      | —                         | int > 0                                   | `30000`                                     |
+| `[tasks_lock] poll_ms`                | `TASKS_LOCK_POLL_MS`         | —                         | int > 0                                   | `50`                                        |
+| `[concurrency] research_queue`        | `RESEARCH_QUEUE_CONCURRENCY` | `--research-concurrency`  | int 1–10                                  | `3`                                         |
+| `[concurrency] parallelism`           | —                            | `--parallelism`           | int 1–10                                  | `2`                                         |
+| `[api] timeout_ms`                    | `API_TIMEOUT_MS`             | —                         | int > 0                                   | `60000`                                     |
+| `[monitor] task_interval`             | `MONITOR_TASK_INTERVAL`      | `--monitor-task-interval` | int 1–100                                 | `1`                                         |
+| `[monitor] interval_ms`               | —                            | `--monitor-interval`      | int 1000–60000                            | `30000`                                     |
+| `[monitor] enabled`                   | —                            | `--no-resource-monitor`   | bool                                      | `true`                                      |
+| `[cli] prd`                          | —                            | `-p/--prd`                | string (path)                             | `./PRD.md`                                  |
+| `[cli] mode`                          | —                            | `-m/--mode`               | `normal`\|`delta`\|`bug-hunt`\|`validate` | `normal`                                    |
+| `[cli] scope`                         | —                            | `-s/--scope`              | string                                    | unset                                       |
+| `[cli] log_level`                     | `HACKY_LOG_LEVEL`            | `--log-level`             | trace…fatal                               | `info`                                      |
+| `[cli] machine_readable`              | —                            | `--machine-readable`      | bool                                      | `false`                                     |
+| `[cli] continue_on_error`             | —                            | `--continue-on-error`     | bool                                      | `false`                                     |
+| `[cli] cache_enabled`                 | —                            | `--no-cache`              | bool                                      | `true`                                      |
+| `[cli] max_tasks`                     | —                            | `--max-tasks`             | int > 0                                   | unset                                       |
+| `[cli] max_duration_ms`               | —                            | `--max-duration`          | int > 0                                   | unset                                       |
 
 **Mapping semantics.**
 
 - A `[cli]` key sets the **default** for the matching Commander option. An explicit flag on the command line still wins (§9.2.1 layer 7), so `[cli] mode = "bug-hunt"` is overridden by `--mode validate`.
+- `[cli] prd` sets the default **PRD entry path** (the `-p/--prd` flag). Like every `.hack` path it is **repo-root-relative** (§9.7.3 / §9.8): `prd = "spec/SPEC.md"` resolves to `<repoRoot>/spec/SPEC.md` regardless of the invocation directory, so a distributed PRD can be pinned without a per-invocation flag. An explicit `--prd <path>` still wins and — per §9.8.3 — resolves against the _invocation_ directory, while the `.hack` default resolves against the repo root. This is the key that lets a project whose spec lives outside the default `./PRD.md` (e.g. a split spec under `spec/`) declare its canonical entry document.
 - For booleans exposed as negating flags (`--no-cache`, `--no-resource-monitor`), the TOML key names the _positive_ state (`cache_enabled`, `monitor.enabled`); `false` is equivalent to passing the `--no-*` form.
 - Where a single concept is reachable both as an env var and a CLI flag with the same default (`RESEARCH_QUEUE_CONCURRENCY` / `--research-concurrency`, `HACKY_LOG_LEVEL` / `--log-level`, `MONITOR_TASK_INTERVAL` / `--monitor-task-interval`, `PARALLEL_RESEARCH` / `-r`), the TOML key seeds the env var and the CLI option reads through it; only **one** TOML key exists per concept (no duplicate `[cli]`/`[pipeline]` pair), avoiding the ambiguity of two keys racing for the same value.
 - Model-id values are written **bare** (`glm-5.2`) and provider-qualified at read time by the existing `qualifyModel()` path (§9.2.3); an already-qualified value (`zai/glm-5.2`) is accepted and left intact.
@@ -1057,6 +1066,7 @@ Consequence: `hack` **must** be launched from the repository root. Running it fr
 4. Stop with success at the first directory containing `.git` (nearest ancestor wins — this is the working-tree root, correct for worktrees and submodules per §9.8.4).
 5. If the filesystem root is reached without finding `.git`, **fail hard** per §9.8.5.
 6. On success: canonicalize with `realpathSync(repoRoot)` (collapse symlinks), then `process.chdir(repoRoot)` so every subsequent `resolve(...)`/`process.cwd()`/`repoRoot` call site resolves against the repo root without per-site changes.
+
 - The walk is bounded by the filesystem root and performs a constant number of `stat` calls (one or two per level), so it is effectively free.
 
 #### 9.8.3 Implementation Strategy & Explicit-Path Semantics
@@ -1115,3 +1125,54 @@ Consequence: `hack` **must** be launched from the repository root. Running it fr
 - An explicit `--prd ./relative/PRD.md` is resolved against the **invocation** directory, while an omitted `--prd` resolves to `<repoRoot>/PRD.md`.
 - A bugfix child process spawned from a `plan/…/bugfix/…` directory resolves the same repo root and `.hack` as its parent.
 - Smart Commit (§5.1) and `restore_critical_files` invoked during a run launched from a subdirectory operate against the repository root (no stray commits or `plan/` directories in subdirectories).
+
+### 9.9 Validation Gate Semantics (Monotonicity & Terminal-State Re-Execution)
+
+Cross-cutting requirement governing the **semantics** of PRP validation gates — both how the Researcher is allowed to _construct_ them (§6.2) and how the `PRPExecutor` _re-executes_ them (§6.3). The pipeline regressed vs. its bash predecessor (`run-prd.sh`) by treating researcher-authored gate strings as a rigid, mechanically re-executed contract; this section restores correctness by (a) forbidding gates whose truth value is non-monotonic, and (b) deterministically neutralizing any such gate that still reaches the executor.
+
+#### 9.9.1 Problem
+
+`PRPExecutor.#runValidationGates()` runs **every** researcher-authored `validationGates[].command` exactly **once**, as a batch, **after** the Coder Agent finishes — fail-on-first-nonzero, wrapped in a fix-and-retry loop. This model silently assumes each gate is a **monotonic positive assertion about a terminal artifact** ("file `X` exists and contains `Y`"; "`npm test` exits 0"): once true at end-of-turn, it stays true. The large majority of gates satisfy this, which is why most items pass.
+
+But the Researcher freely emits **non-monotonic** gates — and the Blueprint prompt never forbade them — so the assumption breaks in two reproducible ways, each of which makes an item **permanently unwinnable** (no terminal filesystem state satisfies the gate set):
+
+1. **Negative file-existence gates** (`! test -f X`, `test ! -f X`). These encode a _scope boundary_ ("this task must not create file `X` — that's a sibling's job") as a _global-existence_ assertion. The assertion is true only in the temporal window _before_ the file's legitimate owner runs. Once that sibling task completes (and Smart Commit persists its artifact), the gate is permanently false; re-running or resuming the item can never pass short of **deleting a committed sibling deliverable** — which the coder rightly refuses. _Observed:_ `geoform-hack` `P1.M3.T1.S1` gate `! test -f src/hooks/index.ts`, where `src/hooks/index.ts` is the committed deliverable of sibling `P1.M3.T1.S3` ("hooks barrel").
+2. **Create-then-delete lifecycle gates** (spike / throwaway tasks). A PRP encodes a _create → run → capture-evidence → delete-the-throwaway_ lifecycle as a gate sequence in which the early gates require the artifact to **exist** and the final gate requires it to be **gone** (`test ! -f X`). The coder faithfully obeys — it runs the gates incrementally _during_ its turn and self-reports success — but the executor re-runs **all** gates on the post-delete terminal state, so every existence gate fails forever. No single terminal state satisfies both "file exists" and "file gone". _Observed:_ `pi-nvim-bridge-hack` `P1.M1.T1.S1`, gates 1–3 require `extension/spike.ts` while gate 4 is `test ! -f extension/spike.ts`; the coder deleted the spike per the PRP, so gate 1 returned `exit 2 / No such file or directory` on every attempt.
+
+**Why the predecessor did not exhibit this.** `run-prd.sh` validates via a dedicated `VALIDATION_AGENT` that reads the live codebase and authors a fresh, state-aware `validate.sh` + `validation_report.md` (§4.4), then a fix agent iterates on reported issues; the artifacts are deleted afterward. It does **not** mechanically re-execute a fixed list of PRP-embedded gate strings, so non-monotonic conditions never harden into permanent mechanical failures — the agent reasons about the actual current state (recognizing the barrel belongs to a completed sibling, or that a spike's deletion is expected).
+
+A secondary contributor: the Coder Agent's self-reported `"result": "success"` is trusted for the `result` field, but the executor's **independent gate re-run is the real pass/fail** — the coder's "all gates passed" narrative (true under the incremental model it ran internally) papers over the batch-re-execution mismatch in both logs.
+
+#### 9.9.2 Requirements
+
+**REQ-G1 — Gate-construction guardrails (Blueprint prompt).**
+
+The PRP Creation Prompt (§6.2) gate-construction rules MUST forbid gate commands whose pass/fail depends on intermediate (non-terminal) filesystem state or on another task's deliverables not yet existing:
+
+- **G1.1 — No negative file-existence gates.** A gate command MUST NOT assert the _absence_ of a path. Forbidden forms include `test ! -f|-e|-d <path>`, `! test -f|-e|-d <path>`, `[ ! -f|-e|-d <path> ]`, and `! [ -f|-e|-d <path> ]`. File/directory existence is owned by the task graph and is non-monotonic across it. (The Researcher may still _inspect_ for a file's absence during research; it just must not encode that as a mechanical gate.)
+- **G1.2 — Scope boundaries are not shell gates.** A constraint of the form "this task must not create/modify file `X`" or "must not import symbol `Y`" MUST be expressed either (a) as a **Success Criterion** the coder follows (not a shell gate), or (b) as a **`manual: true` Level-4 gate** (§4.2 / §6.3: Level 4 = Manual/Creative), which the executor skips. The executor MUST NOT be allowed to hard-fail an item on a scope-boundary existence check.
+- **G1.3 — Cleanup / throwaway deletion is not a shell gate.** For spike and throwaway artifacts, the "delete the artifact" step is a _cleanup_ instruction, not a mechanical gate. A "the artifact is gone" check MUST be emitted as `manual: true`. A `test ! -f <throwaway>` gate is forbidden by G1.1 and doubly forbidden here.
+- **G1.4 — Throwaway artifacts survive the coder's turn.** The Blueprint and Builder prompts MUST instruct the Coder Agent **not** to delete a throwaway artifact (e.g. a spike file) during its own turn; any cleanup happens after validation. This guarantees the terminal state still satisfies the artifact's _existence_ gates (1–3 in the spike example), which G1.3 then removes the contradicting _absence_ gate (4) from. (Without G1.4, neutralizing only the absence gate would still leave the existence gates failing on a post-delete tree.)
+- **G1.5 — Negated content gates are permitted only when monotonic.** A negated _content_ check (`! grep -q 'FORBIDDEN' file`) is allowed ONLY when `file` is this task's own deliverable and the asserted absence is permanent once fixed (e.g. "no `TODO` markers remain", "no reference to a forbidden symbol"). It MUST NOT assert something about another task's file.
+
+The existing Blueprint gate rules remain in force (ONE command per gate; prefer standard tooling such as `npm test` / `npx vitest run`; no mixed-quote `grep`; no heredocs / `for` loops / multi-line scripts).
+
+**REQ-G2 — Executor hardening (deterministic neutralization of non-monotonic gates).**
+
+Because PRPs are cached (§4.2 PRP cache) and resumed, PRPs already generated with non-monotonic gates would keep failing after REQ-G1 ships. The `PRPExecutor` MUST therefore neutralize such gates at execution time — a pure, conservative relaxation that repairs cached/legacy PRPs without regeneration:
+
+- **G2.1 — Detect and skip negative file-existence gates.** When building/running the gate set, the executor MUST identify any gate whose command is a negated file/directory **existence** test — i.e. a `test`/`[` invocation over a `-f`, `-e`, or `-d` flag with the negation applied either as a leading `!` before `test`/`[` (`! test -f X`, `! [ -f X ]`) or as a `!` immediately inside `test`/`[` (`test ! -f X`, `[ ! -f X ]`) — and mark the result `skipped: true` with `success: true`, recording a logged reason such as _"non-monotonic negative-existence gate neutralized — file existence is owned by the task graph / is a cleanup step, not a terminal-state assertion (§9.9)"_. Skipped gates count as passed, consistent with the existing `manual` / null-command skip semantics in `#runValidationGates`.
+- **G2.2 — Scope: negated existence only; never negated content.** Neutralization targets negated **existence** tests specifically. Negated **content** checks (`! grep …`) and positive existence/content checks are NOT neutralized; they execute normally (a negated content gate that is non-monotonic is prevented upstream by G1.5 rather than silently skipped downstream).
+- **G2.3 — Conservative detector.** The detector SHOULD match only the unambiguous negated-existence forms above (leading/inner `!` on `test`/`[` with `-f`/`-e`/`-d`). An ambiguous command is left to execute normally rather than be silently skipped, so the safety net cannot accidentally suppress a legitimate gate.
+
+**Together:** REQ-G1 prevents new non-monotonic gates from being emitted; REQ-G2 guarantees that any already-cached PRP (or any gate that slips past G1) cannot permanently stall an item. The two reported regressions are fixed by the combination: _geoform_ by G2.1 (its `! test -f` gate is neutralized, and the implementation is otherwise complete); _pi-nvim-bridge_ by G1.3 + G1.4 (the cleanup absence-gate is removed and the spike survives the coder's turn so gates 1–3 pass) with G2.1 as the retroactive backstop for the absence gate itself.
+
+#### 9.9.3 Acceptance Criteria
+
+- A PRP that asserts a scope boundary ("do not create `src/hooks/index.ts`") emits it as a Success Criterion or a `manual: true` Level-4 gate, never as `! test -f src/hooks/index.ts`. (G1.2)
+- A spike/throwaway PRP does not contain a `test ! -f <throwaway>` gate; the throwaway is not deleted during the coder's turn, so its existence gates pass on the terminal state. (G1.3, G1.4)
+- A cached PRP that _does_ contain `! test -f X` / `test ! -f X` (legacy/pre-fix) no longer hard-fails: the executor logs the neutralization and marks the gate skipped/passed. Re-running `geoform-hack` `P1.M3.T1.S1` against the existing cache therefore passes (the barrel legitimately exists from sibling `P1.M3.T1.S3`). (G2.1)
+- Re-running `pi-nvim-bridge-hack` `P1.M1.T1.S1` after regenerating its PRP (cache cleared) passes: the spike survives the coder's turn (gates 1–3 pass on terminal state) and the cleanup gate is `manual`. (G1.3, G1.4)
+- A negated _content_ gate such as `! grep -q 'TODO' <own-deliverable>` still executes and can fail the item (it is not neutralized). (G2.2)
+- An ambiguous command is executed normally, not silently skipped. (G2.3)
+- No item is hard-failed solely because a file legitimately exists or is absent due to another task's completed work.

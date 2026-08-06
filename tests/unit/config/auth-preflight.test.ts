@@ -241,7 +241,7 @@ describeOrSkip(
   () => {
     it('exits 1, prints the preflight message on stderr, creates no plan/ session dir', () => {
       const tmpAgentDir = mkdtempSync(join(tmpdir(), 'preflight-spawn-'));
-      const prdAbs = resolve(process.cwd(), 'PRD.md'); // EXISTS — avoids the parseCLIArgs existsSync trap
+      const prdAbs = resolve(process.cwd(), 'spec/SPEC.md'); // EXISTS — avoids the parseCLIArgs existsSync trap
       const env = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
@@ -282,7 +282,7 @@ describeOrSkip(
     // (bugfix P1.M1.T1.S1 — dryRun/validatePrd early-return BEFORE runAuthPreflight)
     it('exits 0, prints the validation report on stdout, bypasses preflight, creates no session dir', () => {
       const tmpAgentDir = mkdtempSync(join(tmpdir(), 'preflight-spawn-'));
-      const prdAbs = resolve(process.cwd(), 'PRD.md'); // EXISTS + valid — required for validatePrd
+      const prdAbs = resolve(process.cwd(), 'spec/SPEC.md'); // EXISTS + valid — required for validatePrd
       // SCRUBBED env: only the 5 safe keys. NO credential vars. Empty PI_CODING_AGENT_DIR (no auth.json).
       const env = {
         PATH: process.env.PATH,
@@ -309,7 +309,7 @@ describeOrSkip(
 
       // EXIT 0 — local mode succeeded credential-free
       expect(res.status).toBe(0);
-      // Validation report on STDOUT (pino-pretty → stdout). '✅ VALID' = PRD.md in repo root is valid.
+      // Validation report on STDOUT (pino-pretty → stdout). '✅ VALID' = the canonical distributed spec (spec/SPEC.md) is valid.
       expect(res.stdout).toContain('✅ VALID');
       // CRITICAL: proves the preflight was BYPASSED (would be on stderr w/ exit 1 if it ran)
       expect(res.stderr).not.toContain('Authentication preflight failed');
@@ -326,7 +326,7 @@ describeOrSkip(
     // (bugfix P1.M1.T1.S1 — dryRun/validatePrd early-return BEFORE runAuthPreflight)
     it('exits 0, prints DRY RUN on stdout, bypasses preflight, creates no session dir', () => {
       const tmpAgentDir = mkdtempSync(join(tmpdir(), 'preflight-spawn-'));
-      const prdAbs = resolve(process.cwd(), 'PRD.md');
+      const prdAbs = resolve(process.cwd(), 'spec/SPEC.md');
       const env = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
@@ -386,7 +386,7 @@ describeOrSkip(
       const tmpAgentDir = mkdtempSync(
         join(tmpdir(), 'harness-mismatch-spawn-')
       );
-      const prdAbs = resolve(process.cwd(), 'PRD.md'); // REAL repo PRD — avoids parseCLIArgs trap
+      const prdAbs = resolve(process.cwd(), 'spec/SPEC.md'); // REAL repo PRD — avoids parseCLIArgs trap
       const env = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
@@ -440,7 +440,7 @@ describeOrSkip(
       const tmpAgentDir = mkdtempSync(
         join(tmpdir(), 'harness-mismatch-spawn-')
       );
-      const prdAbs = resolve(process.cwd(), 'PRD.md');
+      const prdAbs = resolve(process.cwd(), 'spec/SPEC.md');
       const env = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
