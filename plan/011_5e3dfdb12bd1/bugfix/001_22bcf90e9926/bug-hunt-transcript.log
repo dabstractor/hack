@@ -1,0 +1,36 @@
+The verdict file is written and validated. Here is my final report.
+
+## Bug Hunt Summary — PRD §9.9 Validation Gate Semantics (Session 011)
+
+I performed a creative, adversarial end-to-end validation of the §9.9 delta across all four implementation layers.
+
+**What I tested (all correct & robust):**
+- **Detector** (`gate-semantics.ts`) — 16-case adversarial probe: all 4 canonical negated-existence forms neutralized; negated content/ambiguous/compound/`[[ ]]`/full-path all execute normally (G2.2/G2.3). Zero dangerous false positives — shell semantics guarantee the matched prefixes are always negation.
+- **Executor integration** (`prp-executor.ts #runValidationGates`) — neutralized shape mirrors manual skip, BashMCP not invoked, aggregation counts skipped as passed, fix-retry excludes neutralized gates, watchdog terminal-abort unaffected. Confirmed it's the only mechanical gate-execution path (no bypass).
+- **Runtime effectiveness** — the §9.9-edited monolithic `prompts.ts` **is** what reaches the model (via `agent-factory` system prompts and the split wrapper that embeds the base); no shadowing, no contradictory guidance.
+- **Docs/log** — README, ARCHITECTURE, PROMPTS.md mirror all synced; runtime log reason matches PRD G2.1 wording verbatim.
+- **Verification** — src-only `tsc` clean (exit 0); 40 + 84 + 11 tests pass. (The 680 `tsc` diagnostics are pre-existing in test files, excluded from build, none touching §9.9.)
+
+**One real finding (minor):**
+- **BUG-001** — PRD §9.9.2 G1.4 mandates the throwaway-survival instruction in *both* the Blueprint **and** Builder prompts. The Builder carries it (`prompts.ts:~750`), but the Blueprint (`PRP_BLUEPRINT_PROMPT`, gate-construction rules at `prompts.ts:285-293`) only enumerates G1.1/G1.2/G1.3/G1.5 — no G1.4. Functional impact is low (the Builder carries the Coder rule and G1.3 already blocks the harmful gate), so §9.9.3 acceptance remains satisfiable, but the literal dual-prompt requirement is only half-met.
+
+```json
+{
+  "hasBugs": true,
+  "bugs": [
+    {
+      "id": "BUG-001",
+      "severity": "minor",
+      "title": "G1.4 throwaway-survival instruction is missing from the Blueprint (Researcher) prompt — PRD §9.9.2 requires it in BOTH the Blueprint and Builder prompts",
+      "description": "PRD §9.9.2 REQ-G1 bullet G1.4 states verbatim that 'The Blueprint AND Builder prompts MUST instruct the Coder Agent not to delete a throwaway artifact.' The Builder (PRP_BUILDER_PROMPT) carries the G1.4 block, but the Blueprint (PRP_BLUEPRINT_PROMPT, lines 182-677) does not: its gate-construction CRITICAL RULES (lines 285-293) enumerate G1.1, G1.2, G1.3, G1.5 only, with no G1.4 throwaway-survival instruction. Functional impact is low (Builder carries the Coder rule; G1.3 blocks the harmful gate), but the literal dual-prompt requirement is half-satisfied. PROMPTS.md mirror reproduces the same gap consistently.",
+      "reproduction": "1. Open src/agents/prompts.ts. 2. Read PRP_BLUEPRINT_PROMPT gate-construction block lines 285-293: G1.1/G1.2/G1.3/G1.5 present, no G1.4. 3. `awk 'NR>=182 && NR<=677' src/agents/prompts.ts | grep -ni 'G1\\.4|survive|do not delete throwaway'` → no throwaway-survival match. 4. Contrast with PRP_BUILDER_PROMPT lines ~750-765 which has G1.4. 5. PRD §9.9.2 G1.4 requires both.",
+      "location": "src/agents/prompts.ts:285-293 (PRP_BLUEPRINT_PROMPT gate-construction rules — G1.4 absent); Builder implementation present at src/agents/prompts.ts:750-765"
+    }
+  ],
+  "summary": "Thorough creative E2E validation of PRD §9.9. Detector precise (no false positives; correct on all canonical forms, G2.2/G2.3 conservative). Executor integration correct (neutralized = skipped, identical shape to manual skip, BashMCP not called, aggregation/watchdog/fix-retry all correct, single execution path). Runtime effectiveness confirmed (monolithic §9.9-edited prompts reach the model; split wrapper embeds the base, no shadowing). Docs synced; log reason matches PRD verbatim. src-only tsc clean; 135 relevant tests pass. One minor literal spec deviation: G1.4 present in Builder but absent from Blueprint prompt, whereas PRD §9.9.2 G1.4 mandates both; low functional impact.",
+  "recommendations": [
+    "Add a G1.4 throwaway-survival bullet to PRP_BLUEPRINT_PROMPT's gate-construction rules (src/agents/prompts.ts ~line 293) and mirror into PROMPTS.md (~lines 268-277) to fully satisfy PRD §9.9.2 G1.4's 'Blueprint and Builder prompts' wording.",
+    "Optional: assert the §9.9 neutralization log message in tests, and add an integration test exercising neutralization through the real BashMCP path."
+  ]
+}
+```

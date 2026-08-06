@@ -1,0 +1,10 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+ h2.3 Minor Issues (Nice to Fix)
+  h3.0 Issue 1: G1.4 throwaway-survival instruction is missing from the Blueprint (Researcher) prompt — PRD §9.9.2 requires it in BOTH the Blueprint and Builder prompts
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:9 list:3
