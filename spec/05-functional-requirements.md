@@ -175,3 +175,65 @@ There is a necessary, legitimate window during §4.1 Initialization & Breakdown 
 - `hack status --output json` emits the structured `awaiting_breakdown` object and exits `0`.
 - `hack status --file /nonexistent/tasks.json` still exits non-zero with a clear “file not found” error (explicit override is not softened).
 - `hack status` with _no_ sessions at all still exits non-zero with the existing “No sessions found” message — the two empty states (“no sessions” vs “session exists, no `tasks.json` yet”) are distinguished, not collapsed.
+
+### 5.4 Manual Status Updates (`hack update`)
+
+The predecessor `tsk update` UX is preserved: a user can manually rewrite any item’s status from the command line, with **both** the task ID and the target status fuzzy-matched so the command is as easy to type as possible.
+
+**Command surface.**
+
+```bash
+hack update <task-id> <status> [-f <file>] [--session <hash>] [-o text|json]
+```
+
+```bash
+hack update P1.M1.T1.S1 ready        # full canonical form
+hack update p1.m1.t1.s1 ready        # case-insensitive, dotted
+hack update p1m1t1s1 ready           # concatenated, no dots
+hack update 1.1.1.1 re               # numeric form (letters not required) + 2-letter status
+hack update 1.2 done                 # milestone + synonym status
+hack update 2 comp                   # phase + prefix status
+```
+
+**Loose task-ID matching.** The `<task-id>` is normalized before lookup, so all of the following are equivalent:
+
+- Canonical: `P1.M1.T1.S1`
+- Case-insensitive / unpunctuated: `p1.m1.t1.s1`, `p1m1t1s1`
+- Numeric (the `P`/`M`/`T`/`S` letters are **not** required): `1.1.1.1` → `P1.M1.T1.S1`, `1.2` → `P1.M2` (milestone)
+
+Segments map positionally Phase → Milestone → Task → Subtask, so `1`, `1.2`, `1.2.3`, and `1.2.3.4` target a Phase, Milestone, Task, and Subtask respectively. Trailing segments may be omitted.
+
+**Loose status matching.** The `<status>` argument is fuzzy-matched to a canonical status in this order:
+
+1. **Synonym/alias table** (exact, case-insensitive) — for shorthands that are not derivable from the canonical word, or that would otherwise be ambiguous:
+   - `d`, `done`, `fin`, `finished`, `completed` → **Complete**
+   - `re`, `rdy` → **Ready**
+2. **Canonical exact** (case-insensitive): `ready`, `Complete`, `FAILED`, …
+3. **Unique prefix**: `c`→Complete, `p`→Planned, `i`→Implementing, `o`→Obsolete, `f`→Failed, `res`/`research`→Researching, `comp`→Complete, `impl`→Implementing, `plan`→Planned, `obs`→Obsolete.
+4. **Unique substring**: any substring that matches exactly one status.
+5. **Ambiguous** (e.g. `r` matches both Ready and Researching) → error listing the candidates. **Unknown** → error listing the valid statuses.
+
+The matchable status set is the lifecycle set from §5.3 plus `Ready`: `Planned`, `Researching`, `Ready`, `Implementing`, `Complete`, `Failed`, `Obsolete`. (`Retrying` is an internal transitional status set by the retry manager and is intentionally **not** manually settable — setting it by hand would fight the orchestrator. A stuck `Retrying` item is reset by setting it to `Planned` or `Ready`.)
+
+**Cascade semantics.** Updating one item keeps the hierarchy consistent:
+
+- **Setting a parent to `Complete` cascades `Complete` to every descendant** (so `hack update 1 done` marks the whole phase tree Complete), exactly like the predecessor.
+- **Ancestor recompute.** After the target item is changed, every ancestor’s status is recomputed bottom-up as the **minimum** (least-progressed) status among its non-`Failed` children (`Failed` children are excluded unless ALL children are `Failed`, in which case the parent becomes `Failed`; `Obsolete` is treated as terminal alongside `Complete`, and loses ties to it so a fully-done parent reports `Complete`). Marking the last incomplete subtask `Complete` promotes its task/milestone/phase to `Complete`; resetting a subtask back to `Planned` drops its ancestors to reflect the remaining work.
+
+**Task file discovery.** `hack update` resolves the target `tasks.json` with the same priority as `hack task` / `hack status` (§5.3 Task File Discovery Priority): `--file <path>` overrides everything; otherwise the latest session is selected (explicit `--session <hash>` or the latest), preferring a bugfix child’s `tasks.json` over the main session’s. Unlike the read-only `status` command, `update` is a **write**: a missing _discovered_ `tasks.json` (breakdown-in-progress) is a hard error with a clear message, NOT the calm `awaiting_breakdown` notice — the user must wait for breakdown or point at an explicit `--file`.
+
+**Concurrency & integrity.** Every `hack update` is a serialized read-modify-write: it acquires the same exclusive `tasks.json.lock` (sibling lockfile) used by the orchestrator and research supervisor, validates the result through the canonical backlog schema, and writes atomically (temp file + rename). It can therefore never corrupt `tasks.json` or race a concurrent writer (§5.1). A lock that cannot be acquired within the configured timeout fails fast with a clear message rather than blocking indefinitely.
+
+**Output.** On success it prints `Updated <ID> status to <Status>` to stdout; under `-o json` it emits `{ "id", "status", "title" }`. Errors (task not found, ambiguous/unknown status, file not found, lock timeout) print a clear message to stderr and exit non-zero.
+
+**Acceptance criteria.**
+
+- `hack update 1.1.1.1 done` sets `P1.M1.T1.S1` to `Complete` and prints a success line; `hack task` afterward shows the subtask `Complete`.
+- `hack update p1m1t1s1 re` resolves to `P1.M1.T1.S1` → `Ready` (synonym), case-insensitively.
+- `hack update 1 done` cascades `Complete` to every item under `P1`.
+- `hack update <last-incomplete-subtask> comp` promotes its parent Task/Milestone/Phase to `Complete` via ancestor recompute.
+- `hack update <a-subtask> p` (reset to Planned) drops its Task/Milestone/Phase ancestors to reflect the least-progressed child.
+- `hack update 9.9.9.9 done` (unknown id) exits non-zero with a clear “not found” message.
+- `hack update 1.1.1.1 r` exits non-zero with an ambiguity message listing `Ready` and `Researching`.
+- `hack update 1.1.1.1 bogus` exits non-zero with the list of valid statuses.
+- `hack update` writes atomically (temp + rename) under the §5.1 lock, so a concurrent writer can never lose an update.
