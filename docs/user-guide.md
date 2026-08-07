@@ -59,7 +59,7 @@ A well-written PRD is the foundation of successful autonomous development with t
 
 ### PRD Structure
 
-Based on the [master PRD](../PRD.md), a comprehensive PRD should include these sections:
+Based on the [master PRD](../spec/SPEC.md), a comprehensive PRD should include these sections:
 
 1. **Executive Summary** (1-2 paragraphs)
    - High-level overview of what you're building
@@ -352,7 +352,7 @@ Press `Ctrl+C` to gracefully shutdown:
 Resume with `--continue` flag:
 
 ```bash
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 **NEVER Manually Edit:**
@@ -398,7 +398,7 @@ Use delta mode when:
 Delta mode is automatically triggered when the PRD hash changes. You can also explicitly request delta mode:
 
 ```bash
-npm run dev -- --prd ./PRD.md --mode delta
+npm run dev -- --prd spec/SPEC.md --mode delta
 ```
 
 ### Step-by-Step Delta Workflow
@@ -407,14 +407,14 @@ npm run dev -- --prd ./PRD.md --mode delta
 
 ```bash
 # Edit your PRD
-vim PRD.md
+vim spec/SPEC.md
 ```
 
 **Step 2: Run the pipeline**
 
 ```bash
 # Delta mode is automatic when PRD changes
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 ```
 
 **Step 3: Observe delta session creation**
@@ -453,15 +453,15 @@ Each delta session:
 
 ```bash
 # Initial session
-npm run dev -- --prd ./PRD.md  # Creates 001_abc...
+npm run dev -- --prd spec/SPEC.md  # Creates 001_abc...
 
 # Add feature X
-vim PRD.md  # Add feature X
-npm run dev -- --prd ./PRD.md  # Creates 002_def... (child of 001_abc...)
+vim spec/SPEC.md  # Add feature X
+npm run dev -- --prd spec/SPEC.md  # Creates 002_def... (child of 001_abc...)
 
 # Modify feature Y
-vim PRD.md  # Modify feature Y
-npm run dev -- --prd ./PRD.md  # Creates 003_ghi... (child of 002_def...)
+vim spec/SPEC.md  # Modify feature Y
+npm run dev -- --prd spec/SPEC.md  # Creates 003_ghi... (child of 002_def...)
 ```
 
 ### Example: Adding a New Feature
@@ -532,7 +532,7 @@ Execute specific portions of your project using scope syntax. This is useful for
 Execute all milestones, tasks, and subtasks within a phase:
 
 ```bash
-npm run dev -- --prd ./PRD.md --scope P1
+npm run dev -- --prd spec/SPEC.md --scope P1
 ```
 
 **Use Cases:**
@@ -552,7 +552,7 @@ npm run dev -- --prd ./PRD.md --scope P1
 Execute all tasks and subtasks within a milestone:
 
 ```bash
-npm run dev -- --prd ./PRD.md --scope P3.M4
+npm run dev -- --prd spec/SPEC.md --scope P3.M4
 ```
 
 **Use Cases:**
@@ -565,7 +565,7 @@ npm run dev -- --prd ./PRD.md --scope P3.M4
 
 ```bash
 # Run only the API Milestone in Phase 3
-npm run dev -- --prd ./PRD.md --scope P3.M2
+npm run dev -- --prd spec/SPEC.md --scope P3.M2
 ```
 
 ### Task Execution
@@ -573,7 +573,7 @@ npm run dev -- --prd ./PRD.md --scope P3.M2
 Execute all subtasks within a task:
 
 ```bash
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1
 ```
 
 **Use Cases:**
@@ -586,7 +586,7 @@ npm run dev -- --prd ./PRD.md --scope P1.M1.T1
 
 ```bash
 # Re-run the Database Setup task
-npm run dev -- --prd ./PRD.md --scope P2.M1.T3 --verbose
+npm run dev -- --prd spec/SPEC.md --scope P2.M1.T3 --verbose
 ```
 
 ### Subtask Execution
@@ -594,7 +594,7 @@ npm run dev -- --prd ./PRD.md --scope P2.M1.T3 --verbose
 Execute a single subtask:
 
 ```bash
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1.S1
 ```
 
 **Use Cases:**
@@ -607,7 +607,7 @@ npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1
 
 ```bash
 # Re-run a failed subtask with verbose output
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1 --verbose --no-cache
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1.S1 --verbose --no-cache
 ```
 
 ### Scope Use Cases
@@ -616,28 +616,28 @@ npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1 --verbose --no-cache
 
 ```bash
 # Work on a specific feature (milestone scope)
-npm run dev -- --prd ./PRD.md --scope P1.M2
+npm run dev -- --prd spec/SPEC.md --scope P1.M2
 ```
 
 **Debugging:**
 
 ```bash
 # Re-run a failing task
-npm run dev -- --prd ./PRD.md --scope P1.M1.T3 --verbose
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T3 --verbose
 ```
 
 **Testing:**
 
 ```bash
 # Execute a subset for validation
-npm run dev -- --prd ./PRD.md --scope P1 --dry-run
+npm run dev -- --prd spec/SPEC.md --scope P1 --dry-run
 ```
 
 **Demo:**
 
 ```bash
 # Prepare specific functionality for demo
-npm run dev -- --prd ./PRD.md --scope P2.M3.T2
+npm run dev -- --prd spec/SPEC.md --scope P2.M3.T2
 ```
 
 ---
@@ -762,7 +762,7 @@ npm run test:e2e
 Run QA even with incomplete tasks:
 
 ```bash
-npm run dev -- --prd ./PRD.md --mode bug-hunt
+npm run dev -- --prd spec/SPEC.md --mode bug-hunt
 ```
 
 **What Happens:**
@@ -855,10 +855,10 @@ This section helps you diagnose and resolve common issues organized by **symptom
 
 ```bash
 # Run with verbose output
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 
 # Dry run to see what would happen
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 
 # Check session state
 cat plan/001_hash/tasks.json | jq '.backlog[] | select(.status == "Failed")'
@@ -871,7 +871,7 @@ cat plan/001_hash/tasks.json | jq '.backlog[] | select(.status == "Failed")'
 **What you see:**
 
 ```bash
-$ npm run dev -- --prd ./PRD.md
+$ npm run dev -- --prd spec/SPEC.md
 Error: PRD file not found
 ```
 
@@ -882,11 +882,11 @@ The PRD file path is incorrect or the file doesn't exist.
 
 ```bash
 # Use absolute or relative path
-npm run dev -- --prd /full/path/to/PRD.md
+npm run dev -- --prd /full/path/to/spec/SPEC.md
 
 # Or verify current directory
 pwd
-ls PRD.md
+ls spec/SPEC.md
 ```
 
 ---
@@ -912,7 +912,7 @@ cat plan/001_hash/PRP/P1.M1.T1.S1.md
 
 # 2. Look for missing context or unclear instructions
 # 3. Re-run the specific subtask with verbose mode
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1 --verbose --no-cache
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1.S1 --verbose --no-cache
 
 # 4. If PRP is incomplete, manually enhance it or fix the implementation
 ```
@@ -934,7 +934,7 @@ Pipeline takes much longer than expected.
 
 ```bash
 # 1. Use scope to execute smaller portions
-npm run dev -- --prd ./PRD.md --scope P1
+npm run dev -- --prd spec/SPEC.md --scope P1
 
 # 2. Verify caching is enabled (default)
 # Check for cache hits in verbose output
@@ -970,10 +970,10 @@ Error: Cannot resume session
 ls plan/
 
 # 2. Use correct PRD path for existing session
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 
 # 3. Or start fresh (don't use --continue)
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 ```
 
 ---
@@ -992,13 +992,13 @@ Delta mode runs but no new tasks are created despite PRD changes.
 
 ```bash
 # 1. Verify PRD actually changed
-git diff PRD.md
+git diff spec/SPEC.md
 
 # 2. Make sure changes affect functional requirements
 # (Not just formatting or comments)
 
 # 3. Force full re-run if needed (bypass delta)
-npm run dev -- --prd ./PRD.md --scope all
+npm run dev -- --prd spec/SPEC.md --scope all
 ```
 
 ---
@@ -1018,7 +1018,7 @@ No output for extended period during agent execution.
 
 ```bash
 # 1. Enable verbose mode to see progress
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 
 # 2. Check API connectivity
 curl https://api.z.ai/api/anthropic/v1/messages
@@ -1028,7 +1028,7 @@ export API_TIMEOUT_MS=120000
 
 # 4. Use --continue to resume if stuck
 # Press Ctrl+C for graceful shutdown, then:
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 ### Error Messages Reference
@@ -1054,7 +1054,7 @@ If you can't resolve the issue:
 
 ```bash
 # Generate diagnostic info
-npm run dev -- --prd ./PRD.md --verbose > debug.log 2>&1
+npm run dev -- --prd spec/SPEC.md --verbose > debug.log 2>&1
 
 # Include in your issue:
 # - Relevant portion of debug.log
@@ -1091,11 +1091,11 @@ const cacheKey = hash(`${task.title}${task.description}${task.dependencies}`);
 
 ```bash
 # First run: Cache MISS (generates PRP)
-$ npm run dev -- --prd ./PRD.md --scope P1.M1.T1
+$ npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1
 [ResearchQueue] Cache MISS - PRP will be generated
 
 # Second run: Cache HIT (reuses PRP)
-$ npm run dev -- --prd ./PRD.md --scope P1.M1.T1
+$ npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1
 [ResearchQueue] Cache HIT - using cached PRP
 ```
 
@@ -1103,7 +1103,7 @@ $ npm run dev -- --prd ./PRD.md --scope P1.M1.T1
 
 ```bash
 # Force PRP regeneration
-npm run dev -- --prd ./PRD.md --no-cache
+npm run dev -- --prd spec/SPEC.md --no-cache
 ```
 
 **Cache Invalidation:**
@@ -1118,7 +1118,7 @@ Cache is automatically invalidated when:
 
 ```bash
 # Check cache effectiveness (verbose mode)
-$ npm run dev -- --prd ./PRD.md --verbose
+$ npm run dev -- --prd spec/SPEC.md --verbose
 [TaskOrchestrator] Cache metrics: hits=45, misses=5, hitRatio=90.0%
 ```
 
@@ -1153,7 +1153,7 @@ await sessionManager.flushUpdates();
 
 ```bash
 # Check batching effectiveness (verbose mode)
-$ npm run dev -- --prd ./PRD.md --verbose
+$ npm run dev -- --prd spec/SPEC.md --verbose
 [SessionManager] Batch write complete: 50 items in 1 operation (98% efficiency)
 ```
 
@@ -1267,7 +1267,7 @@ export ANTHROPIC_BASE_URL="https://fast-api.example.com"
 **Enable Verbose Logging:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 ```
 
 **Key Metrics to Track:**
@@ -1319,13 +1319,13 @@ This guide helps you migrate from the bash version (v0) to the TypeScript implem
 **Before (v0):**
 
 ```bash
-./prp-pipeline.sh --prd PRD.md
+./prp-pipeline.sh --prd spec/SPEC.md
 ```
 
 **After (v1):**
 
 ```bash
-npm run dev -- --prd PRD.md
+npm run dev -- --prd spec/SPEC.md
 # Note the -- separator for npm scripts
 ```
 
@@ -1409,13 +1409,13 @@ export ANTHROPIC_DEFAULT_SONNET_MODEL="glm-4.7"
 **Before (v0):**
 
 ```bash
-./prp-pipeline.sh --prd PRD.md --scope P1.M1
+./prp-pipeline.sh --prd spec/SPEC.md --scope P1.M1
 ```
 
 **After (v1):**
 
 ```bash
-npm run dev -- --prd PRD.md --scope P1.M1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1
 # Same scope syntax, different invocation
 ```
 
@@ -1424,13 +1424,13 @@ npm run dev -- --prd PRD.md --scope P1.M1
 **Before (v0):**
 
 ```bash
-./prp-pipeline.sh --prd PRD.md --continue
+./prp-pipeline.sh --prd spec/SPEC.md --continue
 ```
 
 **After (v1):**
 
 ```bash
-npm run dev -- --prd PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 # Identical command syntax
 ```
 
@@ -1446,7 +1446,7 @@ npm run dev -- --prd PRD.md --continue
 
 ```bash
 # Automatic when PRD changes
-npm run dev -- --prd PRD.md --mode delta
+npm run dev -- --prd spec/SPEC.md --mode delta
 ```
 
 ### Rollback Procedures
@@ -1458,7 +1458,7 @@ npm run dev -- --prd PRD.md --mode delta
 git checkout v0
 
 # 2. Use bash script
-./prp-pipeline.sh --prd PRD.md
+./prp-pipeline.sh --prd spec/SPEC.md
 
 # 3. To return to v1
 git checkout main
@@ -1481,7 +1481,7 @@ git checkout main
 npm install
 
 # 4. Run new version (creates new session)
-npm run dev -- --prd PRD.md
+npm run dev -- --prd spec/SPEC.md
 
 # 5. Old sessions remain in .sessions/ for reference
 ```
@@ -1491,7 +1491,7 @@ npm run dev -- --prd PRD.md
 **For more information:**
 
 - [README.md](../README.md) - Quick Start and basic features
-- [PRD.md](../PRD.md) - Master requirements document
+- [spec/SPEC.md](../spec/SPEC.md) - Master requirements document
 - [PROMPTS.md](../PROMPTS.md) - System prompts and PRP concept
 
 **Need help?**

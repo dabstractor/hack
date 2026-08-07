@@ -45,7 +45,7 @@ validation criteria for implementing work units correctly in a single pass.
 
 ```mermaid
 flowchart LR
-    A[PRD.md] --> B[Architect Agent]
+    A[spec/SPEC.md] --> B[Architect Agent]
     B --> C[tasks.json<br/>Backlog]
     C --> D[Task Orchestrator]
     D --> E[Researcher Agent<br/>PRP Generator]
@@ -95,10 +95,10 @@ npm install
 
 ```bash
 # Run with the example PRD
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 
 # See what would happen without executing
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 ```
 
 That's it! The pipeline will analyze your PRD, generate tasks, and implement them through AI agents.
@@ -110,7 +110,7 @@ That's it! The pipeline will analyze your PRD, generate tasks, and implement the
 You don't have to `cd` to the repository root. At startup `hack` walks upward from your
 current directory to the nearest `.git` entry (a directory for a normal clone, or a file for
 a worktree/submodule) and `chdir`s to that repository root before doing anything else
-(PRD §9.8). The session directory, `PRD.md`, `.hack`, `.env`, and `plan/` are all resolved
+(PRD §9.8). The session directory, `spec/SPEC.md`, `.hack`, `.env`, and `plan/` are all resolved
 relative to that root, so the same invocation works from anywhere inside the repo. This applies
 to **every** subcommand — `task`, `status`, `update`, `cache`, `inspect`, `artifacts`,
 `validate-state`, and `config` — not just the default pipeline run, because `hack` resolves and `chdir`s to the
@@ -199,10 +199,10 @@ For details, see [Resilience Tuning](docs/CONFIGURATION.md#resilience-tuning) (e
 
 ```bash
 # Run full pipeline with your PRD
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 
 # Run with verbose output
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 ```
 
 ### Scoped Execution
@@ -211,16 +211,16 @@ Execute specific portions of your project:
 
 ```bash
 # Run specific phase
-npm run dev -- --prd ./PRD.md --scope P3
+npm run dev -- --prd spec/SPEC.md --scope P3
 
 # Run specific milestone
-npm run dev -- --prd ./PRD.md --scope P3.M4
+npm run dev -- --prd spec/SPEC.md --scope P3.M4
 
 # Run specific task
-npm run dev -- --prd ./PRD.md --scope P3.M4.T2
+npm run dev -- --prd spec/SPEC.md --scope P3.M4.T2
 
 # Run single subtask
-npm run dev -- --prd ./PRD.md --scope P3.M4.T2.S1
+npm run dev -- --prd spec/SPEC.md --scope P3.M4.T2.S1
 ```
 
 ### Delta Session (PRD Changes)
@@ -229,7 +229,7 @@ When you modify your PRD, run in delta mode to re-execute changed tasks:
 
 ```bash
 # Run in delta mode (re-execute changed tasks; decompose added requirements)
-npm run dev -- --prd ./PRD.md --mode delta
+npm run dev -- --prd spec/SPEC.md --mode delta
 ```
 
 The delta breakdown runs over `delta_prd.md` (the structured diff slice), so **added**
@@ -249,7 +249,7 @@ Run QA bug hunt even with incomplete tasks:
 
 ```bash
 # Run QA bug hunt mode
-npm run dev -- --prd ./PRD.md --mode bug-hunt
+npm run dev -- --prd spec/SPEC.md --mode bug-hunt
 ```
 
 Each bug-hunt iteration that finds bugs creates a new **numbered** bugfix session
@@ -267,7 +267,7 @@ edits produce deltas against the real code; validation + bug-hunt still run. Gua
 
 ```bash
 # Seed a baseline session for an existing implementation
-npm run dev -- --prd ./PRD.md --adopt-prd
+npm run dev -- --prd spec/SPEC.md --adopt-prd
 ```
 
 ### Accept PRD Edits as Baseline (--accept-prd-changes)
@@ -278,7 +278,7 @@ as the new baseline **without** spawning a delta session (PRD §4.3). It cancels
 
 ```bash
 # Accept PRD edits without a delta session
-npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
+npm run dev -- --prd spec/SPEC.md --continue --accept-prd-changes
 ```
 
 ### Task Status (hack status / hack task)
@@ -341,39 +341,39 @@ hack update 2 comp                   # phase + prefix status
 
 ```bash
 # Continue from previous session
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 ### Dry Run
 
 ```bash
 # See what would happen without executing
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 ```
 
 ### Bypass Cache
 
 ```bash
 # Bypass PRP cache and regenerate all PRPs
-npm run dev -- --prd ./PRD.md --no-cache
+npm run dev -- --prd spec/SPEC.md --no-cache
 ```
 
 ## CLI Options
 
-| Option                 | Alias | Type    | Default    | Description                                                             |
-| ---------------------- | ----- | ------- | ---------- | ----------------------------------------------------------------------- |
-| `--prd <path>`         | `-p`  | string  | `./PRD.md` | Path to PRD file                                                        |
-| `--scope <scope>`      | `-s`  | string  | -          | Execute specific scope (e.g., `P3.M4`)                                  |
-| `--mode <mode>`        | `-m`  | string  | `normal`   | Execution mode: `normal`, `delta`, `bug-hunt`, `validate`               |
-| `--continue`           | `-c`  | boolean | false      | Resume from previous session                                            |
-| `--dry-run`            | `-d`  | boolean | false      | Show plan without executing (no credential required)                    |
-| `--validate-prd`       | -     | boolean | false      | Validate the PRD and exit (no agent, no credential)                     |
-| `--accept-prd-changes` | -     | boolean | false      | Accept PRD edits as the new baseline without a delta session (PRD §4.3) |
-| `--verbose`            | `-v`  | boolean | false      | Enable debug logging                                                    |
-| `--machine-readable`   | -     | boolean | false      | Enable machine-readable JSON output                                     |
-| `--no-cache`           | -     | boolean | false      | Bypass PRP cache and regenerate all PRPs                                |
-| `--adopt-prd`          | -     | boolean | false      | Adopt an already-implemented codebase against the PRD (PRD §4.6)        |
-| `--help`               | `-h`  | boolean | false      | Show help                                                               |
+| Option                 | Alias | Type    | Default                      | Description                                                             |
+| ---------------------- | ----- | ------- | ---------------------------- | ----------------------------------------------------------------------- |
+| `--prd <path>`         | `-p`  | string  | `spec/SPEC.md` (via `.hack`) | Path to PRD file                                                        |
+| `--scope <scope>`      | `-s`  | string  | -                            | Execute specific scope (e.g., `P3.M4`)                                  |
+| `--mode <mode>`        | `-m`  | string  | `normal`                     | Execution mode: `normal`, `delta`, `bug-hunt`, `validate`               |
+| `--continue`           | `-c`  | boolean | false                        | Resume from previous session                                            |
+| `--dry-run`            | `-d`  | boolean | false                        | Show plan without executing (no credential required)                    |
+| `--validate-prd`       | -     | boolean | false                        | Validate the PRD and exit (no agent, no credential)                     |
+| `--accept-prd-changes` | -     | boolean | false                        | Accept PRD edits as the new baseline without a delta session (PRD §4.3) |
+| `--verbose`            | `-v`  | boolean | false                        | Enable debug logging                                                    |
+| `--machine-readable`   | -     | boolean | false                        | Enable machine-readable JSON output                                     |
+| `--no-cache`           | -     | boolean | false                        | Bypass PRP cache and regenerate all PRPs                                |
+| `--adopt-prd`          | -     | boolean | false                        | Adopt an already-implemented codebase against the PRD (PRD §4.6)        |
+| `--help`               | `-h`  | boolean | false                        | Show help                                                               |
 
 > `--mode validate` runs the validation agent phase on a real session; `--mode bug-hunt` runs
 > the QA bug hunt. These are `--mode` values — distinct from the pure-local `--validate-prd`
@@ -638,7 +638,7 @@ export API_TIMEOUT_MS=120000
 
 ```mermaid
 flowchart LR
-    A[PRD.md] --> B[Architect Agent]
+    A[spec/SPEC.md] --> B[Architect Agent]
     B --> C[tasks.json<br/>Backlog]
     C --> D[Task Orchestrator]
     D --> E[PRP Generator<br/>Researcher Agent]
@@ -701,7 +701,7 @@ The PRP Pipeline uses specialized AI agents for each stage of development:
 
 | Agent          | Purpose                  | Input           | Output          | Invoked When       |
 | -------------- | ------------------------ | --------------- | --------------- | ------------------ |
-| **Architect**  | Decompose PRD into tasks | PRD.md          | tasks.json      | New session        |
+| **Architect**  | Decompose PRD into tasks | spec/SPEC.md    | tasks.json      | New session        |
 | **Researcher** | Generate PRPs            | Subtask context | PRP.md          | Subtask starts     |
 | **Coder**      | Implement PRPs           | PRP.md          | Code changes    | PRP generated      |
 | **QA**         | Find bugs                | Completed code  | TEST_RESULTS.md | All tasks complete |
@@ -722,7 +722,7 @@ they need - no guessing, no missing context.
 
 ### Phase 1: Session Initialization
 
-Computes SHA-256 hash of PRD.md to detect new vs existing sessions:
+Computes SHA-256 hash of spec/SPEC.md to detect new vs existing sessions:
 
 - **New session**: Creates `plan/{sequence}_{hash}/` directory
 - **Existing session**: Loads tasks.json and resumes execution
@@ -805,7 +805,7 @@ hacky-hack/
 │       ├── architecture/    # Architectural research
 │       ├── tasks.json       # Task hierarchy
 │       └── prd_snapshot.md  # PRD snapshot
-├── PRD.md                   # Master product requirements
+├── spec/SPEC.md            # Master product requirements (assembled from @includes)
 ├── PROMPTS.md               # System prompts
 ├── package.json             # npm configuration
 ├── tsconfig.json            # TypeScript configuration

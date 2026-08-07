@@ -341,7 +341,8 @@ export function parseCLIArgs():
   | { subcommand: 'validate-state'; options: Record<string, unknown> }
   | { subcommand: 'cache'; options: CacheOptions }
   | { subcommand: 'task'; options: Record<string, unknown> }
-  | { subcommand: 'config'; options: ConfigOptions } {
+  | { subcommand: 'config'; options: ConfigOptions }
+  | { subcommand: 'update'; options: Record<string, unknown> } {
   const program = new Command();
 
   // Configure program
@@ -1161,6 +1162,18 @@ export function parseCLIArgs():
     // the 'task' branch exactly.
     return {
       subcommand: 'task',
+      options: {},
+    };
+  }
+  if (args.length > 0 && args[0] === 'update') {
+    // Update subcommand (PRD §5.4) was invoked and already handled by action().
+    // Without this branch, parseCLIArgs() falls through to the default path and
+    // returns a full ValidatedCLIArgs object — which makes main() construct and
+    // run the PRP pipeline CONCURRENTLY with the update handler's process.exit().
+    // This return short-circuits main() the same way the other subcommand
+    // branches do. See src/index.ts:128 ('subcommand' in parseResult).
+    return {
+      subcommand: 'update',
       options: {},
     };
   }

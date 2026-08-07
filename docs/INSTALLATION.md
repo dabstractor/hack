@@ -67,7 +67,7 @@ Get up and running in under 5 minutes:
    You can lint your PRD before configuring any API access:
 
    ```bash
-   npm run dev -- --prd ./PRD.md --validate-prd
+   npm run dev -- --prd spec/SPEC.md --validate-prd
    # → Status: ✅ VALID (exit 0)   or   ❌ INVALID (exit 1)
    ```
 
@@ -743,12 +743,12 @@ Now that you have the environment set up:
 
 - **[README.md](../README.md)** - Project overview and Quick Start
 - **[User Guide](./user-guide.md)** - Comprehensive usage documentation for PRD writing, session management, delta workflow, and more
-- **[PRD.md](../PRD.md)** - Product requirements document for understanding the project
+- **[spec/SPEC.md](../spec/SPEC.md)** - Product requirements document for understanding the project
 
 **Common Next Steps**:
 
 1. Read the [User Guide](./user-guide.md) to understand how to write PRDs
-2. Run `npm run dev -- --prd ./PRD.md` to start your first session
+2. Run `npm run dev -- --prd spec/SPEC.md` to start your first session
 3. Explore the [Troubleshooting](#troubleshooting) section in the User Guide for common issues
 
 **Need Help?**

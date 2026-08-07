@@ -36,14 +36,14 @@
 
 Essential commands for daily use:
 
-| Command                                        | Description                                  |
-| ---------------------------------------------- | -------------------------------------------- |
-| `npm run dev -- --prd ./PRD.md`                | Run full pipeline with default PRD           |
-| `npm run dev -- --prd ./PRD.md --scope P1`     | Execute only Phase 1                         |
-| `npm run dev -- --prd ./PRD.md --continue`     | Resume from previous session                 |
-| `npm run dev -- --prd ./PRD.md --dry-run`      | Show plan without executing                  |
-| `npm run dev -- --prd ./PRD.md --verbose`      | Run with debug logging enabled               |
-| `npm run dev -- --prd ./PRD.md --validate-prd` | Validate PRD syntax without running pipeline |
+| Command                                            | Description                                  |
+| -------------------------------------------------- | -------------------------------------------- |
+| `npm run dev -- --prd spec/SPEC.md`                | Run full pipeline with default PRD           |
+| `npm run dev -- --prd spec/SPEC.md --scope P1`     | Execute only Phase 1                         |
+| `npm run dev -- --prd spec/SPEC.md --continue`     | Resume from previous session                 |
+| `npm run dev -- --prd spec/SPEC.md --dry-run`      | Show plan without executing                  |
+| `npm run dev -- --prd spec/SPEC.md --verbose`      | Run with debug logging enabled               |
+| `npm run dev -- --prd spec/SPEC.md --validate-prd` | Validate PRD syntax without running pipeline |
 
 ---
 
@@ -56,7 +56,7 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. The double dash (`--
 **Basic Command:**
 
 ```bash
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 ```
 
 This command:
@@ -70,7 +70,7 @@ This command:
 **With Verbose Logging:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 ```
 
 Enable debug logging to see detailed execution information, including:
@@ -86,19 +86,19 @@ Execute a specific portion of your backlog using scope identifiers:
 
 ```bash
 # Execute only Phase 1
-npm run dev -- --prd ./PRD.md --scope P1
+npm run dev -- --prd spec/SPEC.md --scope P1
 
 # Execute only Milestone 1.1
-npm run dev -- --prd ./PRD.md --scope P1.M1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1
 
 # Execute only Task 1.1.1
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1
 
 # Execute only Subtask 1.1.1.1
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1.S1
 
 # Execute entire backlog (default)
-npm run dev -- --prd ./PRD.md --scope all
+npm run dev -- --prd spec/SPEC.md --scope all
 ```
 
 **Scope Format:**
@@ -118,7 +118,7 @@ npm run dev -- --prd ./PRD.md --scope all
 **Resume Interrupted Session:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 Resumes execution from the previous session, continuing from where it left off. The session manager automatically loads the saved state and continues with incomplete tasks.
@@ -126,7 +126,7 @@ Resumes execution from the previous session, continuing from where it left off. 
 **Dry Run (Preview):**
 
 ```bash
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 ```
 
 Shows what would be executed without actually running the pipeline. Useful for:
@@ -140,7 +140,7 @@ Shows what would be executed without actually running the pipeline. Useful for:
 **PRD Validation Only:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --validate-prd
+npm run dev -- --prd spec/SPEC.md --validate-prd
 ```
 
 Validates the PRD syntax and structure without running the pipeline. Exits with code 0 if valid, 1 if invalid. It makes no API calls and **requires no credential**, so you can lint your PRD before configuring API access.
@@ -152,7 +152,7 @@ When you resume an active session (`--continue`) whose `prd_snapshot.md` no long
 **1. Delta session (default):**
 
 ```bash
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 Spawns a **linked delta session** scoped to the diffs. Completed work is preserved; affected tasks are re-executed. This is the default when no response flag is set.
@@ -164,7 +164,7 @@ Folds the new/changed requirements into the **running** session's task hierarchy
 **3. Accept PRD edits as the new baseline (`--accept-prd-changes`):**
 
 ```bash
-npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
+npm run dev -- --prd spec/SPEC.md --continue --accept-prd-changes
 ```
 
 Accepts the PRD edits as the new baseline **without** generating a delta session. Across all `PRD_CHANGED_*` session states it **cancels the queued `.pending_delta_hash`**, **refreshes `prd_snapshot.md` to the current PRD**, and **exits/resumes idempotently**. Use this for documentation-only edits or for changes that merely describe already-finished, validated work. The next run detects no change and proceeds normally.
@@ -305,9 +305,9 @@ hack config path --global
 
 ### Required Options
 
-| Option         | Type   | Default    | Description               |
-| -------------- | ------ | ---------- | ------------------------- |
-| `--prd <path>` | string | `./PRD.md` | Path to PRD markdown file |
+| Option         | Type   | Default                      | Description               |
+| -------------- | ------ | ---------------------------- | ------------------------- |
+| `--prd <path>` | string | `spec/SPEC.md` (via `.hack`) | Path to PRD markdown file |
 
 ### Execution Control
 
@@ -420,7 +420,7 @@ The pipeline uses specific exit codes to indicate completion status:
 
 ```bash
 # Check exit code in shell script
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
@@ -438,7 +438,7 @@ fi
 
 ```powershell
 # Check exit code in PowerShell
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 if ($LASTEXITCODE -eq 0) {
   Write-Host "Pipeline succeeded"
 } elseif ($LASTEXITCODE -eq 130) {
@@ -457,25 +457,25 @@ if ($LASTEXITCODE -eq 0) {
 **Run pipeline with default settings:**
 
 ```bash
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 ```
 
 **Run with verbose logging for debugging:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 ```
 
 **Check what would happen without executing:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 ```
 
 **Validate PRD syntax:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --validate-prd
+npm run dev -- --prd spec/SPEC.md --validate-prd
 ```
 
 ### Advanced Scenarios
@@ -484,34 +484,34 @@ npm run dev -- --prd ./PRD.md --validate-prd
 
 ```bash
 # Work on Phase 1 first
-npm run dev -- --prd ./PRD.md --scope P1
+npm run dev -- --prd spec/SPEC.md --scope P1
 
 # Later work on Phase 2
-npm run dev -- --prd ./PRD.md --scope P2
+npm run dev -- --prd spec/SPEC.md --scope P2
 ```
 
 **Debugging Specific Issues:**
 
 ```bash
 # Re-run a failed subtask with verbose output
-npm run dev -- --prd ./PRD.md --scope P1.M1.T2.S1 --verbose --no-cache
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T2.S1 --verbose --no-cache
 
 # Validate PRD syntax before running
-npm run dev -- --prd ./PRD.md --validate-prd
+npm run dev -- --prd spec/SPEC.md --validate-prd
 ```
 
 **Resuming After Interruption:**
 
 ```bash
 # Pipeline was interrupted - resume where it left off
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 **Bypassing Cache:**
 
 ```bash
 # Force regeneration of all PRPs
-npm run dev -- --prd ./PRD.md --no-cache
+npm run dev -- --prd spec/SPEC.md --no-cache
 ```
 
 ### Common Patterns
@@ -520,16 +520,16 @@ npm run dev -- --prd ./PRD.md --no-cache
 
 ```bash
 # 1. Validate PRD first
-npm run dev -- --prd ./PRD.md --validate-prd
+npm run dev -- --prd spec/SPEC.md --validate-prd
 
 # 2. Dry run to see what will be executed
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 
 # 3. Execute with scope (start small)
-npm run dev -- --prd ./PRD.md --scope P1.M1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1
 
 # 4. Resume if needed
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 ```
 
 **Delta Iteration:**
@@ -537,25 +537,25 @@ npm run dev -- --prd ./PRD.md --continue
 ```bash
 # After modifying PRD, run only changed tasks
 # The pipeline automatically detects changes via PRD hash
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 
 # Doc-only or already-finished edits? Accept them as the new baseline
 # without spawning a delta session (PRD §4.3):
-npm run dev -- --prd ./PRD.md --continue --accept-prd-changes
+npm run dev -- --prd spec/SPEC.md --continue --accept-prd-changes
 ```
 
 **CI/CD Integration:**
 
 ```bash
 # Machine-readable output for automation
-npm run dev -- --prd ./PRD.md --machine-readable --max-duration 300000
+npm run dev -- --prd spec/SPEC.md --machine-readable --max-duration 300000
 ```
 
 **Quality Assurance:**
 
 ```bash
 # Run bug hunt mode on existing implementation
-npm run dev -- --prd ./PRD.md --mode bug-hunt --scope P2
+npm run dev -- --prd spec/SPEC.md --mode bug-hunt --scope P2
 ```
 
 ---
@@ -569,8 +569,8 @@ npm run dev -- --prd ./PRD.md --mode bug-hunt --scope P2
 **What you see:**
 
 ```bash
-$ npm run dev -- --prd ./PRD.md
-Error: PRD file not found: ./PRD.md
+$ npm run dev -- --prd spec/SPEC.md
+Error: PRD file not found: spec/SPEC.md
 ```
 
 **Why it happens:**
@@ -581,11 +581,11 @@ The PRD file path is incorrect or the file doesn't exist.
 
 ```bash
 # Use absolute or relative path
-npm run dev -- --prd /full/path/to/PRD.md
+npm run dev -- --prd /full/path/to/spec/SPEC.md
 
 # Or verify current directory
 pwd
-ls PRD.md
+ls spec/SPEC.md
 ```
 
 #### "Invalid scope format"
@@ -593,7 +593,7 @@ ls PRD.md
 **What you see:**
 
 ```bash
-$ npm run dev -- --prd ./PRD.md --scope p1.m1.t1.s1
+$ npm run dev -- --prd spec/SPEC.md --scope p1.m1.t1.s1
 Error: Invalid scope "p1.m1.t1.s1"
 Expected format: P1, P1.M1, P1.M1.T1, P1.M1.T1.S1, or all
 ```
@@ -606,10 +606,10 @@ Scope format is case-sensitive. You must use uppercase P, M, T, S.
 
 ```bash
 # Correct (uppercase)
-npm run dev -- --prd ./PRD.md --scope P1.M1.T1.S1
+npm run dev -- --prd spec/SPEC.md --scope P1.M1.T1.S1
 
 # Incorrect (lowercase)
-npm run dev -- --prd ./PRD.md --scope p1.m1.t1.s1  # Will fail
+npm run dev -- --prd spec/SPEC.md --scope p1.m1.t1.s1  # Will fail
 ```
 
 #### "Session not found"
@@ -617,7 +617,7 @@ npm run dev -- --prd ./PRD.md --scope p1.m1.t1.s1  # Will fail
 **What you see:**
 
 ```bash
-$ npm run dev -- --prd ./PRD.md --continue
+$ npm run dev -- --prd spec/SPEC.md --continue
 Error: No previous session found
 ```
 
@@ -629,7 +629,7 @@ There is no previous session to resume from. Either this is the first run, or th
 
 ```bash
 # Run without --continue to start a new session
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 ```
 
 #### "Missing required environment variables"
@@ -661,7 +661,7 @@ See [Configuration Reference](./CONFIGURATION.md) for details on environment var
 **Enable Verbose Logging:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 ```
 
 Verbose logging provides detailed information about:
@@ -675,7 +675,7 @@ Verbose logging provides detailed information about:
 **Validate PRD First:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --validate-prd
+npm run dev -- --prd spec/SPEC.md --validate-prd
 ```
 
 This checks PRD syntax and structure before running the full pipeline.
@@ -683,7 +683,7 @@ This checks PRD syntax and structure before running the full pipeline.
 **Dry Run Preview:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --dry-run
+npm run dev -- --prd spec/SPEC.md --dry-run
 ```
 
 Shows what would be executed without actually running agents.
@@ -691,7 +691,7 @@ Shows what would be executed without actually running agents.
 **Bypass Cache:**
 
 ```bash
-npm run dev -- --prd ./PRD.md --no-cache
+npm run dev -- --prd spec/SPEC.md --no-cache
 ```
 
 Forces regeneration of all PRPs if you suspect cached content is stale.

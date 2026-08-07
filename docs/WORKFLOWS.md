@@ -1089,7 +1089,7 @@ sequenceDiagram
     participant QA as BugHuntWorkflow
     participant Fix as FixCycleWorkflow
 
-    User->>CLI: npm run dev -- --prd ./PRD.md
+    User->>CLI: npm run dev -- --prd spec/SPEC.md
     CLI->>Pipeline: run()
     activate Pipeline
     Pipeline->>Pipeline: initializeSession()
@@ -1315,7 +1315,7 @@ export API_TIMEOUT_MS=120000  # 2 minutes for complex tasks
 
 ```bash
 # Enable verbose mode for metrics
-npm run dev -- --prd ./PRD.md --verbose
+npm run dev -- --prd spec/SPEC.md --verbose
 
 # Example output:
 [TaskOrchestrator] Cache metrics: hits=47, misses=3, hitRatio=94.0%
@@ -1433,7 +1433,7 @@ try {
 
 ```bash
 # Treat all errors as non-fatal
-npm run dev -- --prd ./PRD.md --continue-on-error
+npm run dev -- --prd spec/SPEC.md --continue-on-error
 ```
 
 With `--continue-on-error`:
@@ -1466,10 +1466,10 @@ Error: Cannot resume session
 ls plan/
 
 # Use correct PRD path for existing session
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 
 # Or start fresh (don't use --continue)
-npm run dev -- --prd ./PRD.md
+npm run dev -- --prd spec/SPEC.md
 ```
 
 #### "PRD hash changed"
@@ -1489,7 +1489,7 @@ npm run dev -- --prd ./PRD.md
 ```bash
 # Delta mode runs automatically
 # Or explicitly:
-npm run dev -- --prd ./PRD.md --mode delta
+npm run dev -- --prd spec/SPEC.md --mode delta
 ```
 
 #### "Agent timeout"
@@ -1532,10 +1532,10 @@ export API_TIMEOUT_MS=120000
 
 ```bash
 # Resume from where it stopped
-npm run dev -- --prd ./PRD.md --continue
+npm run dev -- --prd spec/SPEC.md --continue
 
 # Or increase limits
-npm run dev -- --prd ./PRD.md --max-tasks 100 --max-duration 7200000
+npm run dev -- --prd spec/SPEC.md --max-tasks 100 --max-duration 7200000
 ```
 
 ---

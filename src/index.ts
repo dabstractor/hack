@@ -19,19 +19,19 @@
  * @example
  * ```bash
  * # Run full pipeline
- * npm run dev -- --prd ./PRD.md
+ * npm run dev -- --prd spec/SPEC.md
  *
  * # Run with scope
- * npm run dev -- --prd ./PRD.md --scope P3.M4
+ * npm run dev -- --prd spec/SPEC.md --scope P3.M4
  *
  * # Resume interrupted session
- * npm run dev -- --prd ./PRD.md --continue
+ * npm run dev -- --prd spec/SPEC.md --continue
  *
  * # Debug mode
- * npm run dev -- --prd ./PRD.md --verbose
+ * npm run dev -- --prd spec/SPEC.md --verbose
  *
  * # Preview mode
- * npm run dev -- --prd ./PRD.md --dry-run
+ * npm run dev -- --prd spec/SPEC.md --dry-run
  * ```
  */
 

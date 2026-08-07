@@ -328,9 +328,9 @@ The PRP Pipeline is invoked via `npm run dev -- [options]`. All options can be p
 
 ### Required Options
 
-| Option         | Type   | Default    | Description               |
-| -------------- | ------ | ---------- | ------------------------- |
-| `--prd <path>` | string | `./PRD.md` | Path to PRD markdown file |
+| Option         | Type   | Default                      | Description               |
+| -------------- | ------ | ---------------------------- | ------------------------- |
+| `--prd <path>` | string | `spec/SPEC.md` (via `.hack`) | Path to PRD markdown file |
 
 ### Execution Mode
 

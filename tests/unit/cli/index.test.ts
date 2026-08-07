@@ -961,6 +961,76 @@ describe('cli/index', () => {
     });
   });
 
+  // BUG-1 regression (validation report 2026-08-07): `hack update` was the only
+  // subcommand missing from parseCLIArgs()'s fallthrough-detection list, so it
+  // concurrently started the main PRP pipeline alongside the update handler.
+  // The fix: an `args[0] === 'update'` branch returns a sentinel so main()
+  // short-circuits. These tests pin the sentinel for EVERY registered
+  // subcommand so a future omission can't silently regress.
+  describe('subcommand sentinels prevent main-pipeline fallthrough (BUG-1)', () => {
+    const setArgv = (args: string[] = []) => {
+      process.argv = ['node', '/path/to/script.js', ...args];
+    };
+
+    // The subcommand .action() handlers run asynchronously after parseCLIArgs()
+    // returns and call process.exit(). Override exit to a no-op so the detached
+    // async tail resolves without terminating the test process.
+    let noopExit: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      noopExit = vi.fn();
+      process.exit = noopExit as any;
+    });
+
+    // Every subcommand that must short-circuit main()'s pipeline construction.
+    // If a subcommand is missing from this list OR from the detection branches
+    // in parseCLIArgs(), this table will catch the leak.
+    const subcommands: Array<[string, string[]]> = [
+      ['inspect', ['inspect']],
+      ['artifacts', ['artifacts']],
+      ['validate-state', ['validate-state']],
+      ['cache', ['cache', 'stats']],
+      ['config', ['config', 'show']],
+      ['task', ['task']],
+      ['status', ['status']],
+      [
+        'update',
+        ['update', 'P1.M1.T1.S1', 'done', '-f', '/tmp/nonexistent/tasks.json'],
+      ],
+    ];
+
+    it.each(subcommands)(
+      '`hack %s` returns a subcommand sentinel (does NOT fall through to ValidatedCLIArgs)',
+      async (_name, args) => {
+        setArgv(args);
+        const result: unknown = parseCLIArgs();
+        // Let the mocked async action tail finish (it no-op-exits).
+        await new Promise(resolve => setImmediate(resolve));
+
+        // The critical BUG-1 assertion: a subcommand MUST return a sentinel
+        // object carrying a `subcommand` key. If it instead returns a plain
+        // ValidatedCLIArgs, main() will construct + run the PRP pipeline.
+        expect(result).toHaveProperty('subcommand');
+        expect((result as { subcommand: string }).subcommand).not.toBe(
+          undefined
+        );
+      }
+    );
+
+    it('`hack update` specifically returns the update sentinel', async () => {
+      setArgv([
+        'update',
+        'P1.M1.T1.S1',
+        'done',
+        '-f',
+        '/tmp/nonexistent/tasks.json',
+      ]);
+      const result = parseCLIArgs();
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(result).toMatchObject({ subcommand: 'update' });
+    });
+  });
+
   describe('breakdown-in-progress (PRD §5.3)', () => {
     /** Helper to set process.argv for testing (scoped to this block). */
     const setArgv = (args: string[] = []) => {
