@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Commit Message Style Layer (PRD §5.1)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Add the style layer to the stagecoach commit-message generation pipeline. The agent's system prompt becomes mode-conditional: `auto` injects the last-N commit messages as style examples with an anti-reuse instruction; `plain`/`conventional`/`gitmoji` inject their respective contracts verbatim. The existing position layer (formatCommitMessage) and Smart Commit Resilience retry/fallback are completely unchanged.",
           "tasks": [
             {
@@ -79,7 +79,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Dynamic Commit-Message System Prompt Builder",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Replace the single hardcoded COMMIT_MESSAGE_SYSTEM constant with a dynamic system-prompt builder that selects the contract based on the resolved style mode (auto/plain/conventional/gitmoji) and injects style examples + anti-reuse instructions for auto mode. Refactor createCommitMessageAgent to accept the resolved system prompt.",
               "subtasks": [
                 {
@@ -101,7 +101,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Refactor createCommitMessageAgent to accept dynamic system prompt",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -118,14 +118,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Wire Style Resolution into generateCommitMessage",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Integrate the style layer into the commit-message generation path: generateCommitMessage resolves the style mode, fetches recent commits for auto mode, builds the dynamic system prompt, and passes it to the agent factory. The position layer (formatCommitMessage) and Smart Commit Resilience retry/fallback remain completely unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "Modify generateCommitMessage to resolve style, fetch examples, and build the dynamic prompt",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

@@ -171,6 +171,29 @@ describe('agents/commit-message-agent', () => {
       expect(cfg.harness).toBe('pi');
       expect(cfg.env).toBeDefined();
     });
+
+    it('should use a supplied systemPrompt when provided (dynamic prompt passthrough)', () => {
+      // EXECUTE — pass an explicit custom system prompt (the style-resolved
+      // prompt produced by buildCommitMessageSystemPrompt in P1.M1.T3.S1).
+      createCommitMessageAgent('CUSTOM PLAIN CONTRACT TEXT');
+
+      // VERIFY — the supplied prompt flows into the agent's `system:` field
+      // verbatim, overriding the default plain contract.
+      const cfg = mockCreateAgent.mock.calls.at(-1)![0] as { system: string };
+      expect(cfg.system).toBe('CUSTOM PLAIN CONTRACT TEXT');
+    });
+
+    it('should default to the plain COMMIT_MESSAGE_SYSTEM when no prompt is supplied', () => {
+      // EXECUTE — no-arg call (existing behavior, unchanged).
+      createCommitMessageAgent();
+
+      // VERIFY — the `??` default branch falls back to the plain contract
+      // (COMMIT_MESSAGE_SYSTEM), byte-for-byte identical to today. Robust
+      // substrings of COMMIT_MESSAGE_SYSTEM confirm the default path.
+      const cfg = mockCreateAgent.mock.calls.at(-1)![0] as { system: string };
+      expect(cfg.system).toContain('imperative');
+      expect(cfg.system).toContain('HARD RULES');
+    });
   });
 
   describe('buildCommitMessageSystemPrompt', () => {

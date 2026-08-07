@@ -338,21 +338,31 @@ export function buildCommitMessageSystemPrompt(
  * so the override forces `stateless: true` here — the agent reads a staged diff
  * and emits one message, never resuming a session.
  *
+ * @param systemPrompt - Optional custom system prompt. Defaults to the
+ *   {@link COMMIT_MESSAGE_SYSTEM} plain contract for backward compatibility
+ *   (existing no-arg callers get identical behavior). When provided, it
+ *   overrides the default — consumed by {@link generateCommitMessage}
+ *   (P1.M1.T4.S1), which passes the style-resolved prompt from
+ *   {@link buildCommitMessageSystemPrompt} (P1.M1.T3.S1).
+ *
  * @returns Configured Groundswell Agent instance.
  *
  * @example
  * ```typescript
+ * // Default (plain contract) — existing behavior:
  * const agent = createCommitMessageAgent();
+ * // Dynamic prompt (style-resolved by buildCommitMessageSystemPrompt):
+ * const styled = createCommitMessageAgent(buildCommitMessageSystemPrompt('conventional'));
  * const prompt = createPrompt({ user: diff, responseFormat: z.string() });
  * const r = await agent.prompt(prompt);
  * ```
  */
-export function createCommitMessageAgent(): Agent {
+export function createCommitMessageAgent(systemPrompt?: string): Agent {
   const baseConfig = createBaseConfig('researcher', 'research');
   const config = {
     ...baseConfig,
     name: 'CommitMessageAgent',
-    system: COMMIT_MESSAGE_SYSTEM,
+    system: systemPrompt ?? COMMIT_MESSAGE_SYSTEM,
     maxTokens: 512,
     enableReflection: false,
     enableCache: false,
