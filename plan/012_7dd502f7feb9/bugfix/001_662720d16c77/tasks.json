@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "BUG-001 Fix: Restore auto Commit-Style Feature (maxEntries → maxCount)",
-      "status": "Researching",
+      "status": "Ready",
       "description": "Fix the critical defect where getRecentCommitMessages() passes an invalid simple-git option ({ maxEntries } instead of { maxCount }), which causes the DEFAULT 'auto' commit-style to throw on every commit and silently degrade to the placeholder message. This single-character-class bug makes the headline feature of session 012 (PRD §5.1 Commit Message Style) 100% non-functional under default configuration. The fix spans the root-cause code change, the masked test assertion correction, and regression-prevention integration tests that use real simple-git instead of mocks.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Fix Root Cause and Prevent Regression",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Correct the invalid simple-git option name in getRecentCommitMessages(), fix the test assertion that validated the wrong contract, and add integration tests that exercise real simple-git so an invalid option name can never be masked by mocks again.",
           "tasks": [
             {
@@ -102,14 +102,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Review and update any changeset-level documentation (README, feature overviews, architecture docs) that may reference the commit-style feature or its reliability. This is a bugfix restoring existing intended behavior, so docs changes are likely minimal or none — but verify per the Mode B requirement.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Review and update changeset-level documentation for BUG-001 fix",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
