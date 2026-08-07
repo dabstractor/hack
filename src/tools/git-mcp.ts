@@ -587,7 +587,7 @@ async function getRecentCommitMessages(
   if (count === 0) return []; // short-circuit BEFORE validate (no git call) — PRP_COMMIT_STYLE_EXAMPLES=0
   const safePath = await validateRepositoryPath(repoPath);
   const git = simpleGit(safePath);
-  const logResult = await git.log({ maxEntries: count });
+  const logResult = await git.log({ maxCount: count });
   return logResult.all.map(entry => entry.message); // newest-first; full message (subject + body)
 }
 
