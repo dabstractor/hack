@@ -112,8 +112,8 @@ current directory to the nearest `.git` entry (a directory for a normal clone, o
 a worktree/submodule) and `chdir`s to that repository root before doing anything else
 (PRD §9.8). The session directory, `PRD.md`, `.hack`, `.env`, and `plan/` are all resolved
 relative to that root, so the same invocation works from anywhere inside the repo. This applies
-to **every** subcommand — `task`, `status`, `cache`, `inspect`, `artifacts`, `validate-state`,
-and `config` — not just the default pipeline run, because `hack` resolves and `chdir`s to the
+to **every** subcommand — `task`, `status`, `update`, `cache`, `inspect`, `artifacts`,
+`validate-state`, and `config` — not just the default pipeline run, because `hack` resolves and `chdir`s to the
 root before each subcommand's action handler runs.
 
 ```bash
@@ -309,6 +309,34 @@ hack task status
 > errors** (exit non-zero) — only the auto-resolved (discovered) tasks file gets the graceful
 > path. See [CLI Reference](docs/CLI_REFERENCE.md).
 
+### Manual Status Update (`hack update`)
+
+`hack update <task-id> <status>` (PRD §5.4) manually rewrites a task item's status from the
+command line, with **both** the task ID and the target status **fuzzy-matched**: canonical
+(`P1.M1.T1.S1`), concatenated (`p1m1t1s1`), and numeric (`1.1.1.1`, `1.2`) IDs all resolve
+(trailing segments optional → Phase/Milestone/Task/Subtask), and statuses accept synonyms
+(`done`, `re`, `comp`), canonical words, prefixes, and substrings (`r` is ambiguous →
+Ready/Researching). Setting a parent `Complete` **cascades `Complete` down** to every
+descendant; after any change every ancestor **recomputes bottom-up** to the least-progressed
+child, so marking the last subtask `Complete` promotes its Task/Milestone/Phase and resetting a
+subtask back to `Planned` drops its ancestors accordingly. It is the write-side counterpart to
+the read-only `hack status` / `hack task` above.
+
+```bash
+hack update P1.M1.T1.S1 ready        # full canonical form
+hack update p1m1t1s1 ready           # concatenated, case-insensitive
+hack update 1.1.1.1 re               # numeric form + synonym status
+hack update 1.2 done                 # milestone + synonym status
+hack update 2 comp                   # phase + prefix status
+```
+
+> The command is a serialized, lock-guarded, atomic read-modify-write under the same
+> `tasks.json.lock` as the orchestrator (PRD §5.1, §5.4) — it can neither corrupt `tasks.json`
+> nor race a concurrent writer. See
+> [Configuration → Task & Status Commands](docs/CONFIGURATION.md#task--status-commands) for the
+> full syntax (loose-ID normalization, the status synonym/prefix/substring table, and the
+> cascade/ancestor-recompute rules).
+
 ### Resume Interrupted Session
 
 ```bash
@@ -384,18 +412,20 @@ hack config show
 
 ### Environment Variables
 
-| Variable               | Required | Default                          | Description                                                                    |
-| ---------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------------ |
-| `ZAI_API_KEY`          | Yes\*    | None                             | z.ai API key (default-path credential for the `zai` provider).                 |
-| `PRP_API_BASE_URL`     | No       | `https://api.z.ai/api/anthropic` | LLM provider endpoint (z.ai default for the `zai` provider).                   |
-| `PRP_MODEL_HIGH`       | No       | `glm-5.2`                        | Highest-quality tier — Architect agent.                                        |
-| `PRP_MODEL_BALANCED`   | No       | `glm-5.2`                        | Balanced/default tier — planning & research roles.                             |
-| `PRP_MODEL_FAST`       | No       | `glm-5-turbo`                    | Fast/codegen tier — implementation role.                                       |
-| `PRP_API_KEY`          | No       | None                             | Explicit API-key override (highest precedence, any provider).                  |
-| `PRP_AGENT_HARNESS`    | No       | `pi`                             | Agent runtime: `pi` (default) or `claude-code` (Anthropic-only).               |
-| `ANTHROPIC_AUTH_TOKEN` | No\*\*   | None                             | **Optional.** Anthropic provider only; mapped to `ANTHROPIC_API_KEY` if unset. |
-| `ANTHROPIC_API_KEY`    | No\*\*   | None                             | **Optional.** Anthropic provider only.                                         |
-| `PRP_COMMIT_FORMAT`    | No       | `task-prefix`                    | `task-prefix`/`plain`: [Config](docs/CONFIGURATION.md#resilience-tuning)       |
+| Variable                    | Required | Default                          | Description                                                                                                                                                                             |
+| --------------------------- | -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ZAI_API_KEY`               | Yes\*    | None                             | z.ai API key (default-path credential for the `zai` provider).                                                                                                                          |
+| `PRP_API_BASE_URL`          | No       | `https://api.z.ai/api/anthropic` | LLM provider endpoint (z.ai default for the `zai` provider).                                                                                                                            |
+| `PRP_MODEL_HIGH`            | No       | `glm-5.2`                        | Highest-quality tier — Architect agent.                                                                                                                                                 |
+| `PRP_MODEL_BALANCED`        | No       | `glm-5.2`                        | Balanced/default tier — planning & research roles.                                                                                                                                      |
+| `PRP_MODEL_FAST`            | No       | `glm-5-turbo`                    | Fast/codegen tier — implementation role.                                                                                                                                                |
+| `PRP_API_KEY`               | No       | None                             | Explicit API-key override (highest precedence, any provider).                                                                                                                           |
+| `PRP_AGENT_HARNESS`         | No       | `pi`                             | Agent runtime: `pi` (default) or `claude-code` (Anthropic-only).                                                                                                                        |
+| `ANTHROPIC_AUTH_TOKEN`      | No\*\*   | None                             | **Optional.** Anthropic provider only; mapped to `ANTHROPIC_API_KEY` if unset.                                                                                                          |
+| `ANTHROPIC_API_KEY`         | No\*\*   | None                             | **Optional.** Anthropic provider only.                                                                                                                                                  |
+| `PRP_COMMIT_FORMAT`         | No       | `task-prefix`                    | **Position layer** — `task-prefix` (`<phase>.<milestone>.<task>.<subtask>:`) or `plain`. Orthogonal to `PRP_COMMIT_STYLE`. [Config](docs/CONFIGURATION.md#resilience-tuning)            |
+| `PRP_COMMIT_STYLE`          | No       | `auto`                           | **Style layer** for the descriptive message `stagecoach` writes — `auto` (learn from history), `plain`, `conventional`, or `gitmoji`. [Config](docs/CONFIGURATION.md#resilience-tuning) |
+| `PRP_COMMIT_STYLE_EXAMPLES` | No       | `5`                              | Commits sent as style examples under `auto`; `0` disables learning (degrades to `plain`). [Config](docs/CONFIGURATION.md#resilience-tuning)                                             |
 
 > **Deprecation (PRD §9.2.8):** the `ANTHROPIC_BASE_URL` and `ANTHROPIC_DEFAULT_*` names are
 > deprecated aliases — still readable, they emit a one-time warning and are slated for future

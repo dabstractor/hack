@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Delta 012: Commit Style Layer + Manual Status Updates",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Two orthogonal features from the 011→012 PRD delta: (1) a Commit Message Style layer (PRP_COMMIT_STYLE / PRP_COMMIT_STYLE_EXAMPLES) that makes stagecoach's descriptive commit-message contract configurable (auto-learned, plain, conventional, gitmoji), layered orthogonally to the existing position layer; and (2) a `hack update` CLI subcommand for manually rewriting any task item's status with fuzzy ID/status matching and a bidirectional cascade (downward Complete + bottom-up min-status ancestor recompute). Plus a Mode B cross-cutting documentation sweep.",
       "milestones": [
         {
@@ -267,14 +267,14 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Sync Changeset-Level Documentation (Mode B)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Cross-cutting documentation that only makes sense once both features are fully implemented. Per the two-mode documentation rule, this final task depends on every implementing subtask and sweeps README.md, docs/CONFIGURATION.md, and docs/ARCHITECTURE.md to reflect the new commit-style layer and hack update command.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Sync changeset-level documentation",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Update the three cross-cutting documentation files to reflect both new features: the commit-message style layer (two-layer model, four modes, env vars, .hack keys) and the hack update subcommand (flags, fuzzy matching, cascade, lock).",
               "subtasks": [
                 {
@@ -336,7 +336,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S3",
                   "title": "Update README.md — hack update command + commit style layer",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
