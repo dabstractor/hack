@@ -931,7 +931,29 @@ Each subtask commits in **two phases** via the Smart Commit tool — `stagecoach
 
 This complements [tasks.json Protection & Smart Recovery](#tasksjson-protection--smart-recovery): recovery survives `tasks.json` _corruption_; the two-phase commit survives _interruption_ mid-item.
 
-Commit subjects use the `<phase>.<milestone>.<task>.<subtask>:` **task-prefix** by default (`PRP_COMMIT_FORMAT=task-prefix`; `plain` opts out; non-backlog commits carry no prefix) and **never** carry the legacy auto-generated banner prefix (PRD §5.1). The `Co-Authored-By: Claude <noreply@anthropic.com>` trailer is **preserved** on every commit. See [Configuration](CONFIGURATION.md#resilience-tuning) for the flag.
+### Commit Message Format (Two-Layer Model)
+
+A generated commit message is governed by **two orthogonal layers**, resolved independently: the `stagecoach` agent first authors the **descriptive message** under the style contract, then `formatCommitMessage` wraps the **position** prefix around it. The legacy `[PRP Auto]` banner is never emitted (PRD §5.1).
+
+| Layer    | Toggle              | Default       | Controls                                      |
+| -------- | ------------------- | ------------- | --------------------------------------------- |
+| Position | `PRP_COMMIT_FORMAT` | `task-prefix` | Whether/how the item's position is prepended  |
+| Style    | `PRP_COMMIT_STYLE`  | `auto`        | The wording of the descriptive message itself |
+
+**Position layer (unchanged).** `PRP_COMMIT_FORMAT=task-prefix` (default) prepends the item's 1-indexed `<phase>.<milestone>.<task>.<subtask>:` position, eliding trailing levels the item does not use (`1.2.1`, never `1.2.1.0`); non-backlog commits (initial, fallback, scaffolding) carry no prefix, and `PRP_COMMIT_FORMAT=plain` opts out entirely. This layer never touches the wording of the descriptive message. The `Co-Authored-By: Claude <noreply@anthropic.com>` trailer is **preserved** on every commit in both modes.
+
+**Style layer.** `PRP_COMMIT_STYLE` governs the descriptive message `stagecoach` actually writes — its tone, length, and whether it carries a Conventional-Commit type/scope or a gitmoji:
+
+- `auto` (default) **learns from history**: the generation request includes the last `PRP_COMMIT_STYLE_EXAMPLES` (default 5) commit messages as verbatim **style examples**, with a hard anti-reuse instruction (match the examples' style — format, tone, length, prefix/emoji — but produce entirely original wording for this change) and an instruction to **ignore any leading numeric position prefix** in the examples (that marker is added by the position layer, not part of the style). A repo with ≤1 commit — or `PRP_COMMIT_STYLE_EXAMPLES=0` — has nothing to learn, so `auto` degrades to the `plain` contract.
+- `plain` — imperative summary, ≤72-char subject, no type prefix, no scope, no emoji (the prior fixed prompt, promoted to a named mode; also the `auto` fallback).
+- `conventional` — `type(scope): description` from the standard Conventional-Commits vocabulary; scope optional.
+- `gitmoji` — the subject begins with exactly one gitmoji (the emoji character, not a `:shortcode:`), followed by a space and the description.
+
+An explicit (non-`auto`) mode **replaces** the style-examples block with that mode's contract; history is consulted only under `auto`. The agent's system prompt is built dynamically from the resolved mode (the former hardcoded prompt is the `plain` contract). In every mode the agent emits ONLY the descriptive message — never a position prefix, the `[PRP Auto]` banner, or the `Co-Authored-By` trailer (those remain `formatCommitMessage`'s job).
+
+**Interaction between the layers.** Both layers apply in sequence and independently. When a prefix-producing style (`conventional`, `gitmoji`) is combined with `PRP_COMMIT_FORMAT=task-prefix`, **both prefixes render** and the subject takes the form `<position>: type(scope): description` (or `<position>: <emoji> description`) — the descriptive message is still kept verbatim. A team that wants a clean Conventional-Commit or gitmoji history sets `PRP_COMMIT_FORMAT=plain` so the position layer does not double up. (Under `auto`, the same double-up can occur when the learned style is conventional/gitmoji — that is the project's own voice being matched, and the same `plain` remedy applies.) Toggling either layer affects only newly generated messages; existing history is never rewritten.
+
+See [Configuration](CONFIGURATION.md#resilience-tuning) for the env-var flags and `.hack` keys.
 
 ### State Integrity Protections
 
@@ -1104,6 +1126,12 @@ flowchart TD
     style Coder fill:#fff9c4
     style Validate fill:#ffccbc
 ```
+
+### Manual Status Updates (`hack update`)
+
+`hack update <task-id> <status>` (PRD §5.4) rewrites a task item's status from the command line, with **both** the task ID and the target status **fuzzy-matched** for ergonomics: the ID accepts canonical (`P1.M1.T1.S1`), concatenated (`p1m1t1s1`), and numeric (`1.1.1.1`, `1.2`) forms (trailing segments optional → Phase/Milestone/Task/Subtask), and the status accepts synonyms (`done`, `re`, `comp`), canonical words, unique prefixes, and unique substrings (`r` is ambiguous → Ready/Researching).
+
+Setting a parent `Complete` **cascades `Complete` down** to every descendant; after any change, every ancestor is **recomputed bottom-up** as the minimum (least-progressed) status among its children (`Failed` children are excluded unless all children are `Failed`; `Obsolete` is terminal and loses ties to `Complete`) — so marking the last subtask `Complete` promotes its Task/Milestone/Phase, and resetting a subtask back to `Planned` drops its ancestors accordingly. The command is a serialized read-modify-write under the same `tasks.json.lock` used by the orchestrator (§5.1), validates through the canonical backlog schema, and writes atomically (temp file + rename) — it can neither corrupt `tasks.json` nor race a concurrent writer. See [Configuration](CONFIGURATION.md) for the full syntax.
 
 ---
 
