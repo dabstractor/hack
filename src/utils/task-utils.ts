@@ -108,6 +108,87 @@ export function findItem(backlog: Backlog, id: string): HierarchyItem | null {
 }
 
 /**
+ * Normalize a loose task-ID string into a numeric segment array (PRD §5.4).
+ *
+ * @remarks
+ * Extracts every digit sequence via `/\d+/g` and maps each to a number, so all of
+ * the following are equivalent: `P1.M1.T1.S1`, `p1m1t1s1`, `1.1.1.1` → `[1,1,1,1]`;
+ * `1.2` → `[1,2]`; `1` → `[1]`. The `P`/`M`/`T`/`S` letters are NOT required.
+ * Segments map positionally Phase → Milestone → Task → Subtask. Returns `null` when
+ * there are no digit sequences (empty/whitespace/no-digits) or more than 4 segments
+ * (the hierarchy is at most 4 deep). Note: `'0'` normalizes to `[0]` (syntactically
+ * valid) — it is rejected later by {@link findItemByLooseId}'s 1-based positional
+ * lookup, not here.
+ *
+ * @param looseId - The raw task-ID string from the CLI.
+ * @returns The numeric segments (1–4 numbers), or `null` if unparseable / too deep.
+ *
+ * @example
+ * normalizeTaskId('P1.M1.T1.S1'); // [1,1,1,1]
+ * normalizeTaskId('p1m1t1s1');    // [1,1,1,1]
+ * normalizeTaskId('1.1.1.1');     // [1,1,1,1]
+ * normalizeTaskId('1.2');         // [1,2]
+ * normalizeTaskId('1');           // [1]
+ * normalizeTaskId('');            // null
+ * normalizeTaskId('1.2.3.4.5');   // null (>4 segments)
+ */
+export function normalizeTaskId(looseId: string): number[] | null {
+  const nums = looseId.match(/\d+/g);
+  if (!nums) return null;
+  if (nums.length > 4) return null;
+  return nums.map(Number);
+}
+
+/**
+ * Find a hierarchy item by a loose task-ID, walking the tree positionally (PRD §5.4).
+ *
+ * @remarks
+ * Normalizes `looseId` via {@link normalizeTaskId}, then walks 1-BASED:
+ * `segments[0]` → `backlog.backlog[segments[0]-1]` (phase), `segments[1]` →
+ * `phase.milestones[segments[1]-1]` (milestone), `segments[2]` →
+ * `milestone.tasks[segments[2]-1]` (task), `segments[3]` → `task.subtasks[segments[3]-1]`
+ * (subtask). Trailing segments may be omitted (fewer segments = higher-level item), so
+ * `1`, `1.2`, `1.2.3`, `1.2.3.4` target a Phase, Milestone, Task, Subtask respectively.
+ * Out-of-bounds at any level → `null`. The returned `canonicalId` is the found item's
+ * ACTUAL `id` field (e.g. `'P1.M1.T1.S1'`), not a reconstructed string.
+ *
+ * @param backlog - The backlog tree to search.
+ * @param looseId - The loose task-ID (any form {@link normalizeTaskId} accepts).
+ * @returns The found item + its canonical id, or `null` if not found / unparseable.
+ *
+ * @example
+ * findItemByLooseId(backlog, '1.1.1.1');   // { item: <Subtask P1.M1.T1.S1>, canonicalId: 'P1.M1.T1.S1' }
+ * findItemByLooseId(backlog, 'p1m1t1s1');  // same item (case/punctuation-insensitive)
+ * findItemByLooseId(backlog, '1.2');       // { item: <Milestone P1.M2>, canonicalId: 'P1.M2' }
+ * findItemByLooseId(backlog, '1');         // { item: <Phase P1>, canonicalId: 'P1' }
+ * findItemByLooseId(backlog, '9.9.9.9');   // null (out of bounds)
+ */
+export function findItemByLooseId(
+  backlog: Backlog,
+  looseId: string
+): { item: HierarchyItem; canonicalId: string } | null {
+  const segments = normalizeTaskId(looseId);
+  if (!segments) return null;
+
+  const phase = backlog.backlog[segments[0] - 1];
+  if (!phase) return null;
+  if (segments.length === 1) return { item: phase, canonicalId: phase.id };
+
+  const milestone = phase.milestones[segments[1] - 1];
+  if (!milestone) return null;
+  if (segments.length === 2)
+    return { item: milestone, canonicalId: milestone.id };
+
+  const task = milestone.tasks[segments[2] - 1];
+  if (!task) return null;
+  if (segments.length === 3) return { item: task, canonicalId: task.id };
+
+  const subtask = task.subtasks[segments[3] - 1];
+  if (!subtask) return null;
+  return { item: subtask, canonicalId: subtask.id };
+}
+
+/**
  * Resolve dependency IDs to actual Subtask objects
  *
  * @param task - The subtask whose dependencies to resolve

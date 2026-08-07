@@ -16,6 +16,8 @@ import {
   getNextPendingItem,
   updateItemStatus,
   isSubtask,
+  normalizeTaskId,
+  findItemByLooseId,
   type HierarchyItem,
 } from '../../../src/utils/task-utils.js';
 import type {
@@ -1010,6 +1012,83 @@ describe('utils/task-utils', () => {
       expect(findItem(backlog, 'P1')?.id).toBe('P1');
       expect(findItem(backlog, 'P2')?.id).toBe('P2');
       expect(findItem(backlog, 'P3')?.id).toBe('P3');
+    });
+  });
+
+  describe('normalizeTaskId', () => {
+    it('canonical + loose forms all normalize to [1,1,1,1]', () => {
+      expect(normalizeTaskId('P1.M1.T1.S1')).toEqual([1, 1, 1, 1]);
+      expect(normalizeTaskId('p1m1t1s1')).toEqual([1, 1, 1, 1]);
+      expect(normalizeTaskId('1.1.1.1')).toEqual([1, 1, 1, 1]);
+    });
+
+    it('partial forms keep only the leading segments', () => {
+      expect(normalizeTaskId('1.2')).toEqual([1, 2]);
+      expect(normalizeTaskId('1')).toEqual([1]);
+    });
+
+    it('returns null for empty / whitespace / no-digits', () => {
+      expect(normalizeTaskId('')).toBeNull();
+      expect(normalizeTaskId('   ')).toBeNull();
+      expect(normalizeTaskId('foo')).toBeNull();
+    });
+
+    it('returns null for more than 4 segments', () => {
+      expect(normalizeTaskId('1.2.3.4.5')).toBeNull();
+    });
+
+    it('normalizes 0 to [0] (syntactically valid; rejected later by the 1-based lookup)', () => {
+      // NOTE: '0' is syntactically valid per the regex+cap-4 contract; the 0 is rejected
+      // positionally by findItemByLooseId (backlog[0-1] === undefined → null), not here.
+      expect(normalizeTaskId('0')).toEqual([0]);
+    });
+  });
+
+  describe('findItemByLooseId', () => {
+    const backlog = createComplexBacklog();
+
+    it('canonical + loose forms all resolve to the same subtask', () => {
+      expect(findItemByLooseId(backlog, '1.1.1.1')?.canonicalId).toBe(
+        'P1.M1.T1.S1'
+      );
+      expect(findItemByLooseId(backlog, 'p1m1t1s1')?.canonicalId).toBe(
+        'P1.M1.T1.S1'
+      );
+      expect(findItemByLooseId(backlog, 'P1.M1.T1.S1')?.canonicalId).toBe(
+        'P1.M1.T1.S1'
+      );
+      expect(findItemByLooseId(backlog, '1.1.1.1')?.item.type).toBe('Subtask');
+    });
+
+    it('trailing omission resolves higher-level items', () => {
+      // 1 → phase, 1.2 → milestone, 1.1.2 → task (trailing segments may be omitted)
+      expect(findItemByLooseId(backlog, '1')?.item.type).toBe('Phase');
+      expect(findItemByLooseId(backlog, '1')?.canonicalId).toBe('P1');
+      expect(findItemByLooseId(backlog, '1.2')?.canonicalId).toBe('P1.M2');
+      expect(findItemByLooseId(backlog, '1.1.2')?.canonicalId).toBe('P1.M1.T2');
+    });
+
+    it('resolves items in the second phase', () => {
+      expect(findItemByLooseId(backlog, '2.1.1.1')?.canonicalId).toBe(
+        'P2.M1.T1.S1'
+      );
+    });
+
+    it('returns null for out-of-bounds at every level', () => {
+      expect(findItemByLooseId(backlog, '9.9.9.9')).toBeNull(); // deep OOB
+      expect(findItemByLooseId(backlog, '3')).toBeNull(); // only 2 phases
+      expect(findItemByLooseId(backlog, '1.3')).toBeNull(); // P1 has 2 milestones
+      expect(findItemByLooseId(backlog, '1.1.9')).toBeNull(); // P1.M1 has 2 tasks
+      expect(findItemByLooseId(backlog, '1.1.1.9')).toBeNull(); // P1.M1.T1 has 3 subtasks
+    });
+
+    it('returns null for unparseable loose IDs', () => {
+      expect(findItemByLooseId(backlog, '')).toBeNull();
+      expect(findItemByLooseId(backlog, 'foo')).toBeNull();
+    });
+
+    it('returns null for the 0 segment (1-based lookup: backlog[-1] is undefined)', () => {
+      expect(findItemByLooseId(backlog, '0')).toBeNull();
     });
   });
 });
