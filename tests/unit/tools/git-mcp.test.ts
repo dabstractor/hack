@@ -972,9 +972,9 @@ describe('tools/git-mcp', () => {
       // EXECUTE
       const result = await getRecentCommitMessages(2, './repo');
 
-      // VERIFY — full messages (subject + body), newest-first; log called with maxEntries
+      // VERIFY — full messages (subject + body), newest-first; log called with maxCount
       expect(result).toEqual(['feat: add thing\n\nbody', 'fix: other']);
-      expect(mockGitInstance.log).toHaveBeenCalledWith({ maxEntries: 2 });
+      expect(mockGitInstance.log).toHaveBeenCalledWith({ maxCount: 2 });
     });
 
     it('returns [] for count === 0 WITHOUT calling simpleGit (no git call)', async () => {
