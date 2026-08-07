@@ -18,6 +18,7 @@ import {
   isSubtask,
   normalizeTaskId,
   findItemByLooseId,
+  matchStatus,
   type HierarchyItem,
 } from '../../../src/utils/task-utils.js';
 import type {
@@ -1089,6 +1090,116 @@ describe('utils/task-utils', () => {
 
     it('returns null for the 0 segment (1-based lookup: backlog[-1] is undefined)', () => {
       expect(findItemByLooseId(backlog, '0')).toBeNull();
+    });
+  });
+
+  describe('matchStatus', () => {
+    it('synonym table (step 1) — exact, case-insensitive', () => {
+      // Complete synonyms
+      expect(matchStatus('done')).toEqual({ status: 'Complete' });
+      expect(matchStatus('d')).toEqual({ status: 'Complete' });
+      expect(matchStatus('fin')).toEqual({ status: 'Complete' });
+      expect(matchStatus('finished')).toEqual({ status: 'Complete' });
+      expect(matchStatus('completed')).toEqual({ status: 'Complete' });
+      // Ready synonyms
+      expect(matchStatus('re')).toEqual({ status: 'Ready' });
+      expect(matchStatus('rdy')).toEqual({ status: 'Ready' });
+      // case-insensitive
+      expect(matchStatus('DONE')).toEqual({ status: 'Complete' });
+      expect(matchStatus('Re')).toEqual({ status: 'Ready' });
+    });
+
+    it('canonical exact, case-insensitive (step 2)', () => {
+      expect(matchStatus('ready')).toEqual({ status: 'Ready' });
+      expect(matchStatus('Complete')).toEqual({ status: 'Complete' });
+      expect(matchStatus('FAILED')).toEqual({ status: 'Failed' });
+      expect(matchStatus('planned')).toEqual({ status: 'Planned' });
+      expect(matchStatus('OBSOLETE')).toEqual({ status: 'Obsolete' });
+      expect(matchStatus('implementing')).toEqual({ status: 'Implementing' });
+      expect(matchStatus('researching')).toEqual({ status: 'Researching' });
+    });
+
+    it('unique prefix (step 3) — single match', () => {
+      expect(matchStatus('comp')).toEqual({ status: 'Complete' });
+      expect(matchStatus('c')).toEqual({ status: 'Complete' });
+      expect(matchStatus('p')).toEqual({ status: 'Planned' });
+      expect(matchStatus('i')).toEqual({ status: 'Implementing' });
+      expect(matchStatus('o')).toEqual({ status: 'Obsolete' });
+      expect(matchStatus('f')).toEqual({ status: 'Failed' });
+      expect(matchStatus('res')).toEqual({ status: 'Researching' });
+    });
+
+    it('"re" is a synonym that preempts the r-prefix ambiguity', () => {
+      // 're' is a synonym for Ready (step 1) — it NEVER reaches prefix
+      // matching, where it would also match Researching (ambiguous). This
+      // preemption is the PRD §5.4 design.
+      expect(matchStatus('re')).toEqual({ status: 'Ready' });
+    });
+
+    it('unique substring, not a prefix of any status (step 4)', () => {
+      expect(matchStatus('search')).toEqual({ status: 'Researching' });
+      expect(matchStatus('lan')).toEqual({ status: 'Planned' });
+    });
+
+    it('ambiguous via prefix (step 5) — 2+ matches', () => {
+      const r = matchStatus('r');
+      expect('error' in r).toBe(true);
+      if ('error' in r) {
+        // 'r' prefix-matches Researching + Ready (in MATCHABLE_STATUSES order:
+        // Researching precedes Ready in the canonical lifecycle list).
+        expect(r.candidates).toEqual(['Researching', 'Ready']);
+        expect(r.error).toContain('Ambiguous status "r"');
+        expect(r.error).toContain('Researching');
+        expect(r.error).toContain('Ready');
+      }
+    });
+
+    it('ambiguous via substring (step 5) — 2+ matches', () => {
+      const ed = matchStatus('ed');
+      expect('error' in ed).toBe(true);
+      if ('error' in ed) {
+        // 'ed' is a substring of both Planned and Failed (in MATCHABLE_STATUSES
+        // order: Planned precedes Failed in the canonical lifecycle list).
+        expect(ed.candidates).toEqual(['Planned', 'Failed']);
+        expect(ed.error).toContain('Ambiguous status "ed"');
+      }
+    });
+
+    it('unknown (step 6) — 0 matches lists all 7 valid statuses', () => {
+      const bogus = matchStatus('bogus');
+      expect('error' in bogus).toBe(true);
+      if ('error' in bogus) {
+        expect(bogus.candidates).toEqual([
+          'Planned',
+          'Researching',
+          'Ready',
+          'Implementing',
+          'Complete',
+          'Failed',
+          'Obsolete',
+        ]);
+        expect(bogus.error).toContain('Unknown status "bogus"');
+        expect(bogus.error).toContain('Valid statuses');
+      }
+    });
+
+    it('a non-synonym near-miss is unknown (synonym exactness)', () => {
+      // 'done' is the synonym; 'don' is NOT (step 1 is exact, not prefix).
+      // 'don' is not exact, not a prefix of any, not a substring of any → unknown.
+      const don = matchStatus('don');
+      expect('error' in don).toBe(true);
+    });
+
+    it('Retrying is NOT matchable (excluded from the lifecycle set)', () => {
+      // 'ret' would prefix-match 'Retrying' among the 8 Status values, but
+      // Retrying is EXCLUDED from MATCHABLE_STATUSES → 'ret' matches nothing
+      // → unknown, and candidates must NOT include Retrying.
+      const ret = matchStatus('ret');
+      expect('error' in ret).toBe(true);
+      if ('error' in ret) {
+        expect(ret.candidates).not.toContain('Retrying');
+        expect(ret.candidates).toHaveLength(7);
+      }
     });
   });
 });

@@ -580,6 +580,124 @@ export function updateItemStatus(
 }
 
 /**
+ * The statuses that are manually settable via `hack update` (PRD §5.4).
+ *
+ * @remarks
+ * This is the §5.3 lifecycle set PLUS `Ready`, MINUS `Retrying`. `Retrying` is
+ * an internal transitional status set by the retry manager; allowing a user to
+ * set it by hand would fight the orchestrator, so it is intentionally excluded
+ * from loose matching. A stuck `Retrying` item is reset via `Planned` or `Ready`.
+ */
+const MATCHABLE_STATUSES: Status[] = [
+  'Planned',
+  'Researching',
+  'Ready',
+  'Implementing',
+  'Complete',
+  'Failed',
+  'Obsolete',
+];
+
+/**
+ * Synonyms / aliases for statuses that are not derivable from the canonical word
+ * or would otherwise be ambiguous (PRD §5.4 step 1). Keys are matched EXACT,
+ * case-insensitive (NOT as prefixes). `re`/`rdy` → Ready preempts the `r`-prefix
+ * ambiguity with Researching; `done`/`fin`/… → Complete are common shorthands.
+ */
+const STATUS_SYNONYMS: Readonly<Record<string, Status>> = {
+  d: 'Complete',
+  done: 'Complete',
+  fin: 'Complete',
+  finished: 'Complete',
+  completed: 'Complete',
+  re: 'Ready',
+  rdy: 'Ready',
+};
+
+/**
+ * Fuzzy-match a loose status string to a canonical {@link Status} (PRD §5.4 "Loose status matching").
+ *
+ * @remarks
+ * Matches over the 7 manually-settable statuses
+ * ({@link MATCHABLE_STATUSES} — `Retrying` excluded; see its doc). Matching order,
+ * first hit wins:
+ *
+ * 1. **Synonym table** (exact, case-insensitive) — see {@link STATUS_SYNONYMS}.
+ *    `done`/`d`/`fin`/`finished`/`completed` → Complete; `re`/`rdy` → Ready.
+ * 2. **Canonical exact** (case-insensitive) — `input.toLowerCase()` equals one of the 7.
+ * 3. **Unique prefix** — `input.toLowerCase()` is a prefix of exactly one status.
+ * 4. **Unique substring** — `input.toLowerCase()` is a substring of exactly one status.
+ * 5. **Ambiguous** — 2+ matches at the prefix OR substring level → `{ error, candidates }`.
+ * 6. **Unknown** — 0 matches → `{ error, candidates: [all 7] }`.
+ *
+ * Steps 3 and 4 are separate, each with its own count + ambiguity check. Step 3
+ * (prefix) is tried first and returns on a unique hit before step 4 (substring)
+ * ever runs; substring matching is reached only when the input is not a prefix
+ * of any status. The synonym table (step 1) preempts ambiguity: `re` resolves to
+ * Ready there, so it never reaches prefix matching where it would also match
+ * Researching. A raw `r` is NOT a synonym → prefix-matches both Ready and
+ * Researching → ambiguous.
+ *
+ * @returns A discriminated union: `{ status }` on success, or `{ error, candidates }`
+ *          on ambiguity/unknown. Narrow with `'status' in result` / `'error' in result`.
+ *
+ * @param input - The raw status string from the CLI (e.g. `done`, `re`, `comp`, `r`, `bogus`).
+ *
+ * @example
+ * matchStatus('done');  // { status: 'Complete' }          — synonym (step 1)
+ * matchStatus('re');    // { status: 'Ready' }             — synonym preempts ambiguity
+ * matchStatus('ready'); // { status: 'Ready' }             — canonical exact (step 2)
+ * matchStatus('comp');  // { status: 'Complete' }          — unique prefix (step 3)
+ * matchStatus('search');// { status: 'Researching' }       — unique substring (step 4)
+ * matchStatus('r');     // { error: 'Ambiguous status "r": matches Researching, Ready',
+ *                       //   candidates: ['Researching','Ready'] }  — ambiguous (step 5)
+ * matchStatus('bogus'); // { error: 'Unknown status "bogus". Valid statuses: …',
+ *                       //   candidates: [<all 7>] }        — unknown (step 6)
+ */
+export function matchStatus(
+  input: string
+): { status: Status } | { error: string; candidates: string[] } {
+  const lower = input.toLowerCase();
+
+  // 1. SYNONYM (exact, case-insensitive)
+  if (lower in STATUS_SYNONYMS) return { status: STATUS_SYNONYMS[lower] };
+
+  // 2. CANONICAL EXACT (case-insensitive)
+  const exact = MATCHABLE_STATUSES.find(s => s.toLowerCase() === lower);
+  if (exact) return { status: exact };
+
+  // 3. UNIQUE PREFIX
+  const prefixMatches = MATCHABLE_STATUSES.filter(s =>
+    s.toLowerCase().startsWith(lower)
+  );
+  if (prefixMatches.length === 1) return { status: prefixMatches[0] };
+  if (prefixMatches.length >= 2) {
+    return {
+      error: `Ambiguous status "${input}": matches ${prefixMatches.join(', ')}`,
+      candidates: [...prefixMatches],
+    };
+  }
+
+  // 4. UNIQUE SUBSTRING (prefix matched 0 → try the broader match)
+  const substringMatches = MATCHABLE_STATUSES.filter(s =>
+    s.toLowerCase().includes(lower)
+  );
+  if (substringMatches.length === 1) return { status: substringMatches[0] };
+  if (substringMatches.length >= 2) {
+    return {
+      error: `Ambiguous status "${input}": matches ${substringMatches.join(', ')}`,
+      candidates: [...substringMatches],
+    };
+  }
+
+  // 6. UNKNOWN
+  return {
+    error: `Unknown status "${input}". Valid statuses: ${MATCHABLE_STATUSES.join(', ')}`,
+    candidates: [...MATCHABLE_STATUSES],
+  };
+}
+
+/**
  * Union of any hierarchy node (all have `id` + `status`).
  *
  * @remarks
