@@ -1652,3 +1652,155 @@ export function resolveReasoningLevel(
   }
   return lowered as ReasoningLevel;
 }
+
+/**
+ * Read `PRP_REASONING_AGENT` → resolved reasoning level for the research/PRP role (PRD §9.2.9).
+ *
+ * @returns The resolved {@link ReasoningLevel}, or {@link DEFAULT_REASONING_AGENT} (`'high'`)
+ *          when unset or blank.
+ *
+ * @remarks
+ * Routes through {@link resolveReasoningLevel}: the value is matched case-insensitively against
+ * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
+ * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
+ * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ *
+ * @example
+ * ```ts
+ * import { getReasoningAgent } from './config/constants.js';
+ * const level = getReasoningAgent(); // 'high' (default)
+ * ```
+ */
+export function getReasoningAgent(): ReasoningLevel {
+  return resolveReasoningLevel(
+    process.env[PRP_REASONING_AGENT],
+    PRP_REASONING_AGENT,
+    DEFAULT_REASONING_AGENT
+  );
+}
+
+/**
+ * Read `PRP_REASONING_BREAKDOWN_AGENT` → resolved reasoning level for the architect/breakdown role
+ * (PRD §9.2.9).
+ *
+ * @returns The resolved {@link ReasoningLevel}, or {@link DEFAULT_REASONING_BREAKDOWN_AGENT}
+ *          (`'high'`) when unset or blank.
+ *
+ * @remarks
+ * Routes through {@link resolveReasoningLevel}: the value is matched case-insensitively against
+ * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
+ * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
+ * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ *
+ * @example
+ * ```ts
+ * import { getReasoningBreakdown } from './config/constants.js';
+ * const level = getReasoningBreakdown(); // 'high' (default)
+ * ```
+ */
+export function getReasoningBreakdown(): ReasoningLevel {
+  return resolveReasoningLevel(
+    process.env[PRP_REASONING_BREAKDOWN_AGENT],
+    PRP_REASONING_BREAKDOWN_AGENT,
+    DEFAULT_REASONING_BREAKDOWN_AGENT
+  );
+}
+
+/**
+ * Read `PRP_REASONING_BUG_FINDER_AGENT` → resolved reasoning level for the bug-finder role
+ * (PRD §9.2.9).
+ *
+ * @returns The resolved {@link ReasoningLevel}, or {@link DEFAULT_REASONING_BUG_FINDER_AGENT}
+ *          (`'high'`) when unset or blank.
+ *
+ * @remarks
+ * Routes through {@link resolveReasoningLevel}: the value is matched case-insensitively against
+ * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
+ * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
+ * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ *
+ * @example
+ * ```ts
+ * import { getReasoningBugFinder } from './config/constants.js';
+ * const level = getReasoningBugFinder(); // 'high' (default)
+ * ```
+ */
+export function getReasoningBugFinder(): ReasoningLevel {
+  return resolveReasoningLevel(
+    process.env[PRP_REASONING_BUG_FINDER_AGENT],
+    PRP_REASONING_BUG_FINDER_AGENT,
+    DEFAULT_REASONING_BUG_FINDER_AGENT
+  );
+}
+
+/**
+ * Read `PRP_REASONING_VALIDATION_AGENT` → resolved reasoning level for the validation role
+ * (PRD §9.2.9).
+ *
+ * @returns The resolved {@link ReasoningLevel}, or {@link DEFAULT_REASONING_VALIDATION_AGENT}
+ *          (`'high'`) when unset or blank.
+ *
+ * @remarks
+ * Routes through {@link resolveReasoningLevel}: the value is matched case-insensitively against
+ * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
+ * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
+ * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ *
+ * @example
+ * ```ts
+ * import { getReasoningValidation } from './config/constants.js';
+ * const level = getReasoningValidation(); // 'high' (default)
+ * ```
+ */
+export function getReasoningValidation(): ReasoningLevel {
+  return resolveReasoningLevel(
+    process.env[PRP_REASONING_VALIDATION_AGENT],
+    PRP_REASONING_VALIDATION_AGENT,
+    DEFAULT_REASONING_VALIDATION_AGENT
+  );
+}
+
+/**
+ * Read `PRP_REASONING_IMPL_AGENT` → resolved reasoning level for the coder/implementation role
+ * (PRD §9.2.9).
+ *
+ * @returns The resolved {@link ReasoningLevel}, or {@link DEFAULT_REASONING_IMPL_AGENT} (`'off'`)
+ *          when unset or blank. NOTE: the impl role defaults to `'off'` (the one non-`'high'`
+ *          default) — coding agents run without reasoning by default.
+ *
+ * @remarks
+ * Routes through {@link resolveReasoningLevel}: the value is matched case-insensitively against
+ * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
+ * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
+ * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ *
+ * @example
+ * ```ts
+ * import { getReasoningImpl } from './config/constants.js';
+ * const level = getReasoningImpl(); // 'off' (default)
+ * ```
+ */
+export function getReasoningImpl(): ReasoningLevel {
+  return resolveReasoningLevel(
+    process.env[PRP_REASONING_IMPL_AGENT],
+    PRP_REASONING_IMPL_AGENT,
+    DEFAULT_REASONING_IMPL_AGENT
+  );
+}
+
+/**
+ * Validate every role's reasoning level by invoking all five getters (PRD §9.2.9 #4 fail-fast).
+ *
+ * @remarks
+ * Each getter throws {@link ReasoningConfigError} on an invalid value; calling all five in sequence
+ * makes a single invocation validate the entire reasoning config. Consumed by the startup path (T4)
+ * so a bad level aborts before any session is created or agent invoked. A no-op (returns void) when
+ * all five resolve successfully.
+ */
+export function validateAllReasoningLevels(): void {
+  getReasoningAgent();
+  getReasoningBreakdown();
+  getReasoningBugFinder();
+  getReasoningValidation();
+  getReasoningImpl();
+}

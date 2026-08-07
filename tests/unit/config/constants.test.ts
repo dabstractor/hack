@@ -41,6 +41,12 @@ import {
   getApiTimeoutMs,
   REASONING_LEVELS,
   resolveReasoningLevel,
+  getReasoningAgent,
+  getReasoningBreakdown,
+  getReasoningBugFinder,
+  getReasoningValidation,
+  getReasoningImpl,
+  validateAllReasoningLevels,
 } from '../../../src/config/constants.js';
 import {
   type ModelTier,
@@ -448,5 +454,155 @@ describe('config/types: ReasoningConfigError', () => {
       "Invalid reasoning level for 'PRP_REASONING_IMPL_AGENT': 'turbo'. " +
         'Accepted (case-insensitive): off, minimal, low, medium, high, xhigh.'
     );
+  });
+});
+
+// ============================================================================
+// Per-role reasoning getters + validateAllReasoningLevels (P1.M1.T1.S2 — PRD §9.2.9)
+// ============================================================================
+// S2 adds 5 per-role getters (one-line wrappers over S1's resolveReasoningLevel) + a fail-fast
+// aggregate validator. Each getter routes process.env[PRP_REASONING_*] through the shared
+// validator (case-insensitive, empty/whitespace→default, invalid→throws). Defaults: Agent /
+// Breakdown / BugFinder / Validation = 'high'; Impl = 'off' (the one non-high default).
+
+describe('config/constants: per-role reasoning getters', () => {
+  // Restore env after each test so stubs never leak across the 100%-coverage gate.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // Data-driven [getter, envName, default] tuples cover all 5 getters DRY (each is a branchless
+  // one-liner over resolveReasoningLevel; the branches live in resolveReasoningLevel, covered above).
+  const cases: Array<{
+    name: string;
+    getter: () => string;
+    envName: string;
+    def: string;
+  }> = [
+    {
+      name: 'getReasoningAgent',
+      getter: getReasoningAgent,
+      envName: 'PRP_REASONING_AGENT',
+      def: 'high',
+    },
+    {
+      name: 'getReasoningBreakdown',
+      getter: getReasoningBreakdown,
+      envName: 'PRP_REASONING_BREAKDOWN_AGENT',
+      def: 'high',
+    },
+    {
+      name: 'getReasoningBugFinder',
+      getter: getReasoningBugFinder,
+      envName: 'PRP_REASONING_BUG_FINDER_AGENT',
+      def: 'high',
+    },
+    {
+      name: 'getReasoningValidation',
+      getter: getReasoningValidation,
+      envName: 'PRP_REASONING_VALIDATION_AGENT',
+      def: 'high',
+    },
+    {
+      name: 'getReasoningImpl',
+      getter: getReasoningImpl,
+      envName: 'PRP_REASONING_IMPL_AGENT',
+      def: 'off', // the one non-high default
+    },
+  ];
+
+  for (const { name, getter, envName, def } of cases) {
+    describe(`${name} (${envName}, default ${def})`, () => {
+      it('returns the role default when the env var is unset', () => {
+        // Unset (no stub) → default. Stub '' first to clear any .env leakage, then delete to exercise
+        // the `raw === undefined` branch in resolveReasoningLevel.
+        vi.stubEnv(envName, '');
+        expect(getter()).toBe(def);
+        delete process.env[envName];
+        expect(getter()).toBe(def);
+      });
+
+      it('returns the role default when the env var is empty or whitespace-only', () => {
+        vi.stubEnv(envName, '');
+        expect(getter()).toBe(def);
+        vi.stubEnv(envName, '   ');
+        expect(getter()).toBe(def);
+        vi.stubEnv(envName, '\t\n');
+        expect(getter()).toBe(def);
+      });
+
+      it('honors a set value case-insensitively (lowercased)', () => {
+        vi.stubEnv(envName, 'medium');
+        expect(getter()).toBe('medium');
+        vi.stubEnv(envName, 'HIGH');
+        expect(getter()).toBe('high');
+        vi.stubEnv(envName, 'Xhigh');
+        expect(getter()).toBe('xhigh');
+      });
+
+      it('throws ReasoningConfigError on an invalid value (key + value carried)', () => {
+        vi.stubEnv(envName, 'ultra');
+        let err: unknown;
+        try {
+          getter();
+        } catch (e) {
+          err = e;
+        }
+        expect(err).toBeInstanceOf(ReasoningConfigError);
+        const rce = err as ReasoningConfigError;
+        expect(rce.name).toBe('ReasoningConfigError');
+        expect(rce.key).toBe(envName);
+        expect(rce.value).toBe('ultra');
+        expect(rce.message).toContain(envName);
+        expect(rce.message).toContain('ultra');
+      });
+    });
+  }
+
+  // Explicit guard on the one non-high default (easy to mis-wire to 'high').
+  it('getReasoningImpl default is off (the one non-high default)', () => {
+    vi.stubEnv('PRP_REASONING_IMPL_AGENT', '');
+    expect(getReasoningImpl()).toBe('off');
+  });
+
+  describe('validateAllReasoningLevels', () => {
+    it('is a no-op (returns void) when all five roles are valid/unset', () => {
+      // Clear all five so none is invalid (unset → default).
+      vi.stubEnv('PRP_REASONING_AGENT', '');
+      vi.stubEnv('PRP_REASONING_BREAKDOWN_AGENT', '');
+      vi.stubEnv('PRP_REASONING_BUG_FINDER_AGENT', '');
+      vi.stubEnv('PRP_REASONING_VALIDATION_AGENT', '');
+      vi.stubEnv('PRP_REASONING_IMPL_AGENT', '');
+      expect(() => validateAllReasoningLevels()).not.toThrow();
+    });
+
+    it('throws ReasoningConfigError when ANY role is invalid (fail-fast)', () => {
+      vi.stubEnv('PRP_REASONING_AGENT', 'ultra'); // invalid → first getter throws
+      let err: unknown;
+      try {
+        validateAllReasoningLevels();
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(ReasoningConfigError);
+      const rce = err as ReasoningConfigError;
+      expect(rce.key).toBe('PRP_REASONING_AGENT');
+      expect(rce.value).toBe('ultra');
+    });
+
+    it('throws on the LAST role too (getReasoningImpl) when it alone is invalid', () => {
+      // Only the 5th getter (Impl) is invalid — proves validateAll reaches the tail.
+      vi.stubEnv('PRP_REASONING_IMPL_AGENT', 'turbo');
+      let err: unknown;
+      try {
+        validateAllReasoningLevels();
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(ReasoningConfigError);
+      const rce = err as ReasoningConfigError;
+      expect(rce.key).toBe('PRP_REASONING_IMPL_AGENT');
+      expect(rce.value).toBe('turbo');
+    });
   });
 });
