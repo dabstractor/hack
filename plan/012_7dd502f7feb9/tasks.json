@@ -281,7 +281,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Update docs/CONFIGURATION.md — commit-style env vars, .hack keys, hack update section",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
