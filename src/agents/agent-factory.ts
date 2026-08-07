@@ -30,7 +30,7 @@ import {
   configureHarness,
   resolveApiKeyForProvider,
 } from '../config/harness.js';
-import { getBugFinderAgent } from '../config/constants.js';
+import { getBugFinderAgent, type ReasoningLevel } from '../config/constants.js';
 import type { AgentHarness, ModelTier } from '../config/types.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
@@ -107,20 +107,19 @@ export type AgentPersona =
   | 'cleanup';
 
 /**
- * Extended-thinking (reasoning) budget for an agent (PRD §6.1, §9.2.3).
+ * Extended-thinking (reasoning) budget for an agent (PRD §9.2.9).
  *
  * @remarks
- * The Reasoning role (task decomposition, creative bug-finding, validation) runs at the
- * MAXIMUM budget ('xhigh'); Research and Implementation roles run at their model's normal
- * budget (field omitted → undefined). This is a pipeline-internal budget marker: Groundswell's
- * AgentConfig does not model thinking, so the field rides on the config object for downstream
- * harness wiring; it is NOT consumed by Groundswell createAgent.
+ * An alias of {@link ReasoningLevel} (`src/config/constants.ts`) — the single source of truth for
+ * the §9.2.9 vocabulary, which MIRRORS the pi SDK's `VALID_THINKING_LEVELS` exactly:
+ * `off | minimal | low | medium | high | xhigh` (`xhigh` is the maximum; there is no `max`).
  *
- * NOTE: the pi SDK (`@earendil-works/pi-agent-core`) defines a `ThinkingLevel` that also
- * includes 'minimal'. This pipeline type intentionally EXCLUDES 'minimal' per the P2.M2.T1.S1
- * contract — only the six levels below are selectable.
+ * This is a pipeline-internal budget marker: it rides on {@link AgentConfig.thinking} for downstream
+ * harness wiring (the `pi` harness maps it to `--thinking <level>`); Groundswell's `AgentConfig`
+ * itself does not model thinking. Each agent role resolves its own level via the `PRP_REASONING_*`
+ * env vars (§9.2.9), decoupled from its model tier (§9.2.3).
  */
-export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ThinkingLevel = ReasoningLevel;
 
 /**
  * Model role selecting tier + reasoning budget for a pipeline agent (PRD §9.2.3).

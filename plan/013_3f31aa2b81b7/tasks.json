@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Config constants, vocabulary, getters & fail-fast validator",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Add the ReasoningLevel vocabulary type, the REASONING_LEVELS array, a shared case-normalizing validator that throws a new ReasoningConfigError, the five per-role getters, and reconcile the agent-factory ThinkingLevel type (add minimal, drop max). This is the foundation every other task consumes.",
               "subtasks": [
                 {
@@ -59,7 +59,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Reconcile agent-factory ThinkingLevel type (add minimal, drop max, alias ReasoningLevel)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -74,7 +74,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S4",
                   "title": ".env.example 'Reasoning Levels' subsection + getter/validator JSDoc",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"

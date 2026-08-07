@@ -7,8 +7,20 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_HARNESS } from '../../../src/config/constants.js';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from 'vitest';
+import {
+  DEFAULT_HARNESS,
+  REASONING_LEVELS,
+  type ReasoningLevel,
+} from '../../../src/config/constants.js';
 import {
   createBaseConfig,
   createArchitectAgent,
@@ -20,6 +32,7 @@ import {
   STATELESS_PERSONAS,
   type AgentPersona,
   type ModelRole,
+  type ThinkingLevel,
 } from '../../../src/agents/agent-factory.js';
 
 describe('agents/agent-factory', () => {
@@ -337,5 +350,32 @@ describe('agents/agent-factory', () => {
       expect(agent).toBeDefined();
       expect(agent.name).toBe('QaAgent');
     });
+  });
+});
+
+describe('ThinkingLevel reconciliation (PRD §9.2.9 / P1.M1.T1.S3)', () => {
+  it('aliases ReasoningLevel — minimal present, max absent (runtime vocabulary)', () => {
+    // ThinkingLevel is a pure type alias (no runtime value), so verify via REASONING_LEVELS — the
+    // `as const` array backing ReasoningLevel, which ThinkingLevel now aliases.
+    expect(REASONING_LEVELS).toContain('minimal');
+    expect(REASONING_LEVELS).not.toContain('max');
+    expect([...REASONING_LEVELS]).toEqual([
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+  });
+
+  it('ThinkingLevel === ReasoningLevel (type-level)', () => {
+    // Enforced by `vitest typecheck` (the canonical "same type" proof).
+    expectTypeOf<ThinkingLevel>().toEqualTypeOf<ReasoningLevel>();
+    // Compile-time guard: 'max' is no longer assignable. Inert under the default `vitest run` gate
+    // (build tsc excludes tests); trips "Unused @ts-expect-error" if 'max' is ever re-added.
+    // @ts-expect-error 'max' was dropped from the reconciled vocabulary
+    const _rejectedMax: ThinkingLevel = 'max';
+    void _rejectedMax;
   });
 });
