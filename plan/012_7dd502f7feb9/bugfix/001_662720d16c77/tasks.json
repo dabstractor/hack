@@ -59,14 +59,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Add regression-prevention integration tests using real simple-git",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Add integration tests that call REAL simple-git (not vi.fn mocks) against throwaway temp git repos, so an invalid option name fails the build instead of being masked. Two test layers: (1) a direct integration test for getRecentCommitMessages that creates a real temp git repo with seeded commits, and (2) an end-to-end test that drives generateCommitMessage under the default 'auto' config (with only the LLM agent mocked) and asserts it does not throw on a repo with >1 commit.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Integration test for getRecentCommitMessages using real simple-git against a temp git repo",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -83,7 +83,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "End-to-end test for generateCommitMessage under default auto config (LLM agent mocked only)",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
