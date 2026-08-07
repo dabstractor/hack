@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Fix the invalid simple-git option and its masked test assertion",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Change { maxEntries: count } to { maxCount: count } in getRecentCommitMessages() at src/tools/git-mcp.ts:590, and correct the corresponding test assertion at tests/unit/tools/git-mcp.test.ts:977 from { maxEntries: 2 } to { maxCount: 2 }. These two changes are an atomic pair: the test currently validates the broken contract, so both must be updated together.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Fix the masked test assertion in git-mcp.test.ts from maxEntries to maxCount",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -66,7 +66,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Integration test for getRecentCommitMessages using real simple-git against a temp git repo",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
