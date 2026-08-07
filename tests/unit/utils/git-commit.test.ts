@@ -14,6 +14,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // stagecoach generateMessage path — default-path tests never trigger it).
 // The three restore_* helpers are stubbed for the restore_critical_files
 // mechanical protection layer (PRD §5.1, P3.M2.T4.S2).
+// getRecentCommitMessages is added for the style-resolution block
+// (P1.M1.T4.S1) — the top-level beforeEach defaults it to [] so the env-unset
+// (auto) path degrades to plain and existing tests stay green.
 vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitStatus: vi.fn(),
   gitAdd: vi.fn(),
@@ -22,13 +25,18 @@ vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitListStagedDeletions: vi.fn(),
   gitRestoreFileFromHead: vi.fn(),
   gitUnstagePath: vi.fn(),
+  getRecentCommitMessages: vi.fn(),
 }));
 
 // Mock the stagecoach commit-message agent factory so default-path tests
 // (options absent) NEVER instantiate a real agent. Only the generateMessage
-// tests wire this mock to return a fake agent.
+// tests wire this mock to return a fake agent. buildCommitMessageSystemPrompt
+// is added for the style-resolution block (P1.M1.T4.S1) — it defaults to a
+// vi.fn() (undefined return); style-resolution tests override it via
+// mockImplementation to assert the WIRING via a MOCK[<style>] sentinel.
 vi.mock('../../../src/agents/commit-message-agent.js', () => ({
   createCommitMessageAgent: vi.fn(),
+  buildCommitMessageSystemPrompt: vi.fn(),
 }));
 
 // Mock groundswell's createPrompt: passthrough the options object so the test
@@ -59,9 +67,13 @@ import {
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
+  getRecentCommitMessages,
 } from '../../../src/tools/git-mcp.js';
 import { createPrompt } from 'groundswell';
-import { createCommitMessageAgent } from '../../../src/agents/commit-message-agent.js';
+import {
+  createCommitMessageAgent,
+  buildCommitMessageSystemPrompt,
+} from '../../../src/agents/commit-message-agent.js';
 import {
   buildFallbackCommitMessage,
   buildTaskPrefix,
@@ -83,7 +95,11 @@ const mockGitListStagedDeletions = vi.mocked(gitListStagedDeletions);
 const mockGitRestoreFileFromHead = vi.mocked(gitRestoreFileFromHead);
 const mockGitUnstagePath = vi.mocked(gitUnstagePath);
 const mockCreateCommitMessageAgent = vi.mocked(createCommitMessageAgent);
+const mockBuildCommitMessageSystemPrompt = vi.mocked(
+  buildCommitMessageSystemPrompt
+);
 const mockCreatePrompt = vi.mocked(createPrompt);
+const mockGetRecentCommitMessages = vi.mocked(getRecentCommitMessages);
 
 // Helper to build a fake agent whose .prompt() resolves a controlled response.
 function makeFakeAgent(response: {
@@ -105,6 +121,13 @@ describe('utils/git-commit', () => {
     mockLogger.debug.mockClear();
     // Mock process.cwd() so git operations use '/project' as repo root
     vi.spyOn(process, 'cwd').mockReturnValue('/project');
+    // DEFAULT: getRecentCommitMessages returns [] so the env-unset (auto)
+    // style-resolution path degrades to plain (PRD §5.1) and existing
+    // generateCommitMessage/smartCommit tests stay behaviorally identical to
+    // the pre-style fixed plain contract. Style-resolution tests override
+    // this per case. (A bare vi.fn() returning undefined would also work via
+    // the !examples guard, but [] is deterministic and self-documenting.)
+    mockGetRecentCommitMessages.mockResolvedValue([]);
     // DEFAULT: restore_critical_files (now invoked from smartCommit) is a
     // no-op for every pre-existing smartCommit test — gitListStagedDeletions
     // returns success with no staged deletions, so restore/unstage are never
@@ -1032,6 +1055,191 @@ describe('utils/git-commit', () => {
       await expect(generateCommitMessage('diff text')).rejects.toThrow(
         /empty agent output/
       );
+    });
+
+    // =======================================================================
+    // STYLE RESOLUTION (PRP_COMMIT_STYLE) — P1.M1.T4.S1.
+    // Proves generateCommitMessage resolves the configured PRP_COMMIT_STYLE,
+    // fetches recent-commit examples only under `auto` + a positive example
+    // count, degrades to plain when there is nothing to learn, and threads
+    // the resolved style into createCommitMessageAgent via
+    // buildCommitMessageSystemPrompt. The builder's PROMPT CONTENT is owned by
+    // its own unit test (commit-message-agent.test.ts); here we assert the
+    // WIRING via a MOCK[<style>] sentinel returned by a mocked builder.
+    // =======================================================================
+    describe('style resolution (PRP_COMMIT_STYLE)', () => {
+      // Env hygiene: the style getters read PRP_COMMIT_STYLE /
+      // PRP_COMMIT_STYLE_EXAMPLES at call time, so a stubbed env from a prior
+      // case must not bleed into the next. Nested hooks run AFTER the
+      // outer file-wide beforeEach (which clears mocks + defaults
+      // getRecentCommitMessages to []). Mirrors the formatCommitMessage harness.
+      beforeEach(() => {
+        delete process.env.PRP_COMMIT_STYLE;
+        delete process.env.PRP_COMMIT_STYLE_EXAMPLES;
+      });
+
+      afterEach(() => {
+        vi.unstubAllEnvs();
+      });
+
+      it('auto + >1 example → fetches N (default 5), factory receives the auto (learned-style) contract', async () => {
+        // SETUP — env unset → auto + default EXAMPLES=5. Provide >1 example so
+        // resolvedStyle stays 'auto' and the builder is called with 'auto'.
+        mockGetRecentCommitMessages.mockResolvedValue([
+          'feat: a',
+          'fix: b',
+          'chore: c',
+        ]);
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({ status: 'success', data: 'msg', error: null })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY — git-log fetched exactly once with the default N=5; the
+        // factory received the auto contract (NOT degraded to plain).
+        expect(mockGetRecentCommitMessages).toHaveBeenCalledTimes(1);
+        expect(mockGetRecentCommitMessages).toHaveBeenCalledWith(5);
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith('MOCK[auto]');
+      });
+
+      it('auto + ≤1 example → degrades to plain; factory receives the plain contract', async () => {
+        // SETUP — env unset → auto, but the repo has only 1 commit → nothing
+        // to learn → resolvedStyle degrades to plain (PRD §5.1).
+        mockGetRecentCommitMessages.mockResolvedValue(['only commit']);
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({ status: 'success', data: 'msg', error: null })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY — git-log WAS called (auto + N>0), but ≤1 example flipped
+        // resolvedStyle to plain, so the factory received the plain contract.
+        expect(mockGetRecentCommitMessages).toHaveBeenCalledTimes(1);
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
+          'MOCK[plain]'
+        );
+      });
+
+      it('auto + PRP_COMMIT_STYLE_EXAMPLES=0 → NO git-log call, degrades to plain', async () => {
+        // SETUP — learning disabled (EXAMPLES=0). The n>0 gate skips the
+        // git-log call entirely; examples stays undefined → degrade to plain.
+        vi.stubEnv('PRP_COMMIT_STYLE_EXAMPLES', '0'); // PRP_COMMIT_STYLE unset → auto
+        mockGetRecentCommitMessages.mockResolvedValue([
+          'feat: a',
+          'fix: b',
+          'chore: c',
+        ]); // would be enough to learn, but must NOT be called
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({ status: 'success', data: 'msg', error: null })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY — git-log NEVER called (EXAMPLES=0 → n>0 gate skips it);
+        // resolvedStyle degraded to plain.
+        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
+          'MOCK[plain]'
+        );
+      });
+
+      it('PRP_COMMIT_STYLE=plain → skips git log, factory receives the plain contract', async () => {
+        // SETUP — explicit plain: history is ignored entirely.
+        vi.stubEnv('PRP_COMMIT_STYLE', 'plain');
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({ status: 'success', data: 'msg', error: null })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY
+        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
+          'MOCK[plain]'
+        );
+      });
+
+      it('PRP_COMMIT_STYLE=conventional → skips git log, factory receives the conventional contract', async () => {
+        // SETUP — explicit conventional: history ignored.
+        vi.stubEnv('PRP_COMMIT_STYLE', 'conventional');
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({ status: 'success', data: 'feat: x', error: null })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY
+        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
+          'MOCK[conventional]'
+        );
+      });
+
+      it('PRP_COMMIT_STYLE=gitmoji → skips git log, factory receives the gitmoji contract', async () => {
+        // SETUP — explicit gitmoji: history ignored.
+        vi.stubEnv('PRP_COMMIT_STYLE', 'gitmoji');
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({
+            status: 'success',
+            data: ':sparkles: x',
+            error: null,
+          })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY
+        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
+          'MOCK[gitmoji]'
+        );
+      });
+
+      it('auto + PRP_COMMIT_STYLE_EXAMPLES=3 → git-log called once with 3', async () => {
+        // SETUP — custom example count threads through to the git-log call.
+        vi.stubEnv('PRP_COMMIT_STYLE_EXAMPLES', '3'); // PRP_COMMIT_STYLE unset → auto
+        mockGetRecentCommitMessages.mockResolvedValue(['a', 'b', 'c']); // >1 → stays auto
+        mockBuildCommitMessageSystemPrompt.mockImplementation(
+          s => `MOCK[${s}]` as string
+        );
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({ status: 'success', data: 'msg', error: null })
+        );
+
+        // EXECUTE
+        await generateCommitMessage('diff text');
+
+        // VERIFY — the custom EXAMPLES count threads through to the git-log
+        // call; resolvedStyle stays auto (>1 example).
+        expect(mockGetRecentCommitMessages).toHaveBeenCalledTimes(1);
+        expect(mockGetRecentCommitMessages).toHaveBeenCalledWith(3);
+        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith('MOCK[auto]');
+      });
     });
   });
 

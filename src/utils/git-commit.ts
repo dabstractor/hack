@@ -28,20 +28,27 @@ import {
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
+  getRecentCommitMessages,
 } from '../tools/git-mcp.js';
 import { basename } from 'node:path';
 import { getLogger, type Logger } from './logger.js';
 import { AgentError, isAgentError, toErrorMessage } from './errors.js';
 import { createPrompt } from 'groundswell';
 import { z } from 'zod';
-import { createCommitMessageAgent } from '../agents/commit-message-agent.js';
+import {
+  createCommitMessageAgent,
+  buildCommitMessageSystemPrompt,
+} from '../agents/commit-message-agent.js';
 import { retry, createDefaultOnRetry } from './retry.js';
 import {
   getCommitRetryMax,
   getCommitRetryDelayMs,
   getCommitRetryDelayCapMs,
   getPrpCommitFormat,
+  getPrpCommitStyle,
+  getPrpCommitStyleExamples,
 } from '../config/constants.js';
+import type { PrpCommitStyle } from '../config/constants.js';
 
 let _logger: Logger | undefined;
 const logger = (): Logger => (_logger ??= getLogger('smartCommit'));
@@ -293,14 +300,30 @@ function buildCommitMessageUserPrompt(diff: string): string {
  * `status: 'error'`, or empty/whitespace/sentinel (`'skip'`) agent output.
  *
  * @remarks
- * **This is the transient-API-sensitive generation boundary** that
- * P3.M1.T4.S1 wraps with a bounded `retry()` loop (PRD §5.1, using the
- * `COMMIT_RETRY_*` constants — NOT the hardcoded `retryAgentPrompt`). A
- * generation timeout is LLM-API slowness, not a stuck subprocess — so the
- * boundary throws {@link AgentError}
+ * **Style resolution (PRD §5.1 "Commit Message Style" — P1.M1.T4.S1).**
+ * This function resolves the STYLE layer of the commit message before agent
+ * creation: it reads {@link getPrpCommitStyle} and — under `'auto'` — fetches
+ * the last N commit messages via {@link getRecentCommitMessages} (N =
+ * {@link getPrpCommitStyleExamples}) as style examples. With insufficient
+ * history (`auto` + ≤1 example) or learning disabled (`EXAMPLES=0`),
+ * `resolvedStyle` degrades to `'plain'` (PRD §5.1). The resolved style +
+ * examples drive {@link buildCommitMessageSystemPrompt}, whose output is
+ * threaded into {@link createCommitMessageAgent}. Explicit modes
+ * (`'plain'` / `'conventional'` / `'gitmoji'`) ignore history entirely. The
+ * POSITION layer (the `<phase>.<milestone>.<task>[.<subtask>]:` prefix) is
+ * layered afterward by {@link formatCommitMessage} — unchanged.
+ *
+ * **Transient-API boundary.** This is the transient-API-sensitive generation
+ * boundary that P3.M1.T4.S1 wraps with a bounded `retry()` loop (PRD §5.1,
+ * using the `COMMIT_RETRY_*` constants — NOT the hardcoded
+ * `retryAgentPrompt`). A generation timeout is LLM-API slowness, not a stuck
+ * subprocess — so the boundary throws {@link AgentError}
  * (which hardcodes `code = PIPELINE_AGENT_LLM_FAILED` and is classified
  * **transient** by `isTransientError`). This lets the retry layer distinguish
  * "LLM-API slowness (retry)" from an exit-124 subprocess hang (never retry).
+ * The git-log call under `auto` also lives inside this retry boundary;
+ * architecture §F1.F blesses that — git log is a fast local operation, not a
+ * transient API call.
  *
  * The agent's system prompt forbids emitting the `[PRP Auto]` prefix or
  * `Co-Authored-By` trailer; this function returns ONLY the descriptive
@@ -308,6 +331,9 @@ function buildCommitMessageUserPrompt(diff: string): string {
  *
  * @example
  * ```typescript
+ * // PRP_COMMIT_STYLE unset → auto → fetches recent history; degrades to plain
+ * // when the repo has ≤1 commit. PRP_COMMIT_STYLE=conventional forces the
+ * // Conventional-Commit contract regardless of history.
  * const msg = await generateCommitMessage(stagedDiff);
  * // msg: 'feat(api): add endpoint'
  * ```
@@ -318,7 +344,28 @@ export async function generateCommitMessage(diff: string): Promise<string> {
       'stagecoach commit-message generation failed: empty staged diff'
     );
   }
-  const agent = createCommitMessageAgent();
+  // === STYLE RESOLUTION (PRD §5.1 "Commit Message Style" — P1.M1.T4.S1) ===
+  // Resolve the configured PRP_COMMIT_STYLE and — under `auto` — fetch the
+  // last N commit messages as style examples. ≤1 example (or EXAMPLES=0)
+  // leaves nothing to learn → degrade to the plain contract (PRD §5.1). The
+  // resolved style + examples drive the mode-conditional system prompt that
+  // is threaded into the agent factory.
+  const style = getPrpCommitStyle();
+  let resolvedStyle: PrpCommitStyle = style;
+  let examples: string[] | undefined;
+  if (style === 'auto') {
+    const n = getPrpCommitStyleExamples();
+    if (n > 0) {
+      examples = await getRecentCommitMessages(n);
+    }
+    // ≤1 commit (or EXAMPLES=0 → examples stays undefined) → nothing to learn
+    // → degrade to the plain contract (PRD §5.1).
+    if (!examples || examples.length <= 1) {
+      resolvedStyle = 'plain';
+    }
+  }
+  const system = buildCommitMessageSystemPrompt(resolvedStyle, examples);
+  const agent = createCommitMessageAgent(system);
   const prompt = createPrompt({
     user: buildCommitMessageUserPrompt(diff),
     responseFormat: z.string(),

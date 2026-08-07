@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Commit Message Style Layer (PRD §5.1)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Add the style layer to the stagecoach commit-message generation pipeline. The agent's system prompt becomes mode-conditional: `auto` injects the last-N commit messages as style examples with an anti-reuse instruction; `plain`/`conventional`/`gitmoji` inject their respective contracts verbatim. The existing position layer (formatCommitMessage) and Smart Commit Resilience retry/fallback are completely unchanged.",
           "tasks": [
             {
@@ -118,14 +118,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Wire Style Resolution into generateCommitMessage",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Integrate the style layer into the commit-message generation path: generateCommitMessage resolves the style mode, fetches recent commits for auto mode, builds the dynamic system prompt, and passes it to the agent factory. The position layer (formatCommitMessage) and Smart Commit Resilience retry/fallback remain completely unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "Modify generateCommitMessage to resolve style, fetch examples, and build the dynamic prompt",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -153,14 +153,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Loose Task-ID Normalizer & Matcher",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Pure functions that normalize a loose task ID string (P1.M1.T1.S1, p1m1t1s1, 1.1.1.1, 1.2) into numeric segments and find the matching item in the backlog tree positionally.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "normalizeTaskId + findItemByLooseId in src/utils/task-utils.ts",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/012_7dd502f7feb9/architecture/implementation-status.md §F2.A. The existing findItem() at src/utils/task-utils.ts:~90 does exact-id matching against the id field. HierarchyItem type (line ~47) = Phase | Milestone | Task | Subtask. Backlog type has .backlog: Phase[]. Phase.milestones, Milestone.tasks, Task.subtasks; Subtask has no children. Do NOT modify findItem.\n2. INPUT: A loose task-ID string from the CLI arg (e.g. 'P1.M1.T1.S1', 'p1m1t1s1', '1.1.1.1', '1.2', '1'). A Backlog tree.\n3. LOGIC: Implement PRD §5.4 'Loose task-ID matching'. Two new exported functions in src/utils/task-utils.ts:\n   (a) export function normalizeTaskId(looseId: string): number[] | null\n       - Extract digit sequences: const nums = looseId.match(/\\d+/g);\n       - If null or empty → return null.\n       - Map to numbers: segments = nums.map(Number).\n       - If segments.length > 4 → return null (max Phase.Milestone.Task.Subtask).\n       - Return segments.\n       Examples: 'P1.M1.T1.S1'→[1,1,1,1], 'p1m1t1s1'→[1,1,1,1], '1.1.1.1'→[1,1,1,1], '1.2'→[1,2], '1'→[1].\n   (b) export function findItemByLooseId(backlog: Backlog, looseId: string): { item: HierarchyItem; canonicalId: string } | null\n       - const segments = normalizeTaskId(looseId); if (!segments) return null.\n       - Walk the tree positionally (1-BASED indices): segments[0] → backlog.backlog[segments[0]-1] (phase), segments[1] → phase.milestones[segments[1]-1] (milestone), segments[2] → milestone.tasks[segments[2]-1] (task), segments[3] → task.subtasks[segments[3]-1] (subtask).\n       - Trailing segments may be omitted (fewer = higher-level item). Out-of-bounds at any level → return null.\n       - Build the canonicalId string from the actual item's id field (e.g. 'P1.M1.T1.S1').\n       - Return { item, canonicalId } or null.\n4. OUTPUT: A found item + its canonical ID string, or null for not-found. Consumed by P1.M2.T4.S1 (hack update CLI handler).\n5. DOCS: [Mode A] JSDoc on normalizeTaskId and findItemByLooseId documenting the normalization algorithm (regex-based digit extraction), positional 1-based mapping, trailing-segment omission, and canonical ID return. Include @example blocks showing all equivalent forms (P1.M1.T1.S1, p1m1t1s1, 1.1.1.1, 1.2, 1).",
