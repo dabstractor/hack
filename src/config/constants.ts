@@ -1546,7 +1546,8 @@ export const REASONING_LEVELS = [
  * @remarks
  * The VALUE is read + validated via the S2 `getReasoningAgent()` getter
  * (`resolveReasoningLevel(process.env[PRP_REASONING_AGENT], PRP_REASONING_AGENT, DEFAULT_REASONING_AGENT)`).
- * This constant is the env-var NAME itself.
+ * This constant is the env-var NAME itself. Documented for users in the Reasoning
+ * Levels box of `.env.example` (see PRD §9.2.9).
  */
 export const PRP_REASONING_AGENT = 'PRP_REASONING_AGENT';
 
@@ -1554,8 +1555,9 @@ export const PRP_REASONING_AGENT = 'PRP_REASONING_AGENT';
  * Environment variable name: reasoning level for the Architect/breakdown agent role (PRD §9.2.9).
  *
  * @remarks
- * The VALUE is read + validated via the S2 `getReasoningBreakdownAgent()` getter. This constant
- * is the env-var NAME itself.
+ * The VALUE is read + validated via the S2 `getReasoningBreakdown()` getter. This constant
+ * is the env-var NAME itself. Documented for users in the Reasoning Levels box of `.env.example`
+ * (see PRD §9.2.9).
  */
 export const PRP_REASONING_BREAKDOWN_AGENT = 'PRP_REASONING_BREAKDOWN_AGENT';
 
@@ -1563,8 +1565,9 @@ export const PRP_REASONING_BREAKDOWN_AGENT = 'PRP_REASONING_BREAKDOWN_AGENT';
  * Environment variable name: reasoning level for the bug-finder agent role (PRD §9.2.9).
  *
  * @remarks
- * The VALUE is read + validated via the S2 `getReasoningBugFinderAgent()` getter. This constant
- * is the env-var NAME itself.
+ * The VALUE is read + validated via the S2 `getReasoningBugFinder()` getter. This constant
+ * is the env-var NAME itself. Documented for users in the Reasoning Levels box of `.env.example`
+ * (see PRD §9.2.9).
  */
 export const PRP_REASONING_BUG_FINDER_AGENT = 'PRP_REASONING_BUG_FINDER_AGENT';
 
@@ -1572,8 +1575,9 @@ export const PRP_REASONING_BUG_FINDER_AGENT = 'PRP_REASONING_BUG_FINDER_AGENT';
  * Environment variable name: reasoning level for the validation agent role (PRD §9.2.9).
  *
  * @remarks
- * The VALUE is read + validated via the S2 `getReasoningValidationAgent()` getter. This constant
- * is the env-var NAME itself.
+ * The VALUE is read + validated via the S2 `getReasoningValidation()` getter. This constant
+ * is the env-var NAME itself. Documented for users in the Reasoning Levels box of `.env.example`
+ * (see PRD §9.2.9).
  */
 export const PRP_REASONING_VALIDATION_AGENT = 'PRP_REASONING_VALIDATION_AGENT';
 
@@ -1582,8 +1586,9 @@ export const PRP_REASONING_VALIDATION_AGENT = 'PRP_REASONING_VALIDATION_AGENT';
  * (PRD §9.2.9).
  *
  * @remarks
- * The VALUE is read + validated via the S2 `getReasoningImplAgent()` getter. This constant is
- * the env-var NAME itself.
+ * The VALUE is read + validated via the S2 `getReasoningImpl()` getter. This constant is
+ * the env-var NAME itself. Documented for users in the Reasoning Levels box of `.env.example`
+ * (see PRD §9.2.9).
  */
 export const PRP_REASONING_IMPL_AGENT = 'PRP_REASONING_IMPL_AGENT';
 
@@ -1627,6 +1632,7 @@ export const DEFAULT_REASONING_IMPL_AGENT = 'off' as const;
  *   the lowercased token.
  * - any other value throws {@link ReasoningConfigError} carrying the offending `key` + `value` —
  *   a HARD startup error (§9.2.9 #4 fail-fast), NOT a silent fallback or a deep runtime failure.
+ * Documented for users in the Reasoning Levels box of `.env.example` (see PRD §9.2.9).
  *
  * @param raw - The raw `process.env[KEY]` value (`string | undefined`).
  * @param envKey - The env-var NAME (for the actionable error message).
@@ -1664,6 +1670,7 @@ export function resolveReasoningLevel(
  * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
  * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
  * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ * Documented for users in the Reasoning Levels box of `.env.example` (see PRD §9.2.9).
  *
  * @example
  * ```ts
@@ -1691,6 +1698,7 @@ export function getReasoningAgent(): ReasoningLevel {
  * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
  * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
  * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ * Documented for users in the Reasoning Levels box of `.env.example` (see PRD §9.2.9).
  *
  * @example
  * ```ts
@@ -1718,6 +1726,7 @@ export function getReasoningBreakdown(): ReasoningLevel {
  * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
  * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
  * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ * Documented for users in the Reasoning Levels box of `.env.example` (see PRD §9.2.9).
  *
  * @example
  * ```ts
@@ -1745,6 +1754,7 @@ export function getReasoningBugFinder(): ReasoningLevel {
  * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
  * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
  * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ * Documented for users in the Reasoning Levels box of `.env.example` (see PRD §9.2.9).
  *
  * @example
  * ```ts
@@ -1773,6 +1783,7 @@ export function getReasoningValidation(): ReasoningLevel {
  * {@link REASONING_LEVELS}; an empty/whitespace-only value is treated as unset and falls back to
  * the default (NEVER forwarded — PRD §9.2.9 #4). A value outside the vocabulary is a HARD startup
  * error ({@link ReasoningConfigError}) — unlike the free-string agent getters, this getter validates.
+ * Documented for users in the Reasoning Levels box of `.env.example` (see PRD §9.2.9).
  *
  * @example
  * ```ts

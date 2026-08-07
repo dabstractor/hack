@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Config constants, vocabulary, getters & fail-fast validator",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Add the ReasoningLevel vocabulary type, the REASONING_LEVELS array, a shared case-normalizing validator that throws a new ReasoningConfigError, the five per-role getters, and reconcile the agent-factory ThinkingLevel type (add minimal, drop max). This is the foundation every other task consumes.",
               "subtasks": [
                 {
@@ -74,7 +74,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S4",
                   "title": ".env.example 'Reasoning Levels' subsection + getter/validator JSDoc",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -99,7 +99,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Add 5 [reasoning] entries to SCHEMA_MAP + reasoning section to HACK_CONFIG_SCHEMA",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

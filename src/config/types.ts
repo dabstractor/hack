@@ -308,7 +308,9 @@ interface ReasoningErrorOpts {
  * `error instanceof ReasoningConfigError` + clean `main().catch()` rendering work), and the
  * offending key + value are exposed as readonly fields for T4's startup error rendering and
  * tests. Thrown by {@link resolveReasoningLevel} (src/config/constants.ts) when a value is set
- * but is not one of the accepted {@linkcode REASONING_LEVELS} tokens (case-insensitively).
+ * but is not one of the accepted {@linkcode REASONING_LEVELS} tokens (case-insensitively). The
+ * user-facing config for these vars is documented in the Reasoning Levels box of `.env.example`
+ * (see PRD §9.2.9).
  *
  * @example
  * ```ts
