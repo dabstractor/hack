@@ -288,3 +288,59 @@ function buildPreflightMessage(opts: {
     `  • ${exportCmd}   # provider-native env var`
   );
 }
+
+/**
+ * Options for {@link ReasoningConfigError} / {@link buildReasoningErrorMessage}.
+ */
+interface ReasoningErrorOpts {
+  /** The env-var NAME that held the invalid value (e.g. 'PRP_REASONING_AGENT'). */
+  readonly key: string;
+  /** The invalid raw value the user supplied. */
+  readonly value: string;
+}
+
+/**
+ * Error thrown when a per-role reasoning-level env var holds an invalid value (PRD §9.2.9 #4 —
+ * fail-fast at startup, NOT a deep runtime failure inside the first agent call).
+ *
+ * @remarks
+ * Mirrors {@link AuthPreflightError}'s rich form: `this.name` is set in the constructor (so
+ * `error instanceof ReasoningConfigError` + clean `main().catch()` rendering work), and the
+ * offending key + value are exposed as readonly fields for T4's startup error rendering and
+ * tests. Thrown by {@link resolveReasoningLevel} (src/config/constants.ts) when a value is set
+ * but is not one of the accepted {@linkcode REASONING_LEVELS} tokens (case-insensitively).
+ *
+ * @example
+ * ```ts
+ * import { ReasoningConfigError } from './config/types.js';
+ *
+ * throw new ReasoningConfigError({ key: 'PRP_REASONING_AGENT', value: 'ultra' });
+ * ```
+ */
+export class ReasoningConfigError extends Error {
+  /** The env-var NAME that held the invalid value. */
+  readonly key: string;
+  /** The invalid raw value the user supplied. */
+  readonly value: string;
+
+  constructor(opts: ReasoningErrorOpts) {
+    super(buildReasoningErrorMessage(opts));
+    this.name = 'ReasoningConfigError';
+    this.key = opts.key;
+    this.value = opts.value;
+  }
+}
+
+/**
+ * Build the actionable PRD §9.2.9 reasoning-config failure message.
+ *
+ * @remarks
+ * Module-local helper. Pure — names the offending key + value and the full case-insensitive
+ * accepted-values list, so the user knows exactly what to change.
+ */
+function buildReasoningErrorMessage(opts: ReasoningErrorOpts): string {
+  return (
+    `Invalid reasoning level for '${opts.key}': '${opts.value}'. ` +
+    'Accepted (case-insensitive): off, minimal, low, medium, high, xhigh.'
+  );
+}

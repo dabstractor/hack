@@ -39,8 +39,13 @@ import {
   API_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
   getApiTimeoutMs,
+  REASONING_LEVELS,
+  resolveReasoningLevel,
 } from '../../../src/config/constants.js';
-import type { ModelTier } from '../../../src/config/types.js';
+import {
+  type ModelTier,
+  ReasoningConfigError,
+} from '../../../src/config/types.js';
 
 describe('config/constants: MODEL_NAMES', () => {
   it('SHOULD map vendor-neutral tiers to model ids', () => {
@@ -346,5 +351,102 @@ describe('config/constants: API_TIMEOUT_MS (getApiTimeoutMs)', () => {
   it('falls back to the default on non-positive input', () => {
     vi.stubEnv('API_TIMEOUT_MS', '0');
     expect(getApiTimeoutMs()).toBe(60000);
+  });
+});
+
+// ============================================================================
+// resolveReasoningLevel + ReasoningConfigError (PRD §9.2.9 — Per-Role Reasoning Level)
+// ============================================================================
+
+describe('config/constants: resolveReasoningLevel', () => {
+  it('returns the default for undefined (env var unset)', () => {
+    expect(
+      resolveReasoningLevel(undefined, 'PRP_REASONING_AGENT', 'high')
+    ).toBe('high');
+  });
+
+  it('returns the default for an empty string', () => {
+    expect(resolveReasoningLevel('', 'PRP_REASONING_AGENT', 'off')).toBe('off');
+  });
+
+  it('returns the default for a whitespace-only string', () => {
+    expect(resolveReasoningLevel('   ', 'PRP_REASONING_AGENT', 'high')).toBe(
+      'high'
+    );
+  });
+
+  it('accepts a valid lowercase token', () => {
+    expect(resolveReasoningLevel('high', 'PRP_REASONING_AGENT', 'off')).toBe(
+      'high'
+    );
+    expect(resolveReasoningLevel('minimal', 'X', 'high')).toBe('minimal');
+    expect(resolveReasoningLevel('xhigh', 'X', 'off')).toBe('xhigh');
+  });
+
+  it('accepts valid tokens CASE-INSENSITIVELY and returns the lowercased token', () => {
+    expect(resolveReasoningLevel('HIGH', 'PRP_REASONING_AGENT', 'off')).toBe(
+      'high'
+    );
+    expect(resolveReasoningLevel('xHigh', 'PRP_REASONING_AGENT', 'off')).toBe(
+      'xhigh'
+    );
+    expect(resolveReasoningLevel('Off', 'X', 'high')).toBe('off');
+  });
+
+  it('trims surrounding whitespace before matching', () => {
+    expect(resolveReasoningLevel('  high  ', 'X', 'off')).toBe('high');
+  });
+
+  it('REASONING_LEVELS deep-equals the pi-SDK vocabulary (off/minimal/low/medium/high/xhigh)', () => {
+    expect([...REASONING_LEVELS]).toEqual([
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+  });
+
+  it('throws ReasoningConfigError on an invalid value (carrying key + value + actionable message)', () => {
+    const KEY = 'PRP_REASONING_AGENT';
+    try {
+      resolveReasoningLevel('ultra', KEY, 'high');
+      throw new Error('expected resolveReasoningLevel to throw');
+    } catch (e) {
+      const err = e as ReasoningConfigError;
+      expect(err).toBeInstanceOf(ReasoningConfigError);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe('ReasoningConfigError');
+      expect(err.key).toBe(KEY);
+      expect(err.value).toBe('ultra');
+      expect(err.message).toContain(KEY);
+      expect(err.message).toContain("'ultra'");
+      expect(err.message).toContain('off, minimal, low, medium, high, xhigh');
+      expect(err.message).toContain('case-insensitive');
+    }
+  });
+
+  it('throws on a second invalid token (proves the throw is not token-specific)', () => {
+    expect(() => resolveReasoningLevel('yes', 'X', 'high')).toThrow(
+      ReasoningConfigError
+    );
+  });
+});
+
+describe('config/types: ReasoningConfigError', () => {
+  it('carries key + value and sets name (rich AuthPreflightError form)', () => {
+    const err = new ReasoningConfigError({
+      key: 'PRP_REASONING_IMPL_AGENT',
+      value: 'turbo',
+    });
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('ReasoningConfigError');
+    expect(err.key).toBe('PRP_REASONING_IMPL_AGENT');
+    expect(err.value).toBe('turbo');
+    expect(err.message).toBe(
+      "Invalid reasoning level for 'PRP_REASONING_IMPL_AGENT': 'turbo'. " +
+        'Accepted (case-insensitive): off, minimal, low, medium, high, xhigh.'
+    );
   });
 });

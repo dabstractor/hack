@@ -189,13 +189,13 @@ This prevents the massive usage spikes that occurred when tests were accidentall
 
 **Per-role env vars and defaults.** Each role is controlled by exactly one env var; the suffix names the agent identity it controls (matching the §9.2.3 role vars), so there is no mapping ambiguity:
 
-| Role | Env var | Default | Rationale |
-| ---- | ------- | ------- | -------- |
-| Research / PRP (`AGENT`) | `PRP_REASONING_AGENT` | `high` | analysis-heavy; strong reasoning improves PRP quality |
-| Task decomposition (`BREAKDOWN_AGENT`) | `PRP_REASONING_BREAKDOWN_AGENT` | `high` | synthesizing the strict hierarchy is reasoning-intensive |
-| Bug finder (`BUG_FINDER_AGENT`) | `PRP_REASONING_BUG_FINDER_AGENT` | `high` | adversarial analysis; weak reasoning misses bugs |
-| Validation (`VALIDATION_AGENT`) | `PRP_REASONING_VALIDATION_AGENT` | `high` | validating against the full PRD rewards strong reasoning |
-| Implementation / codegen (`IMPL_AGENT`) | `PRP_REASONING_IMPL_AGENT` | `off` | executes a complete PRP contract; reasoning off is faster, cheaper, and removes the need to drop model tiers to disable thinking |
+| Role                                    | Env var                          | Default | Rationale                                                                                                                        |
+| --------------------------------------- | -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Research / PRP (`AGENT`)                | `PRP_REASONING_AGENT`            | `high`  | analysis-heavy; strong reasoning improves PRP quality                                                                            |
+| Task decomposition (`BREAKDOWN_AGENT`)  | `PRP_REASONING_BREAKDOWN_AGENT`  | `high`  | synthesizing the strict hierarchy is reasoning-intensive                                                                         |
+| Bug finder (`BUG_FINDER_AGENT`)         | `PRP_REASONING_BUG_FINDER_AGENT` | `high`  | adversarial analysis; weak reasoning misses bugs                                                                                 |
+| Validation (`VALIDATION_AGENT`)         | `PRP_REASONING_VALIDATION_AGENT` | `high`  | validating against the full PRD rewards strong reasoning                                                                         |
+| Implementation / codegen (`IMPL_AGENT`) | `PRP_REASONING_IMPL_AGENT`       | `off`   | executes a complete PRP contract; reasoning off is faster, cheaper, and removes the need to drop model tiers to disable thinking |
 
 **Resolution.** For each role: resolve its `PRP_REASONING_<ROLE>` through the §9.2.1 layer stack (the `.hack` `[reasoning]` keys of §9.7.5 seed these env vars; real shell env overrides them per the env-over-file rule). If no layer provides a value, fall back to the role's built-in default above. An **empty / whitespace-only** value is treated as "unset" and falls back to the default — consistent with the §9.2.7 empty-string policy; an empty value is never forwarded to the harness. **A user-set value is authoritative:** whatever level a role resolves to is exactly what that role runs.
 

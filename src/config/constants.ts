@@ -4,6 +4,8 @@
  * @module config/constants
  */
 
+import { ReasoningConfigError } from './types.js';
+
 /**
  * Default base URL for the z.ai API endpoint
  *
@@ -1492,4 +1494,161 @@ export function getTasksLockPollMs(): number {
     process.env[TASKS_LOCK_POLL_MS] ?? DEFAULT_TASKS_LOCK_POLL_MS
   );
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TASKS_LOCK_POLL_MS;
+}
+
+// =============================================================================
+// Reasoning Configuration (PRD §9.2.9 — Per-Role Reasoning Level / Extended-Thinking Budget)
+// =============================================================================
+// The per-role reasoning level is a first-class, independently-configurable axis (orthogonal to
+// the model tier). S1 lands the canonical vocabulary + shared validator + env-var-name/ default
+// constants for the 5 roles. The 5 per-role GETTERS are P1.M1.T1.S2; the agent-factory reconcile
+// (alias ThinkingLevel = ReasoningLevel) is P1.M1.T1.S3; the .hack [reasoning] schema is T2;
+// the startup validateAllReasoningLevels is T4. This section is the validated vocabulary layer
+// those consumers build on.
+
+/**
+ * The canonical per-role reasoning-level vocabulary (PRD §9.2.9).
+ *
+ * @remarks
+ * IDENTICAL to the pi SDK's `VALID_THINKING_LEVELS`
+ * (`["off","minimal","low","medium","high","xhigh"]`), so the later `ThinkingLevel =
+ * ReasoningLevel` alias (P1.M1.T1.S3) is a clean reconciliation. NOTE: it INCLUDES `minimal` and
+ * does NOT include `max` (the current agent-factory `ThinkingLevel` diverges — has `max`, lacks
+ * `minimal` — S3 reconciles it; S1 only defines the canonical vocabulary here).
+ */
+export type ReasoningLevel =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh';
+
+/**
+ * The accepted reasoning-level tokens (lowercase), matching the pi SDK vocabulary (PRD §9.2.9).
+ *
+ * @remarks
+ * Used by {@link resolveReasoningLevel} for case-insensitive membership validation. Readonly
+ * tuple (`as const`) so its element type is exactly {@link ReasoningLevel}.
+ */
+export const REASONING_LEVELS = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const;
+
+/**
+ * Environment variable name: reasoning level for the generic/default agent role (PRD §9.2.9).
+ *
+ * @remarks
+ * The VALUE is read + validated via the S2 `getReasoningAgent()` getter
+ * (`resolveReasoningLevel(process.env[PRP_REASONING_AGENT], PRP_REASONING_AGENT, DEFAULT_REASONING_AGENT)`).
+ * This constant is the env-var NAME itself.
+ */
+export const PRP_REASONING_AGENT = 'PRP_REASONING_AGENT';
+
+/**
+ * Environment variable name: reasoning level for the Architect/breakdown agent role (PRD §9.2.9).
+ *
+ * @remarks
+ * The VALUE is read + validated via the S2 `getReasoningBreakdownAgent()` getter. This constant
+ * is the env-var NAME itself.
+ */
+export const PRP_REASONING_BREAKDOWN_AGENT = 'PRP_REASONING_BREAKDOWN_AGENT';
+
+/**
+ * Environment variable name: reasoning level for the bug-finder agent role (PRD §9.2.9).
+ *
+ * @remarks
+ * The VALUE is read + validated via the S2 `getReasoningBugFinderAgent()` getter. This constant
+ * is the env-var NAME itself.
+ */
+export const PRP_REASONING_BUG_FINDER_AGENT = 'PRP_REASONING_BUG_FINDER_AGENT';
+
+/**
+ * Environment variable name: reasoning level for the validation agent role (PRD §9.2.9).
+ *
+ * @remarks
+ * The VALUE is read + validated via the S2 `getReasoningValidationAgent()` getter. This constant
+ * is the env-var NAME itself.
+ */
+export const PRP_REASONING_VALIDATION_AGENT = 'PRP_REASONING_VALIDATION_AGENT';
+
+/**
+ * Environment variable name: reasoning level for the implementation (Coder) agent role
+ * (PRD §9.2.9).
+ *
+ * @remarks
+ * The VALUE is read + validated via the S2 `getReasoningImplAgent()` getter. This constant is
+ * the env-var NAME itself.
+ */
+export const PRP_REASONING_IMPL_AGENT = 'PRP_REASONING_IMPL_AGENT';
+
+/**
+ * Default reasoning level for the generic/default agent role: `high` (PRD §9.2.9).
+ */
+export const DEFAULT_REASONING_AGENT = 'high' as const;
+
+/**
+ * Default reasoning level for the Architect/breakdown agent role: `high` (PRD §9.2.9).
+ */
+export const DEFAULT_REASONING_BREAKDOWN_AGENT = 'high' as const;
+
+/**
+ * Default reasoning level for the bug-finder agent role: `high` (PRD §9.2.9).
+ */
+export const DEFAULT_REASONING_BUG_FINDER_AGENT = 'high' as const;
+
+/**
+ * Default reasoning level for the validation agent role: `high` (PRD §9.2.9).
+ */
+export const DEFAULT_REASONING_VALIDATION_AGENT = 'high' as const;
+
+/**
+ * Default reasoning level for the implementation (Coder) agent role: `off` (PRD §9.2.9).
+ *
+ * @remarks
+ * `off` by default — the Coder runs without extended-thinking overhead unless explicitly enabled.
+ */
+export const DEFAULT_REASONING_IMPL_AGENT = 'off' as const;
+
+/**
+ * Resolve a raw env-var value into a validated {@link ReasoningLevel} (PRD §9.2.9).
+ *
+ * @remarks
+ * The shared validator the 5 per-role getters (P1.M1.T1.S2) wrap. Acceptance rules:
+ * - `undefined` → `defaultLevel` (env var unset).
+ * - empty / whitespace-only (after `trim()`) → `defaultLevel`.
+ * - otherwise the trimmed value is lowercased and checked against {@link REASONING_LEVELS}
+ *   (CASE-INSENSITIVE match — `'HIGH'`, `'xHigh'`, etc. resolve correctly). A valid token returns
+ *   the lowercased token.
+ * - any other value throws {@link ReasoningConfigError} carrying the offending `key` + `value` —
+ *   a HARD startup error (§9.2.9 #4 fail-fast), NOT a silent fallback or a deep runtime failure.
+ *
+ * @param raw - The raw `process.env[KEY]` value (`string | undefined`).
+ * @param envKey - The env-var NAME (for the actionable error message).
+ * @param defaultLevel - The role's default {@link ReasoningLevel} (returned for unset/empty).
+ * @returns The resolved (lowercased) {@link ReasoningLevel}.
+ * @throws {ReasoningConfigError} When `raw` is set but is not an accepted token.
+ */
+export function resolveReasoningLevel(
+  raw: string | undefined,
+  envKey: string,
+  defaultLevel: ReasoningLevel
+): ReasoningLevel {
+  if (raw === undefined) {
+    return defaultLevel;
+  }
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    return defaultLevel;
+  }
+  const lowered = trimmed.toLowerCase();
+  if (!(REASONING_LEVELS as readonly string[]).includes(lowered)) {
+    throw new ReasoningConfigError({ key: envKey, value: raw }); // hard startup error (§9.2.9 #4)
+  }
+  return lowered as ReasoningLevel;
 }
