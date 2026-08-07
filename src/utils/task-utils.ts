@@ -647,6 +647,260 @@ export function cascadeCompleteDown(item: HierarchyItem): HierarchyItem {
 }
 
 /**
+ * Ordered progression of active statuses, least-progressed first (PRD §5.4).
+ * `Retrying` is excluded from the literal list (it is a transitional
+ * orchestrator status); it is mapped to the `Implementing` rank inside
+ * {@link STATUS_RANK}.
+ */
+const PROGRESSION: readonly Status[] = [
+  'Planned',
+  'Researching',
+  'Ready',
+  'Implementing',
+  'Complete',
+];
+
+/**
+ * Numeric rank for the min-status computation (PRD §5.4). `Retrying` is an
+ * internal transitional status (set by the retry manager, not manually
+ * settable) and is treated as `Implementing`-equivalent (rank 3). `Failed` and
+ * `Obsolete` are EXCLUDED by {@link recomputeParentStatus} before this map is
+ * consulted, so their ranks are sentinels that are never read
+ * (`Number.POSITIVE_INFINITY` = can never be the min — a defensive choice in
+ * case the filtering ever changes).
+ */
+const STATUS_RANK: Record<Status, number> = {
+  Planned: 0,
+  Researching: 1,
+  Ready: 2,
+  Implementing: 3,
+  Retrying: 3,
+  Complete: 4,
+  Failed: Number.POSITIVE_INFINITY,
+  Obsolete: Number.POSITIVE_INFINITY,
+};
+
+/**
+ * Where the changed item lives, plus the ancestor-path indices for the
+ * bottom-up walk. Discriminated by `level`.
+ */
+type ChangeLocation =
+  | { level: 'phase'; phaseIndex: number }
+  | { level: 'milestone'; phaseIndex: number; milestoneIndex: number }
+  | {
+      level: 'task';
+      phaseIndex: number;
+      milestoneIndex: number;
+      taskIndex: number;
+    }
+  | {
+      level: 'subtask';
+      phaseIndex: number;
+      milestoneIndex: number;
+      taskIndex: number;
+    };
+
+/**
+ * Locate the changed item and its ancestor-path indices (mirrors
+ * {@link findItem}'s nested-for-loop-with-early-return idiom).
+ *
+ * @param backlog - The backlog tree to search.
+ * @param id - The canonical id to locate.
+ * @returns The {@link ChangeLocation}, or `null` when the id is absent.
+ */
+function locateChange(backlog: Backlog, id: string): ChangeLocation | null {
+  for (let pi = 0; pi < backlog.backlog.length; pi++) {
+    const phase = backlog.backlog[pi];
+    if (phase.id === id) return { level: 'phase', phaseIndex: pi };
+    for (let mi = 0; mi < phase.milestones.length; mi++) {
+      const milestone = phase.milestones[mi];
+      if (milestone.id === id)
+        return { level: 'milestone', phaseIndex: pi, milestoneIndex: mi };
+      for (let ti = 0; ti < milestone.tasks.length; ti++) {
+        const task = milestone.tasks[ti];
+        if (task.id === id)
+          return {
+            level: 'task',
+            phaseIndex: pi,
+            milestoneIndex: mi,
+            taskIndex: ti,
+          };
+        for (let si = 0; si < task.subtasks.length; si++) {
+          if (task.subtasks[si].id === id)
+            return {
+              level: 'subtask',
+              phaseIndex: pi,
+              milestoneIndex: mi,
+              taskIndex: ti,
+            };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Recompute ONE parent's status as the minimum (least-progressed) of its
+ * children (PRD §5.4).
+ *
+ * @remarks
+ * - `Obsolete` children are terminal and EXCLUDED from the min; if ALL children
+ *   are `Obsolete` the parent becomes `Complete` (Obsolete loses ties to
+ *   Complete).
+ * - `Failed` children are EXCLUDED unless ALL non-obsolete children are `Failed`,
+ *   in which case the parent becomes `Failed`.
+ * - Otherwise the parent is the min of the remaining (non-failed, non-obsolete)
+ *   children. `Retrying` is treated as `Implementing`-equivalent (rank 3) and
+ *   maps back to the canonical progression status via {@link PROGRESSION}.
+ *
+ * @param children - The parent's children (any shape with a `status` field).
+ * @returns The recomputed parent status.
+ */
+function recomputeParentStatus(children: { status: Status }[]): Status {
+  const nonObsolete = children.filter(c => c.status !== 'Obsolete');
+  if (nonObsolete.length === 0) return 'Complete';
+  if (nonObsolete.every(c => c.status === 'Failed')) return 'Failed';
+  const candidates = nonObsolete.filter(c => c.status !== 'Failed');
+  let minRank = STATUS_RANK[candidates[0].status];
+  for (let i = 1; i < candidates.length; i++) {
+    const r = STATUS_RANK[candidates[i].status];
+    if (r < minRank) minRank = r;
+  }
+  // Map the min rank back to the canonical progression status
+  // (Retrying → Implementing).
+  return PROGRESSION[minRank];
+}
+
+/**
+ * Recompute ancestor statuses bottom-up after a status change (PRD §5.4 "Ancestor recompute").
+ *
+ * @remarks
+ * Walks UP from the changed item's position and recomputes each ancestor
+ * (Task → Milestone → Phase) as the **minimum** (least-progressed) status among
+ * its children. The changed item's own status is assumed already set (and, if it
+ * was set to `Complete`, already cascaded down by {@link cascadeCompleteDown})
+ * before this runs — this function only recomputes the ANCESTORS above it.
+ *
+ * Status ordering (least → most progressed): `Planned(0) < Researching(1) <
+ * Ready(2) < Implementing(3) < Complete(4)`. Special handling per PRD §5.4:
+ *  - `Obsolete` children are terminal and EXCLUDED from the min; if ALL children
+ *    are `Obsolete` the parent becomes `Complete` (Obsolete loses ties to
+ *    Complete).
+ *  - `Failed` children are EXCLUDED unless ALL non-obsolete children are
+ *    `Failed`, in which case the parent becomes `Failed`.
+ *  - Otherwise the parent = the min of the remaining (non-failed, non-obsolete)
+ *    children. `Retrying` is treated as `Implementing`-equivalent and maps back
+ *    to `Implementing` (it is never propagated up an ancestor).
+ *
+ * This CAN DOWNGRADE ancestors: resetting a subtask back to `Planned` drops its
+ * Task/Milestone/Phase to reflect the least-progressed child. This is what makes
+ * it **strictly richer than** the monotonic {@link rollupCompletion} /
+ * {@link promoteIfAllComplete} (which only ever promote a parent toward
+ * `Complete` when all children are already `Complete`, never compute a true
+ * minimum, and never downgrade). It is also distinct from
+ * {@link cascadeCompleteDown} (the downward force-`Complete` half of the §5.4
+ * cascade). Do not use this in place of the rollup for automatic status writes.
+ *
+ * Pure: the input backlog is never mutated; only nodes along the ancestor path
+ * are copied (structural sharing — same deep-copy-on-path pattern as
+ * {@link updateItemStatus} / {@link rollupCompletion}). A `changedId` that is
+ * not found, or a Phase-level change (no ancestor), returns the SAME `backlog`
+ * reference.
+ *
+ * @param backlog - The backlog tree containing the changed item.
+ * @param changedId - The canonical id of the item whose status just changed
+ *   (e.g. `'P1.M1.T1.S1'`). Its own status is not recomputed here.
+ * @returns A new `Backlog` with recomputed ancestor statuses (or the same
+ *   reference for the no-op cases).
+ *
+ * @example
+ * ```typescript
+ * // DOWNGRADE: a Complete task whose first subtask is reset to Planned drops
+ * // the whole ancestor chain (Task → Milestone → Phase) back to Planned.
+ * const task = createTestTask('P1.M1.T1', 't', 'Complete', [
+ *   createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'), // just reset
+ *   createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+ * ]);
+ * const backlog = createTestBacklog([
+ *   createTestPhase('P1', 'p', 'Complete', [
+ *     createTestMilestone('P1.M1', 'm', 'Complete', [task]),
+ *   ]),
+ * ]);
+ * const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+ * // out: Task/Milestone/Phase are now 'Planned' (min of [Planned, Complete]).
+ * ```
+ */
+export function recomputeAncestorsUp(
+  backlog: Backlog,
+  changedId: string
+): Backlog {
+  const loc = locateChange(backlog, changedId);
+  if (!loc) return backlog; // not found → no-op (same reference)
+  if (loc.level === 'phase') return backlog; // a Phase has no ancestor to recompute
+
+  if (loc.level === 'milestone') {
+    // recompute only the containing Phase from its milestones
+    return {
+      ...backlog,
+      backlog: backlog.backlog.map((phase, pi) =>
+        pi === loc.phaseIndex
+          ? { ...phase, status: recomputeParentStatus(phase.milestones) }
+          : phase
+      ),
+    };
+  }
+
+  if (loc.level === 'task') {
+    // recompute the containing Milestone (from tasks) then the Phase (from milestones)
+    return {
+      ...backlog,
+      backlog: backlog.backlog.map((phase, pi) => {
+        if (pi !== loc.phaseIndex) return phase;
+        const newMilestones = phase.milestones.map((milestone, mi) =>
+          mi === loc.milestoneIndex
+            ? { ...milestone, status: recomputeParentStatus(milestone.tasks) }
+            : milestone
+        );
+        return {
+          ...phase,
+          milestones: newMilestones,
+          status: recomputeParentStatus(newMilestones),
+        };
+      }),
+    };
+  }
+
+  // loc.level === 'subtask': recompute Task (from subtasks) → Milestone (from
+  // tasks) → Phase (from milestones), innermost-first so a recomputed lower
+  // ancestor feeds its parent's recompute.
+  return {
+    ...backlog,
+    backlog: backlog.backlog.map((phase, pi) => {
+      if (pi !== loc.phaseIndex) return phase;
+      const newMilestones = phase.milestones.map((milestone, mi) => {
+        if (mi !== loc.milestoneIndex) return milestone;
+        const newTasks = milestone.tasks.map((task, ti) =>
+          ti === loc.taskIndex
+            ? { ...task, status: recomputeParentStatus(task.subtasks) }
+            : task
+        );
+        return {
+          ...milestone,
+          tasks: newTasks,
+          status: recomputeParentStatus(newTasks),
+        };
+      });
+      return {
+        ...phase,
+        milestones: newMilestones,
+        status: recomputeParentStatus(newMilestones),
+      };
+    }),
+  };
+}
+
+/**
  * The statuses that are manually settable via `hack update` (PRD §5.4).
  *
  * @remarks

@@ -20,6 +20,7 @@ import {
   findItemByLooseId,
   matchStatus,
   cascadeCompleteDown,
+  recomputeAncestorsUp,
   type HierarchyItem,
 } from '../../../src/utils/task-utils.js';
 import type {
@@ -1346,6 +1347,273 @@ describe('utils/task-utils', () => {
       expect(out.type).toBe('Subtask');
       expect(out.story_points).toBe(sub.story_points);
       expect(out.dependencies).toEqual(['P1.M1.T1.S0']);
+    });
+  });
+
+  describe('recomputeAncestorsUp', () => {
+    it('PROMOTES ancestors to Complete when the last subtask becomes Complete', () => {
+      // Caller has already set S2 to Complete; ancestors were stale at Planned.
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Complete'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'), // just completed
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S2');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Complete');
+      expect(findItem(out, 'P1.M1')!.status).toBe('Complete');
+      expect(findItem(out, 'P1')!.status).toBe('Complete');
+    });
+
+    it('DOWNGRADES ancestors when a subtask regresses to Planned (headline feature)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Complete', [
+            createTestTask('P1.M1.T1', 't', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'), // just reset
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Planned'); // min(Planned, Complete)
+      expect(findItem(out, 'P1.M1')!.status).toBe('Planned');
+      expect(findItem(out, 'P1')!.status).toBe('Planned');
+    });
+
+    it('computes the minimum across mixed children', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Complete'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Implementing'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S2');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Implementing'); // least-progressed
+    });
+
+    it('returns Failed when ALL non-obsolete children are Failed', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Failed'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Failed'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S2');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Failed');
+    });
+
+    it('excludes Failed when a non-failed sibling exists', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Failed'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Planned'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Planned'); // Failed excluded
+    });
+
+    it('returns Complete when ALL children are Obsolete (Obsolete loses ties to Complete)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Obsolete'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Obsolete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Complete');
+    });
+
+    it('excludes Obsolete and takes the min of the rest (Obsolete+Complete → Complete)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Obsolete'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      expect(
+        findItem(recomputeAncestorsUp(backlog, 'P1.M1.T1.S1'), 'P1.M1.T1')!
+          .status
+      ).toBe('Complete');
+    });
+
+    it('excludes Obsolete and takes the min of the rest (Obsolete+Planned → Planned)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Complete', [
+            createTestTask('P1.M1.T1', 't', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Obsolete'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Planned'),
+            ]),
+          ]),
+        ]),
+      ]);
+      expect(
+        findItem(recomputeAncestorsUp(backlog, 'P1.M1.T1.S2'), 'P1.M1.T1')!
+          .status
+      ).toBe('Planned');
+    });
+
+    it('treats Retrying as Implementing-equivalent (and never propagates Retrying up)', () => {
+      const withComplete = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Retrying'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      expect(
+        findItem(recomputeAncestorsUp(withComplete, 'P1.M1.T1.S1'), 'P1.M1.T1')!
+          .status
+      ).toBe('Implementing'); // Retrying(3) < Complete(4)
+
+      const onlyRetrying = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Retrying'),
+            ]),
+          ]),
+        ]),
+      ]);
+      expect(
+        findItem(recomputeAncestorsUp(onlyRetrying, 'P1.M1.T1.S1'), 'P1.M1.T1')!
+          .status
+      ).toBe('Implementing'); // canonical status, NOT 'Retrying'
+    });
+
+    it('does NOT mutate the input backlog (immutability)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Complete', [
+            createTestTask('P1.M1.T1', 't', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const snapshot = JSON.parse(JSON.stringify(backlog));
+      recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+      expect(JSON.parse(JSON.stringify(backlog))).toEqual(snapshot); // unchanged
+    });
+
+    it('shares non-path nodes by reference (structural sharing)', () => {
+      const otherPhase = createTestPhase('P2', 'other', 'Complete', [
+        createTestMilestone('P2.M1', 'm', 'Complete', [
+          createTestTask('P2.M1.T1', 't', 'Complete', [
+            createTestSubtask('P2.M1.T1.S1', 'a', 'Complete'),
+          ]),
+        ]),
+      ]);
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Complete', [
+            createTestTask('P1.M1.T1', 't', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+            ]),
+          ]),
+        ]),
+        otherPhase,
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+      expect(out.backlog[1]).toBe(otherPhase); // sibling phase untouched by reference
+    });
+
+    it('is a no-op (same reference) for a Phase-level change (no ancestor)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', []),
+        ]),
+      ]);
+      expect(recomputeAncestorsUp(backlog, 'P1')).toBe(backlog); // same ref
+    });
+
+    it('is a no-op (same reference) when changedId is not found', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Planned', [
+          createTestMilestone('P1.M1', 'm', 'Planned', []),
+        ]),
+      ]);
+      expect(recomputeAncestorsUp(backlog, 'P9.M9.T9.S9')).toBe(backlog); // same ref
+    });
+
+    it('recomputes only the correct ancestors per entry level', () => {
+      // Task-level change → Milestone + Phase recompute (Task itself unchanged)
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Complete', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1.T1');
+      expect(findItem(out, 'P1.M1.T1')!.status).toBe('Planned'); // unchanged (it IS the changed item)
+      expect(findItem(out, 'P1.M1')!.status).toBe('Planned'); // recomputed from tasks
+      expect(findItem(out, 'P1')!.status).toBe('Planned'); // recomputed from milestones
+    });
+
+    it('recomputes only the Phase for a Milestone-level change', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Planned', [
+            createTestTask('P1.M1.T1', 't', 'Planned', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const out = recomputeAncestorsUp(backlog, 'P1.M1');
+      expect(findItem(out, 'P1.M1')!.status).toBe('Planned'); // unchanged (the changed item)
+      expect(findItem(out, 'P1')!.status).toBe('Planned'); // recomputed from milestones
+    });
+
+    it('is idempotent (recompute twice → value-equal)', () => {
+      const backlog = createTestBacklog([
+        createTestPhase('P1', 'p', 'Complete', [
+          createTestMilestone('P1.M1', 'm', 'Complete', [
+            createTestTask('P1.M1.T1', 't', 'Complete', [
+              createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+              createTestSubtask('P1.M1.T1.S2', 'b', 'Complete'),
+            ]),
+          ]),
+        ]),
+      ]);
+      const once = recomputeAncestorsUp(backlog, 'P1.M1.T1.S1');
+      const twice = recomputeAncestorsUp(once, 'P1.M1.T1.S1');
+      expect(twice).toEqual(once);
     });
   });
 });

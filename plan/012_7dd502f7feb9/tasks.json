@@ -146,7 +146,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Manual Status Updates: hack update (PRD §5.4)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Implement the `hack update` CLI subcommand that allows users to manually rewrite any task item's status with fuzzy ID matching (P1.M1.T1.S1, 1.1.1.1, p1m1t1s1, 1.2), fuzzy status matching (done, re, comp, ready), a downward Complete cascade, a bottom-up minimum-status ancestor recompute, serialized RMW under the tasks.json lock, and atomic write.",
           "tasks": [
             {
@@ -199,7 +199,7 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Status Cascade Engine",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Two pure functions implementing the bidirectional cascade: (1) a downward Complete cascade that sets an item and all descendants to Complete, and (2) a bottom-up ancestor recompute that recalculates each ancestor's status as the minimum (least-progressed) among its children. These are DISTINCT from the existing monotonic promoteIfAllComplete/rollupCompletion and must not modify them.",
               "subtasks": [
                 {
@@ -220,7 +220,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T3.S2",
                   "title": "recomputeAncestorsUp helper (bottom-up min-status recompute) in src/utils/task-utils.ts",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/012_7dd502f7feb9/architecture/implementation-status.md §F2.C. The existing rollupCompletion (line ~343) is MONOTONIC (only promotes toward Complete, never downgrades). The new recompute is STRICTLY RICHER: it computes the MINIMUM (least-progressed) status among children, which CAN downgrade ancestors (e.g. resetting a subtask to Planned drops its parents). Hierarchy: Phase→Milestones→Tasks→Subtasks.\n2. INPUT: A Backlog tree and the canonical ID of the changed item (to locate the ancestor chain). The changed item's status has already been set (and possibly cascaded down) before this function is called.\n3. LOGIC: Implement PRD §5.4 'Ancestor recompute.' New exported function in src/utils/task-utils.ts:\n   export function recomputeAncestorsUp(backlog: Backlog, changedId: string): Backlog\n   Walk UP from the changed item's position. At each ancestor (Task→Milestone→Phase), recompute its status:\n   - STATUS ORDERING (progression): Planned(0) < Researching(1) < Ready(2) < Implementing(3) < Complete(4).\n   - Exclude Obsolete children (terminal, like Complete — don't count in progress computation).\n   - If ALL children are Obsolete → parent = Complete (Obsolete loses ties to Complete per PRD).\n   - Of remaining (non-Obsolete) children: if ALL are Failed → parent = Failed.\n   - Else: exclude Failed children; parent = min(non-failed non-obsolete children statuses).\n   - Retrying children: treat as Implementing-equivalent in the ordering (transitional, set by orchestrator, not a manual state).\n   Use immutable structural sharing (same deep-copy-on-path pattern as updateItemStatus / rollupCompletion). Only copy nodes along the ancestor path.\n   CAN DOWNGRADE: setting a subtask back to Planned will drop its ancestors to the least-progressed child's status.\n4. OUTPUT: A new Backlog with recomputed ancestor statuses. Consumed by P1.M2.T4.S1 (the CLI handler calls this after setting the target and optionally cascading down).\n5. DOCS: [Mode A] JSDoc on recomputeAncestorsUp documenting the min-status algorithm, the status ordering, the Failed/Obsolete/Complete special handling, that it CAN downgrade ancestors, and that it is DISTINCT from the monotonic rollupCompletion. Include @example showing downgrade scenario.",
@@ -236,14 +236,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "hack update CLI Command",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Register the `update` subcommand in src/cli/index.ts and implement the action handler: file discovery (mirroring taskAction but hard-error on missing discovered tasks.json), fuzzy arg parsing, serialized lock+RMW with cascade application, schema-validated atomic write, and text/json output.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "Register update command + implement action handler in src/cli/index.ts",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",
