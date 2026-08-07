@@ -552,6 +552,46 @@ async function gitFileHistory(
 }
 
 /**
+ * Fetch the most recent commit messages from a repository (PRD §5.1 commit-style layer).
+ *
+ * @remarks
+ * Returns the FULL commit message (subject + body) of each of the last `count` commits, newest-first
+ * (matching `git log` default ordering). Used by the commit-message style layer to inject recent
+ * history as style examples when `PRP_COMMIT_STYLE=auto` (§5.1): the caller passes the resolved
+ * `PRP_COMMIT_STYLE_EXAMPLES` count.
+ *
+ * - `count === 0` short-circuits to `[]` BEFORE any filesystem/git access — so a `0` count (which
+ *   disables style learning per §5.1) is a pure no-op, even outside a repository.
+ * - A repository with fewer than `count` commits returns all available entries (no error — `git.log`
+ *   simply returns fewer).
+ *
+ * Mirrors {@link gitFileHistory}'s `validateRepositoryPath` → `simpleGit` → `git.log` pattern.
+ *
+ * @param count - How many recent commit messages to fetch. `0` → `[]` (no git call).
+ * @param repoPath - Path to the git repository (optional, defaults to cwd).
+ * @returns Array of full commit-message strings (subject + body), newest-first. Empty if `count === 0`
+ *          or the repository has no commits.
+ * @throws {Error} If `repoPath` is not a git repository (via {@link validateRepositoryPath}), or if
+ *         `git.log` fails.
+ *
+ * @example
+ * ```ts
+ * const msgs = await getRecentCommitMessages(5, '/path/to/repo');
+ * // ['feat: add thing\n\nbody', 'fix: other', …]  (newest-first)
+ * ```
+ */
+async function getRecentCommitMessages(
+  count: number,
+  repoPath?: string
+): Promise<string[]> {
+  if (count === 0) return []; // short-circuit BEFORE validate (no git call) — PRP_COMMIT_STYLE_EXAMPLES=0
+  const safePath = await validateRepositoryPath(repoPath);
+  const git = simpleGit(safePath);
+  const logResult = await git.log({ maxEntries: count });
+  return logResult.all.map(entry => entry.message); // newest-first; full message (subject + body)
+}
+
+/**
  * Read the content of a file at a specific commit (blob fetch).
  *
  * @remarks
@@ -837,6 +877,7 @@ export {
   gitAdd,
   gitCommit,
   gitFileHistory,
+  getRecentCommitMessages,
   gitReadFileAtCommit,
   gitRestoreFile,
   gitListStagedDeletions,

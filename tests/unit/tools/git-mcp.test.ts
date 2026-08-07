@@ -45,6 +45,7 @@ import {
   gitAdd,
   gitCommit,
   gitFileHistory,
+  getRecentCommitMessages,
   gitReadFileAtCommit,
   gitRestoreFile,
   gitListStagedDeletions,
@@ -947,6 +948,76 @@ describe('tools/git-mcp', () => {
 
       // EXECUTE + VERIFY — git error propagates as a throw
       await expect(gitFileHistory('tasks.json')).rejects.toThrow(
+        'git log failed'
+      );
+    });
+  });
+
+  describe('getRecentCommitMessages', () => {
+    it('returns the full commit messages, newest-first', async () => {
+      // SETUP
+      mockGitInstance.log.mockResolvedValue({
+        all: [
+          { hash: 'a', date: 'd1', message: 'feat: add thing\n\nbody' },
+          { hash: 'b', date: 'd2', message: 'fix: other' },
+        ],
+        total: 2,
+        latest: {
+          hash: 'a',
+          date: 'd1',
+          message: 'feat: add thing\n\nbody',
+        },
+      } as never);
+
+      // EXECUTE
+      const result = await getRecentCommitMessages(2, './repo');
+
+      // VERIFY — full messages (subject + body), newest-first; log called with maxEntries
+      expect(result).toEqual(['feat: add thing\n\nbody', 'fix: other']);
+      expect(mockGitInstance.log).toHaveBeenCalledWith({ maxEntries: 2 });
+    });
+
+    it('returns [] for count === 0 WITHOUT calling simpleGit (no git call)', async () => {
+      // SETUP — clear simpleGit so we can assert the count=0 short-circuit skips it entirely
+      mockSimpleGit.mockClear();
+
+      // EXECUTE
+      const result = await getRecentCommitMessages(0, './repo');
+
+      // VERIFY — [] + NO git/validation access (pure no-op; PRP_COMMIT_STYLE_EXAMPLES=0 safe)
+      expect(result).toEqual([]);
+      expect(mockSimpleGit).not.toHaveBeenCalled();
+    });
+
+    it('returns all available when the repo has fewer than count commits (no error)', async () => {
+      // SETUP — asked for 5, repo only has 1 (simple-git returns fewer; NO error)
+      mockGitInstance.log.mockResolvedValue({
+        all: [{ hash: 'only', date: 'd', message: 'solo commit' }],
+        total: 1,
+        latest: { hash: 'only', date: 'd', message: 'solo commit' },
+      } as never);
+
+      // EXECUTE + VERIFY — returns the one available, no throw
+      const result = await getRecentCommitMessages(5, './repo');
+      expect(result).toEqual(['solo commit']);
+    });
+
+    it('should throw when the repository path is invalid', async () => {
+      // SETUP
+      mockExistsSync.mockReturnValue(false);
+
+      // EXECUTE + VERIFY — validateRepositoryPath throws → propagates
+      await expect(getRecentCommitMessages(3, '/nonexistent')).rejects.toThrow(
+        /Repository path not found/
+      );
+    });
+
+    it('should throw when git.log fails', async () => {
+      // SETUP
+      mockGitInstance.log.mockRejectedValue(new Error('git log failed'));
+
+      // EXECUTE + VERIFY — git error propagates as a throw
+      await expect(getRecentCommitMessages(3, './repo')).rejects.toThrow(
         'git log failed'
       );
     });
