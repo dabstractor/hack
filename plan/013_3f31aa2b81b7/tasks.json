@@ -1,0 +1,216 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Per-Role Reasoning Level (Extended-Thinking Budget)",
+      "status": "Ready",
+      "description": "Make the extended-thinking ('reasoning') budget a first-class, independently-configurable per-role setting, fully decoupled from model (tier) selection. Five roles, each controlled by one PRP_REASONING_<ROLE> env var (vocabulary off/minimal/low/medium/high/xhigh, case-insensitive), resolved through the §9.2.1 layer stack, validated fail-fast at startup, and surfaced in .hack + hack config show --src. Implements PRD §9.2.9 (new) plus conforming edits to §6.1, §9.2.2, §9.2.3, §9.5, §9.7.5. Architectural ground truth is in plan/013_3f31aa2b81b7/architecture/ (system-context.md, integration-points.md, external-deps.md) — all change sites verified by direct read. Groundswell harness-side --thinking wiring is a cross-repo dependency (OUT OF SCOPE); this phase stops at storing the resolved level on AgentConfig.thinking.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Reasoning Config & Agent Wiring (the feature)",
+          "status": "Planned",
+          "description": "The complete per-role reasoning feature: vocabulary + getters + fail-fast validator (T1), .hack schema wiring (T2), agent-factory decoupling + shared-QA-persona split (T3), and startup fail-fast integration + config show --src (T4). Model (tier) resolution is UNCHANGED; only the reasoning axis is decoupled and made per-identity.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Config constants, vocabulary, getters & fail-fast validator",
+              "status": "Planned",
+              "description": "Add the ReasoningLevel vocabulary type, the REASONING_LEVELS array, a shared case-normalizing validator that throws a new ReasoningConfigError, the five per-role getters, and reconcile the agent-factory ThinkingLevel type (add minimal, drop max). This is the foundation every other task consumes.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "ReasoningLevel type, REASONING_LEVELS vocabulary, ReasoningConfigError, shared validator",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.9", "h3.20", "h4.0", "h4.1", "h4.8", "h4.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/013_3f31aa2b81b7/architecture/integration-points.md §A and §B. The existing getter pattern is getValidationAgent() at constants.ts:993-1004 (free-string, NO validation). The new reasoning getters MUST add validation. ReasoningConfigError mirrors AuthPreflightError (types.ts:219-237, with buildPreflightMessage at types.ts:260) and HackConfigError (types.ts:241). External-deps.md §2 confirms the §9.2.9 vocabulary is IDENTICAL to the pi SDK VALID_THINKING_LEVELS — add minimal, drop max.\n2. INPUT: none (foundation subtask). PRD §9.2.9 #2 vocabulary and #3 defaults table are the spec.\n3. LOGIC: In src/config/constants.ts add a new '// Reasoning Configuration (PRD §9.2.9)' section exporting: (a) `export type ReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';`; (b) `export const REASONING_LEVELS = ['off','minimal','low','medium','high','xhigh'] as const` (readonly, lowercase); (c) `export const PRP_REASONING_AGENT='PRP_REASONING_AGENT'` (and _BREAKDOWN_AGENT, _BUG_FINDER_AGENT, _VALIDATION_AGENT, _IMPL_AGENT) env-name constants; (d) defaults `DEFAULT_REASONING_AGENT='high' as const`, breakdown 'high', bug_finder 'high', validation 'high', impl 'off'; (e) `export function resolveReasoningLevel(raw, envKey: string, defaultLevel: ReasoningLevel): ReasoningLevel` — raw===undefined→default; trimmed===''→default; lowercased NOT in REASONING_LEVELS→throw new ReasoningConfigError({key:envKey, value:raw}); else return lowercased. In src/config/types.ts add `export class ReasoningConfigError extends Error` mirroring AuthPreflightError (this.name='ReasoningConfigError'; message built by a buildReasoningErrorMessage helper naming the offending key, the raw value, and accepted levels case-insensitively). TDD: tests in tests/unit/config/constants.test.ts — valid/empty/whitespace→default, case-insensitive accept ('HIGH'→'high'), invalid ('ultra','yes')→throws ReasoningConfigError with actionable message.\n4. OUTPUT: ReasoningLevel type, REASONING_LEVELS array, 5 env-name constants, 5 defaults, resolveReasoningLevel() helper, ReasoningConfigError class — all exported for consumption by S2 (getters), T2 (.hack), T3 (factories), T4 (startup).\n5. DOCS: [Mode A] JSDoc on resolveReasoningLevel + ReasoningConfigError following the getValidationAgent()/AuthPreflightError JSDoc style. No user-facing doc surface change here (.env.example is S4)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "Five per-role reasoning getters (getReasoningAgent/Breakdown/BugFinder/Validation/Impl)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h3.20", "h4.0", "h4.1", "h4.8"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §A. Mirror getValidationAgent() (constants.ts:993-1004) shape but route through resolveReasoningLevel() from S1 for empty→default + case-normalization + invalid→throw. Empty/whitespace is treated as 'unset' and NEVER forwarded (PRD §9.2.9 #4).\n2. INPUT: ReasoningLevel, the 5 env-name constants, the 5 defaults, resolveReasoningLevel(), ReasoningConfigError from S1.\n3. LOGIC: In src/config/constants.ts add five zero-arg getters: getReasoningAgent()→resolveReasoningLevel(process.env[PRP_REASONING_AGENT], PRP_REASONING_AGENT, DEFAULT_REASONING_AGENT); getReasoningBreakdown() (→_BREAKDOWN_AGENT, default high); getReasoningBugFinder() (→_BUG_FINDER_AGENT, high); getReasoningValidation() (→_VALIDATION_AGENT, high); getReasoningImpl() (→_IMPL_AGENT, off). Each returns ReasoningLevel. Also export `validateAllReasoningLevels(): void` that calls all five getters in sequence (so invoking it triggers fail-fast validation of every env value — consumed by T4). TDD: extend tests/unit/config/constants.test.ts — each getter returns its default when env unset/empty, honors a set env value (case-insensitive), throws ReasoningConfigError on invalid; validateAllReasoningLevels() throws on ANY invalid and is a no-op when all valid.\n4. OUTPUT: 5 exported getters + validateAllReasoningLevels(), consumed by T3 (factories/callers) and T4 (startup).\n5. DOCS: [Mode A] JSDoc on each getter following getValidationAgent() JSDoc (state default + empty→default + invalid→hard-error + §9.2.9 ref)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S3",
+                  "title": "Reconcile agent-factory ThinkingLevel type (add minimal, drop max, alias ReasoningLevel)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h4.2", "h4.8"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §C + external-deps.md §2. Current ThinkingLevel at agent-factory.ts:123 is 'off'|'low'|'medium'|'high'|'xhigh'|'max'. The JSDoc at agent-factory.ts:114-122 claims the pipeline 'intentionally EXCLUDES minimal' vs the pi SDK — this is now FACTUALLY WRONG (pi SDK VALID_THINKING_LEVELS == the §9.2.9 set, which INCLUDES minimal and has NO max). Repo-wide grep confirms 'max' is set by NO caller (only in this union + its JSDoc), so dropping it is safe.\n2. INPUT: ReasoningLevel type from S1 (src/config/constants.ts).\n3. LOGIC: In src/agents/agent-factory.ts: import ReasoningLevel from '../config/constants.js'. Replace the ThinkingLevel literal union (:123) with `export type ThinkingLevel = ReasoningLevel;` (single source of truth — add minimal, drop max). Rewrite the JSDoc block (:108-122) to state the pipeline mirrors the pi SDK / PRD §9.2.9 vocabulary EXACTLY (off/minimal/low/medium/high/xhigh); remove the 'intentionally excludes minimal' claim. AgentConfig.thinking stays typed `ThinkingLevel` (no field rename — back-compat). Do NOT yet change ROLE_CONFIG/createBaseConfig/factories (that is T3). TDD: extend tests/unit/agents/agent-factory.test.ts — assert the reconciled set accepts 'minimal', rejects 'max' at the type level / that ThinkingLevel === ReasoningLevel.\n4. OUTPUT: ThinkingLevel reconciled to the §9.2.9 vocabulary (minimal present, max absent), aliased to ReasoningLevel. Consumed by T3 (factories compose ThinkingLevel values).\n5. DOCS: [Mode A] JSDoc rewrite on ThinkingLevel (this is a correctness fix — the prior comment contradicted the upstream SDK)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S4",
+                  "title": ".env.example 'Reasoning Levels' subsection + getter/validator JSDoc",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S2"],
+                  "prd_selectors": ["h3.20", "h4.1", "h4.8"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §H. .env.example has a '# MODEL CONFIGURATION' block starting at line 40; add the new subsection after it (and after the model block, before the next section). Follow the existing comment style (commented-out examples + rationale).\n2. INPUT: the 5 env-var names + 6 valid levels + 5 defaults from S1/S2 (PRD §9.2.9 #2/#3).\n3. LOGIC: In .env.example add a '# Reasoning Levels (PRD §9.2.9)' subsection documenting: the five PRP_REASONING_* vars as commented examples (agent/breakdown_agent/bug_finder_agent/validation_agent default high; impl_agent default off), the six valid case-insensitive levels, the explicit note that 'model (tier) and reasoning are TWO INDEPENDENT axes — tuning one never forces a compromise on the other', empty/whitespace→default, and invalid→hard startup error. Mocking: none (doc-only file). TDD: no tests for a doc file; verify with the repo's docs check if present.\n4. OUTPUT: .env.example documents the reasoning surface for users.\n5. DOCS: [Mode A] THIS subtask IS the .env.example doc update. Also ensure getter/validator JSDoc (S1/S2) cross-reference §9.2.9 and .env.example."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": ".hack schema wiring ([reasoning] section)",
+              "status": "Planned",
+              "description": "Expose the five reasoning levels as .hack [reasoning] keys with enum validation, so .hack seeds the PRP_REASONING_* env vars. The init template and `hack config show --src` are AUTO-DERIVED from SCHEMA_MAP (verified) and need no separate code — only verification. Case-insensitivity requires a loader normalization step.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Add 5 [reasoning] entries to SCHEMA_MAP + reasoning section to HACK_CONFIG_SCHEMA",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h3.25", "h4.0", "h4.24", "h4.26", "h4.8"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §F. SCHEMA_MAP (hack-config.ts:189) entries have shape {section,key,envVar,type,defaultValue,acceptedValues?} — mirror the [harness] enum entry at :222-230 (acceptedValues:['pi','claude-code']). HACK_CONFIG_SCHEMA (hack-config.ts:632) is the VALIDATION authority — mirror harness:{name:{type:'string',enum:['pi','claude-code']}} at :641. HACK_KEY_TO_ENV (:535) is DERIVED from SCHEMA_MAP — DO NOT hand-edit it. Reference REASONING_LEVELS from S1 for the acceptedValues/enum (single source of truth).\n2. INPUT: REASONING_LEVELS + the 5 env-var names + 5 defaults from T1.S1.\n3. LOGIC: In src/config/hack-config.ts: (a) add 5 SCHEMA_MAP entries section 'reasoning': agent(envVar PRP_REASONING_AGENT, default 'high', acceptedValues REASONING_LEVELS), breakdown_agent(high), bug_finder_agent(high), validation_agent(high), impl_agent(off); (b) add to HACK_CONFIG_SCHEMA: `reasoning: { agent:{type:'string',enum:[...REASONING_LEVELS]}, breakdown_agent:{...}, bug_finder_agent:{...}, validation_agent:{...}, impl_agent:{...} }`. Keep SCHEMA_MAP and HACK_CONFIG_SCHEMA consistent (both carry the enum by design — SCHEMA_MAP is seeding/show authority, HACK_CONFIG_SCHEMA is validation authority, per the file's own coexistence note at :177-179). TDD: extend tests/unit/config/hack-config.test.ts — a [reasoning] block seeds the env vars; an out-of-vocab value (impl_agent='loud') hard-errors with the actionable §9.7.7 message.\n4. OUTPUT: .hack [reasoning] keys are schema-known, seed PRP_REASONING_*, and reject invalid values. AUTO-DERIVED (verify in S2, do not edit): HACK_KEY_TO_ENV derivation, init template [reasoning] block, config show --src reasoning rows.\n5. DOCS: [Mode A] JSDoc on the new SCHEMA_MAP entries noting the [reasoning]-independent-of-[models] invariant (PRD §9.7.5)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "Case-insensitive enum validation in loader + verify auto-derivation + repo .hack block",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h3.25", "h4.24", "h4.26", "h4.27", "h4.8"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §F + §H. The loader's enum check at hack-config.ts:898-903 (`!spec.enum.includes(value as string)` → throw '... is not one of the accepted values [...]') is CASE-SENSITIVE. PRD §9.2.9 #2 requires case-insensitivity, so [reasoning] agent = 'HIGH' MUST be accepted (→ 'high'). ConfigCommand.#buildTemplate (src/cli/commands/config.ts:207) and #showAction (:327-416) iterate SCHEMA_MAP — so a [reasoning] init block and config show --src rows are AUTO-DERIVED once S1 lands.\n2. INPUT: the SCHEMA_MAP/HACK_CONFIG_SCHEMA reasoning entries from S1.\n3. LOGIC: In src/config/hack-config.ts make the [reasoning] enum check case-insensitive — normalize the parsed value to lowercase before the enum comparison for reasoning-section keys (preferred: keep the enum lowercase; lowercase the input value before spec.enum.includes), OR delegate reasoning-section validation to resolveReasoningLevel() from T1.S1. Ensure the thrown message stays actionable (names section+key+file+value+accepted, §9.7.7). Then VERIFY (test, no code change expected) that: `hack config init` emits a commented [reasoning] block (auto-derived from SCHEMA_MAP via #buildTemplate), and `hack config show --src` reports each reasoning key's resolved value + winning source layer (auto-derived via #showAction iterating SCHEMA_MAP). Optionally add a commented [reasoning] block to the committed repo ./.hack for discoverability (not required for behavior; defaults apply when absent). TDD: extend tests/unit/config/hack-config.test.ts — 'HIGH'/'Off' accepted case-insensitively and normalized to lowercase; init-template test asserts a [reasoning] block is emitted; config show test asserts reasoning rows appear with source attribution.\n4. OUTPUT: [reasoning] values accepted case-insensitively; init + show auto-derive the new section.\n5. DOCS: [Mode A] none beyond a code comment noting case-normalization; the .hack block (if added) is the doc surface."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "Agent-factory composition — decouple model from reasoning + split the shared QA persona",
+              "status": "Planned",
+              "description": "Sever the role→thinking coupling: tier stays from ROLE_CONFIG (unchanged model resolution), the reasoning level is resolved per agent-identity from the PRP_REASONING_* getters and composed onto the config INDEPENDENTLY. The shared createQAAgent gains a level parameter so bug-finder and validation resolve SEPARATE levels; the four QA callers (incl. the newly-discovered change-classifier) pass their resolved getter.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "Decouple createBaseConfig: explicit thinking param, strip thinking from ROLE_CONFIG",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S3"],
+                  "prd_selectors": ["h4.2", "h4.8", "h3.13"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §C. createBaseConfig (agent-factory.ts:303-345) currently destructures `{ tier, thinking } = ROLE_CONFIG[role]` (ROLE_CONFIG at :248-256 pins reasoning→xhigh). The model (tier→getModel(tier)) resolution MUST stay UNCHANGED; only the thinking source changes. ModelRole ('research'|'reasoning'|'implementation', :132) is UNCHANGED — it still selects the tier.\n2. INPUT: reconciled ThinkingLevel (=ReasoningLevel) from T1.S3.\n3. LOGIC: In src/agents/agent-factory.ts: (a) change ROLE_CONFIG to `Readonly<Record<ModelRole, { readonly tier: ModelTier }>>` — DELETE the `thinking` field from each value (research:{tier:'balanced'}, reasoning:{tier:'balanced'}, implementation:{tier:'fast'}); the role→tier MODEL mapping is unchanged. (b) change createBaseConfig signature to `createBaseConfig(persona: AgentPersona, role: ModelRole = 'research', thinking: ThinkingLevel)` — take tier from ROLE_CONFIG[role].tier (unchanged getModel(tier)) and compose the PASSED thinking onto the returned config's `thinking` field, INDEPENDENT of role. Update createBaseConfig JSDoc (currently says thinking comes from ROLE_CONFIG) to state thinking is now caller-resolved per §9.2.9, independent of the tier. NOTE: this signature change will break the existing factories + commit-message-agent.ts until S2 wires them — that is expected and fixed in S2. Mocking: none (pure config composition). TDD: extend tests/unit/agents/agent-factory.test.ts — createBaseConfig with a given role+thinking returns model from the tier and thinking === the passed value, independent of role; a 'reasoning' role with thinking 'off' still uses the balanced-tier model (proving decoupling).\n4. OUTPUT: createBaseConfig composes a caller-supplied thinking level independent of tier; ROLE_CONFIG carries tier only. Consumed by S2 (wire factories) and the createQAAgent change in S2.\n5. DOCS: [Mode A] JSDoc on createBaseConfig + ROLE_CONFIG documenting the decoupling and the unchanged role→tier model mapping."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S2",
+                  "title": "Wire non-QA factories + createQAAgent(level) signature + commit-message-agent",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T3.S1", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h4.2", "h4.8", "h3.13"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §C/§D. Factories at agent-factory.ts: createArchitectAgent(:337)→role 'reasoning'; createResearcherAgent(:373)→'research'; createCoderAgent(:403)→'implementation'; createCleanupAgent→'implementation'; createQAAgent(:453)→'reasoning' (currently no params). commit-message-agent.ts:361 calls createBaseConfig('researcher','research'). All 'xhigh'-pinned JSDoc in this file (lines 163,235,243,293,340,435-440) must move to the §9.2.9 defaults.\n2. INPUT: createBaseConfig(persona,role,thinking) from S1; the 5 getters from T1.S2.\n3. LOGIC: In src/agents/agent-factory.ts wire each factory to resolve its OWN reasoning getter and pass it: createArchitectAgent→createBaseConfig('architect','reasoning', getReasoningBreakdown()); createResearcherAgent→...('researcher','research', getReasoningAgent()); createCoderAgent→...('coder','implementation', getReasoningImpl()); createCleanupAgent→...('cleanup','implementation', 'off') (mechanical reorg; HARDCODE 'off', documented — NOT coupled to PRP_REASONING_IMPL_AGENT). Change createQAAgent signature to `createQAAgent(reasoningLevel: ReasoningLevel): Agent` and body createBaseConfig('qa','reasoning', reasoningLevel) — the caller now supplies the level (bug-finder vs validation split lives at the call sites, S3). Rewrite createQAAgent JSDoc (currently 'balanced tier @ xhigh') to 'level resolved by caller per §9.2.9'. Update commit-message-agent.ts:361 → createBaseConfig('researcher','research','off') (single-shot commit messages; HARDCODE 'off', documented) + its JSDoc. Update ALL xhigh-pinned JSDoc/comments to 'high (default, configurable per §9.2.9)' for breakdown/bug-finder/validation and 'off (default)' for impl. Mocking: getters read process.env; tests set env vars. TDD: extend tests/unit/agents/agent-factory.test.ts + commit-message-agent.test.ts + cleanup-agent.test.ts — each factory's config.thinking equals its getter default with env unset, honors an env override, and config.model is still the tier's model (decoupling holds); createQAAgent(level) stamps the passed level.\n4. OUTPUT: architect/researcher/coder/cleanup/QA factories + commit-message-agent each compose a per-identity reasoning level independent of tier. createQAAgent now requires a level arg. Consumed by S3 (caller wiring).\n5. DOCS: [Mode A] JSDoc on each factory documenting its reasoning knob + default; document the cleanup/commit-message 'off' decision."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S3",
+                  "title": "Update the 4 createQAAgent call sites to pass their resolved reasoning level",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S2", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h4.8", "h3.20", "h4.1"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §E. createQAAgent() has FOUR callers (PRD §3 named 3; research found a 4th): bug-hunt-workflow.ts:273 (bug-finder), validation-workflow.ts:235 (validation), delta-analysis-workflow.ts:121 (delta-analysis), change-classifier.ts:112 classifyChange + :161 classifyArtifact. PRD §9.2.9 requires bug-finder and validation to resolve SEPARATE levels. Per PRD §3 the delta-analysis caller is an IMPL DECISION (research-leaning); change-classifier (also a diff/artifact analysis, discovered during research) follows the same research-leaning decision.\n2. INPUT: createQAAgent(reasoningLevel) signature from S2; getters getReasoningBugFinder/getReasoningValidation/getReasoningAgent from T1.S2.\n3. LOGIC: In each caller add `import { getReasoning... } from '../config/constants.js'` and pass the resolved level: bug-hunt-workflow.ts:273 → createQAAgent(getReasoningBugFinder()); validation-workflow.ts:235 → createQAAgent(getReasoningValidation()); delta-analysis-workflow.ts:121 → createQAAgent(getReasoningAgent()) (research-leaning, documented); change-classifier.ts:112 and :161 → createQAAgent(getReasoningAgent()) (research-leaning, documented). Add a brief code comment at the delta-analysis + change-classifier sites recording the research-leaning decision + §9.2.9 ref. Mocking: env-driven; tests set PRP_REASONING_*. TDD: extend tests/unit/workflows/{bug-hunt-workflow,validation-workflow,delta-analysis-workflow}.test.ts + tests/unit/core/change-classifier.test.ts — bug-hunter and validation QA agents resolve INDEPENDENT levels (set PRP_REASONING_BUG_FINDER_AGENT=xhigh + PRP_REASONING_VALIDATION_AGENT=low → each agent gets its own); the research-leaning callers get getReasoningAgent()'s value.\n4. OUTPUT: bug-finder and validation resolve separate, independently-configurable reasoning levels (the core §9.2.9 requirement); delta-analysis + change-classifier are research-leaning and documented.\n5. DOCS: [Mode A] inline code comments documenting the role assignment at delta-analysis + change-classifier call sites."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T4",
+              "title": "Startup fail-fast integration + config show --src surfacing",
+              "status": "Planned",
+              "description": "Run the reasoning-level validation on the startup path so an invalid shell/env value aborts with exit 1 BEFORE any session is created or agent invoked. The `hack config show --src` surfacing is AUTO-DERIVED from SCHEMA_MAP (verified) and needs only a test.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T4.S1",
+                  "title": "validateAllReasoningLevels() on the startup path + ReasoningConfigError main().catch arm",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h4.6", "h4.8", "h3.23", "h4.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §G. Startup sequence in src/index.ts main(): loadHackConfig():156 → configureEnvironment():181 → dry-run/validate-prd early returns → configureHarness():261 → runAuthPreflight():266 → ensureHarnessInitialized() → agent creation. The .hack enum path already fail-fasts inside loadHackConfig (T2). The SHELL/ENV path (PRP_REASONING_AGENT=ultra) is NOT validated until a getter runs — so an explicit startup pass is REQUIRED to abort before any agent is created. main().catch (index.ts:402-431) has clean arms for AuthPreflightError/HackConfigError/etc. → `❌ ${msg}` + exit(1), no stack.\n2. INPUT: validateAllReasoningLevels() + ReasoningConfigError from T1.S2/T1.S1.\n3. LOGIC: In src/index.ts main(), AFTER configureEnvironment() (:181) and the credential-free early-returns and AFTER/ALONGSIDE runAuthPreflight() (:266), but BEFORE any agent is created, call `validateAllReasoningLevels()` (imported from constants.ts). Add a main().catch arm mirroring the existing arms: `if (error instanceof ReasoningConfigError) { console.error('\\n❌ ' + error.message); process.exit(1); }` (actionable one-liner, no stack, §9.2.7/§9.7.7 discipline). The thrown ReasoningConfigError already names the offending key, value, and accepted levels. Mocking: tests set invalid PRP_REASONING_* env and assert the process aborts with exit 1 + actionable message before any agent/session is created. TDD: add a startup/fail-fast test (alongside tests/unit/config/auth-preflight.test.ts) — invalid env → ReasoningConfigError → exit 1, no session dir created; valid env → no throw.\n4. OUTPUT: an invalid reasoning env value aborts at startup with exit 1 + actionable message, before any session/agent. The .hack invalid path already fail-fasts in loadHackConfig (T2).\n5. DOCS: [Mode A] none (internal startup behavior); the message format is the user-facing surface and is covered by the ReasoningConfigError JSDoc (T1.S1)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T4.S2",
+                  "title": "Verify config show --src surfaces each role's resolved reasoning level + source layer",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1", "P1.M1.T4.S1"],
+                  "prd_selectors": ["h4.27", "h4.24", "h4.8"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: integration-points.md §F. `hack config show --src` is AUTO-DERIVED: ConfigCommand.#showAction (src/cli/commands/config.ts:327-416) iterates ALL SCHEMA_MAP entries and resolves value+winning-source via #resolveEntry. Once T2.S1 adds the [reasoning] SCHEMA_MAP entries, the reasoning rows (with source attribution: default/.hack/env) appear with NO additional code. This subtask VERIFIES that derivation with a test (no production code change expected).\n2. INPUT: the [reasoning] SCHEMA_MAP entries from T2.S1; the startup validation from T4.S1.\n3. LOGIC: Add/extend a test (tests/unit/config/ or a config-command test) asserting `hack config show --src` reports each of the 5 reasoning keys with: (a) its resolved value, and (b) its winning source layer (e.g. 'default' when unset, '.hack' when set in .hack, 'env' when set in shell env — per §9.2.1 precedence). If the auto-derivation does NOT surface them for any reason, the fix is to ensure the [reasoning] entries are in SCHEMA_MAP (T2.S1) — do NOT hand-special-case show. Mocking: set env/.hack values and assert the reported source layer. TDD: the test IS the work.\n4. OUTPUT: `hack config show --src` reports each role's resolved reasoning level with its winning source layer (acceptance criterion).\n5. DOCS: [Mode A] none (behavior is auto-derived; documented in CONFIGURATION.md via the Mode B docs task)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Sync Changeset-Level Documentation (Mode B)",
+          "status": "Planned",
+          "description": "Cross-cutting docs that only make sense once the whole feature lands. Depends on EVERY implementing subtask in P1.M1. Do NOT edit PRD.md, tasks.json, prd_snapshot.md, or PROMPTS.md.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Sync changeset-level documentation (README, CONFIGURATION, ARCHITECTURE)",
+              "status": "Planned",
+              "description": "Update the changeset-level docs that summarize the whole per-role reasoning feature: docs/CONFIGURATION.md (the five env vars + five [reasoning] keys + two-independent-axes model + vocabulary/defaults/empty/fail-fast + behavior change), docs/ARCHITECTURE.md (reasoning as an axis orthogonal to model tier + QA-persona split), and README.md (mention per-role reasoning, link CONFIGURATION).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "docs/CONFIGURATION.md — env vars, [reasoning] keys, two-axes model, vocab/defaults/empty/fail-fast, behavior change",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S4", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T3.S3", "P1.M1.T4.S1"],
+                  "prd_selectors": ["h3.20", "h4.1", "h4.2", "h4.8", "h3.25", "h4.24", "h4.26", "h4.27"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: docs/CONFIGURATION.md is the canonical user-facing config reference (~68KB). It already documents env vars and the .hack mapping table; this subtask extends those existing sections (do not rewrite the file).\n2. INPUT: the finalized feature from all of P1.M1 — 5 PRP_REASONING_* vars + defaults (T1), 5 [reasoning] .hack keys (T2), the decoupling + QA split (T3), the fail-fast + show behavior (T4). Authoritative spec: PRD §9.2.9 #1-#7 + §9.7.5.\n3. LOGIC: In docs/CONFIGURATION.md: (a) add the five PRP_REASONING_* rows to the env-var reference (vars, defaults high/high/high/high/off, valid levels, empty→default, invalid→hard error); (b) add the five [reasoning] keys to the .hack mapping table; (c) add a 'Model vs Reasoning: two independent axes' explainer (tuning one never forces a compromise on the other), the vocabulary, the defaults, the empty-value and fail-fast behavior, and the §9.2.9 behavior change (research xhigh→high / 'normal'→explicit high / impl model-default→explicit off; xhigh still available via explicit config). Mocking: none (doc-only). Verify cross-links resolve.\n4. OUTPUT: CONFIGURATION.md fully documents the reasoning surface.\n5. DOCS: [Mode B] this subtask IS the changeset-level doc update."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S2",
+                  "title": "docs/ARCHITECTURE.md — per-role reasoning as an axis orthogonal to model tier + QA split",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S3", "P1.M1.T3.S2"],
+                  "prd_selectors": ["h4.2", "h4.8", "h3.13"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: docs/ARCHITECTURE.md (~57KB) has an agent/model section describing tiers; extend it (do not rewrite). Reference plan/013_3f31aa2b81b7/architecture/system-context.md §3-§5 for the decoupling principle and the QA-persona-shared-by-4-callers finding.\n2. INPUT: the decoupling (tier from ROLE_CONFIG, level from PRP_REASONING_*) from T3; the QA split (bug-finder/validation independent; delta-analysis + change-classifier research-leaning) from T3.S3.\n3. LOGIC: In docs/ARCHITECTURE.md extend the agent/model section to describe per-role reasoning as an axis ORTHOGONAL to model tier: the role→tier model mapping is unchanged; reasoning level is resolved per agent-identity from PRP_REASONING_* (defaults high/high/high/high/off). Note the QA-persona-shared-by-bug-finder-and-validation resolution (they now resolve distinct levels) and the delta-analysis/change-classifier research-leaning assignment. Note the Groundswell harness seam (level stored on AgentConfig.thinking; harness-side --thinking wiring is a noted cross-repo dependency). Mocking: none (doc-only).\n4. OUTPUT: ARCHITECTURE.md describes the reasoning axis.\n5. DOCS: [Mode B] this subtask IS the changeset-level doc update."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S3",
+                  "title": "README.md — mention per-role reasoning is independently configurable (link CONFIGURATION)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S3", "P1.M1.T4.S1"],
+                  "prd_selectors": ["h4.8", "h4.2"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: README.md (~42KB) summarizes agent/model configuration somewhere; locate the agent/model/features section and extend it minimally (do not rewrite).\n2. INPUT: the feature summary — reasoning level is now independently configurable per role, decoupled from model tier (T3/T4).\n3. LOGIC: In README.md, wherever agent/model configuration is summarized, add a concise mention that the extended-thinking (reasoning) level is now independently configurable per role (off/minimal/low/medium/high/xhigh), decoupled from model selection, with a link to docs/CONFIGURATION.md for the vocabulary + defaults. Keep it to a feature-blurb scope (the detail lives in CONFIGURATION/ARCHITECTURE). Mocking: none (doc-only). Verify the markdown link resolves.\n4. OUTPUT: README surfaces the new capability with a pointer to detail.\n5. DOCS: [Mode B] this subtask IS the changeset-level doc update. Do NOT edit PRD.md, tasks.json, prd_snapshot.md, or PROMPTS.md."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
