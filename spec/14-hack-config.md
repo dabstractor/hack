@@ -65,6 +65,11 @@ Every tunable maps to exactly one `[section].key`. The table below is exhaustive
 | `[models] high`                       | `PRP_MODEL_HIGH`             | —                         | string (bare model id)                     | `glm-5.2`                                   |
 | `[models] balanced`                   | `PRP_MODEL_BALANCED`         | —                         | string                                     | `glm-5.2`                                   |
 | `[models] fast`                       | `PRP_MODEL_FAST`             | —                         | string                                     | `glm-5-turbo`                               |
+| `[reasoning] agent`                   | `PRP_REASONING_AGENT`             | — | `off`\|`minimal`\|`low`\|`medium`\|`high`\|`xhigh` | `high` |
+| `[reasoning] breakdown_agent`         | `PRP_REASONING_BREAKDOWN_AGENT`  | — | (same vocabulary)                                | `high` |
+| `[reasoning] bug_finder_agent`        | `PRP_REASONING_BUG_FINDER_AGENT` | — | (same vocabulary)                                | `high` |
+| `[reasoning] validation_agent`        | `PRP_REASONING_VALIDATION_AGENT` | — | (same vocabulary)                                | `high` |
+| `[reasoning] impl_agent`              | `PRP_REASONING_IMPL_AGENT`       | — | (same vocabulary)                                | `off`  |
 | `[endpoint] base_url`                 | `PRP_API_BASE_URL`           | —                         | URL                                        | `https://api.z.ai/api/anthropic` (zai only) |
 | `[harness] name`                      | `PRP_AGENT_HARNESS`          | —                         | `pi` \| `claude-code`                      | `pi`                                        |
 | `[pipeline] parallel_research`        | `PARALLEL_RESEARCH`          | `-r/--parallel-research`  | bool                                       | `false`                                     |
@@ -111,6 +116,7 @@ Every tunable maps to exactly one `[section].key`. The table below is exhaustive
 - For booleans exposed as negating flags (`--no-cache`, `--no-resource-monitor`), the TOML key names the _positive_ state (`cache_enabled`, `monitor.enabled`); `false` is equivalent to passing the `--no-*` form.
 - Where a single concept is reachable both as an env var and a CLI flag with the same default (`RESEARCH_QUEUE_CONCURRENCY` / `--research-concurrency`, `HACKY_LOG_LEVEL` / `--log-level`, `MONITOR_TASK_INTERVAL` / `--monitor-task-interval`, `PARALLEL_RESEARCH` / `-r`), the TOML key seeds the env var and the CLI option reads through it; only **one** TOML key exists per concept (no duplicate `[cli]`/`[pipeline]` pair), avoiding the ambiguity of two keys racing for the same value.
 - Model-id values are written **bare** (`glm-5.2`) and provider-qualified at read time by the existing `qualifyModel()` path (§9.2.3); an already-qualified value (`zai/glm-5.2`) is accepted and left intact.
+- `[reasoning]` values are case-insensitive members of the §9.2.9 vocabulary (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`); a value outside that set is a hard startup error (§9.7.7, §9.2.9). `[reasoning]` keys are **independent of** `[models]` keys — the former sets a role's extended-thinking level, the latter its model id — so a strong model can be paired with reasoning off (§9.2.3, §9.2.9).
 
 **Example project `.hack` (committable, no secrets):**
 
@@ -125,6 +131,14 @@ name = "pi"             # vendor-neutral default (§9.1)
 high     = "glm-5.2"    # Architect agent
 balanced = "glm-5.2"    # planning & research roles
 fast     = "glm-5-turbo" # implementation role
+
+[reasoning]
+# per-role extended-thinking level (§9.2.9); orthogonal to [models] above
+agent            = "high"  # research / PRP creation
+breakdown_agent  = "high"  # task decomposition
+bug_finder_agent = "high"
+validation_agent = "high"
+impl_agent       = "off"   # codegen from a complete PRP needs no thinking
 
 [endpoint]
 # base_url left unset: defaults to z.ai for the `zai` provider (§9.2.4)
@@ -162,6 +176,9 @@ name = "claude-code"       # I'm spending an Anthropic coding-plan quota today
 [models]
 balanced = "anthropic/claude-sonnet-4"
 fast     = "anthropic/claude-haiku-4"
+
+[reasoning]
+impl_agent = "high"      # I want extended thinking on for codegen today (§9.2.9)
 
 [auth]
 override_key = "sk-ant-..."  # explicit override (§9.2.6 layer 1); prefer ZAI_API_KEY/auth.json instead

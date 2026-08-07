@@ -9,6 +9,7 @@
     - Implement the **fail-fast auth preflight** (§9.2.7): abort before any agent run with an actionable error when no credential is resolvable for the selected harness + provider/model.
     - **Cross-repo:** switch the `pi` harness to a file-backed `AuthStorage` (`AuthStorage.create()`) in `~/projects/groundswell` `src/harnesses/pi-harness.ts` so `~/.pi/agent/auth.json` is honored.
     - Call `configureHarnesses({ defaultHarness: 'pi', defaultModelProvider: 'zai' })` at startup (see §9.4).
+    - Implement the **per-role reasoning level** (§9.2.9): resolve `PRP_REASONING_<ROLE>` for each agent identity through the §9.2.1 stack (defaults `high`/`high`/`high`/`high`/`off` for research/breakdown/bug-finder/validation/impl), validate against the `off`/`minimal`/`low`/`medium`/`high`/`xhigh` vocabulary (hard startup error on invalid), and forward the resolved level into each agent config so it is composed with — and independent of — the tier model (§9.2.3).
 
 2.  **Core Workflows**:
     - Implement `SessionManager` (Filesystem operations).

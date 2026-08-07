@@ -30,6 +30,14 @@ Configuration is resolved through a strictly ordered layering: **each layer over
 - **Agent Runtime (Harness)**:
   - `PRP_AGENT_HARNESS`: Agent runtime/SDK to use — `pi` (pi.dev, default) or `claude-code`. Orthogonal to the LLM provider; see §9.4.
 
+- **Reasoning Configuration** (per-role extended-thinking budget; orthogonal to the model id — the full model lives in §9.2.9):
+  - `PRP_REASONING_AGENT`: reasoning level for the **research/PRP** role (`AGENT`); default `high`.
+  - `PRP_REASONING_BREAKDOWN_AGENT`: reasoning level for the **task-decomposition** role (`BREAKDOWN_AGENT`); default `high`.
+  - `PRP_REASONING_BUG_FINDER_AGENT`: reasoning level for the **bug-finder** role (`BUG_FINDER_AGENT`); default `high`.
+  - `PRP_REASONING_VALIDATION_AGENT`: reasoning level for the **validation** role (`VALIDATION_AGENT`); default `high`.
+  - `PRP_REASONING_IMPL_AGENT`: reasoning level for the **implementation/codegen** role (`IMPL_AGENT`); default `off` — codegen executes a complete PRP contract and needs no extended thinking, and this decouples reasoning from model choice (a user no longer has to drop to a lower-tier model merely to turn reasoning off).
+  - Valid levels (case-insensitive): `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. A value outside this set is a hard startup error (§9.2.9).
+
 - **Pipeline Control**:
   - `PRP_PIPELINE_RUNNING`: Guard to prevent nested execution (set to PID when pipeline starts)
   - `SKIP_BUG_FINDING`: Skip bug hunt stage; also identifies bug fix mode when `true`
@@ -59,13 +67,13 @@ Configuration is resolved through a strictly ordered layering: **each layer over
 
 Models are specified as provider-qualified strings (`provider/model`), independent of the harness (see §9.4). The pipeline reads model names from the environment at runtime and qualifies them with the `zai` provider.
 
-The pipeline uses **separate model roles** so cost, speed, and reasoning depth can be tuned per phase. Heavy reasoning and fast codegen are independently configurable, and the reasoning-intensive steps pin the maximum thinking budget:
+The pipeline uses **separate model roles** so cost, speed, and reasoning depth can be tuned per phase. Crucially, **which model a role runs** and **how hard it reasons** are **two independent axes**: the model is chosen per tier (below), and the extended-thinking budget is chosen per role (§9.2.9). Tuning one never forces a compromise on the other — a user no longer has to drop to a lower-tier model merely to turn reasoning off.
 
-- **Research role (`AGENT`)** — architecture research and PRP creation. Balanced model, normal reasoning budget. Backed by `ANTHROPIC_DEFAULT_SONNET_MODEL` (default: `glm-5.2` → resolved as `zai/glm-5.2`).
-- **Reasoning role (`BREAKDOWN_AGENT` / `BUG_FINDER_AGENT` / `VALIDATION_AGENT`)** — task decomposition, creative bug discovery, and validation. These run on the balanced model but at the **maximum reasoning budget** (extended-thinking `xhigh`), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy, adversarial bug-finding, and validating against the full PRD are the most reasoning-intensive steps. (In the bash pipeline these are the `pizr` agent — `pi` with `--thinking xhigh`.)
-- **Implementation role (`IMPL_AGENT`)** — code-writing steps: PRP execution and post-validation fix. Faster codegen. Backed by `ANTHROPIC_DEFAULT_HAIKU_MODEL` (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`; bash identifier `piznt`).
+- **Research role (`AGENT`)** — architecture research and PRP creation. Balanced model. Reasoning level **high** by default (§9.2.9). Backed by `ANTHROPIC_DEFAULT_SONNET_MODEL` (default: `glm-5.2` → resolved as `zai/glm-5.2`).
+- **Reasoning role (`BREAKDOWN_AGENT` / `BUG_FINDER_AGENT` / `VALIDATION_AGENT`)** — task decomposition, creative bug discovery, and validation. These run on the balanced model. They are analysis-heavy steps, so they default to reasoning level **high** (§9.2.9) — synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy, adversarial bug-finding, and validating against the full PRD all reward strong reasoning. (In the bash pipeline these are the `pizr` agent; the historical hard `xhigh` pin is replaced by the configurable per-role level — see §9.2.9 behavior-change note.)
+- **Implementation role (`IMPL_AGENT`)** — code-writing steps: PRP execution and post-validation fix. Fast-tier model. Reasoning level **off** by default (§9.2.9) — codegen executes a complete PRP contract and needs no extended thinking. Backed by `ANTHROPIC_DEFAULT_HAIKU_MODEL` (default: `glm-5-turbo` → resolved as `zai/glm-5-turbo`; bash identifier `piznt`).
 
-These values should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/glm-5.2` is invalid). Model ids are **lowercase** as registered in the Pi model registry (run `pi --list-models zai` to verify available ids).
+Model ids should be read from the environment at runtime, not hardcoded. Model strings are never harness-qualified (e.g., `pi/zai/glm-5.2` is invalid). Model ids are **lowercase** as registered in the Pi model registry (run `pi --list-models zai` to verify available ids). The reasoning level for each role is resolved independently per §9.2.9.
 
 #### 9.2.4 API Endpoint Safeguards
 
@@ -167,3 +175,48 @@ This prevents the massive usage spikes that occurred when tests were accidentall
 **Scope / transition.** This is a forward requirement. When implemented, it updates §9.2.2, §9.2.3, and §9.2.4 to reference the canonical names as primary, the env loader (`config/environment.ts`, `config/constants.ts`) to read canonical-first with legacy fallback, and `.env.example`. **Until then, the `ANTHROPIC_*` names shown in §9.2.2–§9.2.4 remain in effect** (so the current code, which reads those names, stays in spec).
 
 **Exception — Anthropic-provider credentials.** `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` are NOT renamed: they are the `anthropic` provider's own native credentials, consulted only when the resolved provider is `anthropic` (§9.2.6). Provider-native credential names are correct; only pipeline-global vars are neutralized.
+
+#### 9.2.9 Per-Role Reasoning Level (Extended-Thinking Budget)
+
+**Problem.** The extended-thinking ("reasoning") budget was, in the original design, not a user-facing knob at all: it was hard-wired to the role — the reasoning roles (`BREAKDOWN_AGENT` / `BUG_FINDER_AGENT` / `VALIDATION_AGENT`) were pinned to the **maximum** budget (`xhigh`), research ran at an unspecified "normal" budget, and implementation inherited whatever its model defaulted to. Worse, because the reasoning budget was coupled to model selection in practice (the only lever a user had to reduce reasoning was to **switch to a lower-tier model**), a user who wanted reasoning off for the implementation step was forced onto a sub-par model even when the strong model would have been fine — and cheaper — with thinking simply disabled.
+
+**Requirement.** The reasoning level MUST be a **first-class, independently-configurable per-role setting**, fully decoupled from the model id:
+
+- A role's effective agent config is the composition of its **model** (resolved from its tier, §9.2.3) and its **reasoning level** (resolved per this section). Tuning either axis must never perturb the other.
+- **Every** agent role has its own reasoning level, each with a sensible default and each overridable through the standard §9.2.1 precedence (built-in default < `.hack` < `.hack.local` < `.env` < shell env < CLI).
+
+**Vocabulary.** The reasoning level is one of (case-insensitive): `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. (`xhigh` is the maximum.) These are the canonical tokens the pipeline forwards to the selected harness; the `pi` harness maps them directly to its `--thinking <level>` argument.
+
+**Per-role env vars and defaults.** Each role is controlled by exactly one env var; the suffix names the agent identity it controls (matching the §9.2.3 role vars), so there is no mapping ambiguity:
+
+| Role | Env var | Default | Rationale |
+| ---- | ------- | ------- | -------- |
+| Research / PRP (`AGENT`) | `PRP_REASONING_AGENT` | `high` | analysis-heavy; strong reasoning improves PRP quality |
+| Task decomposition (`BREAKDOWN_AGENT`) | `PRP_REASONING_BREAKDOWN_AGENT` | `high` | synthesizing the strict hierarchy is reasoning-intensive |
+| Bug finder (`BUG_FINDER_AGENT`) | `PRP_REASONING_BUG_FINDER_AGENT` | `high` | adversarial analysis; weak reasoning misses bugs |
+| Validation (`VALIDATION_AGENT`) | `PRP_REASONING_VALIDATION_AGENT` | `high` | validating against the full PRD rewards strong reasoning |
+| Implementation / codegen (`IMPL_AGENT`) | `PRP_REASONING_IMPL_AGENT` | `off` | executes a complete PRP contract; reasoning off is faster, cheaper, and removes the need to drop model tiers to disable thinking |
+
+**Resolution.** For each role: resolve its `PRP_REASONING_<ROLE>` through the §9.2.1 layer stack (the `.hack` `[reasoning]` keys of §9.7.5 seed these env vars; real shell env overrides them per the env-over-file rule). If no layer provides a value, fall back to the role's built-in default above. An **empty / whitespace-only** value is treated as "unset" and falls back to the default — consistent with the §9.2.7 empty-string policy; an empty value is never forwarded to the harness. **A user-set value is authoritative:** whatever level a role resolves to is exactly what that role runs.
+
+**Harness translation.** The resolved level is forwarded into the agent config and translated by the harness: the `pi` harness maps it to its `--thinking <level>` argument; `claude-code` maps it to its extended-thinking budget. Both harnesses advertise Extended-Thinking support (§9.4.4), so the level is honored on either runtime, and it flows through `MCPHandler`/tool execution identically.
+
+**Validation (fail-fast).** A reasoning-level value outside the vocabulary (`PRP_REASONING_AGENT=ultra`, `[reasoning] impl_agent = "yes"`) is a **hard startup error**: the loader MUST abort, before any session is created or agent invoked, with an actionable message naming the offending key, the value, and the accepted levels. This mirrors the §9.2.7 / §9.7.7 fail-fast discipline — a bad reasoning level must not surface as a deep runtime error inside the first agent call.
+
+**Behavior change vs. the prior hard-wired design.** Under §9.2.9 the reasoning roles move from a hard `xhigh` pin to a configurable **`high` default** (a user who wants the old maximum sets `PRP_REASONING_BREAKDOWN_AGENT=xhigh`, etc.); research moves from an unspecified "normal" budget to an explicit **`high` default**; and implementation is now explicitly **`off` by default** rather than inheriting a model-default budget. These are deliberate, user-directed default changes; nothing here removes the prior capability — `xhigh` remains available everywhere via explicit config.
+
+**Interaction with subsystems.**
+
+- **§9.2.3 Model Selection:** the model id and the reasoning level are resolved independently and composed; a user can run a strong model with reasoning off, or a fast model with reasoning on. The role→tier model mapping is unchanged (research/breakdown/bug-finder/validation → `balanced`; implementation → `fast`).
+- **§9.7 `.hack`:** the five levels are exposed as `[reasoning] agent`, `[reasoning] breakdown_agent`, `[reasoning] bug_finder_agent`, `[reasoning] validation_agent`, `[reasoning] impl_agent` (§9.7.5 schema), each seeding its `PRP_REASONING_*` env var.
+- **§9.4 harness:** the level is a runtime concern, orthogonal to the harness; the harness only translates it to its native thinking control.
+- **§9.2.5 / bugfix children:** child `hack` processes inherit the resolved `process.env`, so per-role levels propagate to bugfix sub-pipelines without re-configuration.
+
+**Acceptance criteria.**
+
+- A user sets `PRP_REASONING_IMPL_AGENT=off` (or `[reasoning] impl_agent = "off"` in `.hack`) and observes the implementation agent run with extended thinking disabled while still on its configured (strong) model — confirming reasoning is decoupled from model selection.
+- With no reasoning config present, the five roles resolve to `high` / `high` / `high` / `high` / `off` respectively (research / breakdown / bug-finder / validation / implementation).
+- `PRP_REASONING_VALIDATION_AGENT=xhigh` overrides validation to the maximum; `PRP_REASONING_AGENT=medium` lowers research to medium; the other roles keep their defaults.
+- An empty value (`PRP_REASONING_AGENT=""`) is treated as unset and falls back to the role default; it is never forwarded to the harness.
+- An invalid value (`PRP_REASONING_AGENT=ultra`, `[reasoning] impl_agent = "loud"`) aborts at startup with exit code `1`, naming the key, value, and accepted levels, before any session is created or agent invoked.
+- `hack config show --src` reports each role's resolved reasoning level together with its winning source layer.

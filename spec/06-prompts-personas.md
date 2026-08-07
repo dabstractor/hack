@@ -8,7 +8,7 @@ The system relies on specific, highly-engineered prompts. These must be preserve
 - **Goal:** Decompose PRD into strict JSON.
 - **Constraint:** "Validate before breaking down." Spawn sub-agents to research before defining tasks.
 - **Logic:** Implicit TDD (tests are part of the subtask, not separate).
-- **Reasoning Budget:** Decomposition runs at the **maximum reasoning budget** (extended-thinking `xhigh` equivalent), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy is the most reasoning-intensive step. The "demand write" retry (when breakdown output is missing/invalid) uses the same budget.
+- **Reasoning Budget:** Decomposition's extended-thinking level is a per-role setting defaulting to **`high`** (configurable across `off` / `minimal` / `low` / `medium` / `high` / `xhigh`), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy is reasoning-intensive; see §9.2.9 (`PRP_REASONING_BREAKDOWN_AGENT`). The "demand write" retry (when breakdown output is missing/invalid) uses the same level.
 - **Documentation Sync (two-mode rule):** Documentation is never a standalone subtask; it rides with the work, mirroring the TDD rule:
   - **Mode A (doc-with-work):** Docs a subtask directly touches — config, public API, CLI, env vars, exported types — are updated _inside_ that subtask's `context_scope`, declared via a `DOCS:` line.
   - **Mode B (changeset-level):** Cross-cutting docs that only make sense once the whole change lands (README, feature overviews, architecture summaries) become a **final "Sync changeset-level documentation" task** that depends on all implementing subtasks.
