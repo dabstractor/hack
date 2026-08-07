@@ -19,6 +19,7 @@ import {
   normalizeTaskId,
   findItemByLooseId,
   matchStatus,
+  cascadeCompleteDown,
   type HierarchyItem,
 } from '../../../src/utils/task-utils.js';
 import type {
@@ -1200,6 +1201,151 @@ describe('utils/task-utils', () => {
         expect(ret.candidates).not.toContain('Retrying');
         expect(ret.candidates).toHaveLength(7);
       }
+    });
+  });
+
+  describe('cascadeCompleteDown', () => {
+    it('sets a leaf Subtask to Complete (no children)', () => {
+      // SETUP: A leaf subtask in a non-Complete status
+      const sub = createTestSubtask('P1.M1.T1.S1', 'leaf', 'Planned');
+
+      // EXECUTE
+      const out = cascadeCompleteDown(sub);
+
+      // VERIFY: returned item is Complete; original untouched
+      expect(out.status).toBe('Complete');
+      expect(out.id).toBe('P1.M1.T1.S1');
+      expect(sub.status).toBe('Planned');
+    });
+
+    it('cascades Complete down a Task to all its Subtasks', () => {
+      // SETUP: A task with subtasks in mixed statuses
+      const task = createTestTask('P1.M1.T1', 't', 'Implementing', [
+        createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+        createTestSubtask('P1.M1.T1.S2', 'b', 'Failed'),
+      ]);
+
+      // EXECUTE
+      const out = cascadeCompleteDown(task);
+
+      // VERIFY: task + every subtask → Complete
+      expect(out.status).toBe('Complete');
+      expect(out.subtasks.map(s => s.status)).toEqual(['Complete', 'Complete']);
+      // original untouched
+      expect(task.status).toBe('Implementing');
+      expect(task.subtasks.map(s => s.status)).toEqual(['Planned', 'Failed']);
+    });
+
+    it('cascades Complete down a Milestone to all Tasks and Subtasks', () => {
+      // SETUP: A milestone with a nested task + subtask
+      const milestone = createTestMilestone('P1.M1', 'm', 'Planned', [
+        createTestTask('P1.M1.T1', 't1', 'Planned', [
+          createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+        ]),
+      ]);
+
+      // EXECUTE
+      const out = cascadeCompleteDown(milestone);
+
+      // VERIFY: milestone + task + subtask → Complete (deep)
+      expect(out.status).toBe('Complete');
+      expect(out.tasks[0].status).toBe('Complete');
+      expect(out.tasks[0].subtasks[0].status).toBe('Complete');
+    });
+
+    it('cascades Complete down a Phase to every descendant (full deep cascade)', () => {
+      // SETUP: A full 4-level tree
+      const phase = createTestPhase('P1', 'phase', 'Planned', [
+        createTestMilestone('P1.M1', 'm', 'Planned', [
+          createTestTask('P1.M1.T1', 't', 'Planned', [
+            createTestSubtask('P1.M1.T1.S1', 'leaf', 'Planned'),
+          ]),
+        ]),
+      ]);
+
+      // EXECUTE
+      const out = cascadeCompleteDown(phase);
+
+      // VERIFY: every level → Complete
+      expect(out.status).toBe('Complete');
+      expect(out.milestones[0].status).toBe('Complete');
+      expect(out.milestones[0].tasks[0].status).toBe('Complete');
+      expect(out.milestones[0].tasks[0].subtasks[0].status).toBe('Complete');
+    });
+
+    it('does NOT mutate the input tree (immutability)', () => {
+      // SETUP: A phase tree with mixed statuses
+      const phase = createTestPhase('P1', 'phase', 'Planned', [
+        createTestMilestone('P1.M1', 'm', 'Researching', [
+          createTestTask('P1.M1.T1', 't', 'Implementing', [
+            createTestSubtask('P1.M1.T1.S1', 'leaf', 'Ready'),
+          ]),
+        ]),
+      ]);
+      const snapshot = JSON.parse(JSON.stringify(phase));
+
+      // EXECUTE: cascade (discard result; we only care about the input)
+      cascadeCompleteDown(phase);
+
+      // VERIFY: original tree is byte-for-byte unchanged
+      expect(JSON.parse(JSON.stringify(phase))).toEqual(snapshot);
+    });
+
+    it('is idempotent on an already-all-Complete subtree', () => {
+      // SETUP: A tree where every node is already Complete
+      const phase = createTestPhase('P1', 'phase', 'Complete', [
+        createTestMilestone('P1.M1', 'm', 'Complete', [
+          createTestTask('P1.M1.T1', 't', 'Complete', [
+            createTestSubtask('P1.M1.T1.S1', 'leaf', 'Complete'),
+          ]),
+        ]),
+      ]);
+
+      // EXECUTE
+      const out = cascadeCompleteDown(phase);
+
+      // VERIFY: still all Complete, and structurally equal to the input
+      expect(out.status).toBe('Complete');
+      expect(out.milestones[0].tasks[0].subtasks[0].status).toBe('Complete');
+      expect(out).toEqual(phase);
+    });
+
+    it('forces every node Complete regardless of prior mixed statuses (distinct from monotonic rollup)', () => {
+      // SETUP: A tree the monotonic rollup would NOT promote (children not all
+      // Complete). cascadeCompleteDown must force them ALL Complete anyway.
+      const task = createTestTask('P1.M1.T1', 't', 'Planned', [
+        createTestSubtask('P1.M1.T1.S1', 'a', 'Planned'),
+        createTestSubtask('P1.M1.T1.S2', 'b', 'Implementing'),
+        createTestSubtask('P1.M1.T1.S3', 'c', 'Failed'),
+      ]);
+
+      // EXECUTE
+      const out = cascadeCompleteDown(task);
+
+      // VERIFY: parent + every child → Complete, regardless of prior state
+      expect(out.status).toBe('Complete');
+      expect(out.subtasks.map(s => s.status)).toEqual([
+        'Complete',
+        'Complete',
+        'Complete',
+      ]);
+    });
+
+    it('preserves non-status fields (id/title/type/story_points/dependencies)', () => {
+      // SETUP: A subtask with a dependency + story points
+      const sub = createTestSubtask('P1.M1.T1.S1', 'leaf', 'Planned', [
+        'P1.M1.T1.S0',
+      ]);
+
+      // EXECUTE
+      const out = cascadeCompleteDown(sub);
+
+      // VERIFY: only status changed; every other field preserved
+      expect(out.id).toBe('P1.M1.T1.S1');
+      expect(out.title).toBe('leaf');
+      expect(out.type).toBe('Subtask');
+      expect(out.story_points).toBe(sub.story_points);
+      expect(out.dependencies).toEqual(['P1.M1.T1.S0']);
     });
   });
 });

@@ -580,6 +580,73 @@ export function updateItemStatus(
 }
 
 /**
+ * Cascade `Complete` downward through an item's entire subtree (PRD §5.4).
+ *
+ * @remarks
+ * Returns a **deep-cloned** item with `status: 'Complete'` set on the item AND
+ * on every descendant, recursively. This is the **downward** half of the §5.4
+ * rule "Setting a parent to Complete cascades Complete to every descendant"
+ * (e.g. `hack update 1 done` marks the whole phase tree Complete). Works at any
+ * level; a `Subtask` is a leaf and simply returns `{ ...subtask, status: 'Complete' }`.
+ *
+ * This is **distinct from the monotonic {@link rollupCompletion} /
+ * {@link promoteIfAllComplete} helpers**: those only ever *promote* a parent
+ * toward `Complete` when all its non-obsolete children are already `Complete`
+ * (they never cascade downward, never downgrade, and short-circuit on a parent
+ * already `Complete`/`Obsolete`). `cascadeCompleteDown` is the opposite
+ * direction — it forcibly sets every node `Complete` regardless of prior state.
+ * It is called explicitly (by the `hack update` handler, P1.M2.T4.S1) only when
+ * the target status is `Complete`, immediately before `recomputeAncestorsUp`
+ * recomputes ancestors. Do not use it as a replacement for the rollup.
+ *
+ * Pure: the input tree is never mutated (structural sharing — every visited node
+ * becomes a new object because every status changes). Idempotent.
+ *
+ * @param item - The hierarchy item (any level) to cascade `Complete` down from.
+ * @returns A new, deep-cloned item with `status: 'Complete'` at every level.
+ *
+ * @example
+ * ```typescript
+ * const phase = findItem(backlog, 'P1') as Phase;
+ * const completed = cascadeCompleteDown(phase);
+ * // completed.status === 'Complete'
+ * // every milestone, task, and subtask under it is also 'Complete'
+ * ```
+ */
+export function cascadeCompleteDown(item: HierarchyItem): HierarchyItem {
+  if ('milestones' in item) {
+    // Phase — each child is a Milestone; recurse + cast back to the narrowed
+    // element type (cascadeCompleteDown returns the union, but the children of
+    // a Phase are structurally always Milestones).
+    return {
+      ...item,
+      status: 'Complete',
+      milestones: item.milestones.map(m =>
+        cascadeCompleteDown(m)
+      ) as Milestone[],
+    };
+  }
+  if ('tasks' in item) {
+    // Milestone — each child is a Task (same invariant as above).
+    return {
+      ...item,
+      status: 'Complete',
+      tasks: item.tasks.map(t => cascadeCompleteDown(t)) as Task[],
+    };
+  }
+  if ('subtasks' in item) {
+    // Task — each child is a Subtask (same invariant as above).
+    return {
+      ...item,
+      status: 'Complete',
+      subtasks: item.subtasks.map(s => cascadeCompleteDown(s)) as Subtask[],
+    };
+  }
+  // Subtask (leaf — no children)
+  return { ...item, status: 'Complete' };
+}
+
+/**
  * The statuses that are manually settable via `hack update` (PRD §5.4).
  *
  * @remarks
