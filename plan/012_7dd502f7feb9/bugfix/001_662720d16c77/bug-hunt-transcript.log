@@ -1,0 +1,42 @@
+The verdict file is valid and consistent. Here is my final report.
+
+## Bug Hunt Summary — Session 012 (Commit Style Layer + `hack update`)
+
+### What I verified as correct
+The two defects from the prior validation report are **both fixed** (commit `f6e5ae5`):
+- **`hack update` no longer starts the PRP pipeline** — confirmed the `args[0] === 'update'` sentinel exists at `src/cli/index.ts:1168`, and running `hack update` produces no `[PRPPipeline] Starting` log.
+- **Docs now reference `spec/SPEC.md`** instead of root `./PRD.md`.
+
+I exhaustively tested the rest of the delta scope — all **pass**:
+- `hack update` fuzzy ID/status matching, downward `Complete` cascade, bottom-up min-status ancestor recompute (including downgrade, Failed-excluded-unless-all-failed, Obsolete terminal handling), non-settable `Retrying`, unknown/ambiguous errors.
+- `.hack` loader for the two new `[pipeline]` keys, including out-of-range / invalid-value hard errors and `0` allowed.
+- The commit-style system-prompt builder across all four modes (`plain`/`conventional`/`gitmoji`/`auto`): vocab, gitmoji reference table, anti-reuse instruction, ignore-position-prefix, ≤1-commit degradation, `EXAMPLES=0` disable, explicit modes ignoring examples.
+
+### The bug I found — CRITICAL
+**`getRecentCommitMessages()` passes the invalid simple-git option `maxEntries` (should be `maxCount`).** simple-git 3.30.0's `LogOptions` defines `maxCount?: number`, so `maxEntries` is passed through as a literal git argument, making `git.log({maxEntries:5})` throw `fatal: ambiguous argument 'maxEntries=5'`. Under the **default** config (`auto` + `examples=5`), `generateCommitMessage` calls this on every commit and throws → every pipeline commit silently degrades to the `chore: commit-gen failed (exit 0); fallback commit` placeholder. The headline `auto` style feature is 100% non-functional out of the box.
+
+CI is green only because the unit test **asserts the broken contract** (`git-mcp.test.ts:977`: `expect(...).toHaveBeenCalledWith({ maxEntries: 2 })`) against a mock that ignores its argument, and the git-commit tests mock `getRecentCommitMessages` entirely.
+
+**Fix:** `{ maxEntries: count }` → `{ maxCount: count }` at `src/tools/git-mcp.ts:590` (verified working) plus correcting the test assertion. One-character-class change.
+
+```json
+{
+  "hasBugs": true,
+  "bugs": [
+    {
+      "id": "BUG-001",
+      "severity": "critical",
+      "title": "getRecentCommitMessages() passes an invalid simple-git option (`maxEntries` instead of `maxCount`), which makes the DEFAULT `auto` commit-style throw on every commit and silently fall back to the placeholder message",
+      "description": "The headline feature of session 012 is PRD §5.1 \"Commit Message Style\"; its DEFAULT mode is `auto`, which MUST fetch the last N commit messages as style examples. getRecentCommitMessages() (src/tools/git-mcp.ts:583-593) does `git.log({ maxEntries: count })`, but simple-git 3.30.0's LogOptions defines `maxCount?: number`, NOT `maxEntries`. For any count>0 git aborts with `fatal: ambiguous argument 'maxEntries=5': unknown revision or path not in the working tree.` This is an uncaught bare await in generateCommitMessage (src/utils/git-commit.ts:358-360), so under the default config every commit throws, retries fail (non-transient), and smartCommit's catch (src/utils/git-commit.ts:687-700) emits the placeholder `chore: commit-gen failed (exit 0); fallback commit`, losing the descriptive message. This affects the core commit hot-path (smartCommit({generateMessage:true}) at src/core/task-orchestrator.ts:801,1064,1119 and src/workflows/bug-hunt-workflow.ts:503). The `auto` feature is entirely non-functional and is a regression vs pre-style behavior. Violates PRD §5.1. CI is green because tests/unit/tools/git-mcp.test.ts:977 asserts the broken option verbatim against a vi.fn mock that ignores its argument, and tests/unit/utils/git-commit.test.ts:28 mocks getRecentCommitMessages away entirely. FIX: `{maxEntries: count}` -> `{maxCount: count}` at src/tools/git-mcp.ts:590 and `{maxEntries:2}` -> `{maxCount:2}` at git-mcp.test.ts:977.",
+      "reproduction": "1) `npx tsx -e \"import simpleGit from 'simple-git'; const g=simpleGit(process.cwd()); try{const r=await g.log({maxEntries:3}); console.log('ok')}catch(e){console.log('THREW:',(e as Error).message.split(String.fromCharCode(10))[0])}\"` => `THREW: fatal: ambiguous argument 'maxEntries=3'...`; `{maxCount:3}` returns ok. 2) With PRP_COMMIT_STYLE/EXAMPLES unset, the default-config style-resolution block (getPrpCommitStyle()='auto', getPrpCommitStyleExamples()=5) calls getRecentCommitMessages(5) which THROWS — proven by direct repro before the agent is ever invoked. 3) The non-transient git error makes smartCommit fall through to buildFallbackCommitMessage() => `chore: commit-gen failed (exit 0); fallback commit`.",
+      "location": "src/tools/git-mcp.ts:590 (root cause); masked by tests/unit/tools/git-mcp.test.ts:977 and tests/unit/utils/git-commit.test.ts:28"
+    }
+  ],
+  "summary": "Session 012 (PRP_COMMIT_STYLE Commit Message Style layer + hack update) validated end-to-end against PRD §5.1/§5.4/§9.2.2/§9.7.5. Both prior-report defects (hack update pipeline fallthrough, docs drift to spec/SPEC.md) were fixed in commit f6e5ae5 and verified. hack update fuzzy matching, bidirectional cascade, Obsolete/Failed edge cases, non-settable Retrying, .hack schema/validation, and all four commit-style prompt modes (incl. degrade-to-plain, EXAMPLES=0, anti-reuse, gitmoji table) behave per spec. ONE CRITICAL defect found that the test suite is blind to via mock masking: getRecentCommitMessages uses simple-git option `maxEntries` (invalid; correct is `maxCount`), so the DEFAULT `auto` commit style throws on every commit and every pipeline commit degrades to the generic placeholder, making the headline `auto` feature 100% non-functional out of the box. Fix is a one-token change plus a test-assertion correction.",
+  "recommendations": [
+    "Change `{ maxEntries: count }` to `{ maxCount: count }` in src/tools/git-mcp.ts:590 and update tests/unit/tools/git-mcp.test.ts:977 from `{ maxEntries: 2 }` to `{ maxCount: 2 }`.",
+    "Add an integration test calling the REAL simple-git against a throwaway temp git repo so an invalid option name fails the build instead of being masked by a mock.",
+    "Add an end-to-end test driving generateCommitMessage under default `auto` config (LLM agent mocked only) asserting it does not throw on a repo with >1 commit."
+  ]
+}
+```
