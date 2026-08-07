@@ -767,6 +767,166 @@ export function getPrpCommitFormat(): PrpCommitFormat {
 }
 
 // =============================================================================
+// Commit Message Style (PRP_COMMIT_STYLE / PRP_COMMIT_STYLE_EXAMPLES) — PRD §5.1, §9.2.2
+// =============================================================================
+// The STYLE layer for the stagecoach commit message, ORTHOGONAL to PRP_COMMIT_FORMAT's position
+// prefix: how the descriptive message is styled (learned / plain / conventional / gitmoji).
+// Consumed by P1.M1.T3.S1 (the dynamic system-prompt builder) and P1.M1.T4.S1 (generateCommitMessage
+// wiring). Both getters are the SINGLE read site for their var (no other code reads
+// process.env[PRP_COMMIT_STYLE] / [PRP_COMMIT_STYLE_EXAMPLES] directly — project convention).
+
+/**
+ * Environment variable name: the commit-message descriptive style mode (PRD §5.1 "Commit Message
+ * Style").
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getPrpCommitStyle}) is one of
+ * `'auto'` (DEFAULT — learn from recent commit history), `'plain'`, `'conventional'`, or
+ * `'gitmoji'` (explicit contracts). This constant is the env-var NAME itself; the VALUE is read +
+ * normalized by {@link getPrpCommitStyle}, the SINGLE read site for this var.
+ *
+ * @example
+ * ```ts
+ * import { PRP_COMMIT_STYLE } from './config/constants.js';
+ *
+ * console.log(PRP_COMMIT_STYLE); // 'PRP_COMMIT_STYLE'
+ * console.log(process.env[PRP_COMMIT_STYLE]); // e.g. 'conventional'
+ * ```
+ */
+export const PRP_COMMIT_STYLE = 'PRP_COMMIT_STYLE';
+
+/**
+ * Default commit-message style mode (PRD §5.1).
+ *
+ * @remarks
+ * `'auto'` — the agent learns the descriptive-message style from the last N commits (N governed by
+ * {@link DEFAULT_PRP_COMMIT_STYLE_EXAMPLES}). Uses `as const` to preserve the literal type (matches
+ * {@link DEFAULT_PRP_COMMIT_FORMAT} and {@link DEFAULT_HARNESS}); it is a member of
+ * {@link PrpCommitStyle}.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_PRP_COMMIT_STYLE } from './config/constants.js';
+ *
+ * console.log(DEFAULT_PRP_COMMIT_STYLE); // 'auto'
+ * ```
+ */
+export const DEFAULT_PRP_COMMIT_STYLE = 'auto' as const;
+
+/**
+ * The four supported commit-message descriptive style modes (PRD §5.1).
+ *
+ * @remarks
+ * - `'auto'` — learn the descriptive-message style from the last N commits (DEFAULT).
+ * - `'plain'` — explicit contract: unadorned descriptive prose, no convention.
+ * - `'conventional'` — explicit contract: Conventional Commits (`type(scope): subject`).
+ * - `'gitmoji'` — explicit contract: Gitmoji (an emoji prefix + descriptive prose).
+ *
+ * Returned by {@link getPrpCommitStyle}; consumed by the commit-message system-prompt builder
+ * (P1.M1.T3.S1) and `generateCommitMessage` wiring (P1.M1.T4.S1).
+ */
+export type PrpCommitStyle = 'auto' | 'plain' | 'conventional' | 'gitmoji';
+
+/**
+ * Read the PRP_COMMIT_STYLE env var (PRD §5.1).
+ *
+ * @returns One of the four {@link PrpCommitStyle} modes, matched CASE-INSENSITIVELY (the value is
+ *          trimmed + lowercased before matching); {@link DEFAULT_PRP_COMMIT_STYLE} (`'auto'`) when
+ *          unset, empty, whitespace-only, or any unrecognized value.
+ *
+ * @remarks
+ * ⚠️ DELIBERATE DEVIATION from {@link getPrpCommitFormat}: that getter is CASE-SENSITIVE (only the
+ * exact lowercase `'plain'` opts out, because it has a single opt-out token). This getter matches
+ * FOUR user-facing modes case-insensitively (trim + `toLowerCase` + compare), so `'Conventional'`,
+ * `'GITMOJI'`, `'Auto'`, etc. all resolve correctly. Any unknown/empty value still falls back to
+ * the safe default rather than yielding an unrecognized mode.
+ *
+ * @example
+ * ```ts
+ * import { getPrpCommitStyle } from './config/constants.js';
+ *
+ * const style = getPrpCommitStyle(); // 'auto' (default)
+ * ```
+ */
+export function getPrpCommitStyle(): PrpCommitStyle {
+  const raw = process.env[PRP_COMMIT_STYLE];
+  if (raw === undefined) {
+    return DEFAULT_PRP_COMMIT_STYLE;
+  }
+  const v = raw.trim().toLowerCase();
+  if (
+    v === 'auto' ||
+    v === 'plain' ||
+    v === 'conventional' ||
+    v === 'gitmoji'
+  ) {
+    return v; // case-insensitive match (trim + toLowerCase) over the 4 modes
+  }
+  return DEFAULT_PRP_COMMIT_STYLE; // any unknown/empty value → default auto
+}
+
+/**
+ * Environment variable name: how many recent commits the `auto` style sends as style examples
+ * (PRD §5.1, §9.2.2).
+ *
+ * @remarks
+ * The VALUE of this variable (read at runtime via {@link getPrpCommitStyleExamples}) is a
+ * non-negative integer. This constant is the env-var NAME itself; the VALUE is read + validated by
+ * {@link getPrpCommitStyleExamples}, the SINGLE read site for this var.
+ *
+ * @example
+ * ```ts
+ * import { PRP_COMMIT_STYLE_EXAMPLES } from './config/constants.js';
+ *
+ * console.log(PRP_COMMIT_STYLE_EXAMPLES); // 'PRP_COMMIT_STYLE_EXAMPLES'
+ * console.log(process.env[PRP_COMMIT_STYLE_EXAMPLES]); // e.g. '10'
+ * ```
+ */
+export const PRP_COMMIT_STYLE_EXAMPLES = 'PRP_COMMIT_STYLE_EXAMPLES';
+
+/**
+ * Default count of recent commits used as style examples under `auto` (PRD §5.1, §9.2.2).
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_PRP_COMMIT_STYLE_EXAMPLES } from './config/constants.js';
+ *
+ * console.log(DEFAULT_PRP_COMMIT_STYLE_EXAMPLES); // 5
+ * ```
+ */
+export const DEFAULT_PRP_COMMIT_STYLE_EXAMPLES = 5;
+
+/**
+ * Read the PRP_COMMIT_STYLE_EXAMPLES env var (PRD §5.1, §9.2.2).
+ *
+ * @returns A non-negative integer — the parsed value when valid (including **0**); otherwise
+ *          {@link DEFAULT_PRP_COMMIT_STYLE_EXAMPLES} (5) when unset, non-numeric, or negative.
+ *
+ * @remarks
+ * ⚠️ DELIBERATE DEVIATION from {@link getIssueRetryMax} / {@link getResearchTimeoutSeconds}: those
+ * getters reject 0 (`<= 0 → default`) because a 0 timeout/retry is meaningless. This getter
+ * **ALLOWS 0** — the guard is `raw < 0`, NOT `raw <= 0` — because under the `auto` style a 0
+ * examples-count is meaningful: it DISABLES style learning (the agent falls back to its default
+ * prose). PRD §9.2.2 ("Integer ≥ 0") and §5.1 ("0 disables learning") are authoritative.
+ *
+ * @example
+ * ```ts
+ * import { getPrpCommitStyleExamples } from './config/constants.js';
+ *
+ * const n = getPrpCommitStyleExamples(); // 5 (default)
+ * ```
+ */
+export function getPrpCommitStyleExamples(): number {
+  const raw = Number(
+    process.env[PRP_COMMIT_STYLE_EXAMPLES] ?? DEFAULT_PRP_COMMIT_STYLE_EXAMPLES
+  );
+  if (Number.isNaN(raw) || raw < 0) {
+    return DEFAULT_PRP_COMMIT_STYLE_EXAMPLES; // ⚠️ guard is `< 0`, NOT `<= 0` — 0 is VALID
+  }
+  return raw;
+}
+
+// =============================================================================
 // Validation Control (PRD §4.4, §9.2.2)
 // =============================================================================
 // Two env-var knobs for the QA & validation stage: which reasoning-tier agent runs

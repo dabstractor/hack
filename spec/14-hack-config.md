@@ -60,49 +60,49 @@ Three files are searched, each optional. They are layered lowest-to-highest as �
 
 Every tunable maps to exactly one `[section].key`. The table below is exhaustive; `hack config show` prints the same mapping. “Env var” is the §9.2.2 name the key seeds into `process.env`; “CLI flag” is the `parseCLIArgs()` option it defaults. A key with both an env var and a CLI flag seeds both (the CLI default is derived from the seeded env var, preserving §9.2.1 precedence).
 
-| TOML key                              | Env var                      | CLI flag                  | Type                                      | Default                                     |
-| ------------------------------------- | ---------------------------- | ------------------------- | ----------------------------------------- | ------------------------------------------- |
-| `[models] high`                       | `PRP_MODEL_HIGH`             | —                         | string (bare model id)                    | `glm-5.2`                                   |
-| `[models] balanced`                   | `PRP_MODEL_BALANCED`         | —                         | string                                    | `glm-5.2`                                   |
-| `[models] fast`                       | `PRP_MODEL_FAST`             | —                         | string                                    | `glm-5-turbo`                               |
-| `[endpoint] base_url`                 | `PRP_API_BASE_URL`           | —                         | URL                                       | `https://api.z.ai/api/anthropic` (zai only) |
-| `[harness] name`                      | `PRP_AGENT_HARNESS`          | —                         | `pi` \| `claude-code`                     | `pi`                                        |
-| `[pipeline] parallel_research`        | `PARALLEL_RESEARCH`          | `-r/--parallel-research`  | bool                                      | `false`                                     |
-| `[pipeline] research_depth`           | `RESEARCH_DEPTH`             | —                         | int ≥ 1                                   | `2`                                         |
-| `[pipeline] research_timeout_seconds` | `RESEARCH_TIMEOUT`           | —                         | int > 0                                   | `1800`                                      |
-| `[pipeline] issue_retry_max`          | `ISSUE_RETRY_MAX`            | —                         | int ≥ 0                                   | `3`                                         |
-| `[pipeline] commit_format`            | `PRP_COMMIT_FORMAT`          | —                         | `task-prefix` \| `plain`                  | `task-prefix`                               |
-| `[pipeline] commit_style`             | `PRP_COMMIT_STYLE`           | —                         | `auto`\|`plain`\|`conventional`\|`gitmoji`| `auto`                                      |
-| `[pipeline] commit_style_examples`    | `PRP_COMMIT_STYLE_EXAMPLES`  | —                         | int ≥ 0                                   | `5`                                         |
-| `[commit] retry_max`                  | `COMMIT_RETRY_MAX`           | —                         | int ≥ 1                                   | `5`                                         |
-| `[commit] retry_delay_ms`             | `COMMIT_RETRY_DELAY`         | —                         | int ≥ 0                                   | `10000`                                     |
-| `[commit] retry_delay_cap_ms`         | `COMMIT_RETRY_DELAY_CAP`     | —                         | int ≥ `retry_delay_ms`                    | `120000`                                    |
-| `[commit] classifier_retry_max`       | `CLASSIFIER_RETRY_MAX`       | —                         | int ≥ 1                                   | `4`                                         |
-| `[bug_hunt] finder_agent`             | `BUG_FINDER_AGENT`           | —                         | string                                    | `pizr`                                      |
-| `[bug_hunt] results_file`             | `BUG_RESULTS_FILE`           | —                         | string                                    | `TEST_RESULTS.md`                           |
-| `[bug_hunt] fix_scope`                | `BUGFIX_SCOPE`               | —                         | string                                    | `subtask`                                   |
-| `[validation] agent`                  | `VALIDATION_AGENT`           | —                         | string                                    | `pizr`                                      |
-| `[validation] timeout_seconds`        | `VALIDATION_TIMEOUT`         | —                         | int > 0                                   | `7200`                                      |
-| `[distributed_prd] include_max_depth` | `PRD_INCLUDE_MAX_DEPTH`      | —                         | int ≥ 1                                   | `10`                                        |
-| `[distributed_prd] include_markers`   | `PRD_INCLUDE_MARKERS`        | —                         | bool                                      | `false`                                     |
-| `[tasks_lock] stale_ms`               | `TASKS_LOCK_STALE_MS`        | —                         | int > 0                                   | `30000`                                     |
-| `[tasks_lock] timeout_ms`             | `TASKS_LOCK_TIMEOUT_MS`      | —                         | int > 0                                   | `30000`                                     |
-| `[tasks_lock] poll_ms`                | `TASKS_LOCK_POLL_MS`         | —                         | int > 0                                   | `50`                                        |
-| `[concurrency] research_queue`        | `RESEARCH_QUEUE_CONCURRENCY` | `--research-concurrency`  | int 1–10                                  | `3`                                         |
-| `[concurrency] parallelism`           | —                            | `--parallelism`           | int 1–10                                  | `2`                                         |
-| `[api] timeout_ms`                    | `API_TIMEOUT_MS`             | —                         | int > 0                                   | `60000`                                     |
-| `[monitor] task_interval`             | `MONITOR_TASK_INTERVAL`      | `--monitor-task-interval` | int 1–100                                 | `1`                                         |
-| `[monitor] interval_ms`               | —                            | `--monitor-interval`      | int 1000–60000                            | `30000`                                     |
-| `[monitor] enabled`                   | —                            | `--no-resource-monitor`   | bool                                      | `true`                                      |
-| `[cli] prd`                           | —                            | `-p/--prd`                | string (path)                             | `./PRD.md`                                  |
-| `[cli] mode`                          | —                            | `-m/--mode`               | `normal`\|`delta`\|`bug-hunt`\|`validate` | `normal`                                    |
-| `[cli] scope`                         | —                            | `-s/--scope`              | string                                    | unset                                       |
-| `[cli] log_level`                     | `HACKY_LOG_LEVEL`            | `--log-level`             | trace…fatal                               | `info`                                      |
-| `[cli] machine_readable`              | —                            | `--machine-readable`      | bool                                      | `false`                                     |
-| `[cli] continue_on_error`             | —                            | `--continue-on-error`     | bool                                      | `false`                                     |
-| `[cli] cache_enabled`                 | —                            | `--no-cache`              | bool                                      | `true`                                      |
-| `[cli] max_tasks`                     | —                            | `--max-tasks`             | int > 0                                   | unset                                       |
-| `[cli] max_duration_ms`               | —                            | `--max-duration`          | int > 0                                   | unset                                       |
+| TOML key                              | Env var                      | CLI flag                  | Type                                       | Default                                     |
+| ------------------------------------- | ---------------------------- | ------------------------- | ------------------------------------------ | ------------------------------------------- |
+| `[models] high`                       | `PRP_MODEL_HIGH`             | —                         | string (bare model id)                     | `glm-5.2`                                   |
+| `[models] balanced`                   | `PRP_MODEL_BALANCED`         | —                         | string                                     | `glm-5.2`                                   |
+| `[models] fast`                       | `PRP_MODEL_FAST`             | —                         | string                                     | `glm-5-turbo`                               |
+| `[endpoint] base_url`                 | `PRP_API_BASE_URL`           | —                         | URL                                        | `https://api.z.ai/api/anthropic` (zai only) |
+| `[harness] name`                      | `PRP_AGENT_HARNESS`          | —                         | `pi` \| `claude-code`                      | `pi`                                        |
+| `[pipeline] parallel_research`        | `PARALLEL_RESEARCH`          | `-r/--parallel-research`  | bool                                       | `false`                                     |
+| `[pipeline] research_depth`           | `RESEARCH_DEPTH`             | —                         | int ≥ 1                                    | `2`                                         |
+| `[pipeline] research_timeout_seconds` | `RESEARCH_TIMEOUT`           | —                         | int > 0                                    | `1800`                                      |
+| `[pipeline] issue_retry_max`          | `ISSUE_RETRY_MAX`            | —                         | int ≥ 0                                    | `3`                                         |
+| `[pipeline] commit_format`            | `PRP_COMMIT_FORMAT`          | —                         | `task-prefix` \| `plain`                   | `task-prefix`                               |
+| `[pipeline] commit_style`             | `PRP_COMMIT_STYLE`           | —                         | `auto`\|`plain`\|`conventional`\|`gitmoji` | `auto`                                      |
+| `[pipeline] commit_style_examples`    | `PRP_COMMIT_STYLE_EXAMPLES`  | —                         | int ≥ 0                                    | `5`                                         |
+| `[commit] retry_max`                  | `COMMIT_RETRY_MAX`           | —                         | int ≥ 1                                    | `5`                                         |
+| `[commit] retry_delay_ms`             | `COMMIT_RETRY_DELAY`         | —                         | int ≥ 0                                    | `10000`                                     |
+| `[commit] retry_delay_cap_ms`         | `COMMIT_RETRY_DELAY_CAP`     | —                         | int ≥ `retry_delay_ms`                     | `120000`                                    |
+| `[commit] classifier_retry_max`       | `CLASSIFIER_RETRY_MAX`       | —                         | int ≥ 1                                    | `4`                                         |
+| `[bug_hunt] finder_agent`             | `BUG_FINDER_AGENT`           | —                         | string                                     | `pizr`                                      |
+| `[bug_hunt] results_file`             | `BUG_RESULTS_FILE`           | —                         | string                                     | `TEST_RESULTS.md`                           |
+| `[bug_hunt] fix_scope`                | `BUGFIX_SCOPE`               | —                         | string                                     | `subtask`                                   |
+| `[validation] agent`                  | `VALIDATION_AGENT`           | —                         | string                                     | `pizr`                                      |
+| `[validation] timeout_seconds`        | `VALIDATION_TIMEOUT`         | —                         | int > 0                                    | `7200`                                      |
+| `[distributed_prd] include_max_depth` | `PRD_INCLUDE_MAX_DEPTH`      | —                         | int ≥ 1                                    | `10`                                        |
+| `[distributed_prd] include_markers`   | `PRD_INCLUDE_MARKERS`        | —                         | bool                                       | `false`                                     |
+| `[tasks_lock] stale_ms`               | `TASKS_LOCK_STALE_MS`        | —                         | int > 0                                    | `30000`                                     |
+| `[tasks_lock] timeout_ms`             | `TASKS_LOCK_TIMEOUT_MS`      | —                         | int > 0                                    | `30000`                                     |
+| `[tasks_lock] poll_ms`                | `TASKS_LOCK_POLL_MS`         | —                         | int > 0                                    | `50`                                        |
+| `[concurrency] research_queue`        | `RESEARCH_QUEUE_CONCURRENCY` | `--research-concurrency`  | int 1–10                                   | `3`                                         |
+| `[concurrency] parallelism`           | —                            | `--parallelism`           | int 1–10                                   | `2`                                         |
+| `[api] timeout_ms`                    | `API_TIMEOUT_MS`             | —                         | int > 0                                    | `60000`                                     |
+| `[monitor] task_interval`             | `MONITOR_TASK_INTERVAL`      | `--monitor-task-interval` | int 1–100                                  | `1`                                         |
+| `[monitor] interval_ms`               | —                            | `--monitor-interval`      | int 1000–60000                             | `30000`                                     |
+| `[monitor] enabled`                   | —                            | `--no-resource-monitor`   | bool                                       | `true`                                      |
+| `[cli] prd`                           | —                            | `-p/--prd`                | string (path)                              | `./PRD.md`                                  |
+| `[cli] mode`                          | —                            | `-m/--mode`               | `normal`\|`delta`\|`bug-hunt`\|`validate`  | `normal`                                    |
+| `[cli] scope`                         | —                            | `-s/--scope`              | string                                     | unset                                       |
+| `[cli] log_level`                     | `HACKY_LOG_LEVEL`            | `--log-level`             | trace…fatal                                | `info`                                      |
+| `[cli] machine_readable`              | —                            | `--machine-readable`      | bool                                       | `false`                                     |
+| `[cli] continue_on_error`             | —                            | `--continue-on-error`     | bool                                       | `false`                                     |
+| `[cli] cache_enabled`                 | —                            | `--no-cache`              | bool                                       | `true`                                      |
+| `[cli] max_tasks`                     | —                            | `--max-tasks`             | int > 0                                    | unset                                       |
+| `[cli] max_duration_ms`               | —                            | `--max-duration`          | int > 0                                    | unset                                       |
 
 **Mapping semantics.**
 
