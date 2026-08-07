@@ -146,7 +146,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Manual Status Updates: hack update (PRD §5.4)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Implement the `hack update` CLI subcommand that allows users to manually rewrite any task item's status with fuzzy ID matching (P1.M1.T1.S1, 1.1.1.1, p1m1t1s1, 1.2), fuzzy status matching (done, re, comp, ready), a downward Complete cascade, a bottom-up minimum-status ancestor recompute, serialized RMW under the tasks.json lock, and atomic write.",
           "tasks": [
             {
@@ -236,14 +236,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "hack update CLI Command",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Register the `update` subcommand in src/cli/index.ts and implement the action handler: file discovery (mirroring taskAction but hard-error on missing discovered tasks.json), fuzzy arg parsing, serialized lock+RMW with cascade application, schema-validated atomic write, and text/json output.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "Register update command + implement action handler in src/cli/index.ts",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",
@@ -281,7 +281,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Update docs/CONFIGURATION.md — commit-style env vars, .hack keys, hack update section",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -310,7 +310,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Update docs/ARCHITECTURE.md — two-layer commit model + hack update note",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

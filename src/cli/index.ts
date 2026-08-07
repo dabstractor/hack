@@ -47,6 +47,19 @@ import {
   getRepoRoot,
   getInvocationCwd,
 } from '../utils/repo-root.js';
+import {
+  findItem,
+  findItemByLooseId,
+  matchStatus,
+  cascadeCompleteDown,
+  recomputeAncestorsUp,
+  type HierarchyItem,
+} from '../utils/task-utils.js';
+import {
+  withLockedTasksJSON,
+  TasksLockAcquisitionError,
+} from '../core/file-lock.js';
+import { type Backlog, type Status } from '../core/models.js';
 import * as os from 'node:os';
 import ms from 'ms';
 
@@ -826,6 +839,181 @@ export function parseCLIArgs():
     }
   };
 
+  /**
+   * Immutably replace the hierarchy item whose `id` equals `id` with `newItem`
+   * (used by the `hack update` handler to splice a status-changed — and, for
+   * `Complete`, cascadeCompleteDown-cascaded — item back into the locked
+   * backlog).
+   *
+   * @remarks
+   * Walks the tree and rebuilds only the path from the root to the target
+   * node; every other node is shared by reference (structural sharing). The
+   * target node is replaced by `newItem` verbatim. Pure: the input `backlog`
+   * is never mutated.
+   *
+   * @param backlog - The backlog tree.
+   * @param id - The EXACT (canonical) hierarchy id to replace.
+   * @param newItem - The replacement item (already status-set; subtree already
+   *   cascaded if the caller used {@link cascadeCompleteDown}).
+   * @returns A new `Backlog` with `newItem` at the target position.
+   */
+  function replaceItemById(
+    backlog: Backlog,
+    id: string,
+    newItem: HierarchyItem
+  ): Backlog {
+    const rebuild = <T extends HierarchyItem>(items: T[]): T[] =>
+      items.map(it => {
+        if (it.id === id) return newItem as T;
+        if ('subtasks' in it)
+          return { ...it, subtasks: rebuild(it.subtasks) } as T;
+        if ('tasks' in it) return { ...it, tasks: rebuild(it.tasks) } as T;
+        if ('milestones' in it)
+          return { ...it, milestones: rebuild(it.milestones) } as T;
+        return it; // Subtask leaf that is not the target
+      });
+    return { ...backlog, backlog: rebuild(backlog.backlog) };
+  }
+
+  /**
+   * Action handler for `hack update <task-id> <status>` (PRD §5.4).
+   *
+   * @remarks
+   * Manually rewrites an item's status with loose task-ID + loose-status
+   * matching, then performs a serialized, atomic, schema-validated
+   * read-modify-write of `tasks.json` that applies the §5.4 cascade: if the
+   * target becomes `Complete`, {@link cascadeCompleteDown} marks the whole
+   * subtree `Complete`; then {@link recomputeAncestorsUp} recomputes every
+   * ancestor bottom-up as the minimum-status of its children (which CAN demote
+   * ancestors on a regression).
+   *
+   * File discovery mirrors `hack task`/`hack status` (`--file` → `--session` →
+   * latest session → prefer bugfix child), BUT `update` is a WRITE: a missing
+   * *discovered* `tasks.json` is a HARD ERROR (exit 1), NOT the read-only
+   * `awaiting_breakdown` notice. Every write goes through
+   * {@link withLockedTasksJSON} (exclusive sibling lockfile +
+   * `BacklogSchema.parse` + atomic temp+rename), so it can never corrupt
+   * `tasks.json` or race a concurrent writer. A lock that cannot be acquired
+   * within the timeout fails fast (exit 1) with a clear message.
+   *
+   * Output: `Updated <id> status to <Status>` (text) or
+   * `{ id, status, title }` (json).
+   *
+   * @param taskId - Loose task ID (`P1.M1.T1.S1`, `1.1.1.1`, `p1m1t1s1`,
+   *   `1.2`, …).
+   * @param status - Loose status (`done`, `re`, `comp`, `ready`, …).
+   * @param options - `{ file?, session?, output? }`.
+   */
+  const updateAction = async (
+    taskId: string,
+    status: string,
+    options: { file?: string; output?: string; session?: string }
+  ): Promise<void> => {
+    try {
+      // 1. STATUS MATCH (pure, fail fast before any I/O).
+      const statusResult = matchStatus(status);
+      if ('error' in statusResult) {
+        process.stderr.write(`${statusResult.error}\n`);
+        process.exit(1);
+      }
+      const newStatus: Status = statusResult.status;
+
+      // 2. FILE DISCOVERY (mirror taskAction; HARD ERROR on missing discovered file).
+      const { readFile } = await import('node:fs/promises');
+      const { SessionManager } = await import('../core/session-manager.js');
+      const { findLatestBugfixTasksFile } =
+        await import('../core/session-utils.js');
+      const planDir = resolve('plan');
+
+      let tasksFile: string;
+      if (options.file) {
+        tasksFile = resolve(options.file);
+      } else {
+        let sessionPath: string;
+        if (options.session) {
+          const sessions = await SessionManager.listSessions(planDir);
+          const session = sessions.find(s =>
+            s.hash.startsWith(options.session!)
+          );
+          if (!session) {
+            throw new Error(`Session not found: ${options.session}`);
+          }
+          sessionPath = session.path;
+        } else {
+          const latest = await SessionManager.findLatestSession(planDir);
+          if (!latest) {
+            throw new Error(
+              'No sessions found. Run the pipeline first or use --file / --session.'
+            );
+          }
+          sessionPath = latest.path;
+        }
+        const bugfixTasks = await findLatestBugfixTasksFile(sessionPath);
+        tasksFile = bugfixTasks ?? resolve(sessionPath, 'tasks.json');
+      }
+
+      // update is a WRITE: a missing discovered tasks.json is a HARD ERROR
+      // (distinct from the read-only `task`/`status` commands' calm
+      // `awaiting_breakdown` notice). An explicit --file to a missing file is
+      // also a hard error (readFile ENOENT → catch → exit 1).
+      if (!existsSync(tasksFile)) {
+        process.stderr.write(
+          `[hack] tasks.json not found at ${tasksFile}. Wait for PRD breakdown to finish, or pass an explicit --file.\n`
+        );
+        process.exit(1);
+      }
+
+      // 3. PRE-LOCK LOOSE LOOKUP (fail fast before acquiring the lock).
+      const raw = JSON.parse(await readFile(tasksFile, 'utf-8'));
+      const found = findItemByLooseId(raw as Backlog, taskId);
+      if (!found) {
+        process.stderr.write(`Task not found: ${taskId}\n`);
+        process.exit(1);
+      }
+      const canonicalId = found.canonicalId;
+
+      // 4. LOCK + RMW (serialized, atomic, schema-validated).
+      const sessionDir = dirname(tasksFile);
+      const updated = await withLockedTasksJSON(
+        sessionDir,
+        (backlog: Backlog): Backlog => {
+          const target = findItem(backlog, canonicalId);
+          if (!target) throw new Error(`Task not found: ${taskId}`); // defensive
+          const newItem: HierarchyItem =
+            newStatus === 'Complete'
+              ? cascadeCompleteDown(target)
+              : { ...target, status: newStatus };
+          const spliced = replaceItemById(backlog, canonicalId, newItem);
+          return recomputeAncestorsUp(spliced, canonicalId);
+        }
+      );
+
+      // 5. OUTPUT.
+      if (options.output === 'json') {
+        const title = findItem(updated, canonicalId)?.title ?? '';
+        console.log(
+          JSON.stringify({ id: canonicalId, status: newStatus, title }, null, 2)
+        );
+      } else {
+        console.log(`Updated ${canonicalId} status to ${newStatus}`);
+      }
+      process.exit(0);
+    } catch (error) {
+      if (error instanceof TasksLockAcquisitionError) {
+        logger().error(`Could not acquire tasks.json lock: ${error.message}`);
+        process.stderr.write(
+          `[hack] tasks.json is locked by another process; try again shortly.\n`
+        );
+      } else {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger().error(`Update command failed: ${errorMessage}`);
+        process.stderr.write(`[hack] ${errorMessage}\n`);
+      }
+      process.exit(1);
+    }
+  };
+
   // Add task subcommand (PRD §5.3)
   program
     .command('task')
@@ -846,7 +1034,20 @@ export function parseCLIArgs():
     .option('-o, --output <format>', 'Output format (table, json)', 'table')
     .action(taskAction);
 
-  // PRD §9.8.3/§9.8.7: bootstrap repo-root resolution + chdir for ALL action handlers (root
+  // Add update subcommand (PRD §5.4 — manual status rewrite with cascade).
+  // Sibling of `task`/`status`; routes to the inline updateAction handler.
+  program
+    .command('update')
+    .description('Manually update a task status (PRD §5.4)')
+    .argument(
+      '<task-id>',
+      'Task ID (loose: P1.M1.T1.S1, 1.1.1.1, p1m1t1s1, 1.2)'
+    )
+    .argument('<status>', 'Status (loose: done, re, comp, ready)')
+    .option('-f, --file <path>', 'Override tasks.json file path')
+    .option('--session <hash>', 'Target specific session by hash')
+    .option('-o, --output <format>', 'Output format (text, json)', 'text')
+    .action(updateAction);
   // default AND subcommands) via a single preAction hook. Subcommand .action() handlers run
   // INSIDE program.parse() — before main()'s chdir — so without this hook they resolve plan/PRD.md
   // against INVOCATION_CWD. The hook fires AFTER options are parsed (program.opts() has --repo-root)
