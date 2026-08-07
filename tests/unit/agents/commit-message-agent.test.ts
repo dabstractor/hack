@@ -37,7 +37,10 @@ vi.mock('groundswell', () => ({
 
 import { createAgent } from 'groundswell';
 import { createBaseConfig } from '../../../src/agents/agent-factory.js';
-import { createCommitMessageAgent } from '../../../src/agents/commit-message-agent.js';
+import {
+  buildCommitMessageSystemPrompt,
+  createCommitMessageAgent,
+} from '../../../src/agents/commit-message-agent.js';
 
 const mockCreateAgent = vi.mocked(createAgent);
 const mockCreateBaseConfig = vi.mocked(createBaseConfig);
@@ -167,6 +170,190 @@ describe('agents/commit-message-agent', () => {
       expect(cfg.model).toBe('zai/glm-5.2');
       expect(cfg.harness).toBe('pi');
       expect(cfg.env).toBeDefined();
+    });
+  });
+
+  describe('buildCommitMessageSystemPrompt', () => {
+    it('plain mode returns the plain contract verbatim (imperative, ≤72, forbids type prefix)', () => {
+      // EXECUTE
+      const prompt = buildCommitMessageSystemPrompt('plain');
+
+      // VERIFY — the plain contract: imperative mood, ≤72 char subject, and the
+      // prohibition on a Conventional-Commit type prefix / (scope) / work-item id.
+      expect(prompt).toContain('imperative');
+      expect(prompt).toMatch(/≤72/);
+      expect(prompt).toMatch(/Do NOT add a Conventional-Commit type prefix/i);
+    });
+
+    it('plain mode is byte-for-byte identical to the plain contract returned by the agent factory', () => {
+      // EXECUTE — capture the factory's system prompt and compare verbatim.
+      createCommitMessageAgent();
+      const factorySystem = mockCreateAgent.mock.calls[0][0] as {
+        system: string;
+      };
+
+      // VERIFY — buildCommitMessageSystemPrompt('plain') returns the exact same
+      // string the (unchanged) factory uses as its system prompt.
+      expect(buildCommitMessageSystemPrompt('plain')).toBe(
+        factorySystem.system
+      );
+    });
+
+    it('conventional mode returns a type(scope): description contract with all 11 types + discipline', () => {
+      // EXECUTE
+      const prompt = buildCommitMessageSystemPrompt('conventional');
+
+      // VERIFY — Conventional Commits form + the standard 11-type vocabulary.
+      expect(prompt).toContain('type(scope): description');
+      // All 11 types present.
+      for (const type of [
+        'feat',
+        'fix',
+        'docs',
+        'style',
+        'refactor',
+        'perf',
+        'test',
+        'build',
+        'ci',
+        'chore',
+        'revert',
+      ]) {
+        expect(prompt).toContain(type);
+      }
+      // ~50-char imperative description guidance.
+      expect(prompt).toMatch(/~50/);
+      expect(prompt).toContain('imperative');
+      // Output discipline (shared) — forbids position prefix / [PRP Auto] /
+      // Co-Authored-By trailer (the caller layers those).
+      expect(prompt).toMatch(/position prefix/i);
+      expect(prompt).toContain('[PRP Auto]');
+      expect(prompt).toContain('Co-Authored-By');
+    });
+
+    it('gitmoji mode instructs exactly ONE emoji character (not :shortcode:) + embeds the table + discipline', () => {
+      // EXECUTE
+      const prompt = buildCommitMessageSystemPrompt('gitmoji');
+
+      // VERIFY — exactly ONE emoji character + space + description.
+      expect(prompt).toMatch(/EXACTLY ONE .* emoji/i);
+      // MUST instruct the emoji CHARACTER, NOT a :shortcode:.
+      expect(prompt).toMatch(/not a ":shortcode:"/i);
+      expect(prompt).not.toMatch(/emit a :shortcode:/i);
+      // The full reference table is embedded (spot-check several entries).
+      expect(prompt).toContain('✨');
+      expect(prompt).toContain('🐛');
+      expect(prompt).toContain('♻️');
+      expect(prompt).toContain('🔥');
+      // Output discipline.
+      expect(prompt).toMatch(/position prefix/i);
+      expect(prompt).toContain('Co-Authored-By');
+    });
+
+    it('gitmoji mode embeds the full canonical 72-entry table', () => {
+      // EXECUTE
+      const prompt = buildCommitMessageSystemPrompt('gitmoji');
+
+      // VERIFY — the reference table header + a broad sample of entries spanning
+      // the whole table (not just the first few). Confirms it is the full
+      // compiled-in set, not a truncated/runtime-fetched subset.
+      expect(prompt).toMatch(/GITMOJI REFERENCE TABLE/i);
+      const sampled = [
+        '🎨',
+        '🚀',
+        '🔒',
+        '♻️',
+        '🌐',
+        '📦️',
+        '♿️',
+        '🏷️',
+        '🩹',
+        '🦺',
+      ];
+      for (const emoji of sampled) {
+        expect(prompt).toContain(emoji);
+      }
+    });
+
+    it('auto mode with >1 examples lists them verbatim (trimmed) + anti-reuse + ignore-position-prefix + discipline', () => {
+      // SETUP — two example messages, one carrying a leading position prefix
+      // (which the agent must IGNORE, not imitate) and one without.
+      const examples = [
+        '1.2.1.1: feat(api): add endpoint',
+        'fix(ui): tighten padding  ', // trailing whitespace — must be trimmed
+      ];
+
+      // EXECUTE
+      const prompt = buildCommitMessageSystemPrompt('auto', examples);
+
+      // VERIFY — BOTH examples appear VERBATIM (trimmed of leading/trailing
+      // whitespace only) as a STYLE reference. The position prefix is part of
+      // the example text, so it is preserved in the listing verbatim; the
+      // *instruction* (asserted below) tells the agent to ignore it when
+      // imitating style. Trailing whitespace on example 2 is trimmed.
+      expect(prompt).toContain('1. 1.2.1.1: feat(api): add endpoint');
+      expect(prompt).toContain('2. fix(ui): tighten padding');
+      // Anti-reuse instruction (advisory, not a hard gate).
+      expect(prompt).toMatch(/NEVER copy/i);
+      expect(prompt).toMatch(/ORIGINAL/i);
+      // Ignore-position-prefix instruction (with the canonical example prefix).
+      expect(prompt).toMatch(/IGNORE.*position prefix|1\.2\.1\.1/i);
+      // Output discipline.
+      expect(prompt).toMatch(/position prefix/i);
+      expect(prompt).toContain('Co-Authored-By');
+    });
+
+    it('auto mode degrades to the plain contract when examples is undefined', () => {
+      // EXECUTE + VERIFY — undefined → degrade to plain (PRD §5.1 "≤1 commit").
+      expect(buildCommitMessageSystemPrompt('auto')).toBe(
+        buildCommitMessageSystemPrompt('plain')
+      );
+    });
+
+    it('auto mode degrades to the plain contract when examples is empty', () => {
+      // EXECUTE + VERIFY — [] → degrade to plain.
+      expect(buildCommitMessageSystemPrompt('auto', [])).toBe(
+        buildCommitMessageSystemPrompt('plain')
+      );
+    });
+
+    it('auto mode degrades to the plain contract with a SINGLE example (≤1 threshold, not ===0)', () => {
+      // EXECUTE + VERIFY — a single example ALSO degrades (PRD §5.1 says "≤1
+      // commit", NOT length === 0).
+      expect(buildCommitMessageSystemPrompt('auto', ['only one example'])).toBe(
+        buildCommitMessageSystemPrompt('plain')
+      );
+    });
+
+    it('conventional mode ignores the examples argument (explicit modes omit history)', () => {
+      // EXECUTE + VERIFY — passing examples does NOT change the conventional
+      // contract (PRD §5.1: explicit modes omit history examples entirely).
+      expect(
+        buildCommitMessageSystemPrompt('conventional', [
+          'feat(old): irrelevant history',
+          'fix(old): more history',
+        ])
+      ).toBe(buildCommitMessageSystemPrompt('conventional'));
+    });
+
+    it('gitmoji mode ignores the examples argument (explicit modes omit history)', () => {
+      // EXECUTE + VERIFY — passing examples does NOT change the gitmoji contract.
+      expect(
+        buildCommitMessageSystemPrompt('gitmoji', [
+          '✨ old history',
+          '🐛 old history',
+        ])
+      ).toBe(buildCommitMessageSystemPrompt('gitmoji'));
+    });
+
+    it('plain mode ignores the examples argument (explicit modes omit history)', () => {
+      // EXECUTE + VERIFY — passing examples does NOT change the plain contract.
+      expect(
+        buildCommitMessageSystemPrompt('plain', [
+          'old history one',
+          'old history two',
+        ])
+      ).toBe(buildCommitMessageSystemPrompt('plain'));
     });
   });
 });

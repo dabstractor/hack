@@ -79,14 +79,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Dynamic Commit-Message System Prompt Builder",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Replace the single hardcoded COMMIT_MESSAGE_SYSTEM constant with a dynamic system-prompt builder that selects the contract based on the resolved style mode (auto/plain/conventional/gitmoji) and injects style examples + anti-reuse instructions for auto mode. Refactor createCommitMessageAgent to accept the resolved system prompt.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "buildCommitMessageSystemPrompt(style, examples?) — four style contracts + gitmoji reference table + auto example injection",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -101,7 +101,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Refactor createCommitMessageAgent to accept dynamic system prompt",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
