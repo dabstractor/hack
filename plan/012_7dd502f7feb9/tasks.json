@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Config Constants & .hack Schema Wiring",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Declare the two new env-var surfaces (PRP_COMMIT_STYLE, PRP_COMMIT_STYLE_EXAMPLES) with their constants, type unions, defaults, and getter functions in src/config/constants.ts; add .env.example entries; and wire the two new [pipeline] keys into the SCHEMA_MAP and HACK_CONFIG_SCHEMA in src/config/hack-config.ts so the .hack loader seeds them.",
               "subtasks": [
                 {
@@ -39,7 +39,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Two new [pipeline] keys in SCHEMA_MAP + HACK_CONFIG_SCHEMA",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -57,14 +57,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Recent-Commits Helper",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Add a new git-log wrapper function that fetches the last N commit messages from the repository, used as style examples by the auto mode. Follows the existing gitFileHistory pattern in src/tools/git-mcp.ts.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "getRecentCommitMessages(count) in src/tools/git-mcp.ts",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/012_7dd502f7feb9/architecture/implementation-status.md §F1.D. The gitFileHistory function at src/tools/git-mcp.ts:~539 wraps simpleGit(repoPath).log({ file: filePath }) and maps logResult.all. Follow the same pattern but use { maxEntries: count }. The validateRepositoryPath helper (line ~202) validates the repo path. The export block at line ~830 lists all exported functions — add the new function there.\n2. INPUT: count (number — how many recent commit messages to fetch), repoPath? (optional string — defaults to cwd). No other dependencies.\n3. LOGIC: New exported async function in src/tools/git-mcp.ts:\n   export async function getRecentCommitMessages(count: number, repoPath?: string): Promise<string[]>\n   - count === 0 → return [] immediately (no git call).\n   - const safePath = await validateRepositoryPath(repoPath); const git = simpleGit(safePath);\n   - const logResult = await git.log({ maxEntries: count });\n   - return logResult.all.map(entry => entry.message); // newest-first\n   - A repo with fewer than count commits returns all available (no error — git.log just returns fewer entries).\n   Add to the export { ... } block at line ~830.\n4. OUTPUT: Array of commit message strings (newest-first), one per commit. Each entry is the full commit message (subject + body). Consumed by P1.M1.T4.S1 (generateCommitMessage auto-mode example injection).\n5. DOCS: [Mode A] JSDoc on getRecentCommitMessages following the gitFileHistory JSDoc pattern (document params, return type, count=0 short-circuit, and that fewer-than-count commits returns all available).",

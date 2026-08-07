@@ -267,6 +267,21 @@ export const SCHEMA_MAP: readonly HackConfigSchemaEntry[] = [
     defaultValue: 'task-prefix',
     acceptedValues: ['task-prefix', 'plain'],
   },
+  {
+    section: 'pipeline',
+    key: 'commit_style',
+    envVar: 'PRP_COMMIT_STYLE',
+    type: 'string',
+    defaultValue: 'auto',
+    acceptedValues: ['auto', 'plain', 'conventional', 'gitmoji'],
+  },
+  {
+    section: 'pipeline',
+    key: 'commit_style_examples',
+    envVar: 'PRP_COMMIT_STYLE_EXAMPLES',
+    type: 'int',
+    defaultValue: 5,
+  },
 
   // --- [commit] (§5.1) ---
   {
@@ -630,6 +645,11 @@ const HACK_CONFIG_SCHEMA: Readonly<
     research_timeout_seconds: { type: 'int', min: 1 },
     issue_retry_max: { type: 'int', min: 0 },
     commit_format: { type: 'string', enum: ['task-prefix', 'plain'] },
+    commit_style: {
+      type: 'string',
+      enum: ['auto', 'plain', 'conventional', 'gitmoji'],
+    },
+    commit_style_examples: { type: 'int', min: 0 },
   },
   commit: {
     retry_max: { type: 'int', min: 1 },

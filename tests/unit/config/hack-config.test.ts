@@ -185,6 +185,8 @@ describe('config/hack-config: loadHackConfig', () => {
       'API_TIMEOUT_MS',
       'MONITOR_TASK_INTERVAL',
       'HACKY_LOG_LEVEL',
+      'PRP_COMMIT_STYLE',
+      'PRP_COMMIT_STYLE_EXAMPLES',
     ];
     for (const k of seeded) delete process.env[k];
   });
@@ -432,9 +434,9 @@ describe('hack-config: SCHEMA_MAP', () => {
     vi.unstubAllEnvs();
   });
 
-  it('SCHEMA_MAP has all 39 §9.7.5 rows', () => {
+  it('SCHEMA_MAP has all 41 §9.7.5 rows', () => {
     // VERIFY: exhaustive coverage of the §9.7.5 schema reference table
-    expect(SCHEMA_MAP.length).toBe(39);
+    expect(SCHEMA_MAP.length).toBe(41);
   });
 
   it('every §9.7.5 [section].key is present in SCHEMA_BY_KEY', () => {
@@ -469,9 +471,9 @@ describe('hack-config: SCHEMA_MAP', () => {
     }
   });
 
-  it('SCHEMA_BY_KEY is a complete lookup index (39 keys, every entry reachable)', () => {
+  it('SCHEMA_BY_KEY is a complete lookup index (41 keys, every entry reachable)', () => {
     // VERIFY: the derived index has exactly one entry per SCHEMA_MAP row
-    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(39);
+    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(41);
     for (const entry of SCHEMA_MAP) {
       expect(SCHEMA_BY_KEY[`${entry.section}.${entry.key}`]).toBe(entry);
     }
@@ -982,5 +984,132 @@ describe('hack-config: secrets & validation', () => {
     expect(cfg.harness?.name).toBe('pi');
     expect(cfg.pipeline?.research_depth).toBe(3);
     expect(cfg.cli?.mode).toBe('bug-hunt');
+  });
+});
+
+// ============================================================================
+// commit_style / commit_style_examples schema wiring (P1.M1.T1.S2 — PRD §9.7.5 / §5.1)
+// ============================================================================
+// S2 wires the two [pipeline] style-layer keys into SCHEMA_MAP + HACK_CONFIG_SCHEMA so the TOML
+// loader seeds their env vars from .hack and `hack config show` auto-discovers them. HACK_KEY_TO_ENV
+// is derived from SCHEMA_MAP (no manual edit), so the loader auto-includes both mappings. S1 owns
+// constants.ts + .env.example; T3 (prompt builder) + T4 (generateCommitMessage wiring) consume the
+// getters downstream.
+
+describe('commit_style / commit_style_examples schema wiring', () => {
+  let dir: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'hack-style-'));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    // Delete the env keys this suite seeds so a real .env value never masks the behavior.
+    delete process.env.PRP_COMMIT_STYLE;
+    delete process.env.PRP_COMMIT_STYLE_EXAMPLES;
+    // Global-path cascade keys must be clean so a stray global never leaks.
+    delete process.env.HACK_CONFIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    // Prevent the seeded vars from leaking across the file's other tests.
+    delete process.env.PRP_COMMIT_STYLE;
+    delete process.env.PRP_COMMIT_STYLE_EXAMPLES;
+  });
+
+  it('includes commit_style + commit_style_examples in SCHEMA_MAP with the correct shape', () => {
+    // VERIFY — the two new entries exist, findable by section+key, with the exact §9.7.5 shapes.
+    const style = SCHEMA_BY_KEY['pipeline.commit_style'];
+    expect(style).toBeDefined();
+    expect(style?.section).toBe('pipeline');
+    expect(style?.key).toBe('commit_style');
+    expect(style?.envVar).toBe('PRP_COMMIT_STYLE');
+    expect(style?.type).toBe('string');
+    expect(style?.defaultValue).toBe('auto');
+    expect(style?.acceptedValues).toEqual([
+      'auto',
+      'plain',
+      'conventional',
+      'gitmoji',
+    ]);
+
+    const examples = SCHEMA_BY_KEY['pipeline.commit_style_examples'];
+    expect(examples).toBeDefined();
+    expect(examples?.section).toBe('pipeline');
+    expect(examples?.key).toBe('commit_style_examples');
+    expect(examples?.envVar).toBe('PRP_COMMIT_STYLE_EXAMPLES');
+    expect(examples?.type).toBe('int');
+    expect(examples?.defaultValue).toBe(5);
+    // commit_style_examples is a RANGE int (min 0), NOT an enum — NO acceptedValues.
+    expect(examples?.acceptedValues).toBeUndefined();
+  });
+
+  it('seeds PRP_COMMIT_STYLE from [pipeline] commit_style', () => {
+    // SETUP — project .hack pins the style.
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-style'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-style-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[pipeline]\ncommit_style = "conventional"\n'
+    );
+
+    // EXECUTE
+    loadHackConfig(repoRoot);
+
+    // VERIFY — the loader seeded the env var from the .hack TOML (HACK_KEY_TO_ENV derived it).
+    expect(process.env.PRP_COMMIT_STYLE).toBe('conventional');
+  });
+
+  it('seeds PRP_COMMIT_STYLE_EXAMPLES from [pipeline] commit_style_examples (stringified int)', () => {
+    // SETUP — project .hack sets the example count (int).
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-examples'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-examples-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[pipeline]\ncommit_style_examples = 3\n'
+    );
+
+    // EXECUTE
+    loadHackConfig(repoRoot);
+
+    // VERIFY — int TOML value stringified for process.env (research_depth precedent).
+    expect(process.env.PRP_COMMIT_STYLE_EXAMPLES).toBe('3');
+  });
+
+  it('rejects an invalid commit_style enum value listing the accepted values', () => {
+    // SETUP — [pipeline] commit_style = "bogus" (KNOWN key, INVALID value → enum check fires).
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-enum-style'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-enum-style-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[pipeline]\ncommit_style = "bogus"\n'
+    );
+
+    // EXECUTE & VERIFY — the HACK_CONFIG_SCHEMA enum check fires (NOT the unknown-key warn).
+    expect(() => loadHackConfig(repoRoot)).toThrow(/accepted values/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(
+      /auto, plain, conventional, gitmoji/
+    );
+    expect(() => loadHackConfig(repoRoot)).toThrow(/commit_style/);
+  });
+
+  it('accepts commit_style_examples = 0 (0 disables learning; min is 0, not 1)', () => {
+    // SETUP — 0 is a valid value (PRD §5.1: 0 disables learning under auto).
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-zero'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-zero-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[pipeline]\ncommit_style_examples = 0\n'
+    );
+
+    // EXECUTE & VERIFY — no throw; seeds '0' (consistent with S1's allow-0 getter).
+    expect(() => loadHackConfig(repoRoot)).not.toThrow();
+    expect(process.env.PRP_COMMIT_STYLE_EXAMPLES).toBe('0');
   });
 });
