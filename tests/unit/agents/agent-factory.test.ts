@@ -16,6 +16,21 @@ import {
   it,
   vi,
 } from 'vitest';
+
+// Delegating spy: pass through ALL real groundswell exports (MCPHandler,
+// MCPServer, etc. — needed by the real agent-factory.ts MCP tool imports) but
+// wrap createAgent so the new wiring describe can capture the config WITHOUT
+// breaking the existing agent.name / MCP-regression tests (which exercise the
+// real createAgent). DELEGATE, never stub.
+vi.mock('groundswell', async importOriginal => {
+  const actual = await importOriginal<typeof import('groundswell')>();
+  return {
+    ...actual,
+    createAgent: vi.fn((cfg: unknown) => actual.createAgent(cfg)),
+  };
+});
+
+import { createAgent } from 'groundswell';
 import {
   DEFAULT_HARNESS,
   REASONING_LEVELS,
@@ -26,6 +41,7 @@ import {
   createArchitectAgent,
   createResearcherAgent,
   createCoderAgent,
+  createCleanupAgent,
   createQAAgent,
   MCP_TOOLS,
   ROLE_CONFIG,
@@ -34,6 +50,8 @@ import {
   type ModelRole,
   type ThinkingLevel,
 } from '../../../src/agents/agent-factory.js';
+
+const mockCreateAgent = vi.mocked(createAgent);
 
 describe('agents/agent-factory', () => {
   // CLEANUP: Always restore environment after each test
@@ -372,7 +390,7 @@ describe('agents/agent-factory', () => {
         createArchitectAgent();
         createResearcherAgent();
         createCoderAgent();
-        createQAAgent();
+        createQAAgent('high');
       }).not.toThrow();
     });
 
@@ -395,9 +413,98 @@ describe('agents/agent-factory', () => {
     });
 
     it('should create QA agent successfully', () => {
-      const agent = createQAAgent();
+      const agent = createQAAgent('high');
       expect(agent).toBeDefined();
       expect(agent.name).toBe('QaAgent');
+    });
+  });
+
+  describe('factory reasoning wiring (PRD §9.2.9 / P1.M1.T3.S2)', () => {
+    beforeEach(() => {
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-token');
+      vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.test.com');
+    });
+
+    // The factories resolve their OWN reasoning level and pass it to
+    // createBaseConfig. config.model comes from the role→tier mapping and is
+    // INDEPENDENT of thinking — the §9.2.9 decoupling. These cases read the
+    // config captured by the delegating createAgent spy (latest call).
+    const readCfg = () =>
+      mockCreateAgent.mock.calls.at(-1)![0] as {
+        thinking: string;
+        model: string;
+      };
+
+    it('createArchitectAgent: default thinking high + balanced-tier model', () => {
+      createArchitectAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('high'); // getReasoningBreakdown() default
+      expect(cfg.model).toBe('zai/glm-5.2'); // reasoning role → balanced tier
+    });
+
+    it('createArchitectAgent: honors PRP_REASONING_BREAKDOWN_AGENT override (model unchanged)', () => {
+      vi.stubEnv('PRP_REASONING_BREAKDOWN_AGENT', 'xhigh');
+      createArchitectAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('xhigh');
+      expect(cfg.model).toBe('zai/glm-5.2'); // tier unchanged — axes decoupled
+    });
+
+    it('createResearcherAgent: default thinking high', () => {
+      createResearcherAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('high'); // getReasoningAgent() default
+      expect(cfg.model).toBe('zai/glm-5.2');
+    });
+
+    it('createResearcherAgent: honors PRP_REASONING_AGENT override', () => {
+      vi.stubEnv('PRP_REASONING_AGENT', 'xhigh');
+      createResearcherAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('xhigh');
+      expect(cfg.model).toBe('zai/glm-5.2');
+    });
+
+    it('createCoderAgent: default thinking off + fast-tier model', () => {
+      createCoderAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('off'); // getReasoningImpl() default
+      expect(cfg.model).toBe('zai/glm-5-turbo'); // implementation role → fast tier
+    });
+
+    it('createCoderAgent: honors PRP_REASONING_IMPL_AGENT but model tier unchanged (decoupling proof)', () => {
+      vi.stubEnv('PRP_REASONING_IMPL_AGENT', 'high');
+      createCoderAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('high'); // honors its own getter
+      // …but the MODEL tier is unchanged — the two axes are independent (§9.2.9).
+      expect(cfg.model).toBe('zai/glm-5-turbo');
+    });
+
+    it('createCleanupAgent: thinking HARDCODED off — NOT coupled to PRP_REASONING_IMPL_AGENT', () => {
+      vi.stubEnv('PRP_REASONING_IMPL_AGENT', 'high');
+      mockCreateAgent.mockClear();
+      createCleanupAgent();
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('off'); // literal 'off' — immune to the impl knob
+      expect(cfg.model).toBe('zai/glm-5-turbo');
+    });
+
+    it('createQAAgent: stamps the caller-supplied reasoning level + balanced-tier model', () => {
+      createQAAgent('xhigh');
+      const cfg = readCfg();
+      expect(cfg.thinking).toBe('xhigh');
+      expect(cfg.model).toBe('zai/glm-5.2'); // reasoning role → balanced tier
+    });
+
+    it('createQAAgent: requires the reasoningLevel argument (bare call is a type error)', () => {
+      // Compile-time guard: the signature is now (reasoningLevel: ReasoningLevel) — a bare
+      // createQAAgent() is rejected by tsc (the S3 production call sites are the expected
+      // remaining TS2554). esbuild strips types, so this would run with reasoningLevel=undefined
+      // at runtime; the @ts-expect-error keeps the intent enforced under `vitest typecheck`.
+      // @ts-expect-error — createQAAgent now requires a ReasoningLevel argument
+      const _result = createQAAgent();
+      void _result;
     });
   });
 });

@@ -338,6 +338,9 @@ export function buildCommitMessageSystemPrompt(
  * so the override forces `stateless: true` here — the agent reads a staged diff
  * and emits one message, never resuming a session.
  *
+ * `thinking: 'off'` is hardcoded (single-shot commit-message generation; not
+ * coupled to `PRP_REASONING_IMPL_AGENT`; §9.2.9).
+ *
  * @param systemPrompt - Optional custom system prompt. Defaults to the
  *   {@link COMMIT_MESSAGE_SYSTEM} plain contract for backward compatibility
  *   (existing no-arg callers get identical behavior). When provided, it
@@ -358,7 +361,13 @@ export function buildCommitMessageSystemPrompt(
  * ```
  */
 export function createCommitMessageAgent(systemPrompt?: string): Agent {
-  const baseConfig = createBaseConfig('researcher', 'research');
+  const baseConfig = createBaseConfig(
+    'researcher',
+    'research',
+    // single-shot commit messages (§9.2.9) — hardcoded 'off', not coupled to
+    // PRP_REASONING_IMPL_AGENT.
+    'off'
+  );
   const config = {
     ...baseConfig,
     name: 'CommitMessageAgent',

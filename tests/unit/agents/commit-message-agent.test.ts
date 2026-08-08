@@ -54,7 +54,8 @@ describe('agents/commit-message-agent', () => {
       // VERIFY — NO expansion of the AgentPersona union (D1)
       expect(mockCreateBaseConfig).toHaveBeenCalledWith(
         'researcher',
-        'research'
+        'research',
+        'off'
       );
     });
 

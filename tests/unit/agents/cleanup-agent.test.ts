@@ -64,6 +64,10 @@ import { CLEANUP_PROMPT } from '../../../src/agents/prompts.js';
 const mockCreateAgent = vi.mocked(createAgent);
 
 describe('agents/cleanup-agent', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   describe('createCleanupAgent', () => {
     it('should call createAgent exactly once', () => {
       // EXECUTE
@@ -150,6 +154,26 @@ describe('agents/cleanup-agent', () => {
       expect(cfg.harness).toBe('pi');
       expect(cfg.env).toBeDefined();
       expect(cfg.maxTokens).toBe(4096);
+    });
+
+    it('should HARDCODE thinking off — NOT coupled to PRP_REASONING_IMPL_AGENT (PRD §9.2.9)', () => {
+      // SETUP — set the impl reasoning knob high; if cleanup were coupled to
+      // getReasoningImpl(), thinking would become 'high'.
+      vi.stubEnv('PRP_REASONING_IMPL_AGENT', 'high');
+      mockCreateAgent.mockClear();
+
+      // EXECUTE
+      createCleanupAgent();
+
+      // VERIFY — thinking stays 'off' (literal hardcode), and the fast-tier
+      // model is unchanged. Cleanup is a mechanical reorg, immune to the impl
+      // reasoning env knob.
+      const cfg = mockCreateAgent.mock.calls[0][0] as {
+        thinking: string;
+        model: string;
+      };
+      expect(cfg.thinking).toBe('off');
+      expect(cfg.model).toBe('zai/glm-5-turbo');
     });
   });
 

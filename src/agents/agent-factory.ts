@@ -31,7 +31,13 @@ import {
   configureHarness,
   resolveApiKeyForProvider,
 } from '../config/harness.js';
-import { getBugFinderAgent, type ReasoningLevel } from '../config/constants.js';
+import {
+  getBugFinderAgent,
+  getReasoningAgent,
+  getReasoningBreakdown,
+  getReasoningImpl,
+  type ReasoningLevel,
+} from '../config/constants.js';
 import type { AgentHarness, ModelTier } from '../config/types.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { createAgent, type Agent, type MCPServer } from 'groundswell';
@@ -345,9 +351,10 @@ export function createBaseConfig(
  * Create an Architect agent for PRD analysis and task breakdown
  *
  * @remarks
- * Uses the **Reasoning** model role (balanced tier, `xhigh` reasoning budget per PRD §6.1 —
- * decomposition is the most reasoning-intensive step). Uses the TASK_BREAKDOWN_PROMPT
- * system prompt for analyzing PRDs and generating structured task hierarchies.
+ * Uses the **Reasoning** model role (balanced tier). `high` reasoning budget
+ * (default, configurable per §9.2.9 via {@link getReasoningBreakdown} /
+ * `PRP_REASONING_BREAKDOWN_AGENT`). Uses the TASK_BREAKDOWN_PROMPT system
+ * prompt for analyzing PRDs and generating structured task hierarchies.
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -360,7 +367,11 @@ export function createBaseConfig(
  * ```
  */
 export function createArchitectAgent(): Agent {
-  const baseConfig = createBaseConfig('architect', 'reasoning');
+  const baseConfig = createBaseConfig(
+    'architect',
+    'reasoning',
+    getReasoningBreakdown()
+  );
   const config = {
     ...baseConfig,
     system: TASK_BREAKDOWN_PROMPT,
@@ -377,9 +388,11 @@ export function createArchitectAgent(): Agent {
  * Create a Researcher agent for PRP generation and research
  *
  * @remarks
- * Uses the **Research** model role (balanced tier, normal reasoning budget per PRD §9.2.3).
- * Uses the PRP_BLUEPRINT_PROMPT system prompt for researching codebase patterns
- * and generating comprehensive Product Requirement Prompts.
+ * Uses the **Research** model role (balanced tier). `high` reasoning budget
+ * (default, configurable per §9.2.9 via {@link getReasoningAgent} /
+ * `PRP_REASONING_AGENT`). Uses the PRP_BLUEPRINT_PROMPT system prompt for
+ * researching codebase patterns and generating comprehensive Product
+ * Requirement Prompts.
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -392,7 +405,11 @@ export function createArchitectAgent(): Agent {
  * ```
  */
 export function createResearcherAgent(): Agent {
-  const baseConfig = createBaseConfig('researcher', 'research');
+  const baseConfig = createBaseConfig(
+    'researcher',
+    'research',
+    getReasoningAgent()
+  );
   const config = {
     ...baseConfig,
     system: PRP_BLUEPRINT_PROMPT,
@@ -409,10 +426,12 @@ export function createResearcherAgent(): Agent {
  * Create a Coder agent for code implementation from PRPs
  *
  * @remarks
- * Uses the **Implementation** model role (fast tier, normal reasoning budget per PRD §9.2.3).
- * Uses the PRP_BUILDER_PROMPT system prompt for implementing features based on Product
- * Requirement Prompt specifications. The fast tier is driven solely by
- * ROLE_CONFIG.implementation (no manual model override).
+ * Uses the **Implementation** model role (fast tier). `off` reasoning budget
+ * (default, configurable per §9.2.9 via {@link getReasoningImpl} /
+ * `PRP_REASONING_IMPL_AGENT`). Uses the PRP_BUILDER_PROMPT system prompt for
+ * implementing features based on Product Requirement Prompt specifications.
+ * The fast tier is driven solely by ROLE_CONFIG.implementation (no manual
+ * model override).
  *
  * @returns Configured Groundswell Agent instance
  *
@@ -425,7 +444,11 @@ export function createResearcherAgent(): Agent {
  * ```
  */
 export function createCoderAgent(): Agent {
-  const baseConfig = createBaseConfig('coder', 'implementation');
+  const baseConfig = createBaseConfig(
+    'coder',
+    'implementation',
+    getReasoningImpl()
+  );
   const config = {
     ...baseConfig,
     system: PRP_BUILDER_PROMPT,
@@ -439,27 +462,36 @@ export function createCoderAgent(): Agent {
  * Create a QA agent for validation and bug hunting
  *
  * @remarks
- * The runtime realization of `BUG_FINDER_AGENT` (default `pizr`, PRD §4.4 / §9.2.2 / §9.2.3):
- * the reasoning persona (balanced tier @ `xhigh`) = the bash `pizr` agent (`pi` with
- * `--thinking xhigh`). Uses the **Reasoning** model role (balanced tier, `xhigh` reasoning
- * budget per PRD §6.5 / §9.2.3 — bug-finding is a reasoning-tier activity). The configured
- * bug-finder identifier is resolved from `BUG_FINDER_AGENT` at agent-creation time and
- * surfaced via {@link getBugFinderAgent} for observability (it NAMES the persona; it does
- * NOT change the model tier, which stays balanced @ `xhigh`). Uses the BUG_HUNT_PROMPT
- * system prompt for comprehensive end-to-end validation and creative bug finding.
+ * The reasoning level is resolved by the CALLER per §9.2.9 and passed as
+ * `reasoningLevel` (the bug-finder vs validation split lives at the call
+ * sites). The balanced model tier is unchanged.
  *
+ * The runtime realization of `BUG_FINDER_AGENT` (default `pizr`, PRD §4.4 /
+ * §9.2.2 / §9.2.3): the reasoning persona (balanced tier) = the bash `pizr`
+ * agent (`pi`). Uses the **Reasoning** model role (balanced tier per PRD §6.5
+ * / §9.2.3 — bug-finding is a reasoning-tier activity). The configured
+ * bug-finder identifier is resolved from `BUG_FINDER_AGENT` at agent-creation
+ * time and surfaced via {@link getBugFinderAgent} for observability (it NAMES
+ * the persona; it does NOT change the model tier, which stays balanced). Uses
+ * the BUG_HUNT_PROMPT system prompt for comprehensive end-to-end validation
+ * and creative bug finding.
+ *
+ * @param reasoningLevel - The resolved extended-thinking level for this QA
+ *   consumer (PRD §9.2.9) — supplied by the caller (e.g.
+ *   {@link getReasoningValidation} or the bug-finder getter).
  * @returns Configured Groundswell Agent instance
  *
  * @example
  * ```ts
  * import { createQAAgent } from './agents/agent-factory.js';
+ * import { getReasoningValidation } from './config/constants.js';
  *
- * const qa = createQAAgent();
+ * const qa = createQAAgent(getReasoningValidation());
  * const bugReport = await qa.prompt(validationPrompt);
  * ```
  */
-export function createQAAgent(): Agent {
-  const baseConfig = createBaseConfig('qa', 'reasoning');
+export function createQAAgent(reasoningLevel: ReasoningLevel): Agent {
+  const baseConfig = createBaseConfig('qa', 'reasoning', reasoningLevel);
   const config = {
     ...baseConfig,
     system: BUG_HUNT_PROMPT,
@@ -476,14 +508,15 @@ export function createQAAgent(): Agent {
  * Create a Cleanup agent for post-validation artifact reorganization
  *
  * @remarks
- * Uses the **Implementation** model role (fast tier, normal reasoning budget per
- * PRD §9.2.3) — cleanup is a mechanical reorganization, not a reasoning task.
- * Uses the `CLEANUP_PROMPT` system prompt, which encodes the cleanup job
- * (PRD §4.2 step 4: remove temp artifacts, move docs to `docs/`, leave
- * `tasks.json` intact) and the **prompt-layer** critical-file deletion
- * protection mandated by PRD §5.1 (no `rm` / `git rm` / `git clean` / `mv`
- * against `PRD.md`, any `PRP.md`, or anything under `plan/`; no self-`git
- * commit` — the orchestrator's stagecoach does the post-cleanup commit).
+ * Uses the **Implementation** model role (fast tier). `off` reasoning budget
+ * (hardcoded — cleanup is a mechanical reorg, NOT coupled to
+ * `PRP_REASONING_IMPL_AGENT`; documented per §9.2.9). Uses the
+ * `CLEANUP_PROMPT` system prompt, which encodes the cleanup job (PRD §4.2
+ * step 4: remove temp artifacts, move docs to `docs/`, leave `tasks.json`
+ * intact) and the **prompt-layer** critical-file deletion protection mandated
+ * by PRD §5.1 (no `rm` / `git rm` / `git clean` / `mv` against `PRD.md`, any
+ * `PRP.md`, or anything under `plan/`; no self-`git commit` — the
+ * orchestrator's stagecoach does the post-cleanup commit).
  *
  * **Stateless single-shot** (PRD §9.3.3): `enableReflection: false` +
  * `enableCache: false` — cleanup is a one-shot reorg with no reflection loop
@@ -512,7 +545,14 @@ export function createQAAgent(): Agent {
  * ```
  */
 export function createCleanupAgent(): Agent {
-  const baseConfig = createBaseConfig('cleanup', 'implementation');
+  const baseConfig = createBaseConfig(
+    'cleanup',
+    'implementation',
+    // HARDCODE — not coupled to PRP_REASONING_IMPL_AGENT (§9.2.9); cleanup is
+    // a mechanical single-shot reorg, so reasoning stays off regardless of the
+    // impl env knob.
+    'off'
+  );
   const config = {
     ...baseConfig,
     system: CLEANUP_PROMPT,
