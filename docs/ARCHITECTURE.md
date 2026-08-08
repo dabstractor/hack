@@ -318,15 +318,15 @@ The Agent Runtime manages LLM agent creation, configuration, and execution with 
 
 #### Agent Types
 
-Each persona maps to a model **role** (research / reasoning / implementation) that selects both the model **tier** and the **reasoning budget** via `ROLE_CONFIG` (the single source of truth in [`src/agents/agent-factory.ts`](../src/agents/agent-factory.ts)). Tier names are `high` / `balanced` / `fast`. See [Model Roles & Reasoning Budget](#model-roles--reasoning-budget) for the role→{tier, budget} contract.
+Each persona maps to a model **role** (research / reasoning / implementation) that selects the model **tier** via `ROLE_CONFIG` (the single source of truth for the **model** in [`src/agents/agent-factory.ts`](../src/agents/agent-factory.ts)). The **reasoning level** is a separate axis — resolved **per agent-identity** from `PRP_REASONING_*` (PRD §9.2.9), independent of the tier; tuning one axis never perturbs the other. Tier names are `high` / `balanced` / `fast`. See [Model Roles & Reasoning Budget](#model-roles--reasoning-budget) for the role→tier and per-identity level contract.
 
-| Persona        | Role           | Tier (model)         | Reasoning budget | Responsibility                        | Token Limit |
-| -------------- | -------------- | -------------------- | ---------------- | ------------------------------------- | ----------- |
-| **Architect**  | Reasoning      | balanced (`glm-5.2`) | `xhigh` (max)    | Decompose PRD into task backlog       | 8192        |
-| **Researcher** | Research       | balanced (`glm-5.2`) | normal           | Generate PRPs for subtasks            | 4096        |
-| **Coder**      | Implementation | fast (`glm-5-turbo`) | normal           | Execute PRPs to produce code          | 4096        |
-| **QA**         | Reasoning      | balanced (`glm-5.2`) | `xhigh` (max)    | Validate + bug-hunt (default `pizr`)  | 4096        |
-| **Cleanup**    | Implementation | fast (`glm-5-turbo`) | normal           | Post-validation doc reorg (stateless) | 4096        |
+| Persona        | Role           | Tier (model)         | Reasoning level (default)                           | Responsibility                        | Token Limit |
+| -------------- | -------------- | -------------------- | --------------------------------------------------- | ------------------------------------- | ----------- |
+| **Architect**  | Reasoning      | balanced (`glm-5.2`) | `high` (`PRP_REASONING_BREAKDOWN_AGENT`)            | Decompose PRD into task backlog       | 8192        |
+| **Researcher** | Research       | balanced (`glm-5.2`) | `high` (`PRP_REASONING_AGENT`)                      | Generate PRPs for subtasks            | 4096        |
+| **Coder**      | Implementation | fast (`glm-5-turbo`) | `off` (`PRP_REASONING_IMPL_AGENT`)                  | Execute PRPs to produce code          | 4096        |
+| **QA**         | Reasoning      | balanced (`glm-5.2`) | `high` — split (bug-finder / validation; see below) | Validate + bug-hunt (default `pizr`)  | 4096        |
+| **Cleanup**    | Implementation | fast (`glm-5-turbo`) | `off` (hardcoded; not a §9.2.9 role)                | Post-validation doc reorg (stateless) | 4096        |
 
 #### Tool System
 
@@ -680,21 +680,35 @@ cached/legacy PRPs without regeneration.
 
 ## Model Roles & Reasoning Budget
 
-The pipeline uses **three separate model roles** so cost, speed, and reasoning depth can be tuned per phase (PRD §9.2.3 / §6.1). The role→{tier, `thinking`} mapping is driven by `ROLE_CONFIG` in [`src/agents/agent-factory.ts`](../src/agents/agent-factory.ts) — the single source of truth:
+The pipeline uses **three separate model roles** so cost, speed, and reasoning depth can be tuned per phase (PRD §9.2.3 / §6.1). The two are **orthogonal axes**: the role→tier **model** mapping is driven by `ROLE_CONFIG` in [`src/agents/agent-factory.ts`](../src/agents/agent-factory.ts) — the single source of truth for the model, **unchanged** by §9.2.9; the **reasoning level** is resolved **per agent-identity** from `PRP_REASONING_<ROLE>` (PRD §9.2.9), independent of the tier. Tuning a model tier never perturbs the reasoning level, and vice versa.
 
-| Role               | Tier     | Reasoning budget            | Pipeline agents                                                         |
-| ------------------ | -------- | --------------------------- | ----------------------------------------------------------------------- |
-| **Research**       | balanced | normal (`thinking` omitted) | Researcher — PRP creation & architecture research                       |
-| **Reasoning**      | balanced | **`xhigh`** (max)           | Architect (decomposition), QA (validation + bug-finder, default `pizr`) |
-| **Implementation** | fast     | normal (`thinking` omitted) | Coder (PRP execution / fix), Cleanup (doc reorg)                        |
+| Role               | Tier     | Reasoning level                                    | Pipeline agents                                                         |
+| ------------------ | -------- | -------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Research**       | balanced | per-identity (research) — see table below          | Researcher — PRP creation & architecture research                       |
+| **Reasoning**      | balanced | per-identity (breakdown / bug-finder / validation) | Architect (decomposition), QA (validation + bug-finder, default `pizr`) |
+| **Implementation** | fast     | per-identity (implementation) — `off` by default   | Coder (PRP execution / fix), Cleanup (doc reorg)                        |
 
-- **Research role** — architecture research and PRP creation. Balanced tier, **normal** reasoning budget. Canonical env var `PRP_MODEL_BALANCED` (default `glm-5.2`).
-- **Reasoning role** — task decomposition, creative bug-finding, and validation. Balanced tier at the **maximum** reasoning budget (`thinking: 'xhigh'`), because synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy, adversarial bug-finding, and validating against the full PRD are the most reasoning-intensive steps. Personas: Architect (breakdown) and QA (bug-finder/validation; `BUG_FINDER_AGENT` / `VALIDATION_AGENT`, default `pizr`). Canonical env var `PRP_MODEL_BALANCED` @ `xhigh`.
-- **Implementation role** — code-writing (PRP execution, post-validation fix, cleanup). Fast tier, normal budget. Personas: Coder, Cleanup. Canonical env var `PRP_MODEL_FAST` (default `glm-5-turbo`).
+The reasoning level is resolved per agent-identity (the granularity §9.2.9 introduced), not per model role:
+
+| Agent identity | Env var                          | Default | Resolved by                |
+| -------------- | -------------------------------- | ------- | -------------------------- |
+| Research / PRP | `PRP_REASONING_AGENT`            | `high`  | `getReasoningAgent()`      |
+| Breakdown      | `PRP_REASONING_BREAKDOWN_AGENT`  | `high`  | `getReasoningBreakdown()`  |
+| Bug finder     | `PRP_REASONING_BUG_FINDER_AGENT` | `high`  | `getReasoningBugFinder()`  |
+| Validation     | `PRP_REASONING_VALIDATION_AGENT` | `high`  | `getReasoningValidation()` |
+| Implementation | `PRP_REASONING_IMPL_AGENT`       | `off`   | `getReasoningImpl()`       |
+
+- **Research role** — architecture research and PRP creation. Balanced tier; research identity resolves `PRP_REASONING_AGENT` (default `high`). Canonical env var `PRP_MODEL_BALANCED` (default `glm-5.2`).
+- **Reasoning role** — task decomposition, creative bug-finding, and validation. Balanced tier; the breakdown, bug-finder, and validation identities each resolve their own `PRP_REASONING_*` (all default `high`). PRD §9.2.9 moved these from a hard `xhigh` pin to a **configurable `high` default** — `xhigh` remains available via explicit config. Personas: Architect (breakdown) and QA (bug-finder/validation). Canonical env var `PRP_MODEL_BALANCED`.
+- **Implementation role** — code-writing (PRP execution, post-validation fix, cleanup). Fast tier; implementation identity resolves `PRP_REASONING_IMPL_AGENT` (default `off`). Canonical env var `PRP_MODEL_FAST` (default `glm-5-turbo`).
+
+**QA persona split.** `createQAAgent(reasoningLevel)` is shared by **four** callers. Bug-finder ([`bug-hunt-workflow.ts`](../src/workflows/bug-hunt-workflow.ts)) and validation ([`validation-workflow.ts`](../src/workflows/validation-workflow.ts)) resolve **distinct** levels via their own getters. Delta-analysis ([`delta-analysis-workflow.ts`](../src/workflows/delta-analysis-workflow.ts)) and change-classification ([`change-classifier.ts`](../src/core/change-classifier.ts) — `classifyChange` / `classifyArtifact`) are **research-leaning** — they perform PRD-diff / artifact analysis rather than adversarial bug-hunting or contract validation — so they resolve to the research role's level (`PRP_REASONING_AGENT`).
+
+**Auxiliary factories.** `createCleanupAgent` and `createCommitMessageAgent` are **not** §9.2.9 roles; they hardcode `thinking: 'off'` (mechanical / single-shot), so tuning the five `PRP_REASONING_*` knobs never surprises them.
 
 ### How `thinking` is wired
 
-The `thinking` field **rides on the agent config object** for downstream harness wiring — Groundswell's `AgentConfig` does not natively model thinking, so only the Reasoning role sets `thinking: 'xhigh'`; Research and Implementation omit it (normal budget). The valid `ThinkingLevel` values are `'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
+The resolved level is validated and stored on `AgentConfig.thinking` as a **pipeline-internal marker**. Groundswell's `createAgent` does not consume it (`HarnessOptions` has no `thinking` / `thinkingLevel` field), so harness-side wiring (`pi --thinking <level>` / claude-code `maxThinkingTokens`) is a **cross-repo dependency** that is out of scope for §9.2.9 — noted here, not implemented in this repo. The valid levels are the canonical `ReasoningLevel` vocabulary: `'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'` (`ThinkingLevel` is now an alias of `ReasoningLevel`).
 
 ### Model strings are provider-qualified
 
