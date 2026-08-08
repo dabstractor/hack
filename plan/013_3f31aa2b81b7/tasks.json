@@ -137,7 +137,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Agent-factory composition — decouple model from reasoning + split the shared QA persona",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Sever the role→thinking coupling: tier stays from ROLE_CONFIG (unchanged model resolution), the reasoning level is resolved per agent-identity from the PRP_REASONING_* getters and composed onto the config INDEPENDENTLY. The shared createQAAgent gains a level parameter so bug-finder and validation resolve SEPARATE levels; the four QA callers (incl. the newly-discovered change-classifier) pass their resolved getter.",
               "subtasks": [
                 {
@@ -177,7 +177,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "Update the 4 createQAAgent call sites to pass their resolved reasoning level",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S2",
