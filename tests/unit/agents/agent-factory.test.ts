@@ -53,7 +53,7 @@ describe('agents/agent-factory', () => {
 
     it.each(personas)('should return valid config for %s persona', persona => {
       // EXECUTE
-      const config = createBaseConfig(persona);
+      const config = createBaseConfig(persona, 'research', 'high');
 
       // VERIFY: Required properties exist
       expect(config).toHaveProperty('name');
@@ -69,7 +69,7 @@ describe('agents/agent-factory', () => {
 
     it('should set maxTokens to 8192 for architect persona', () => {
       // EXECUTE
-      const config = createBaseConfig('architect');
+      const config = createBaseConfig('architect', 'research', 'high');
 
       // VERIFY: Architect gets larger token limit
       expect(config.maxTokens).toBe(8192);
@@ -79,7 +79,7 @@ describe('agents/agent-factory', () => {
       'should set maxTokens to 4096 for %s persona',
       persona => {
         // EXECUTE
-        const config = createBaseConfig(persona);
+        const config = createBaseConfig(persona, 'research', 'high');
 
         // VERIFY: Standard token limit
         expect(config.maxTokens).toBe(4096);
@@ -88,7 +88,9 @@ describe('agents/agent-factory', () => {
 
     it('should enable cache and reflection for all personas', () => {
       // EXECUTE
-      const configs = personas.map(p => createBaseConfig(p));
+      const configs = personas.map(p =>
+        createBaseConfig(p, 'research', 'high')
+      );
 
       // VERIFY: All configs have caching and reflection enabled
       configs.forEach(config => {
@@ -99,7 +101,9 @@ describe('agents/agent-factory', () => {
 
     it('should use qualified glm-4.7 model for all personas', () => {
       // EXECUTE
-      const configs = personas.map(p => createBaseConfig(p));
+      const configs = personas.map(p =>
+        createBaseConfig(p, 'research', 'high')
+      );
 
       // VERIFY: All personas use balanced tier → zai/glm-5.2 (provider-qualified, lowercase id
       // as registered in the Pi model registry — ModelRegistry.find() is case-sensitive)
@@ -110,7 +114,9 @@ describe('agents/agent-factory', () => {
 
     it('should set harness to the resolved runtime (default pi) for all personas', () => {
       // EXECUTE
-      const configs = personas.map(p => createBaseConfig(p));
+      const configs = personas.map(p =>
+        createBaseConfig(p, 'research', 'high')
+      );
 
       // VERIFY: All personas use the default harness resolved at startup
       configs.forEach(config => {
@@ -125,7 +131,7 @@ describe('agents/agent-factory', () => {
       vi.stubEnv('ANTHROPIC_BASE_URL', expectedBaseUrl);
 
       // EXECUTE
-      const config = createBaseConfig('architect');
+      const config = createBaseConfig('architect', 'research', 'high');
 
       // VERIFY: Environment is mapped in config.env
       expect(config.env.ANTHROPIC_API_KEY).toBeDefined();
@@ -134,15 +140,21 @@ describe('agents/agent-factory', () => {
 
     it('should generate agent name from persona', () => {
       // EXECUTE & VERIFY: Agent names follow Persona → PersonaAgent pattern
-      expect(createBaseConfig('architect').name).toBe('ArchitectAgent');
-      expect(createBaseConfig('researcher').name).toBe('ResearcherAgent');
-      expect(createBaseConfig('coder').name).toBe('CoderAgent');
-      expect(createBaseConfig('qa').name).toBe('QaAgent');
+      expect(createBaseConfig('architect', 'research', 'high').name).toBe(
+        'ArchitectAgent'
+      );
+      expect(createBaseConfig('researcher', 'research', 'high').name).toBe(
+        'ResearcherAgent'
+      );
+      expect(createBaseConfig('coder', 'research', 'high').name).toBe(
+        'CoderAgent'
+      );
+      expect(createBaseConfig('qa', 'research', 'high').name).toBe('QaAgent');
     });
 
     it('should have readonly properties', () => {
       // EXECUTE
-      const config = createBaseConfig('architect');
+      const config = createBaseConfig('architect', 'research', 'high');
 
       // VERIFY: Properties are readonly (TypeScript enforces this at compile time)
       // At runtime, we can check that the config has the expected structure
@@ -153,7 +165,7 @@ describe('agents/agent-factory', () => {
 
     it('should include system prompt placeholder', () => {
       // EXECUTE
-      const config = createBaseConfig('coder');
+      const config = createBaseConfig('coder', 'research', 'high');
 
       // VERIFY: System prompt contains the persona name
       expect(config.system).toContain('coder');
@@ -167,7 +179,7 @@ describe('agents/agent-factory', () => {
       delete process.env.ANTHROPIC_BASE_URL;
 
       // EXECUTE
-      const config = createBaseConfig('architect');
+      const config = createBaseConfig('architect', 'research', 'high');
 
       // VERIFY: Fallback to empty strings when env vars are not set
       expect(config.env.ANTHROPIC_API_KEY).toBe('');
@@ -196,7 +208,7 @@ describe('agents/agent-factory', () => {
       'should set stateless=%s for %s persona per STATELESS_PERSONAS',
       (persona, expected) => {
         // EXECUTE
-        const config = createBaseConfig(persona);
+        const config = createBaseConfig(persona, 'research', 'high');
 
         // VERIFY — persona is the single source of truth for the invariant
         expect(config.stateless).toBe(expected);
@@ -215,7 +227,7 @@ describe('agents/agent-factory', () => {
 
     it('should expose stateless as a readonly boolean on the config', () => {
       // EXECUTE
-      const config = createBaseConfig('coder');
+      const config = createBaseConfig('coder', 'research', 'high');
 
       // VERIFY — the field is present, boolean, and reads true for a stateless persona
       expect(typeof config.stateless).toBe('boolean');
@@ -231,47 +243,84 @@ describe('agents/agent-factory', () => {
       vi.stubEnv('ANTHROPIC_API_KEY', 'test-token');
     });
 
-    // Each role → resolved { model, thinking } (driven by ROLE_CONFIG → getModel tier).
+    // Each role → resolved MODEL (driven by ROLE_CONFIG → getModel tier). After P1.M1.T3.S1 the
+    // reasoning LEVEL is a SEPARATE caller-resolved axis (PRD §9.2.9) — it is NO LONGER derived
+    // from the role, so the tier→model table no longer carries a thinking column. The decoupling
+    // of role→tier vs caller→thinking is proven by the dedicated tests below.
     // research/reasoning use the balanced tier (glm-5.2); implementation uses fast (glm-5-turbo).
-    const roleExpectations: Array<{
-      role: ModelRole;
-      model: string;
-      thinking: string | undefined;
-    }> = [
-      { role: 'research', model: 'zai/glm-5.2', thinking: undefined },
-      { role: 'reasoning', model: 'zai/glm-5.2', thinking: 'xhigh' },
-      { role: 'implementation', model: 'zai/glm-5-turbo', thinking: undefined },
+    const roleModelExpectations: Array<{ role: ModelRole; model: string }> = [
+      { role: 'research', model: 'zai/glm-5.2' },
+      { role: 'reasoning', model: 'zai/glm-5.2' },
+      { role: 'implementation', model: 'zai/glm-5-turbo' },
     ];
 
-    it.each(roleExpectations)(
-      'should resolve the correct model and reasoning budget for the $role role',
-      ({ role, model, thinking }) => {
-        // EXECUTE
-        const config = createBaseConfig('architect', role);
+    it.each(roleModelExpectations)(
+      'should resolve the correct tier-derived model for the $role role (thinking is a separate axis)',
+      ({ role, model }) => {
+        // EXECUTE — pass an explicit thinking level (the caller-resolved axis, §9.2.9)
+        const config = createBaseConfig('architect', role, 'high');
 
-        // VERIFY: tier-derived model + role-derived thinking budget (PRD §9.2.3 / §6.1)
+        // VERIFY: the MODEL comes from the role→tier mapping (UNCHANGED; PRD §9.2.3).
+        // thinking is asserted separately (it equals the PASSED level, not the role).
         expect(config.model).toBe(model);
-        expect(config.thinking).toBe(thinking);
       }
     );
 
-    it('should default role to research when omitted', () => {
-      // EXECUTE: one-arg call exercises the default-param path
-      const config = createBaseConfig('architect');
+    it('should default role to research when omitted (balanced tier), composing the passed thinking', () => {
+      // EXECUTE: omitting `role` exercises the default-param path; thinking is still required.
+      const config = createBaseConfig('architect', undefined, 'high');
 
-      // VERIFY: default 'research' → balanced tier, normal budget (backward compat)
+      // VERIFY: default 'research' → balanced tier (backward compat for the model axis); the
+      // reasoning level is the PASSED 'high' (independent of the role, PRD §9.2.9).
       expect(config.model).toBe('zai/glm-5.2');
-      expect(config.thinking).toBeUndefined();
+      expect(config.thinking).toBe('high');
     });
 
-    it('should map each role to the correct tier and budget in ROLE_CONFIG', () => {
-      // VERIFY: ROLE_CONFIG literal shape (single source of truth for tier + budget)
+    it('should map each role to the correct tier ONLY in ROLE_CONFIG (thinking decoupled)', () => {
+      // VERIFY: ROLE_CONFIG literal shape — tier ONLY (thinking was removed in P1.M1.T3.S1).
+      // The reasoning level is no longer derived from the role.
       expect(ROLE_CONFIG.research).toEqual({ tier: 'balanced' });
-      expect(ROLE_CONFIG.reasoning).toEqual({
-        tier: 'balanced',
-        thinking: 'xhigh',
-      });
+      expect(ROLE_CONFIG.reasoning).toEqual({ tier: 'balanced' }); // NO thinking field
       expect(ROLE_CONFIG.implementation).toEqual({ tier: 'fast' });
+    });
+
+    it('should not carry a thinking field on any role in ROLE_CONFIG', () => {
+      // VERIFY — the §9.2.9 decoupling: ROLE_CONFIG values have ONLY a `tier` key.
+      for (const role of Object.keys(ROLE_CONFIG) as ModelRole[]) {
+        expect(Object.keys(ROLE_CONFIG[role])).toEqual(['tier']);
+      }
+    });
+
+    // --- Decoupling proof (PRD §9.2.9 "two independent axes") ---
+    // The role (tier) and the thinking level are INDEPENDENT: a role can run a strong model with
+    // reasoning off, or a fast model with reasoning on. `createBaseConfig` composes the PASSED
+    // thinking verbatim, independent of the role/tier.
+
+    it('decouples thinking from role: a reasoning role can run with thinking off (PRD §9.2.9)', () => {
+      // EXECUTE — reasoning role (balanced tier) with thinking OFF
+      const config = createBaseConfig('architect', 'reasoning', 'off');
+
+      // VERIFY: model from the role→tier mapping (UNCHANGED); thinking is the PASSED level, NOT xhigh
+      expect(config.model).toBe('zai/glm-5.2'); // reasoning role → balanced tier
+      expect(config.thinking).toBe('off'); // …but thinking is the PASSED level (decoupled)
+    });
+
+    it('decouples thinking from role: an implementation role can run with thinking xhigh', () => {
+      // EXECUTE — implementation role (fast tier) with thinking XHIGH
+      const config = createBaseConfig('coder', 'implementation', 'xhigh');
+
+      // VERIFY: model from the role→tier mapping (UNCHANGED); thinking is the PASSED level
+      expect(config.model).toBe('zai/glm-5-turbo'); // impl role → fast tier
+      expect(config.thinking).toBe('xhigh'); // …but thinking is the PASSED level (decoupled)
+    });
+
+    it('composes the passed thinking verbatim across all reasoning levels (§9.2.9 vocabulary)', () => {
+      // VERIFY — for every level in the reconciled vocabulary, createBaseConfig returns it verbatim.
+      for (const level of REASONING_LEVELS) {
+        expect(createBaseConfig('researcher', 'research', level).thinking).toBe(
+          level
+        );
+      }
     });
   });
 

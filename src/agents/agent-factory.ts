@@ -16,8 +16,9 @@
  * ```ts
  * import { createBaseConfig } from './agents/agent-factory.js';
  *
- * const architectConfig = createBaseConfig('architect');
- * // Returns AgentConfig with maxTokens: 8192, model: 'zai/glm-5.2', harness: 'pi'
+ * // reasoning role (balanced tier) running with thinking OFF — the decoupling proof (PRD §9.2.9)
+ * const cfg = createBaseConfig('architect', 'reasoning', 'off');
+ * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', thinking: 'off', harness: 'pi', ... }
  * ```
  */
 
@@ -122,14 +123,19 @@ export type AgentPersona =
 export type ThinkingLevel = ReasoningLevel;
 
 /**
- * Model role selecting tier + reasoning budget for a pipeline agent (PRD §9.2.3).
+ * Model role selecting the model TIER for a pipeline agent (PRD §9.2.3).
  *
  * @remarks
- * - 'research'       → balanced tier, normal budget (architecture research, PRP creation)
- * - 'reasoning'      → balanced tier, 'xhigh' budget (decomposition, bug-finding, validation)
- * - 'implementation' → fast tier, normal budget (PRP execution, post-validation fix)
+ * - 'research'       → balanced tier (architecture research, PRP creation)
+ * - 'reasoning'      → balanced tier (decomposition, bug-finding, validation)
+ * - 'implementation' → fast tier (PRP execution, post-validation fix)
  *
- * @see {@link ROLE_CONFIG} for the role → {tier, thinking} mapping.
+ * The role selects the MODEL TIER ONLY (PRD §9.2.3). The reasoning LEVEL is a SEPARATE axis
+ * resolved per-role via the `PRP_REASONING_*` env vars (PRD §9.2.9), independent of the tier —
+ * see {@link createBaseConfig}'s explicit `thinking` param. The two axes are deliberately
+ * decoupled so a role can run a strong model with reasoning off (or a fast model with reasoning on).
+ *
+ * @see {@link ROLE_CONFIG} for the role → tier mapping.
  */
 export type ModelRole = 'research' | 'reasoning' | 'implementation';
 
@@ -226,81 +232,84 @@ export const STATELESS_PERSONAS: ReadonlySet<AgentPersona> =
   new Set<AgentPersona>(['coder', 'qa', 'cleanup']);
 
 /**
- * Role → { tier, thinking } mapping (PRD §9.2.3 / §6.1).
+ * Role → tier mapping (PRD §9.2.3 / §9.2.9).
  *
  * @remarks
- * Single source of truth for the role→tier and role→budget decisions. `thinking` is OMITTED
- * on research/implementation (normal budget → field undefined); the Reasoning role carries
- * 'xhigh' (the maximum reasoning budget mandated by PRD §6.1 for decomposition/validation).
+ * Single source of truth for the role→TIER decision ONLY. The reasoning (extended-thinking) level
+ * is NO LONGER derived from the role — it is resolved per-role via the `PRP_REASONING_*` env vars
+ * (§9.2.9) and passed EXPLICITLY to {@link createBaseConfig}. `thinking` was therefore REMOVED from
+ * this map: the model (tier) and the reasoning level are now two INDEPENDENT axes (§9.2.3 "two
+ * independent axes").
  *
- * Omission (rather than `thinking: undefined`) keeps the literal branch-free so the 100%
- * coverage thresholds in vitest.config.ts are preserved.
+ * The role→tier MODEL mapping is UNCHANGED: research/reasoning → `balanced`; implementation → `fast`.
  *
  * @example
  * ```ts
  * ROLE_CONFIG.reasoning.tier;       // 'balanced'
- * ROLE_CONFIG.reasoning.thinking;   // 'xhigh'
  * ROLE_CONFIG.implementation.tier;  // 'fast'
- * ROLE_CONFIG.implementation.thinking; // undefined (omitted)
  * ```
  */
 export const ROLE_CONFIG: Readonly<
-  Record<
-    ModelRole,
-    { readonly tier: ModelTier; readonly thinking?: ThinkingLevel }
-  >
+  Record<ModelRole, { readonly tier: ModelTier }>
 > = {
   research: { tier: 'balanced' },
-  reasoning: { tier: 'balanced', thinking: 'xhigh' },
+  reasoning: { tier: 'balanced' },
   implementation: { tier: 'fast' },
 } as const;
 
 /**
- * Create base agent configuration for a specific persona
+ * Create base agent configuration for a specific persona.
  *
  * @remarks
- * Generates a Groundswell-compatible agent configuration optimized for
- * the specified persona. The `role` parameter selects the model tier and reasoning budget
- * via {@link ROLE_CONFIG} (PRD §9.2.3 / §6.1); it defaults to 'research' (balanced tier,
- * normal budget) to preserve the behavior of existing one-arg call sites. Each factory
- * passes its PRD-mandated role explicitly — e.g. the Coder passes 'implementation',
- * which resolves to the fast tier via ROLE_CONFIG (no manual model override).
+ * The `role` selects the MODEL TIER via {@link ROLE_CONFIG} (PRD §9.2.3); `getModel(tier)` resolves
+ * the provider-qualified model id — UNCHANGED (research/reasoning → `zai/glm-5.2`; implementation →
+ * `zai/glm-5-turbo`). The `thinking` (extended-thinking/reasoning budget) is a SEPARATE,
+ * caller-resolved axis (PRD §9.2.9): each factory passes its resolved `PRP_REASONING_*` level (via
+ * the `getReasoning*()` getters), INDEPENDENT of the tier. Tuning the reasoning level never
+ * perturbs the model, and vice versa — a reasoning role can run with thinking `off`, an
+ * implementation role can run with thinking `xhigh`. This is the §9.2.9 / §9.2.3 "two independent
+ * axes" decoupling: which model a role runs and how hard it reasons are controlled separately.
+ *
+ * `thinking` is REQUIRED (no default): the decoupling is load-bearing, so a caller that forgets to
+ * resolve a level is a compile error (TS2554), not a silent `undefined` that would re-couple the
+ * axes. (The `role` default of `'research'` is preserved for the one-arg-with-default call shape
+ * via `createBaseConfig(persona, undefined, level)`.)
  *
  * The returned config carries the **stateless single-shot invariant**
  * (PRD §9.3.2 / P3.M2.T3.S1) via {@link AgentConfig.stateless}, derived from
- * {@link STATELESS_PERSONAS} — the persona is the single source of truth, NOT a
- * per-factory manual override. The field is a pipeline-internal marker today;
- * Groundswell's `PiHarness` gap (no `sessionManager` / `HarnessOptions` field)
- * means the mechanical disable waits on an upstream harness seam (see
- * {@link AgentConfig.stateless} JSDoc).
- *
- * Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN)
- * to SDK expectations (ANTHROPIC_API_KEY) via configureEnvironment().
+ * {@link STATELESS_PERSONAS} — the persona is the single source of truth, NOT a per-factory manual
+ * override. Environment variables are mapped from shell conventions (ANTHROPIC_AUTH_TOKEN) to SDK
+ * expectations (ANTHROPIC_API_KEY) via configureEnvironment().
  *
  * @param persona - The agent persona to create configuration for
  * @param role - The model role ('research' | 'reasoning' | 'implementation'); defaults to 'research'
+ * @param thinking - The resolved extended-thinking level (PRD §9.2.9), INDEPENDENT of `role`/tier
  * @returns Groundswell-compatible agent configuration object
  *
  * @example
  * ```ts
  * import { createBaseConfig } from './agents/agent-factory.js';
  *
- * const architectConfig = createBaseConfig('architect');
- * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', harness: 'pi', maxTokens: 8192, ... }
+ * // reasoning role (balanced tier) running with thinking OFF — the decoupling proof
+ * const cfg = createBaseConfig('architect', 'reasoning', 'off');
+ * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', thinking: 'off', harness: 'pi', ... }
  *
- * const reasoningConfig = createBaseConfig('architect', 'reasoning');
- * // { name: 'ArchitectAgent', model: 'zai/glm-5.2', thinking: 'xhigh', ... }
+ * // implementation role (fast tier) running with thinking xhigh
+ * const coderCfg = createBaseConfig('coder', 'implementation', 'xhigh');
+ * // { name: 'CoderAgent', model: 'zai/glm-5-turbo', thinking: 'xhigh', ... }
  * ```
  */
 export function createBaseConfig(
   persona: AgentPersona,
-  role: ModelRole = 'research'
+  role: ModelRole = 'research',
+  thinking: ThinkingLevel // REQUIRED — no default (load-bearing §9.2.9 decoupling)
 ): AgentConfig {
   // PATTERN: Use getModel() to resolve model tier to actual model name.
-  // Tier + reasoning budget are driven by ROLE_CONFIG[role] (PRD §9.2.3 / §6.1).
-  // Default role 'research' → balanced tier (glm-5.2); the Coder requests the
-  // 'implementation' role → fast tier (glm-5-turbo) via ROLE_CONFIG.
-  const { tier, thinking } = ROLE_CONFIG[role];
+  // The MODEL TIER is driven by ROLE_CONFIG[role] (PRD §9.2.3): default role 'research' → balanced
+  // tier (glm-5.2); the Coder requests the 'implementation' role → fast tier (glm-5-turbo) via
+  // ROLE_CONFIG. The reasoning LEVEL is a SEPARATE caller-resolved axis (PRD §9.2.9) — passed in
+  // via the `thinking` param, independent of the tier.
+  const { tier } = ROLE_CONFIG[role];
   const model = getModel(tier);
 
   // PATTERN: Persona-specific naming (PascalCase with "Agent" suffix)
