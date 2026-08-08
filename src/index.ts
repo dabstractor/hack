@@ -42,11 +42,13 @@ import {
   ensureHarnessInitialized,
   runAuthPreflight,
 } from './config/harness.js';
+import { validateAllReasoningLevels } from './config/constants.js';
 import {
   AuthPreflightError,
   EnvironmentValidationError,
   HackConfigError,
   HarnessProviderMismatchError,
+  ReasoningConfigError,
   UnsupportedHarnessError,
 } from './config/types.js';
 import {
@@ -265,6 +267,15 @@ async function main(): Promise<number> {
   // directory is created or any agent is invoked.
   await runAuthPreflight();
 
+  // CRITICAL: Fail-fast reasoning-level validation (PRD §9.2.9 #4). Validates
+  // every per-role reasoning env var against the vocabulary (off/minimal/low/
+  // medium/high/xhigh) BEFORE any session is created or agent is invoked. Slots
+  // in alongside/after runAuthPreflight() (architecture §G) — so with BOTH no
+  // creds AND a bad level, auth (the more fundamental failure) surfaces first.
+  // Synchronous (no I/O, no groundswell); throws ReasoningConfigError on a bad
+  // value, which propagates to the main().catch arm below.
+  validateAllReasoningLevels();
+
   // CRITICAL: Initialize the agent harness before any agent runs.
   // The harness is registered at module-load but never initialized; without
   // this, every agent.prompt() fails instantly (see ensureHarnessInitialized()).
@@ -422,6 +433,10 @@ void main()
     }
     if (error instanceof EnvironmentValidationError) {
       console.error(`\n❌ ${error.message}`); // §9.2.7: missing-env actionable one-liner (no stack)
+      process.exit(1);
+    }
+    if (error instanceof ReasoningConfigError) {
+      console.error(`\n❌ ${error.message}`); // §9.2.9 #4: invalid reasoning level — actionable one-liner (no stack)
       process.exit(1);
     }
     console.error('\n❌ Fatal error in main():', error);
