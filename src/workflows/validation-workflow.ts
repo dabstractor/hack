@@ -50,6 +50,7 @@ import { BashMCP } from '../tools/bash-mcp.js';
 import {
   getValidationAgent,
   getValidationTimeoutSeconds,
+  getReasoningValidation,
 } from '../config/constants.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
@@ -232,7 +233,8 @@ export class ValidationWorkflow extends Workflow {
     const scriptPath = resolve(this.sessionPath, 'validate.sh');
 
     try {
-      const agent = createQAAgent();
+      // Reasoning resolved per-role per PRD §9.2.9 (validation level — independent of bug-finder).
+      const agent = createQAAgent(getReasoningValidation());
       this.correlationLogger.info('[ValidationWorkflow] QA agent created');
 
       const prompt = createValidationPrompt(

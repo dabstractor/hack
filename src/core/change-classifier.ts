@@ -45,7 +45,10 @@ import {
 import { AgentError } from '../utils/errors.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { retry, createDefaultOnRetry } from '../utils/retry.js';
-import { getClassifierRetryMax } from '../config/constants.js';
+import {
+  getClassifierRetryMax,
+  getReasoningAgent,
+} from '../config/constants.js';
 
 // PATTERN: lazy logger accessor (mirrors dependency-validator.ts, retry.ts).
 let _logger: Logger | undefined;
@@ -109,7 +112,9 @@ export const ArtifactClassificationSchema = z.enum(['CLEAN', 'DIRTY']);
 export async function classifyChange(
   diffSummary: DiffSummary
 ): Promise<ChangeClassification> {
-  const agent: Agent = createQAAgent();
+  // RESEARCH-LEANING (PRD §9.2.9): change/artifact classification is an analysis task, not bug-finding or
+  // validation, so it uses the AGENT (research) reasoning level via getReasoningAgent().
+  const agent: Agent = createQAAgent(getReasoningAgent());
   const prompt = createChangeClassificationPrompt(diffSummary);
 
   // BARE call — NO retryAgentPrompt. Retry is the P4.M1.T1.S2 contract.
@@ -158,7 +163,9 @@ export async function classifyArtifact(
     throw new AgentError('artifact classifier received empty content');
   }
 
-  const agent: Agent = createQAAgent();
+  // RESEARCH-LEANING (PRD §9.2.9): change/artifact classification is an analysis task, not bug-finding or
+  // validation, so it uses the AGENT (research) reasoning level via getReasoningAgent().
+  const agent: Agent = createQAAgent(getReasoningAgent());
   const prompt = createArtifactClassificationPrompt(content);
 
   // BARE call — NO retryAgentPrompt. Retry is the P4.M1.T1.S2 contract.

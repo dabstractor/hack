@@ -12,7 +12,7 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   ValidationWorkflow,
   ValidationFailedError,
@@ -49,11 +49,18 @@ vi.mock('../../../src/tools/bash-mcp.js', () => ({
   })),
 }));
 
-// Mock constants so the timeout budget + agent id are deterministic.
-vi.mock('../../../src/config/constants.js', () => ({
-  getValidationAgent: vi.fn().mockReturnValue('pizr'),
-  getValidationTimeoutSeconds: vi.fn().mockReturnValue(7200),
-}));
+// Mock constants so the timeout budget + agent id are deterministic, while keeping
+// getReasoningValidation REAL (reads process.env) so the §9.2.9 independence test is
+// faithful. The whole-module mock would otherwise make getReasoningValidation undefined.
+vi.mock('../../../src/config/constants.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/config/constants.js')>();
+  return {
+    ...actual, // getReasoningValidation (and all other exports) = REAL
+    getValidationAgent: vi.fn().mockReturnValue('pizr'),
+    getValidationTimeoutSeconds: vi.fn().mockReturnValue(7200),
+  };
+});
 
 // Import mocked modules
 import { createQAAgent } from '../../../src/agents/agent-factory.js';
@@ -187,6 +194,37 @@ describe('ValidationWorkflow', () => {
       await expect(workflow.generateScript()).rejects.toThrow(
         /validate.sh generation failed/
       );
+    });
+  });
+
+  describe('createQAAgent reasoning wiring (PRD §9.2.9 / P1.M1.T3.S3)', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('passes the validation reasoning level (default high) to createQAAgent', async () => {
+      // SETUP — stub explicitly for robustness (PRD §9.2.9 default is 'high').
+      vi.stubEnv('PRP_REASONING_VALIDATION_AGENT', 'high');
+      const workflow = new ValidationWorkflow('PRD content', '/repo');
+      (workflow as any).sessionPath = '/session';
+
+      // EXECUTE
+      await workflow.generateScript();
+
+      // VERIFY — validation threads its OWN (validation) level.
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('high');
+    });
+
+    it('passes the validation reasoning level independently of bug-finder (low)', async () => {
+      // SETUP — set BOTH role vars to DIFFERENT values; validation must see ONLY its own (low).
+      vi.stubEnv('PRP_REASONING_BUG_FINDER_AGENT', 'xhigh');
+      vi.stubEnv('PRP_REASONING_VALIDATION_AGENT', 'low');
+      const workflow = new ValidationWorkflow('PRD content', '/repo');
+      (workflow as any).sessionPath = '/session';
+
+      // EXECUTE
+      await workflow.generateScript();
+
+      // VERIFY — 'low' (NOT 'xhigh'); the two roles resolve independent levels (§9.2.9).
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('low');
     });
   });
 

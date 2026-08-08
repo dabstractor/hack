@@ -22,6 +22,7 @@ import type { DeltaAnalysis } from '../core/models.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
 import { createQAAgent } from '../agents/agent-factory.js';
+import { getReasoningAgent } from '../config/constants.js';
 import { createDeltaAnalysisPrompt } from '../agents/prompts/delta-analysis-prompt.js';
 import { retryAgentPrompt } from '../utils/retry.js';
 
@@ -117,8 +118,10 @@ export class DeltaAnalysisWorkflow extends Workflow {
     this.logger.info('[DeltaAnalysisWorkflow] Starting delta analysis');
 
     try {
-      // Create QA agent
-      const qaAgent = createQAAgent();
+      // RESEARCH-LEANING (PRD §9.2.9): delta-analysis is an analysis/research task, not a bug-finder or
+      // validation step, so it reuses the AGENT (research) reasoning level via getReasoningAgent().
+      // (bug-finder + validation callers resolve their OWN levels independently.)
+      const qaAgent = createQAAgent(getReasoningAgent());
 
       // Create delta analysis prompt
       const prompt = createDeltaAnalysisPrompt(

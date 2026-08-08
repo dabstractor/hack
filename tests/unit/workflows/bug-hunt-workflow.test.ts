@@ -10,7 +10,7 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { BugHuntWorkflow } from '../../../src/workflows/bug-hunt-workflow.js';
 import type { Task, TestResults, Bug } from '../../../src/core/models.js';
 
@@ -585,6 +585,63 @@ describe('BugHuntWorkflow', () => {
       // VERIFY
       expect(result.bugs).toEqual([]);
       expect(result.hasBugs).toBe(false);
+    });
+  });
+
+  describe('createQAAgent reasoning wiring (PRD §9.2.9 / P1.M1.T3.S3)', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('passes the bug-finder reasoning level (default high) to createQAAgent', async () => {
+      // SETUP — stub explicitly for robustness (PRD §9.2.9 default is 'high').
+      vi.stubEnv('PRP_REASONING_BUG_FINDER_AGENT', 'high');
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      mockCreateQAAgent.mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({
+          status: 'success',
+          data: {
+            hasBugs: false,
+            bugs: [],
+            summary: 'No bugs found',
+            recommendations: [],
+          },
+          error: null,
+          metadata: { agentId: 'test-qa-agent', timestamp: Date.now() },
+        }),
+      });
+      mockCreateBugHuntPrompt.mockReturnValue({});
+
+      // EXECUTE
+      await workflow.generateReport();
+
+      // VERIFY — bug-hunt threads its OWN (bug-finder) level.
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('high');
+    });
+
+    it('passes the bug-finder reasoning level independently of validation (xhigh)', async () => {
+      // SETUP — set BOTH role vars to DIFFERENT values; bug-hunt must see ONLY its own (xhigh).
+      vi.stubEnv('PRP_REASONING_BUG_FINDER_AGENT', 'xhigh');
+      vi.stubEnv('PRP_REASONING_VALIDATION_AGENT', 'low');
+      const workflow = new BugHuntWorkflow('PRD content', []);
+      mockCreateQAAgent.mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({
+          status: 'success',
+          data: {
+            hasBugs: false,
+            bugs: [],
+            summary: 'No bugs found',
+            recommendations: [],
+          },
+          error: null,
+          metadata: { agentId: 'test-qa-agent', timestamp: Date.now() },
+        }),
+      });
+      mockCreateBugHuntPrompt.mockReturnValue({});
+
+      // EXECUTE
+      await workflow.generateReport();
+
+      // VERIFY — 'xhigh' (NOT 'low'); the two roles resolve independent levels (§9.2.9).
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('xhigh');
     });
   });
 

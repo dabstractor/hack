@@ -36,7 +36,10 @@ import { retryAgentPrompt } from '../utils/retry.js';
 import { toErrorMessage } from '../utils/errors.js';
 import { atomicWrite } from '../core/session-utils.js';
 import { TestResultsSchema } from '../core/models.js';
-import { getBugFinderAgent } from '../config/constants.js';
+import {
+  getBugFinderAgent,
+  getReasoningBugFinder,
+} from '../config/constants.js';
 import { smartCommit } from '../utils/git-commit.js';
 
 /** Marker file written when a bug hunt finds no actionable bugs (PRD §4.4). */
@@ -269,8 +272,8 @@ export class BugHuntWorkflow extends Workflow {
     );
 
     try {
-      // PATTERN: Create QA agent
-      const qaAgent = createQAAgent();
+      // PATTERN: Create QA agent — reasoning resolved per-role per PRD §9.2.9 (bug-finder level).
+      const qaAgent = createQAAgent(getReasoningBugFinder());
       this.correlationLogger.info('[BugHuntWorkflow] QA agent created');
 
       // FILE-AS-CONTRACT: write TestResults JSON to a file the agent controls,

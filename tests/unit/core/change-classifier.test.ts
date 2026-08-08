@@ -15,7 +15,7 @@
  * @see {@link https://vitest.dev/ | Vitest Documentation}
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { DiffSummary } from '../../../src/core/prd-differ.js';
 
 // Mock agent factory (Strategy A — the workflow pattern).
@@ -312,6 +312,27 @@ describe('change-classifier (PRD §4.3)', () => {
       expect(mockPrompt).toHaveBeenCalledTimes(1);
       expect(mockPrompt).toHaveBeenCalledWith({ __prompt: 'change' });
     });
+
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('threads the research (AGENT) reasoning level to createQAAgent [research-leaning]', async () => {
+      // SETUP — override value proves classifyChange reads the AGENT (research) knob,
+      // NOT the bug-finder/validation knobs (PRD §9.2.9).
+      vi.stubEnv('PRP_REASONING_AGENT', 'medium');
+      const fixture = createDiffFixture();
+      mockAgentResponse({
+        status: 'success',
+        data: 'SUBSTANTIVE',
+        error: null,
+        metadata: {},
+      });
+
+      // EXECUTE
+      await classifyChange(fixture);
+
+      // VERIFY — research-leaning caller threads getReasoningAgent()'s value.
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('medium');
+    });
   });
 
   describe('GIVEN classifyArtifact', () => {
@@ -429,6 +450,29 @@ describe('change-classifier (PRD §4.3)', () => {
       // VERIFY — the bare prompt() is invoked exactly once with the generated Prompt<T>.
       expect(mockPrompt).toHaveBeenCalledTimes(1);
       expect(mockPrompt).toHaveBeenCalledWith({ __prompt: 'artifact' });
+    });
+
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('threads the research (AGENT) reasoning level to createQAAgent [research-leaning]', async () => {
+      // SETUP — override value proves classifyArtifact reads the AGENT (research) knob,
+      // NOT the bug-finder/validation knobs (PRD §9.2.9). NON-EMPTY content is required:
+      // the empty-content guard runs BEFORE createQAAgent (else the arg assertion sees 0 calls).
+      vi.stubEnv('PRP_REASONING_AGENT', 'medium');
+      const content =
+        '# Delta PRD\n\nWell-formed content with no contamination.';
+      mockAgentResponse({
+        status: 'success',
+        data: 'CLEAN',
+        error: null,
+        metadata: {},
+      });
+
+      // EXECUTE
+      await classifyArtifact(content);
+
+      // VERIFY — research-leaning caller threads getReasoningAgent()'s value.
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('medium');
     });
   });
 

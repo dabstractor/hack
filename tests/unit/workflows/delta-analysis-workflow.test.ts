@@ -10,7 +10,7 @@
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { DeltaAnalysisWorkflow } from '../../../src/workflows/delta-analysis-workflow.js';
 import type {
   DeltaAnalysis,
@@ -402,6 +402,34 @@ describe('DeltaAnalysisWorkflow', () => {
 
       // VERIFY
       expect(result.taskIds).toEqual([]);
+    });
+
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('passes the research (AGENT) reasoning level to createQAAgent [research-leaning]', async () => {
+      // SETUP — override value proves delta-analysis reads the AGENT (research) knob,
+      // NOT the bug-finder/validation knobs (PRD §9.2.9).
+      vi.stubEnv('PRP_REASONING_AGENT', 'medium');
+      const workflow = new DeltaAnalysisWorkflow('old PRD', 'new PRD', []);
+      mockCreateQAAgent.mockReturnValue({
+        prompt: vi.fn().mockResolvedValue({
+          status: 'success',
+          data: {
+            changes: [],
+            patchInstructions: 'No changes',
+            taskIds: [],
+          },
+          error: null,
+          metadata: { agentId: 'test-qa-agent', timestamp: Date.now() },
+        }),
+      });
+      mockCreateDeltaAnalysisPrompt.mockReturnValue({});
+
+      // EXECUTE
+      await workflow.analyzeDelta();
+
+      // VERIFY — research-leaning caller threads getReasoningAgent()'s value.
+      expect(mockCreateQAAgent).toHaveBeenCalledWith('medium');
     });
   });
 

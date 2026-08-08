@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Reasoning Config & Agent Wiring (the feature)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "The complete per-role reasoning feature: vocabulary + getters + fail-fast validator (T1), .hack schema wiring (T2), agent-factory decoupling + shared-QA-persona split (T3), and startup fail-fast integration + config show --src (T4). Model (tier) resolution is UNCHANGED; only the reasoning axis is decoupled and made per-identity.",
           "tasks": [
             {
@@ -137,7 +137,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Agent-factory composition — decouple model from reasoning + split the shared QA persona",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Sever the role→thinking coupling: tier stays from ROLE_CONFIG (unchanged model resolution), the reasoning level is resolved per agent-identity from the PRP_REASONING_* getters and composed onto the config INDEPENDENTLY. The shared createQAAgent gains a level parameter so bug-finder and validation resolve SEPARATE levels; the four QA callers (incl. the newly-discovered change-classifier) pass their resolved getter.",
               "subtasks": [
                 {
@@ -177,7 +177,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "Update the 4 createQAAgent call sites to pass their resolved reasoning level",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S2",
@@ -196,14 +196,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Startup fail-fast integration + config show --src surfacing",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Run the reasoning-level validation on the startup path so an invalid shell/env value aborts with exit 1 BEFORE any session is created or agent invoked. The `hack config show --src` surfacing is AUTO-DERIVED from SCHEMA_MAP (verified) and needs only a test.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "validateAllReasoningLevels() on the startup path + ReasoningConfigError main().catch arm",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -221,7 +221,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S2",
                   "title": "Verify config show --src surfaces each role's resolved reasoning level + source layer",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1",
