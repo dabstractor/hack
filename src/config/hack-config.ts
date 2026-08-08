@@ -636,7 +636,14 @@ function seedProcessEnv(merged: ParsedHackConfig): void {
     for (const [key, value] of Object.entries(keys)) {
       const envName = HACK_KEY_TO_ENV[`${section}.${key}`];
       if (envName && process.env[envName] === undefined) {
-        process.env[envName] = String(value);
+        // [reasoning] values are case-insensitive (§9.2.9): seed the canonical lowercase token so
+        // process.env.PRP_REASONING_* holds the normalized form ('HIGH' → 'high'), matching the
+        // §9.7.5 "(→ 'high')" canonicalization. Gated to [reasoning]; other sections seed as-is.
+        const seedValue =
+          section === 'reasoning' && typeof value === 'string'
+            ? value.toLowerCase()
+            : value;
+        process.env[envName] = String(seedValue);
       }
     }
   }
@@ -944,15 +951,21 @@ function validateFieldValue(
       );
     }
   }
-  if (
-    spec.type === 'string' &&
-    spec.enum !== undefined &&
-    !spec.enum.includes(value as string)
-  ) {
-    throw new HackConfigError(
-      `[${section}] ${key} in ${file}: ${JSON.stringify(value)} is not one of the accepted values ` +
-        `[${spec.enum.join(', ')}].`
-    );
+  if (spec.type === 'string' && spec.enum !== undefined) {
+    // [reasoning] values are case-insensitive members of REASONING_LEVELS (PRD §9.2.9 / §9.7.5):
+    // compare against the lowercased value so 'HIGH'/'Off' are accepted. Other enum keys
+    // ([harness] name, [cli] mode, [pipeline] commit_format/commit_style) stay case-sensitive.
+    // The §9.7.7 error message echoes the ORIGINAL value (what the user typed).
+    const compareValue =
+      section === 'reasoning' && typeof value === 'string'
+        ? value.toLowerCase()
+        : (value as string);
+    if (!spec.enum.includes(compareValue)) {
+      throw new HackConfigError(
+        `[${section}] ${key} in ${file}: ${JSON.stringify(value)} is not one of the accepted values ` +
+          `[${spec.enum.join(', ')}].`
+      );
+    }
   }
 }
 

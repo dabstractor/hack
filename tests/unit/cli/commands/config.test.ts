@@ -194,6 +194,24 @@ describe('cli/commands/config', () => {
       expect(stdout).toContain('hack config show');
       expect(stdout).toContain('hack config validate');
     });
+
+    it('emits a [reasoning] block (auto-derived from SCHEMA_MAP, §9.7.5)', async () => {
+      // #buildTemplate iterates SCHEMA_MAP → the 5 section:'reasoning' entries (S1) auto-flow
+      // into the template. This verifies auto-derivation (no config.ts edit) so a future
+      // SCHEMA_MAP change can't silently drop the section.
+      await run('init');
+      const content = readFileSync(join(repoRoot, '.hack'), 'utf8');
+      expect(content).toContain('[reasoning]');
+      for (const key of [
+        'agent',
+        'breakdown_agent',
+        'bug_finder_agent',
+        'validation_agent',
+        'impl_agent',
+      ]) {
+        expect(content).toContain(key);
+      }
+    });
   });
 
   // ===========================================================================
@@ -329,6 +347,21 @@ describe('cli/commands/config', () => {
       );
       const { stdout } = await run('show');
       expect(stdout).not.toContain('sk-super-secret-value');
+    });
+
+    it('reports each [reasoning] row with source attribution via --src (§9.7.5)', async () => {
+      // #showAction maps SCHEMA_MAP → the 5 section:'reasoning' entries (S1) auto-flow into the
+      // --src report with value + source attribution. Verifies auto-derivation (no config.ts edit).
+      const { stdout } = await run('show', { src: true });
+      for (const key of [
+        'reasoning.agent',
+        'reasoning.breakdown_agent',
+        'reasoning.bug_finder_agent',
+        'reasoning.validation_agent',
+        'reasoning.impl_agent',
+      ]) {
+        expect(stdout).toContain(key);
+      }
     });
   });
 

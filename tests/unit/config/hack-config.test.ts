@@ -1221,3 +1221,70 @@ describe('hack-config: [reasoning] schema wiring', () => {
     );
   });
 });
+
+// P1.M1.T2.S2 (plan 013): [reasoning] enum validation is case-insensitive (PRD §9.2.9 / §9.7.5 —
+// the vocabulary is "one of (case-insensitive)"). A case variant like 'HIGH'/'Off' must be ACCEPTED
+// and normalized to the canonical lowercase token, while a genuinely out-of-vocab value still throws
+// the §9.7.7 message. Gated to [reasoning] ONLY — other enum keys stay case-sensitive.
+describe('hack-config: [reasoning] case-insensitive enum + normalization', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'hack-reasoning-ci-'));
+    // Delete the env keys this suite touches so .env/stale values never mask seeding.
+    delete process.env.PRP_REASONING_AGENT;
+    delete process.env.PRP_REASONING_BREAKDOWN_AGENT;
+    delete process.env.PRP_REASONING_BUG_FINDER_AGENT;
+    delete process.env.PRP_REASONING_VALIDATION_AGENT;
+    delete process.env.PRP_REASONING_IMPL_AGENT;
+    // Global-path cascade keys must be clean so a stray HOME/XDG never leaks.
+    delete process.env.HACK_CONFIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+    delete process.env.PRP_REASONING_AGENT;
+    delete process.env.PRP_REASONING_BREAKDOWN_AGENT;
+    delete process.env.PRP_REASONING_BUG_FINDER_AGENT;
+    delete process.env.PRP_REASONING_VALIDATION_AGENT;
+    delete process.env.PRP_REASONING_IMPL_AGENT;
+  });
+
+  it('accepts a case-variant [reasoning] value case-insensitively and normalizes to lowercase', () => {
+    // SETUP — project .hack sets [reasoning] agent = "HIGH" and impl_agent = "Off" (case variants).
+    // These would FAIL today (case-sensitive enum check); T2.S2 relaxes the comparison for
+    // [reasoning] ONLY (§9.2.9) and seeds the canonical lowercase token (§9.7.5 "→ 'high'").
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-reasoning-ci'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-reasoning-ci-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[reasoning]\nagent = "HIGH"\nimpl_agent = "Off"\n'
+    );
+
+    // EXECUTE + VERIFY — case variants are ACCEPTED (no throw) AND normalized to lowercase.
+    expect(() => loadHackConfig(repoRoot)).not.toThrow();
+    expect(process.env.PRP_REASONING_AGENT).toBe('high');
+    expect(process.env.PRP_REASONING_IMPL_AGENT).toBe('off');
+  });
+
+  it('still rejects a genuinely out-of-vocab [reasoning] value (§9.7.7)', () => {
+    // SETUP — 'loud' is genuinely out-of-vocab (not a case variant). The case-insensitive
+    // relaxation must NOT accept it; the §9.7.7 message still names the ORIGINAL value + the
+    // accepted levels.
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-reasoning-ci-enum'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-reasoning-ci-enum-'));
+    writeFileSync(join(repoRoot, '.hack'), '[reasoning]\nagent = "loud"\n');
+
+    // EXECUTE + VERIFY
+    expect(() => loadHackConfig(repoRoot)).toThrow(
+      /is not one of the accepted values/
+    );
+    // The error message echoes the ORIGINAL value ("loud"), not a lowercased variant.
+    expect(() => loadHackConfig(repoRoot)).toThrow(/"loud"/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(
+      /off, minimal, low, medium, high, xhigh/
+    );
+  });
+});

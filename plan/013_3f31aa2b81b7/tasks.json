@@ -92,7 +92,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": ".hack schema wiring ([reasoning] section)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Expose the five reasoning levels as .hack [reasoning] keys with enum validation, so .hack seeds the PRP_REASONING_* env vars. The init template and `hack config show --src` are AUTO-DERIVED from SCHEMA_MAP (verified) and need no separate code — only verification. Case-insensitivity requires a loader normalization step.",
               "subtasks": [
                 {
@@ -117,7 +117,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Case-insensitive enum validation in loader + verify auto-derivation + repo .hack block",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"
