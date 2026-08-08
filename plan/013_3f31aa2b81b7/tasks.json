@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Per-Role Reasoning Level (Extended-Thinking Budget)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Make the extended-thinking ('reasoning') budget a first-class, independently-configurable per-role setting, fully decoupled from model (tier) selection. Five roles, each controlled by one PRP_REASONING_<ROLE> env var (vocabulary off/minimal/low/medium/high/xhigh, case-insensitive), resolved through the §9.2.1 layer stack, validated fail-fast at startup, and surfaced in .hack + hack config show --src. Implements PRD §9.2.9 (new) plus conforming edits to §6.1, §9.2.2, §9.2.3, §9.5, §9.7.5. Architectural ground truth is in plan/013_3f31aa2b81b7/architecture/ (system-context.md, integration-points.md, external-deps.md) — all change sites verified by direct read. Groundswell harness-side --thinking wiring is a cross-repo dependency (OUT OF SCOPE); this phase stops at storing the resolved level on AgentConfig.thinking.",
       "milestones": [
         {
@@ -242,14 +242,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Sync Changeset-Level Documentation (Mode B)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Cross-cutting docs that only make sense once the whole feature lands. Depends on EVERY implementing subtask in P1.M1. Do NOT edit PRD.md, tasks.json, prd_snapshot.md, or PROMPTS.md.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Sync changeset-level documentation (README, CONFIGURATION, ARCHITECTURE)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Update the changeset-level docs that summarize the whole per-role reasoning feature: docs/CONFIGURATION.md (the five env vars + five [reasoning] keys + two-independent-axes model + vocabulary/defaults/empty/fail-fast + behavior change), docs/ARCHITECTURE.md (reasoning as an axis orthogonal to model tier + QA-persona split), and README.md (mention per-role reasoning, link CONFIGURATION).",
               "subtasks": [
                 {
@@ -298,7 +298,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "README.md — mention per-role reasoning is independently configurable (link CONFIGURATION)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S3",

@@ -464,6 +464,13 @@ export ZAI_API_KEY="your-zai-key-here"
 > Tier names were renamed `opus`→`high`, `sonnet`→`balanced`, `haiku`→`fast` (PRD §9.2.8).
 > The legacy `ANTHROPIC_DEFAULT_*` env vars still work with a one-time deprecation warning.
 
+> **Reasoning is a separate, per-role axis** (PRD §9.2.9): each agent role's
+> extended-thinking budget is independently configurable — `off` / `minimal` / `low`
+> / `medium` / `high` / `xhigh` — and is decoupled from model selection, so you can
+> run a strong model with thinking off or a fast model with thinking on. See
+> [Configuration → Reasoning Levels](docs/CONFIGURATION.md#reasoning-levels) for the
+> per-role env vars and defaults.
+
 ### How It Works
 
 **Authentication is provider-aware** (PRD §9.2.6). For the resolved provider (default `zai`),
