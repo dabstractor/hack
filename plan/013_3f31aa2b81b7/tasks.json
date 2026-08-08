@@ -256,7 +256,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "docs/CONFIGURATION.md — env vars, [reasoning] keys, two-axes model, vocab/defaults/empty/fail-fast, behavior change",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S4",
@@ -281,7 +281,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "docs/ARCHITECTURE.md — per-role reasoning as an axis orthogonal to model tier + QA split",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S3",

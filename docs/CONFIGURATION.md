@@ -14,6 +14,7 @@
   - [API Authentication](#api-authentication)
   - [Model Selection](#model-selection)
   - [Agent Runtime (Harness)](#agent-runtime-harness)
+  - [Reasoning Levels](#reasoning-levels)
   - [Pipeline Control](#pipeline-control)
   - [Resilience Tuning](#resilience-tuning)
   - [Distributed PRDs](#distributed-prds)
@@ -89,6 +90,7 @@ subsections for the per-key semantics.
 | `[section]`         | Keys (summary)                                                                                                                                 | Maps to env vars / CLI flags (sample)                                                                                                              |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `[models]`          | `high`, `balanced`, `fast`                                                                                                                     | `PRP_MODEL_HIGH` / `_BALANCED` / `_FAST`                                                                                                           |
+| `[reasoning]`       | `agent`, `breakdown_agent`, `bug_finder_agent`, `validation_agent`, `impl_agent`                                                               | `PRP_REASONING_AGENT` / `_BREAKDOWN_AGENT` / `_BUG_FINDER_AGENT` / `_VALIDATION_AGENT` / `_IMPL_AGENT`                                             |
 | `[endpoint]`        | `base_url`                                                                                                                                     | `PRP_API_BASE_URL`                                                                                                                                 |
 | `[harness]`         | `name`                                                                                                                                         | `PRP_AGENT_HARNESS` (`pi` \| `claude-code`)                                                                                                        |
 | `[pipeline]`        | `parallel_research`, `research_depth`, `research_timeout_seconds`, `issue_retry_max`, `commit_format`, `commit_style`, `commit_style_examples` | `PARALLEL_RESEARCH`, `RESEARCH_DEPTH`, `RESEARCH_TIMEOUT`, `ISSUE_RETRY_MAX`, `PRP_COMMIT_FORMAT`, `PRP_COMMIT_STYLE`, `PRP_COMMIT_STYLE_EXAMPLES` |
@@ -227,6 +229,46 @@ For the full harness system — supported harnesses, `configureHarnesses()`
 configuration, the capability reference, and feature-parity rules — see the
 **[Harness System](./GROUNDSWELL_GUIDE.md#harness-system)** section of the
 Groundswell Guide.
+
+### Reasoning Levels
+
+The extended-thinking ("reasoning") budget is a **first-class, independently-configurable
+per-role setting**, fully decoupled from the model id (PRD §9.2.9). Which **model** a role runs
+(chosen per tier, see [Model Selection](#model-selection)) and **how hard it reasons** (chosen per
+role, below) are **two independent axes** — tuning one never forces a compromise on the other. See
+[Models, Roles & Reasoning Budget](#models-roles--reasoning-budget) for the role-level view.
+
+| Variable                         | Required | Default | Description                                                                                                                                                                                                              |
+| -------------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PRP_REASONING_AGENT`            | No       | `high`  | Reasoning level for the **research / PRP** role (`AGENT`). Analysis-heavy; strong reasoning improves PRP quality.                                                                                                        |
+| `PRP_REASONING_BREAKDOWN_AGENT`  | No       | `high`  | Reasoning level for the **task-decomposition** role (`BREAKDOWN_AGENT`). Synthesizing the strict Phase→Milestone→Task→Subtask hierarchy is reasoning-intensive.                                                          |
+| `PRP_REASONING_BUG_FINDER_AGENT` | No       | `high`  | Reasoning level for the **bug-finder** role (`BUG_FINDER_AGENT`). Adversarial analysis; weak reasoning misses bugs.                                                                                                      |
+| `PRP_REASONING_VALIDATION_AGENT` | No       | `high`  | Reasoning level for the **validation** role (`VALIDATION_AGENT`). Validating against the full PRD rewards strong reasoning.                                                                                              |
+| `PRP_REASONING_IMPL_AGENT`       | No       | `off`   | Reasoning level for the **implementation / codegen** role (`IMPL_AGENT`). Codegen executes a complete PRP contract and needs no extended thinking — `off` is faster, cheaper, and decouples reasoning from model choice. |
+
+**Vocabulary (case-insensitive):** `off`, `minimal`, `low`, `medium`, `high`, `xhigh` (`xhigh` is
+the maximum). These are the canonical tokens forwarded to the selected harness; the `pi` harness
+maps them to its `--thinking <level>` argument, and `claude-code` maps them to its extended-thinking
+budget.
+
+**Resolution & fail-fast (PRD §9.2.9):**
+
+- Each role resolves its `PRP_REASONING_<ROLE>` through the standard
+  [Configuration Priority](#configuration-priority) layer stack (built-in default < `.hack` <
+  `.hack.local` < `.env` < shell env < CLI). A user-set value is authoritative — whatever level a
+  role resolves to is exactly what it runs.
+- **Empty / whitespace-only** value → treated as "unset" → falls back to the role's default. An
+  empty value is **never** forwarded to the harness (consistent with the §9.2.7 empty-string policy).
+- **Invalid value** (outside the vocabulary, e.g. `PRP_REASONING_AGENT=ultra`) → **hard startup
+  error**: the pipeline aborts with exit code `1` (`ReasoningConfigError`) — naming the offending
+  key, the value, and the accepted levels — **before** any session is created or agent invoked. A
+  bad reasoning level must never surface as a deep runtime error inside the first agent call.
+
+**`.hack` keys:** each var is seeded by a `[reasoning]` key in `.hack`
+(`agent`, `breakdown_agent`, `bug_finder_agent`, `validation_agent`, `impl_agent` — see
+[.hack Configuration File](#hack-configuration-file) and PRD §9.7.5); real shell env still wins
+per the env-over-file rule. `hack config show --src` reports each role's resolved level together
+with its winning source layer.
 
 ### Pipeline Control
 
@@ -397,12 +439,13 @@ Declares the PRD the source of truth for an _already-implemented_ codebase (PRD 
 ## Models, Roles & Reasoning Budget
 
 The pipeline selects models via **three roles** — research, reasoning, and implementation. Each
-role maps to a quality **tier** (high / balanced / fast) and a reasoning budget. The
-`PRP_MODEL_*` env vars override the tier defaults; the role → {tier, budget} mapping is fixed in
-`ROLE_CONFIG` (`src/agents/agent-factory.ts`, PRD §9.2.3 / §6.1). Tiers are **quality levels**
-(default model + max tokens); roles are the authoritative binding of a pipeline persona to a tier
-plus a reasoning budget. See the [Model Selection](#model-selection) env-var table for the
-canonical tier-override env vars.
+role is the composition of **two independent axes**: a quality **tier** (high / balanced / fast,
+which picks the model id + max tokens) and a **reasoning level** (the extended-thinking budget).
+Tuning one axis never perturbs the other — you can run a strong model with reasoning off, or a fast
+model with reasoning on. The `PRP_MODEL_*` env vars override the tier defaults
+([Model Selection](#model-selection)); the per-role reasoning level is configured independently via
+the `PRP_REASONING_*` env vars ([Reasoning Levels](#reasoning-levels), PRD §9.2.9). The role→tier
+binding lives in `ROLE_CONFIG` (`src/agents/agent-factory.ts`, PRD §9.2.3 / §6.1).
 
 ### Model Tiers
 
@@ -416,10 +459,11 @@ env vars (see [Model Selection](#model-selection)); the role→tier binding is a
 | **balanced** | glm-5.2       | 4096       | Balanced performance, default for most tasks |
 | **fast**     | glm-5-turbo   | 4096       | Fast, simple operations                      |
 
-> **Tier ↔ role note:** `balanced` is bound to the Research and Reasoning roles (Reasoning at the
-> `xhigh` reasoning budget); `fast` is bound to the Implementation role (Coder PRP
-> execution/fix, Cleanup). `high` is the highest-quality tier override — not currently bound to a
-> fixed role. See [Model Roles](#model-roles) for the authoritative mapping.
+> **Tier ↔ role note:** `balanced` is bound to the Research and Reasoning roles; `fast` is bound
+> to the Implementation role (Coder PRP execution/fix, Cleanup). `high` is the highest-quality tier
+> override — not currently bound to a fixed role. Each role's reasoning level is configured
+> independently (see [Reasoning Levels](#reasoning-levels)); the role→tier binding is authoritative in
+> [Model Roles](#model-roles) below.
 
 ### When to Use Each Tier
 
@@ -443,21 +487,28 @@ env vars (see [Model Selection](#model-selection)); the role→tier binding is a
 ### Model Roles
 
 In addition to the model **tiers** above, the pipeline assigns each agent a model **role**
-(PRD §9.2.3) that selects both the tier and the reasoning (extended-thinking) budget. The
-role→{tier, budget} mapping lives in `ROLE_CONFIG` (in
-`src/agents/agent-factory.ts`) and is the single source of truth.
+(PRD §9.2.3) that selects the tier; the per-role **reasoning level** is a separate, independently-
+configured axis (see [Reasoning Levels](#reasoning-levels), PRD §9.2.9). The role→tier binding
+lives in `ROLE_CONFIG` (in `src/agents/agent-factory.ts`) and is the single source of truth.
 
-| Role               | Tier     | Reasoning Budget | Pipeline agents                                   |
-| ------------------ | -------- | ---------------- | ------------------------------------------------- |
-| **Research**       | balanced | normal           | Researcher (PRP creation, architecture research)  |
-| **Reasoning**      | balanced | `xhigh`          | Architect (decomposition), Bug-finder, Validation |
-| **Implementation** | fast     | normal           | Coder (PRP execution, post-validation fix)        |
+| Role               | Tier     | Reasoning Level (default) | Pipeline agents                                   |
+| ------------------ | -------- | ------------------------- | ------------------------------------------------- |
+| **Research**       | balanced | `high`                    | Researcher (PRP creation, architecture research)  |
+| **Reasoning**      | balanced | `high`                    | Architect (decomposition), Bug-finder, Validation |
+| **Implementation** | fast     | `off`                     | Coder (PRP execution, post-validation fix)        |
 
-> **Maximum reasoning budget:** Decomposition, creative bug-finding, and validation run at
-> the **maximum** reasoning budget (extended-thinking `xhigh`) per PRD §6.1 / §9.2.3, because
-> synthesizing research into a strict Phase→Milestone→Task→Subtask hierarchy is the most
-> reasoning-intensive step. Research and Implementation roles run at their model's normal
-> budget (the `thinking` field is omitted → `undefined`).
+> **Reasoning is a separate axis.** Each role's reasoning level is its `PRP_REASONING_*` default
+> (above) and is **independently configurable** — see [Reasoning Levels](#reasoning-levels). The
+> Reasoning role covers three agent identities (`BREAKDOWN_AGENT` / `BUG_FINDER_AGENT` /
+> `VALIDATION_AGENT`), each with its own `PRP_REASONING_*` var (all default `high`).
+>
+> **Behavior change vs. the prior hard-wired design (PRD §9.2.9).** Previously the reasoning
+> budget was hard-wired to the role: the Reasoning role was pinned to the **maximum** (`xhigh`),
+> Research ran at an unspecified "normal" budget, and Implementation inherited its model's default.
+> Under §9.2.9 these become configurable **defaults** — Reasoning and Research move to an explicit
+> **`high`**, and Implementation is now explicitly **`off`**. These are deliberate default changes;
+> nothing removes the prior capability — **`xhigh` remains available everywhere** via explicit
+> config (e.g. `PRP_REASONING_BREAKDOWN_AGENT=xhigh`).
 
 ### Model Override
 
