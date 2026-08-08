@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse, TomlError } from 'smol-toml';
-import { PRP_API_KEY } from './constants.js';
+import { PRP_API_KEY, REASONING_LEVELS } from './constants.js';
 import { HackConfigError } from './types.js';
 
 /**
@@ -208,6 +208,50 @@ export const SCHEMA_MAP: readonly HackConfigSchemaEntry[] = [
     envVar: 'PRP_MODEL_FAST',
     type: 'string',
     defaultValue: 'glm-5-turbo',
+  },
+
+  // --- [reasoning] (§9.2.9) — per-role extended-thinking level; INDEPENDENT of [models]
+  //     (§9.7.5): [reasoning] sets a role's thinking level; [models] sets its model id;
+  //     the two are orthogonal — a strong model can run with reasoning off (§9.2.3/§9.2.9). ---
+  {
+    section: 'reasoning',
+    key: 'agent',
+    envVar: 'PRP_REASONING_AGENT',
+    type: 'string',
+    defaultValue: 'high',
+    acceptedValues: REASONING_LEVELS,
+  },
+  {
+    section: 'reasoning',
+    key: 'breakdown_agent',
+    envVar: 'PRP_REASONING_BREAKDOWN_AGENT',
+    type: 'string',
+    defaultValue: 'high',
+    acceptedValues: REASONING_LEVELS,
+  },
+  {
+    section: 'reasoning',
+    key: 'bug_finder_agent',
+    envVar: 'PRP_REASONING_BUG_FINDER_AGENT',
+    type: 'string',
+    defaultValue: 'high',
+    acceptedValues: REASONING_LEVELS,
+  },
+  {
+    section: 'reasoning',
+    key: 'validation_agent',
+    envVar: 'PRP_REASONING_VALIDATION_AGENT',
+    type: 'string',
+    defaultValue: 'high',
+    acceptedValues: REASONING_LEVELS,
+  },
+  {
+    section: 'reasoning',
+    key: 'impl_agent',
+    envVar: 'PRP_REASONING_IMPL_AGENT',
+    type: 'string',
+    defaultValue: 'off',
+    acceptedValues: REASONING_LEVELS,
   },
 
   // --- [endpoint] (§9.2.4) ---
@@ -636,6 +680,13 @@ const HACK_CONFIG_SCHEMA: Readonly<
     high: { type: 'string' },
     balanced: { type: 'string' },
     fast: { type: 'string' },
+  },
+  reasoning: {
+    agent: { type: 'string', enum: REASONING_LEVELS },
+    breakdown_agent: { type: 'string', enum: REASONING_LEVELS },
+    bug_finder_agent: { type: 'string', enum: REASONING_LEVELS },
+    validation_agent: { type: 'string', enum: REASONING_LEVELS },
+    impl_agent: { type: 'string', enum: REASONING_LEVELS },
   },
   endpoint: { base_url: { type: 'string' } },
   harness: { name: { type: 'string', enum: ['pi', 'claude-code'] } },

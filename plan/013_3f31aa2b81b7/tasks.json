@@ -92,14 +92,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": ".hack schema wiring ([reasoning] section)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Expose the five reasoning levels as .hack [reasoning] keys with enum validation, so .hack seeds the PRP_REASONING_* env vars. The init template and `hack config show --src` are AUTO-DERIVED from SCHEMA_MAP (verified) and need no separate code — only verification. Case-insensitivity requires a loader normalization step.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Add 5 [reasoning] entries to SCHEMA_MAP + reasoning section to HACK_CONFIG_SCHEMA",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -117,7 +117,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Case-insensitive enum validation in loader + verify auto-derivation + repo .hack block",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -144,7 +144,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Decouple createBaseConfig: explicit thinking param, strip thinking from ROLE_CONFIG",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S3"

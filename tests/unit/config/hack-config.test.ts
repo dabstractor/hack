@@ -39,6 +39,7 @@ import {
   SCHEMA_BY_KEY,
   _resetValidationWarnings,
 } from '../../../src/config/hack-config.js';
+import { REASONING_LEVELS } from '../../../src/config/constants.js';
 
 describe('config/hack-config: parseHackFile', () => {
   let dir: string;
@@ -434,9 +435,9 @@ describe('hack-config: SCHEMA_MAP', () => {
     vi.unstubAllEnvs();
   });
 
-  it('SCHEMA_MAP has all 41 §9.7.5 rows', () => {
+  it('SCHEMA_MAP has all 46 §9.7.5 rows', () => {
     // VERIFY: exhaustive coverage of the §9.7.5 schema reference table
-    expect(SCHEMA_MAP.length).toBe(41);
+    expect(SCHEMA_MAP.length).toBe(46);
   });
 
   it('every §9.7.5 [section].key is present in SCHEMA_BY_KEY', () => {
@@ -471,9 +472,9 @@ describe('hack-config: SCHEMA_MAP', () => {
     }
   });
 
-  it('SCHEMA_BY_KEY is a complete lookup index (41 keys, every entry reachable)', () => {
+  it('SCHEMA_BY_KEY is a complete lookup index (46 keys, every entry reachable)', () => {
     // VERIFY: the derived index has exactly one entry per SCHEMA_MAP row
-    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(41);
+    expect(Object.keys(SCHEMA_BY_KEY).length).toBe(46);
     for (const entry of SCHEMA_MAP) {
       expect(SCHEMA_BY_KEY[`${entry.section}.${entry.key}`]).toBe(entry);
     }
@@ -1111,5 +1112,112 @@ describe('commit_style / commit_style_examples schema wiring', () => {
     // EXECUTE & VERIFY — no throw; seeds '0' (consistent with S1's allow-0 getter).
     expect(() => loadHackConfig(repoRoot)).not.toThrow();
     expect(process.env.PRP_COMMIT_STYLE_EXAMPLES).toBe('0');
+  });
+});
+
+// P1.M1.T2.S1 (plan 013): [reasoning] schema wiring — the 5 per-role thinking-level keys
+// (§9.2.9 / §9.7.5) are first-class .hack citizens. SCHEMA_MAP drives seeding/show;
+// HACK_CONFIG_SCHEMA drives validation (both carry REASONING_LEVELS by design — the file's
+// coexistence note). HACK_KEY_TO_ENV is derived, so the 5 mappings auto-flow into the loader.
+describe('hack-config: [reasoning] schema wiring', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'hack-reasoning-'));
+    // Delete the env keys this suite touches so .env/stale values never mask seeding/validation.
+    delete process.env.PRP_REASONING_AGENT;
+    delete process.env.PRP_REASONING_BREAKDOWN_AGENT;
+    delete process.env.PRP_REASONING_BUG_FINDER_AGENT;
+    delete process.env.PRP_REASONING_VALIDATION_AGENT;
+    delete process.env.PRP_REASONING_IMPL_AGENT;
+    // Global-path cascade keys must be clean so a stray HOME/XDG never leaks.
+    delete process.env.HACK_CONFIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+    delete process.env.PRP_REASONING_AGENT;
+    delete process.env.PRP_REASONING_BREAKDOWN_AGENT;
+    delete process.env.PRP_REASONING_BUG_FINDER_AGENT;
+    delete process.env.PRP_REASONING_VALIDATION_AGENT;
+    delete process.env.PRP_REASONING_IMPL_AGENT;
+  });
+
+  const REASONING_ROWS = SCHEMA_MAP.filter(e => e.section === 'reasoning');
+
+  it('SCHEMA_MAP has 5 [reasoning] entries carrying REASONING_LEVELS as acceptedValues', () => {
+    // VERIFY — 5 entries (§9.7.5 table), each with the right key/envVar/type/default + the
+    // REASONING_LEVELS vocab (single source of truth — not a hand-literalized list).
+    expect(REASONING_ROWS).toHaveLength(5);
+    const byKey = Object.fromEntries(REASONING_ROWS.map(e => [e.key, e]));
+    expect(byKey.agent).toMatchObject({
+      envVar: 'PRP_REASONING_AGENT',
+      type: 'string',
+      defaultValue: 'high',
+      acceptedValues: [...REASONING_LEVELS],
+    });
+    expect(byKey.breakdown_agent).toMatchObject({
+      envVar: 'PRP_REASONING_BREAKDOWN_AGENT',
+      type: 'string',
+      defaultValue: 'high',
+      acceptedValues: [...REASONING_LEVELS],
+    });
+    expect(byKey.bug_finder_agent).toMatchObject({
+      envVar: 'PRP_REASONING_BUG_FINDER_AGENT',
+      type: 'string',
+      defaultValue: 'high',
+      acceptedValues: [...REASONING_LEVELS],
+    });
+    expect(byKey.validation_agent).toMatchObject({
+      envVar: 'PRP_REASONING_VALIDATION_AGENT',
+      type: 'string',
+      defaultValue: 'high',
+      acceptedValues: [...REASONING_LEVELS],
+    });
+    expect(byKey.impl_agent).toMatchObject({
+      envVar: 'PRP_REASONING_IMPL_AGENT',
+      type: 'string',
+      defaultValue: 'off', // impl_agent default is 'off' (§9.2.9); the other four are 'high'
+      acceptedValues: [...REASONING_LEVELS],
+    });
+  });
+
+  it('seeds PRP_REASONING_AGENT from [reasoning] agent (HACK_KEY_TO_ENV auto-derived)', () => {
+    // SETUP — project .hack sets [reasoning] agent = "medium".
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-reasoning-seed'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-reasoning-seed-'));
+    writeFileSync(join(repoRoot, '.hack'), '[reasoning]\nagent = "medium"\n');
+
+    // EXECUTE
+    loadHackConfig(repoRoot);
+
+    // VERIFY — the loader seeded PRP_REASONING_AGENT from the .hack TOML via the derived
+    // HACK_KEY_TO_ENV map (reasoning.agent → PRP_REASONING_AGENT).
+    expect(process.env.PRP_REASONING_AGENT).toBe('medium');
+  });
+
+  it('rejects an out-of-vocab [reasoning] impl_agent with the §9.7.7 message', () => {
+    // SETUP — project .hack sets an out-of-vocab value. Use 'loud' (genuinely out-of-vocab),
+    // NOT a case variant like 'HIGH': the loader enum check is case-sensitive today, so 'HIGH'
+    // also throws — but that case-insensitivity gap is T2.S2's domain, not this test's.
+    vi.stubEnv('HACK_CONFIG_HOME', join(dir, 'no-global-reasoning-enum'));
+    const repoRoot = mkdtempSync(join(dir, 'repo-reasoning-enum-'));
+    writeFileSync(
+      join(repoRoot, '.hack'),
+      '[reasoning]\nimpl_agent = "loud"\n'
+    );
+
+    // EXECUTE + VERIFY — HACK_CONFIG_SCHEMA.reasoning.impl_agent.enum rejects 'loud'; the message
+    // names section+key+value+the accepted levels (§9.7.7). This proves the HACK_CONFIG_SCHEMA
+    // reasoning section is wired (module-private → asserted via the validation error it raises).
+    expect(() => loadHackConfig(repoRoot)).toThrow(
+      /is not one of the accepted values/
+    );
+    expect(() => loadHackConfig(repoRoot)).toThrow(/impl_agent/);
+    expect(() => loadHackConfig(repoRoot)).toThrow(
+      /off, minimal, low, medium, high, xhigh/
+    );
   });
 });
