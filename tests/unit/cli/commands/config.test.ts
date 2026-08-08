@@ -76,6 +76,12 @@ describe('cli/commands/config', () => {
     delete process.env.RESEARCH_DEPTH;
     delete process.env.RESEARCH_QUEUE_CONCURRENCY;
     delete process.env.PARALLEL_RESEARCH;
+    // Per-role reasoning (PRD §9.2.9) — same determinism rationale as above.
+    delete process.env.PRP_REASONING_AGENT;
+    delete process.env.PRP_REASONING_BREAKDOWN_AGENT;
+    delete process.env.PRP_REASONING_BUG_FINDER_AGENT;
+    delete process.env.PRP_REASONING_VALIDATION_AGENT;
+    delete process.env.PRP_REASONING_IMPL_AGENT;
   });
 
   afterEach(() => {
@@ -362,6 +368,82 @@ describe('cli/commands/config', () => {
       ]) {
         expect(stdout).toContain(key);
       }
+    });
+
+    // Stronger JSON-based verification of the §9.2.9 acceptance criterion: `hack config
+    // show --src` must report EACH role's resolved value AND its winning source layer
+    // (default / project / env), not just the row's key-name presence. The table grid
+    // is too loose ('default'/'project'/'env' substrings collide with unrelated text),
+    // so these tests target the machine-readable JSON surface and assert exact
+    // value+source per row across the three §9.2.1 precedence layers.
+    describe('show --src: [reasoning] value + source (§9.2.9 acceptance)', () => {
+      type ShowRow = { key: string; value: unknown; source?: string };
+
+      const findRow = (parsed: ShowRow[], key: string): ShowRow => {
+        const row = parsed.find(r => r.key === key);
+        expect(row, `${key} row present`).toBeDefined();
+        return row!;
+      };
+
+      it('defaults: all 5 roles resolve to §9.2.9 defaults with source "default"', async () => {
+        const { stdout } = await run('show', { output: 'json', src: true });
+        const parsed = JSON.parse(stdout) as ShowRow[];
+        const expectRow = (key: string, value: string) => {
+          const row = findRow(parsed, key);
+          expect(row.value).toBe(value);
+          expect(row.source).toBe('default');
+        };
+        expectRow('reasoning.agent', 'high');
+        expectRow('reasoning.breakdown_agent', 'high');
+        expectRow('reasoning.bug_finder_agent', 'high');
+        expectRow('reasoning.validation_agent', 'high');
+        // NOTE: impl_agent's default is 'off', not 'high' (the only role that differs).
+        expectRow('reasoning.impl_agent', 'off');
+      });
+
+      it('.hack value: the set role attributes source "project"; others stay default (independence)', async () => {
+        writeFileSync(
+          join(repoRoot, '.hack'),
+          '[reasoning]\nimpl_agent = "high"\n'
+        );
+        const { stdout } = await run('show', { output: 'json', src: true });
+        const parsed = JSON.parse(stdout) as ShowRow[];
+        // The set key: file value 'high' wins over the 'off' default; source is the
+        // .hack tier label 'project' (NOT '.hack' and NOT 'default').
+        const impl = findRow(parsed, 'reasoning.impl_agent');
+        expect(impl.value).toBe('high');
+        expect(impl.source).toBe('project');
+        // The other four are NOT in .hack → per-key independence: still their defaults + 'default'.
+        const agent = findRow(parsed, 'reasoning.agent');
+        expect(agent.value).toBe('high');
+        expect(agent.source).toBe('default');
+        expect(findRow(parsed, 'reasoning.breakdown_agent').source).toBe(
+          'default'
+        );
+        expect(findRow(parsed, 'reasoning.bug_finder_agent').source).toBe(
+          'default'
+        );
+        expect(findRow(parsed, 'reasoning.validation_agent').source).toBe(
+          'default'
+        );
+      });
+
+      it('env over .hack: a pre-defined env var wins with source "env" (§9.2.1)', async () => {
+        writeFileSync(
+          join(repoRoot, '.hack'),
+          '[reasoning]\nagent = "medium"\n'
+        );
+        // Set the env var BEFORE run(): #showAction snapshots preEnv at its very top
+        // (before loadHackConfig mutates env), so an env set after run() has no effect.
+        process.env.PRP_REASONING_AGENT = 'low';
+        const { stdout } = await run('show', { output: 'json', src: true });
+        const parsed = JSON.parse(stdout) as ShowRow[];
+        const agent = findRow(parsed, 'reasoning.agent');
+        // type 'string' → coerceEnv returns the raw value unchanged; assert the exact string.
+        expect(agent.value).toBe('low');
+        // env-over-file wins (the file said 'medium'; the shell env said 'low').
+        expect(agent.source).toBe('env');
+      });
     });
   });
 
