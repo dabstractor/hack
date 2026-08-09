@@ -311,4 +311,15 @@ describe('config/constants: getPrdIncludeMaxDepth', () => {
     // VERIFY
     expect(result).toBe(4);
   });
+
+  it('(f) floors a fractional value to match sibling count-getters (MINOR-1)', () => {
+    // SETUP — 3.7 must floor to 3, not leak through as a real-valued gate depth
+    vi.stubEnv(PRD_INCLUDE_MAX_DEPTH, '3.7');
+
+    // EXECUTE
+    const result = getPrdIncludeMaxDepth();
+
+    // VERIFY
+    expect(result).toBe(3);
+  });
 });

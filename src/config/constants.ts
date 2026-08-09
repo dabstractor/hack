@@ -1276,7 +1276,7 @@ export function getPrdIncludeMaxDepth(): number {
   if (Number.isNaN(raw) || raw <= 0) {
     return DEFAULT_PRD_INCLUDE_MAX_DEPTH;
   }
-  return raw;
+  return Math.floor(raw);
 }
 
 /**

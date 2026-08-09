@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 1,
+  "summary": "Both PRD-input bugs (BUG-001 marker collision, BUG-002 deep-chain idempotency) are already fixed with regression tests and confirmed by a live E2E probe; full suite (7219 tests), lint, typecheck, format, and docs all pass. One genuinely minor consistency nit: getPrdIncludeMaxDepth() does not Math.floor fractional PRD_INCLUDE_MAX_DEPTH values (no functional/idempotency impact)."
+}
