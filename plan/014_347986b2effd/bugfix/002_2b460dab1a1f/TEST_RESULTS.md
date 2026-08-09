@@ -1,0 +1,64 @@
+# Bug Fix Requirements
+
+## Overview
+Rigorously validated the Distributed-PRD Include Dedup feature (PRD §2.3) against the PRD. The HEADLINE requirement is implemented correctly and robustly: global-flat dedup (each file imported at most once via a shared visited set), elision on second+ encounter (dropped when markers off, structurally-non-resolvable `@!include-ref` comment when on), idempotency as a true fixed point (resolve(resolve(x))===resolve(x)), and exponential-blowup protection all verified on both the existing 67-test suite (all pass) and additional adversarial probes (complex cross-referenced specs, diamonds, mutual cycles, self-cycles, deep chains, fractional/negative maxDepth, boundary-rule edge cases, real symlinked includes). The collision-proof `@!` marker technique genuinely fixes a real idempotency hazard. No critical or major defects found. Three minor issues identified: (1) the emitted marker format `<!-- @!include: -->` deviates from the PRD's literal `<!-- @include: -->` example and the user-facing constants.ts JSDoc is now stale; (2) stale `.md` includes that land at the maxDepth gate emit no stderr warning, violating the unconditional MUST in §2.3 (reachable only at pathological depth, so low real-world impact); (3) symlink aliases to the same physical file defeat dedup because the visited set keys on the lexical path rather than the canonical realpath. All three are minor/edge-case or documentation drift; the core contract is sound.
+
+
+## Critical Issues (Must Fix)
+Issues that prevent core functionality from working.
+
+None.
+
+
+## Major Issues (Should Fix)
+Issues that significantly impact user experience or functionality.
+
+None.
+
+
+## Minor Issues (Nice to Fix)
+Small improvements or polish items.
+
+### Issue 1: Marker format deviates from PRD §2.3 literal spec; constants.ts JSDoc now stale
+**Severity**: Minor
+**ID**: BUG-001
+**Location**: src/core/session-utils.ts:543 (emits @!include) and src/config/constants.ts:1280-1290 (documents @include)
+
+**Description**:
+PRD §2.3 (Markers) specifies that when PRD_INCLUDE_MARKERS is set, the resolved output emits `<!-- @include: path -->` / `<!-- @end-include -->` comment markers, and elided references become 'a stable reference comment that names the path but contains no resolvable @token of its own.' The implementation instead emits `<!-- @!include: path -->` / `<!-- @!end-include -->` and `<!-- @!include-ref: token -->`. The `@!` prefix is a deliberate collision-proof technique (the `!` is outside the token char-class `[A-Za-z0-9_./-]`, making the markers structurally non-resolvable and thus safe even if files named `include`/`end-include`/`include-ref` exist). That choice is defensible and the FUNCTIONAL behavior (idempotency, dedup, elision) is fully correct, but it deviates from the literal marker format the PRD specifies. Worse, the user-facing JSDoc in src/config/constants.ts (the documentation for the PRD_INCLUDE_MARKERS env var) still states the OLD format (`<!-- @include: path -->` / `<!-- @end-include -->`), so the documentation no longer matches what the code emits — anyone reading the env-var docs or writing an external marker parser will be misled. The actual emitted format is undocumented. Verified via probe: resolvePRD('main.md', {markers:true}) for main='@a.md', a='A' returns `<!-- @!include: a.md -->\nA\n<!-- @!end-include -->`.
+
+**Steps to Reproduce**:
+1. Run resolvePRD with markers enabled on a trivial include graph (main='@a.md', a.md='A'). 2. Observe output is `<!-- @!include: a.md -->\nA\n<!-- @!end-include -->`. 3. Compare against PRD §2.3 which specifies `<!-- @include: path -->`. 4. Open src/config/constants.ts lines ~1280-1290: the JSDoc for PRD_INCLUDE_MARKERS documents `<!-- @include: path -->` / `<!-- @end-include -->`, contradicting the `@!`-prefixed markers actually emitted by expandIncludesRecursive at src/core/session-utils.ts:~543.
+
+### Issue 2: Stale `.md` include at the maxDepth gate emits no stderr warning (violates PRD §2.3 MUST)
+**Severity**: Minor
+**ID**: BUG-002
+**Location**: src/core/session-utils.ts:595-636 (neutralizeResolvableTokens — no stale-warning path)
+
+**Description**:
+PRD §2.3 states unconditionally: 'A `.md` token that fails to resolve (stale include) MUST emit a stderr warning.' The stale-include warning works on the normal recursive path, but the depth-gate path does not warn. When a file is resolved at depth >= maxDepth, expandIncludesRecursive delegates to neutralizeResolvableTokens, which by design 'Emits NO stale-include warning (elision = success; verbatim = non-resolving prose, which is silent).' For a non-resolving `.md` token at the gate it leaves the token verbatim but emits no warning. The author's framing treats gate-verbatim survivors as 'non-resolving prose,' but a typo'd include filename deep in the include graph is a genuine stale include, not prose. This defeats the stale-warning's typo-detection purpose for deeply-nested specs. Reachable at the DEFAULT maxDepth=10 via a linear chain of 10 real files whose deepest member references a missing `.md`. Verified: a 10-deep chain (main→f1→…→f10) with f10 containing `DEEP @stale.md END` resolves to `DEEP @stale.md END` with ZERO stderr warnings. Also reproducible more simply with opts.maxDepth=1 (entry includes g.md at depth 1, which hits the gate; g.md's `@missing.md` survives verbatim with no warning).
+
+**Steps to Reproduce**:
+Simplest: write g.md='G @missing.md END' and main.md='@g.md'; call resolvePRD(main.md, {maxDepth:1}) and spy on console.warn. Result is 'G @missing.md END' with warn call count 0 — the stale `@missing.md` did not warn. At default depth: build mainI→f1→…→f10 (10 files), f10.md='DEEP @stale.md END'; resolvePRD(mainI.md) returns 'DEEP @stale.md END' with 0 warnings. PRD §2.3 requires this stale `.md` token to emit exactly one stderr warning.
+
+### Issue 3: Symlink aliasing defeats global-flat dedup (visited set keys on lexical path, not canonical)
+**Severity**: Minor
+**ID**: BUG-003
+**Location**: src/core/session-utils.ts:523-527 (visited.add(abs) where abs=resolve(baseDir,token))
+
+**Description**:
+PRD §2.3 dedup is 'keyed on the resolved absolute path' with the intent that 'A given file is expanded at most once across the entire resolution.' The implementation keys the visited set on `resolve(baseDir, token)` (Node `path.resolve` — a lexically-normalized absolute path), NOT on `realpathSync` (the symlink-resolved canonical path). Consequently two different paths that are symlinks to the SAME physical file get distinct visited keys and the file's content is expanded twice, defeating dedup. This violates the dedup INTENT (the file is logically the same document) even though it is arguably spec-compliant under a strict reading of 'resolved absolute path' as lexical resolution. Verified: with real.md='REAL' and alias.md a symlink to real.md, main.md='@real.md @alias.md' resolves to 'REAL REAL' (duplicated), not 'REAL '.
+
+**Steps to Reproduce**:
+1. In a temp dir, create real.md='REAL'. 2. symlinkSync(real.md, alias.md). 3. Write main.md='@real.md @alias.md'. 4. resolvePRD(main.md) returns 'REAL REAL' (content appears twice). Expected dedup behavior: 'REAL ' (single expansion, second reference elided). The visited set at src/core/session-utils.ts:523-527 uses abs=path.resolve(baseDir, token); switching to realpathSync(abs) for the visited key (and only the key) would dedup symlink aliases while preserving the original-token markers.
+
+## Testing Summary
+- Total bugs found: 3
+- Critical: 0
+- Major: 0
+- Minor: 3
+
+## Recommendations
+- Update the PRD_INCLUDE_MARKERS JSDoc in src/config/constants.ts to document the actually-emitted `@!include`/`@!end-include`/`@!include-ref` markers (and decide explicitly whether to keep the collision-proof `@!` format or honor the PRD's literal `@include` format — documenting the choice either way).
+- Route stale `.md` detection through neutralizeResolvableTokens so a non-resolving `.md` token at the maxDepth gate still emits exactly one stderr warning per the §2.3 MUST, closing the deep-spec typo-detection gap.
+- Consider keying the dedup visited set on realpathSync(abs) (symlink-resolved canonical path) so two aliases to the same file dedup correctly; if lexical keying is intentional, document the symlink limitation explicitly.
