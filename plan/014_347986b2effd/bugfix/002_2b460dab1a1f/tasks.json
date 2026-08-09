@@ -97,7 +97,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "Sweep README.md for include-marker / dedup / stale-warning accuracy",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -116,7 +116,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S2",
                   "title": "Sweep docs/CONFIGURATION.md for the PRD_INCLUDE_MARKERS / dedup rows",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
