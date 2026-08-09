@@ -1,0 +1,11 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+ h2.3 Minor Issues (Nice to Fix)
+  h3.0 Issue 1: Marker-mode idempotency breaks if a file named like a marker word (include / end-include / include-ref) exists in the PRD directory
+  h3.1 Issue 2: Idempotency guarantee (resolve(resolve(x)) === resolve(x)) breaks for include chains deeper than PRD_INCLUDE_MAX_DEPTH
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:12 list:4
