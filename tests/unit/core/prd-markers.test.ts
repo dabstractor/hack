@@ -134,13 +134,16 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('does NOT warn for a cycle back-edge (file exists)', async () => {
+  it('does NOT warn for a cycle back-edge (file exists, elided not literal)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Entry IS a.md; inner @a.md points back at the entry → a cycle (file exists, not stale).
+    // Under §2.3 the self-include is ELIDED (emit nothing); elision is silent (the continue skips
+    // the stale-warning path), so warn is NOT called. The double space is correct: elision drops
+    // the '@token', leaving the surrounding whitespace.
     writeFileSync(join(tmp, 'a.md'), 'X @a.md Y');
     const out = await resolvePRD(join(tmp, 'a.md'));
     expect(warn).not.toHaveBeenCalled();
-    expect(out).toBe('X @a.md Y');
+    expect(out).toBe('X  Y');
   });
 
   it('warns for a directory named *.md (path does not resolve to a FILE)', async () => {

@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Distributed-PRD Include Dedup (Each File Imported At Most Once)",
-      "status": "Planned",
+      "status": "Researching",
       "description": "Rewrite the PRD §2.3 include-resolution model from a per-branch ancestry cycle check to a global flat dedup with elision. A given file is expanded at most once across the entire resolution; subsequent references are elided (dropped, or replaced by a non-resolvable marker comment). This guarantees the resolved document is a true fixed point: resolve(resolve(x)) === resolve(x), which is the property that ensures hash/snapshot/delta consistency (§4.1, §4.3). The change is localized to src/core/session-utils.ts and its tests.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Global Flat Dedup with Elision in expandIncludesRecursive",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Rewrite the recursive include worker to use a single global shared visited set (passed by reference, not copied per branch), elide already-imported files instead of leaving their @tokens literal, and update all JSDoc to describe the new model. Then rewrite the existing tests that assert old per-branch semantics and add new invariant tests for dedup, elision, idempotency, and exponential-blowup protection.",
           "tasks": [
             {
@@ -59,14 +59,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Rewrite Tests for New Dedup / Elision / Idempotency Semantics",
-              "status": "Planned",
+              "status": "Researching",
               "description": "The existing tests assert the OLD per-branch semantics (diamond expands shared file in both branches; cycle back-edge stays literal). They must be rewritten to assert the NEW contract: global flat dedup (each file once), elision on second encounter (dropped or marker comment), and idempotency as a true fixed point. New invariant tests must be added: diamond dedup, marker-mode reference comment, no-marker elision, idempotency fixed point, exponential-blowup guard, entry-is-its-own-cycle, and resolveIncludes single-level contract confirmation.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Rewrite existing diamond/cycle tests to assert dedup + elision",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -83,7 +83,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Add new invariant tests: idempotency fixed point, exponential-blowup guard, marker reference comment, diamond dedup",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

@@ -68,17 +68,19 @@ describe('resolvePRD — recursion', () => {
     expect(result).toBe('start A BODY end');
   });
 
-  it('recursively expands a nested chain (entry→a→b→c)', async () => {
+  it('deduplicates a shared descendant across a nested chain (c imported exactly once)', async () => {
     // SETUP — each file includes the next, three levels deep. Both @tokens in a.md are at a
-    // non-path-char boundary (preceded by '(' and space), so BOTH expand recursively.
+    // non-path-char boundary (preceded by '(' and space), so BOTH would expand recursively —
+    // but c.md is referenced from BOTH a.md and (transitively) b.md, so the SECOND encounter is
+    // ELIDED under §2.3 global-flat dedup.
     writeFileSync(join(tmp, 'c.md'), 'C');
     writeFileSync(join(tmp, 'b.md'), 'B(@c.md)');
     writeFileSync(join(tmp, 'a.md'), 'A(@c.md via b:@b.md)');
     writeFileSync(join(tmp, 'main.md'), 'start @a.md end');
 
-    // EXECUTE — full chain expands inline in order; both @c.md and @b.md in a.md resolve.
+    // EXECUTE + VERIFY — c expands ONCE (first encounter, in a); b's @c.md is ELIDED (§2.3 dedup) → B().
     await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe(
-      'start A(C via b:B(C)) end'
+      'start A(C via b:B()) end'
     );
   });
 
@@ -94,45 +96,44 @@ describe('resolvePRD — recursion', () => {
 });
 
 // ============================================================================
-// resolvePRD — cycle detection (path-based visited set)
+// resolvePRD — global-flat dedup & elision (each file imported at most once)
 // ============================================================================
 
-describe('resolvePRD — cycle detection', () => {
-  it('terminates a self-cycle leaving the back-edge literal', async () => {
+describe('resolvePRD — global-flat dedup & elision (each file imported at most once)', () => {
+  it('elides a self-cycle (second encounter drops the @token)', async () => {
     // SETUP — a.md includes itself.
     writeFileSync(join(tmp, 'a.md'), 'X @a.md Y');
     writeFileSync(join(tmp, 'main.md'), '@a.md');
 
-    // EXECUTE + VERIFY — the inner @a.md stays literal (cycle); no throw, no infinite loop.
-    await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe('X @a.md Y');
+    // EXECUTE + VERIFY — the inner @a.md is ELIDED (a already visited); no throw, no infinite loop.
+    // The double space is correct: elision drops the '@token', leaving the surrounding whitespace.
+    await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe('X  Y');
   });
 
-  it('terminates a mutual cycle leaving the back-edge literal', async () => {
+  it('elides a mutual-cycle back-edge (a is imported exactly once)', async () => {
     // SETUP — a→b→a (b includes a again).
     writeFileSync(join(tmp, 'a.md'), 'A-TOP @b.md A-BOT');
     writeFileSync(join(tmp, 'b.md'), 'B-OPEN @a.md B-CLOSE');
     writeFileSync(join(tmp, 'main.md'), '@a.md');
 
-    // EXECUTE — a expands; a's @b.md expands; b's @a.md is a cycle → stays literal.
+    // EXECUTE — a expands; a's @b.md expands; b's @a.md is ELIDED (a already visited).
     const result = await resolvePRD(join(tmp, 'main.md'));
 
-    // VERIFY — b's body inlined once; the back-edge @a.md inside b stays literal.
-    expect(result).toBe('A-TOP B-OPEN @a.md B-CLOSE A-BOT');
-    expect(result).not.toContain('A-TOP A-TOP'); // proves recursion did NOT re-enter a
+    // VERIFY — b's body inlined once; b's back-edge @a.md is ELIDED (double space B-OPEN␣␣B-CLOSE).
+    expect(result).toBe('A-TOP B-OPEN  B-CLOSE A-BOT');
+    expect(result).not.toContain('A-TOP A-TOP'); // proves a is imported exactly once (§2.3 dedup)
   });
 
-  it('detects an include pointing back at the entry as a cycle', async () => {
-    // SETUP — a.md points back at main.md (the entry, seeded into visited).
+  it('elides an include pointing back at the entry (entry pre-seeded in visited)', async () => {
+    // SETUP — a.md points back at main.md (the entry, pre-seeded in visited).
     writeFileSync(join(tmp, 'a.md'), 'A @main.md END');
     writeFileSync(join(tmp, 'main.md'), '@a.md');
 
-    // EXECUTE — a expands; a's @main.md is the entry → cycle → literal.
-    await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe(
-      'A @main.md END'
-    );
+    // EXECUTE + VERIFY — a's @main.md is ELIDED (the entry is pre-seeded in visited). Double space.
+    await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe('A  END');
   });
 
-  it('expands a diamond in both branches (path-based visited set)', async () => {
+  it('deduplicates a diamond dependency — shared file expanded exactly once', async () => {
     // SETUP — entry→a and entry→b; both a and b include shared.md.
     writeFileSync(join(tmp, 'shared.md'), 'S');
     writeFileSync(join(tmp, 'a.md'), '[@shared.md]');
@@ -142,9 +143,8 @@ describe('resolvePRD — cycle detection', () => {
     // EXECUTE
     const out = await resolvePRD(join(tmp, 'main.md'));
 
-    // VERIFY — shared appears TWICE (once per branch); a flat set would wrongly deduplicate.
-    expect(out).toBe('[S]\n{S}');
-    expect(out.split('S').length).toBe(3); // two S's
+    // VERIFY — shared expands ONCE (first encounter via a); b's @shared.md is ELIDED (§2.3 global-flat-dedup).
+    expect(out).toBe('[S]\n{}');
   });
 });
 
