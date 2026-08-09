@@ -1,0 +1,5 @@
+{
+  "hasIssues": false,
+  "issueCount": 0,
+  "summary": "All 3 PRD-listed §2.3 bugs (marker format/JSDoc, depth-gate stale warning, symlink dedup) are already fixed and verified at runtime (17/17 probes, 72/72 §2.3 tests, 7225/7225 full suite); all quality gates pass with 0 errors. No critical/major/minor defects remain in scope."
+}
