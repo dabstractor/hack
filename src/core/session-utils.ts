@@ -415,33 +415,49 @@ export async function resolveIncludes(
 const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
 
 /**
- * Recursively expand `@token` include directives in `content` (PRD §2.3).
+ * Recursively expand `@token` include directives in `content` with GLOBAL-FLAT-DEDUP + ELISION
+ * (PRD §2.3 "No duplication (dedup)").
  *
  * @remarks
  * Internal worker for {@link resolvePRD}. Mirrors {@link resolveIncludes}'s scan loop + error
- * handling (stat/isFile/ENOENT/`SessionFileError`/`m[0]`-fallback) but adds two things:
- * 1. a `visited.has(abs)` **cycle check** — the back-edge `@token` is left literal (silent).
- * 2. **recursive descent** at `depth + 1` instead of a verbatim substitution.
+ * handling (stat/isFile/ENOENT/`SessionFileError`) but adds two things:
  *
- * The `visited` set is PATH-BASED (per-branch ancestry): it is COPIED on each descent
- * (`new Set(visited).add(abs)`) so diamond includes (a→c and b→c) expand `c` in BOTH branches.
- * A flat/global set would wrongly deduplicate diamonds.
+ * 1. **GLOBAL-FLAT-DEDUP** (PRD §2.3): the `visited` set is a SINGLE shared set, passed by
+ *    REFERENCE across the whole resolution (never copied per descent). A file is marked visited
+ *    immediately before descending into its content, so the FIRST textual encounter of a given
+ *    file expands it, and EVERY subsequent reference — in a sibling branch (diamond), a cycle,
+ *    or a back-edge — finds `visited.has(abs)` true and is ELIDED (see #2). This bounds recursion
+ *    to one import per file, so cycles and diamonds terminate without relying on `maxDepth`.
+ *
+ * 2. **ELISION on second+ encounter** (PRD §2.3): when `visited.has(abs)` is true, the `@token`
+ *    is NOT echoed verbatim (a verbatim survivor would re-expand on re-resolution and break the
+ *    idempotency fixed point). Instead it is ELIDED — dropped entirely (markers off) or replaced
+ *    with a non-resolvable `<!-- @include-ref: ${token} -->` comment (markers on). The reference
+ *    comment is idempotent: its path is inside an HTML comment, not `@`-preceded, so
+ *    `RESOLVE_TOKEN` never matches it on re-scan. Elision is a SUCCESSFUL resolution (the file
+ *    exists + was expanded on first encounter), so it NEVER triggers the stale-include warning
+ *    (which fires only when `replacement === undefined`).
+ *
+ * The result is an idempotent fixed point: `resolve(resolve(x)) === resolve(x)` — the property
+ * that guarantees §4.1 hashing, §4.3 delta detection, and `prd_snapshot.md` consistency.
  *
  * `baseDir` is the ENTRY PRD's directory, passed UNCHANGED on every descent (never re-derived
  * from an included file's location) — this preserves the project-root-relative base invariant.
  *
- * The substitution site is a single `out += expanded ?? m[0];` line so S3 can wrap it with
- * `<!-- @include -->` markers later. S2 emits NO markers and NO stale-include warnings.
+ * `maxDepth` is now DEFENSE-IN-DEPTH only — the global-flat-dedup already bounds recursion to one
+ * import per file; the `depth >= maxDepth` gate is a backstop against pathological inputs.
  *
  * @param content - Raw string to scan for include directives.
  * @param baseDir - Directory to resolve include paths against (the entry PRD's directory).
- * @param maxDepth - Max nesting depth (the gate is `depth >= maxDepth` → stop expanding).
+ * @param maxDepth - Max nesting depth (defense-in-depth backstop; the gate is `depth >= maxDepth` → stop expanding).
  * @param depth - Current nesting depth (the entry file is depth 0).
- * @param visited - Absolute ancestry paths (path-based / per-branch) for cycle detection.
+ * @param visited - GLOBAL flat set of absolute paths already expanded this resolution (shared by
+ *        reference; first encounter wins, later references elide). The entry file is pre-seeded.
  * @param markers - When `true`, wrap each EXPANDED include in `<!-- @include: token -->` /
- *        `<!-- @end-include -->` markers (PRD §2.3). Literal survivors (missing/dir/cycle/depth)
- *        are never wrapped.
- * @returns The content with includes recursively expanded inline.
+ *        `<!-- @end-include -->` markers, and emit `<!-- @include-ref: token -->` for elided refs
+ *        (PRD §2.3). Missing/dir/depth survivors are never wrapped.
+ * @returns The content with includes recursively expanded inline (deduplicated; elision leaves no
+ *         resolvable survivors → idempotent fixed point).
  * @throws {SessionFileError} If an existing included file cannot be read (e.g. invalid UTF-8)
  *         or a `stat` call fails with a non-ENOENT error (e.g. EACCES).
  */
@@ -467,9 +483,16 @@ async function expandIncludesRecursive(
     const abs = resolve(baseDir, token);
 
     if (visited.has(abs)) {
-      out += m[0]; // CYCLE — leave back-edge literal, silent
+      // Second-or-later encounter (PRD §2.3 global-flat-dedup): the first encounter already
+      // expanded this file. ELIDE — drop the @token entirely (markers off) or emit a stable,
+      // non-resolvable reference comment (markers on). Elision is a SUCCESSFUL resolution → no
+      // stale-include warning (the `continue` skips the stale-warning + marker-wrap below).
+      if (markers) {
+        out += `<!-- @include-ref: ${token} -->`;
+      }
+      // markers === false → emit nothing (elide entirely)
       last = idx + m[0].length;
-      continue;
+      continue; // skips stale-warning + marker-wrap (first-encounter-only code below)
     }
 
     let replacement: string | undefined;
@@ -477,14 +500,15 @@ async function expandIncludesRecursive(
       const st = await stat(abs);
       if (st.isFile()) {
         const child = await readUTF8FileStrict(abs, 'read include');
-        // PATH-BASED ancestry: copy the set so sibling branches (diamonds) each get their own chain.
-        const childVisited = new Set(visited).add(abs);
+        // GLOBAL FLAT DEDUP: mark THIS file visited BEFORE descending, in the SHARED set (no copy).
+        // First-encounter-wins in document order; sibling-branch / cycle references elide.
+        visited.add(abs);
         replacement = await expandIncludesRecursive(
           child,
           baseDir,
           maxDepth,
           depth + 1,
-          childVisited,
+          visited, // SAME set by reference (no copy) — one global flat set across the document
           markers
         );
       }
