@@ -1,0 +1,12 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+ h2.3 Minor Issues (Nice to Fix)
+  h3.0 Issue 1: Marker format deviates from PRD §2.3 literal spec; constants.ts JSDoc now stale
+  h3.1 Issue 2: Stale .md include at the maxDepth gate emits no stderr warning (violates PRD §2.3 MUST)
+  h3.2 Issue 3: Symlink aliasing defeats global-flat dedup (visited set keys on lexical path, not canonical)
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:15 list:4
