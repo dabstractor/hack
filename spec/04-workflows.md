@@ -6,6 +6,7 @@
 2.  **State Check:** System hashes the PRD — computed over the **fully-resolved, include-expanded document** (§2.3), not the raw entry file — and checks for existing sessions.
 3.  **Architecture Research:** Before planning, an agent explores the codebase to validate feasibility and store findings in `architecture/`.
 4.  **Decomposition:** The **Architect Agent** breaks the PRD down into a strict hierarchy (Phase > Milestone > Task > Subtask) stored in a structured format (e.g., JSON).
+    - **Baseline `.gitignore` scaffolding:** the decomposition MUST include a first, dependency-root subtask that creates — or, if one exists, **extends (never overwrites)** — a baseline `.gitignore` at the repo root (dependency dirs, build output, OS/IDE cruft) before any feature implementation subtask. Full requirement + rationale: §5.1 "Baseline `.gitignore` (breakdown scaffolding)".
 
 ### 4.2 The Execution Loop (The "Inner Loop")
 
@@ -23,10 +24,10 @@ For every item in the backlog (iterating Phase -> Milestone -> Task -> Subtask):
     - Executes the plan.
     - Must pass 4 levels of "Progressive Validation" defined in the PRP. Gates are re-executed as a batch against the terminal filesystem state and MUST be monotonic; see §9.9.
 4.  **Cleanup & Commit (two-phase commit):**
-    - **Pre-cleanup commit (survival):** Before the (long, interruptible) cleanup agent runs, the orchestrator commits the item's substance — source changes, its `plan/` work directory, and its `Complete` status — via the **Smart Commit** tool (`stagecoach`). Committing before cleanup guarantees a force-interrupt here can no longer leave an item "Complete on disk but uncommitted," the state that orphans `plan/` directories forever (the cleanup agent is forbidden from touching `plan/`; see §5.1).
+    - **Pre-cleanup commit (survival):** Before the (long, interruptible) cleanup agent runs, the orchestrator commits the item's substance — source changes, its `plan/` work directory, and its `Complete` status — via **Smart Commit** (§5.1). Committing before cleanup guarantees a force-interrupt here can no longer leave an item "Complete on disk but uncommitted," the state that orphans `plan/` directories forever (the cleanup agent is forbidden from touching `plan/`; see §5.1).
     - **Cleanup:** Temporary artifacts are removed; documentation is moved to `docs/`.
     - **State is saved:** `tasks.json` updated.
-    - **Post-cleanup commit:** The cleanup agent's documentation reorganization is committed in a second `stagecoach` call.
+    - **Post-cleanup commit:** The cleanup agent's documentation reorganization is committed in a second Smart Commit call.
 
 ### 4.3 The "Delta" Workflow (Change Management)
 

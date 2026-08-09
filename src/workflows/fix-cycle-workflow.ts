@@ -37,6 +37,8 @@ import {
   validateBugfixSession,
   BugfixSessionValidationError,
 } from '../utils/validation/session-validation.js';
+import { writeTasksJSON } from '../core/session-utils.js';
+import { updateItemStatus } from '../utils/task-utils.js';
 import { PARALLEL_RESEARCH, RESEARCH_DEPTH } from '../config/constants.js';
 
 /**
@@ -101,6 +103,21 @@ export class FixCycleWorkflow extends Workflow {
 
   /** Loaded bug report from TEST_RESULTS.md */
   #testResults: TestResults | null = null;
+
+  /**
+   * Parsed bugfix backlog hierarchy (read back from ${sessionPath}/tasks.json
+   * in runStandardBreakdown). Retained so executeFixes can record each fix
+   * subtask's outcome back into the bugfix child's OWN tasks.json (PRD §4.4
+   * "self-contained session" + §5.3 bugfix task-file discovery). Null before the
+   * first successful breakdown.
+   *
+   * Without this mirror, the bugfix tasks.json is written once (all "Planned")
+   * by the architect and never updated: the shared orchestrator persists fix
+   * status to the PARENT registry (under colliding P1.M1.… IDs), so the
+   * bugfix child's tasks.json — the file `hack status` and resume read — stays
+   * "Planned" forever and fix progress is invisible / non-resumable.
+   */
+  #bugfixBacklog: Backlog | null = null;
 
   // ========================================================================
   // Constructor
@@ -292,6 +309,11 @@ export class FixCycleWorkflow extends Workflow {
       parseScope('all')
     ) as Subtask[];
 
+    // Retain the full hierarchy so executeFixes can persist each fix subtask's
+    // outcome into the bugfix child's own tasks.json (PRD §4.4 self-contained
+    // session; §5.3 bugfix task-file discovery).
+    this.#bugfixBacklog = parsedBacklog;
+
     this.logger.info(
       `[FixCycleWorkflow] Standard breakdown produced ${this.#fixTasks.length} fix subtasks`
     );
@@ -364,11 +386,31 @@ export class FixCycleWorkflow extends Workflow {
       try {
         await this.taskOrchestrator.executeSubtask(fixTask);
         successCount++;
+        // Mirror the outcome into the bugfix child's OWN backlog so it can be
+        // persisted to ${sessionPath}/tasks.json below. The shared orchestrator
+        // writes status to the PARENT registry under these same IDs (bugfix
+        // reuses P1.M1.… numbering); without this mirroring the bugfix
+        // tasks.json stays "Planned" forever and `hack status`/resume never see
+        // fix progress (PRD §4.4 / §5.3).
+        if (this.#bugfixBacklog) {
+          this.#bugfixBacklog = updateItemStatus(
+            this.#bugfixBacklog,
+            fixTask.id,
+            'Complete'
+          );
+        }
         this.logger.info(
           `[FixCycleWorkflow] Fix task ${fixTask.id} completed successfully`
         );
       } catch (error) {
         failureCount++;
+        if (this.#bugfixBacklog) {
+          this.#bugfixBacklog = updateItemStatus(
+            this.#bugfixBacklog,
+            fixTask.id,
+            'Failed'
+          );
+        }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -376,6 +418,35 @@ export class FixCycleWorkflow extends Workflow {
         );
         // Don't throw - continue with next fix
         // The retest phase will catch remaining bugs
+      }
+    }
+
+    // Persist the recorded outcomes to the bugfix child's tasks.json. This is a
+    // SELF-CONTAINED write to ${sessionPath}/tasks.json (the bugfix backlog) —
+    // it deliberately does NOT touch the shared parent sessionManager registry
+    // (the §5 invariant preserved by runStandardBreakdown). updateItemStatus
+    // already rolled each 'Complete' leaf up to its Task/Milestone/Phase, so the
+    // bugfix hierarchy statuses reflect real progress too.
+    if (this.#bugfixBacklog) {
+      try {
+        await writeTasksJSON(this.sessionPath, this.#bugfixBacklog);
+        this.logger.info(
+          `[FixCycleWorkflow] Bugfix tasks.json persisted with fix outcomes`,
+          {
+            path: `${this.sessionPath}/tasks.json`,
+            success: successCount,
+            failed: failureCount,
+            total: this.#fixTasks.length,
+          }
+        );
+      } catch (error) {
+        // Persistence failure is non-fatal — the fixes still ran and retest
+        // proceeds; only the status mirror is lost.
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `[FixCycleWorkflow] Failed to persist bugfix tasks.json outcomes: ${errorMessage}`
+        );
       }
     }
 

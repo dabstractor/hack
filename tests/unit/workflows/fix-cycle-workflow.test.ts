@@ -42,6 +42,16 @@ vi.mock('node:fs/promises', () => ({
   constants: { F_OK: 0 },
 }));
 
+// Mock writeTasksJSON so executeFixes' persistence to the bugfix tasks.json is
+// observable without touching the real filesystem (node:fs/promises is mocked
+// above with only readFile/access). Other session-utils exports are preserved
+// via importOriginal.
+vi.mock('../../../src/core/session-utils.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/core/session-utils.js')>();
+  return { ...actual, writeTasksJSON: vi.fn() };
+});
+
 // Mock standard-decomposition dependencies consumed via dynamic import by
 // runStandardBreakdown (mirrors PRPPipeline.decomposePRD). Top-level vi.mock
 // of the module path intercepts dynamic `await import(...)` too.
@@ -65,8 +75,10 @@ import { createArchitectAgent } from '../../../src/agents/agent-factory.js';
 import { createArchitectPrompt } from '../../../src/agents/prompts/architect-prompt.js';
 import { retryAgentPrompt } from '../../../src/utils/retry.js';
 import { resolveScope, parseScope } from '../../../src/core/scope-resolver.js';
+import { writeTasksJSON } from '../../../src/core/session-utils.js';
 
 const mockBugHuntWorkflow = BugHuntWorkflow as any;
+const mockedWriteTasksJSON = writeTasksJSON as ReturnType<typeof vi.fn>;
 const mockedAccess = access as ReturnType<typeof vi.fn>;
 const mockedReadFile = readFile as ReturnType<typeof vi.fn>;
 const mockCreateArchitectAgent = createArchitectAgent as any;
@@ -224,6 +236,9 @@ describe('FixCycleWorkflow', () => {
     }));
     // Default happy-path decomposition mocks (individual tests override as needed)
     setupStandardBreakdownMocks();
+    // executeFixes persists outcomes to the bugfix tasks.json — default to a
+    // silent resolved mock (individual tests assert on the call).
+    mockedWriteTasksJSON.mockResolvedValue(undefined);
     // Default readFile: TEST_RESULTS.md → TestResults JSON, tasks.json → Backlog JSON
     mockedReadFile.mockImplementation(async (p: any) => {
       if (String(p).endsWith('tasks.json')) {
@@ -641,6 +656,104 @@ describe('FixCycleWorkflow', () => {
 
       // VERIFY - Both should be called (second one after first failed)
       expect(mockOrchestrator.executeSubtask).toHaveBeenCalledTimes(2);
+    });
+
+    // Regression: the bugfix child's OWN tasks.json must reflect fix outcomes.
+    // Previously the shared orchestrator wrote status only to the PARENT
+    // registry (under colliding P1.M1.… IDs), so the bugfix tasks.json stayed
+    // "Planned" forever and `hack status`/resume never saw progress.
+    it('persists completed fix subtask outcomes to the bugfix tasks.json and rolls the status up', async () => {
+      // SETUP - 2 leaf subtasks under one Task/Milestone/Phase (all 'Planned').
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      const s2 = createFixSubtaskFixture('P1.M1.T1.S2');
+      const fixBacklog = createFixBacklog([s1, s2]);
+      mockResolveScope.mockReturnValue([s1, s2]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(fixBacklog);
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [createTestBug('BUG-001', 'critical', 'Bug 1', 'D', 'R')],
+          summary: 's',
+          recommendations: [],
+        } as TestResults);
+      });
+      mockedAccess.mockResolvedValue(undefined);
+      mockedWriteTasksJSON.mockClear();
+
+      const workflow = new FixCycleWorkflow(
+        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        'PRD content',
+        createMockTaskOrchestrator(),
+        createMockSessionManager()
+      );
+      await workflow._loadBugReportForTesting();
+      await workflow.runStandardBreakdown();
+
+      // EXECUTE
+      await workflow.executeFixes();
+
+      // VERIFY - writeTasksJSON called once against the bugfix sessionPath...
+      expect(mockedWriteTasksJSON).toHaveBeenCalledTimes(1);
+      const [writtenPath, writtenBacklog] =
+        mockedWriteTasksJSON.mock.calls[0];
+      expect(writtenPath).toBe(
+        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918'
+      );
+      // ...with BOTH subtasks marked Complete (rolled up to the Task too).
+      const sub = (writtenBacklog as any).backlog[0].milestones[0].tasks[0]
+        .subtasks as Subtask[];
+      expect(sub.map(s => s.status)).toEqual(['Complete', 'Complete']);
+      expect(
+        (writtenBacklog as any).backlog[0].milestones[0].tasks[0].status
+      ).toBe('Complete');
+    });
+
+    it('marks a failed fix subtask Failed in the persisted bugfix tasks.json (and keeps successful ones Complete)', async () => {
+      // SETUP - 2 subtasks; the first executeSubtask rejects, the second resolves.
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      const s2 = createFixSubtaskFixture('P1.M1.T1.S2');
+      mockResolveScope.mockReturnValue([s1, s2]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(createFixBacklog([s1, s2]));
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [createTestBug('BUG-001', 'critical', 'Bug 1', 'D', 'R')],
+          summary: 's',
+          recommendations: [],
+        } as TestResults);
+      });
+      mockedAccess.mockResolvedValue(undefined);
+      mockedWriteTasksJSON.mockClear();
+
+      const mockOrchestrator: TaskOrchestrator = {
+        executeSubtask: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('Fix failed'))
+          .mockResolvedValueOnce(undefined),
+      } as any;
+
+      const workflow = new FixCycleWorkflow(
+        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        'PRD content',
+        mockOrchestrator,
+        createMockSessionManager()
+      );
+      await workflow._loadBugReportForTesting();
+      await workflow.runStandardBreakdown();
+
+      // EXECUTE
+      await workflow.executeFixes();
+
+      // VERIFY - persisted statuses reflect the mixed outcomes.
+      expect(mockedWriteTasksJSON).toHaveBeenCalledTimes(1);
+      const writtenBacklog = mockedWriteTasksJSON.mock.calls[0][1] as any;
+      const sub = writtenBacklog.backlog[0].milestones[0].tasks[0]
+        .subtasks as Subtask[];
+      expect(sub.map(s => s.status)).toEqual(['Failed', 'Complete']);
     });
   });
 

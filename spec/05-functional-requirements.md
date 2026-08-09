@@ -44,9 +44,41 @@ A force-interrupted prior run can leave an item "Complete" in the working tree b
 - **Skip-recovery:** on the Completed-skip path, the orchestrator checks the item's status in _HEAD's_ `tasks.json` (not the working tree). If HEAD does not also record it Complete, it runs Smart Commit immediately to persist the stranded `plan/` directory + status.
 - **Pre-cleanup commit:** see §4.2 step 4 — the item's substance is committed _before_ the cleanup agent runs, so an interrupt during cleanup can no longer produce the orphaning state.
 
+**Commit Workflow Mechanics (Snapshot-Based Atomic Single-Commit):**
+
+Smart Commit MUST be implemented as a **snapshot-based, plumbing-driven atomic commit** — never a plain `git commit`. `git commit` reads the index _at commit time_, coupling what gets committed, when, and whether it can fail safely; for an automated pipeline whose message generation takes seconds-to-minutes, that coupling strands work and risks half-applied state. The commit subsystem therefore MUST use git plumbing:
+
+1. **`git write-tree`** — freeze the _current index_ into an immutable tree object (`TREE_SHA`). This is pure with respect to refs and the index: it records "what was staged at time T" and modifies neither HEAD nor the staging area.
+2. **`git commit-tree (-p <parent>) -m <msg> <tree>`** — create a commit object from `TREE_SHA`, `PARENT_SHA` (captured before generation), and the message. This also touches no ref; the commit is dangling until step 3.
+3. **`git update-ref HEAD <new-sha> <expected-old-sha>`** — the CAS (compare-and-swap) form atomically advances HEAD _only if_ its current value still equals `PARENT_SHA`. If HEAD moved (a concurrent commit), the update refuses and the repository is untouched.
+
+**Guarantees this delivers:**
+
+- **Atomicity:** every code path that does not reach a successful `update-ref` leaves HEAD and the index byte-for-byte unchanged (modulo harmless dangling objects that `git gc` reaps). A failed / slow / misbehaving message-generation step can never corrupt history or lose staged work.
+- **Snapshot fidelity:** the committed content is exactly what was staged when `write-tree` ran. Files staged afterward remain staged for the next commit; the index is never reset by the commit subsystem.
+- **Commit-identity transparency:** the subsystem MUST NOT set, override, or inject any git author/committer identity — no `user.name`/`user.email` in any scope, no `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env on any git subprocess. Every commit is authored as whoever git resolves from the user's own config; a commit made by the pipeline is indistinguishable in metadata from one made by hand (no machine author, no `Co-Authored-By:` trailer, no generated-by footer unless an explicit style layer below adds one).
+- **No shell interpolation:** all git invocations MUST be built as argument vectors and exec'd directly, never via `sh -c` / `zsh -c`. The diff payload fed to message generation MUST travel via stdin, never interpolated into an argument. This eliminates shell-injection as a class.
+
+**Edge cases:**
+
+- **Rootless repo (no commits):** `PARENT_SHA` is empty; `commit-tree` is called without `-p` (root commit); `update-ref HEAD <new>` is called without the expected-old argument.
+- **Unresolved merge conflicts in the index:** `write-tree` fails; the subsystem aborts before any generation with a "resolve merge conflicts first" error.
+- **HEAD moved during generation** (concurrent commit): the CAS `update-ref` fails; the subsystem MUST NOT force the update. It surfaces the generated message plus a manual recovery recipe (`git commit-tree -p <PARENT_SHA> -m "<msg>" <TREE_SHA> | xargs git update-ref HEAD`) and exits non-zero.
+- **Generation timeout / SIGINT:** the in-flight generation is killed; the subsystem enters a rescue path that prints `TREE_SHA` + the manual recovery command so the snapshotted work is never lost.
+
+**ARG_MAX-safe staging (no argument-vector overflow).** Staging MUST NOT enumerate the full untracked/modified file set into git's argument vector. A repo with an unignored dependency tree (e.g. `node_modules/` — tens of thousands of files) makes `git add ['--', ...every path]` exceed the kernel's `ARG_MAX` and fail with `spawn E2BIG`, which silently breaks every survival/recovery commit and strands task status (see "Orphaned-`plan/` Recovery"). The commit subsystem MUST therefore stage by **pathspec** (`git add -A` / `git add .`), and where it must stage an explicit filtered set it MUST **chunk** the path list into batches under an `ARG_MAX` byte budget (calling `git add` per batch). Pathspec staging also respects the project's `.gitignore` (see "Baseline `.gitignore`" below), so ignored dependency trees are never staged in the first place.
+
+**Baseline `.gitignore` (breakdown scaffolding):**
+
+Because the pipeline commits the working tree via Smart Commit (above) and git is a hard prerequisite (§15), every implementation's substance is coupled to what git tracks. A project with no `.gitignore` leaves dependency directories (`node_modules/`), build output, and OS/IDE cruft untracked — which Smart Commit then attempts to stage (overflowing `ARG_MAX`, per above) and would otherwise commit into history. To prevent this class of failure at the source:
+
+- **The Architect's decomposition MUST include a first, dependency-root scaffolding subtask** that creates — or, if one exists, **extends (never overwrites)** — a baseline `.gitignore` at the repo root, before any feature implementation subtask. It MUST cover at minimum: language/framework dependency directories (e.g. `node_modules/`), build/output directories (e.g. `dist/`, `build/`), and common OS/IDE cruft (e.g. `.DS_Store`, `Thumbs.db`).
+- **`plan/`, `PRD.md`, and task files MUST NOT be gitignored** (existing rule, §5.1) — the baseline respects this.
+- This subtask rides with the toolchain/scaffold task (repo-root artifact), not the changeset-level documentation task.
+
 **Smart Commit Resilience (commit-gen retry + fallback):**
 
-Smart Commit delegates commit-message generation to an LLM tool (`stagecoach`). That call is one-shot and transient-API-sensitive — a generation timeout here is LLM-API slowness, not a stuck subprocess, and the index is left untouched with the lock released on the rescue exit — so it _should_ be retried. This is the opposite situation from an agent-subprocess hang (see below).
+Smart Commit's commit-message generation is a one-shot LLM call (a step within the snapshot-based commit workflow above). It is transient-API-sensitive — a generation timeout here is LLM-API slowness, not a stuck subprocess, and the index is left untouched with the lock released on the rescue exit — so it _should_ be retried. This is the opposite situation from an agent-subprocess hang (see below).
 
 - **Bounded retry with backoff:** commit-generation is retried up to `COMMIT_RETRY_MAX` (default 5) attempts with exponential backoff (`COMMIT_RETRY_DELAY`, default 10s, doubling, capped at 120s).
 - **Last-resort fallback:** if generation is still failing after all retries, the staged work MUST NOT be stranded uncommitted — the system falls back to a plain `git commit` with a clearly-labeled placeholder message (e.g. `chore: commit-gen failed (exit N); fallback commit`) so the substance is preserved and can be reworded later.
@@ -54,7 +86,7 @@ Smart Commit delegates commit-message generation to an LLM tool (`stagecoach`). 
 
 **Commit Message Format (Standardized Task-Prefix):**
 
-Smart Commit's `stagecoach` MUST emit commit messages in a standardized, machine-parseable **task-prefix** format that encodes the implementing item's hierarchical position in the backlog, instead of decorating messages with free-form banners or Conventional-Commit scopes:
+Smart Commit MUST emit commit messages in a standardized, machine-parseable **task-prefix** format that encodes the implementing item's hierarchical position in the backlog, instead of decorating messages with free-form banners or Conventional-Commit scopes:
 
 `<phase>.<milestone>.<task>.<subtask>: <descriptive commit message>`
 
@@ -67,31 +99,31 @@ Smart Commit's `stagecoach` MUST emit commit messages in a standardized, machine
 **Configurability (`PRP_COMMIT_FORMAT`):** the task-prefix scheme is the default but MUST be opt-out, so a project that prefers a clean, hand-curated history is not forced into machine-generated prefixes:
 
 - `PRP_COMMIT_FORMAT=task-prefix` (default): the standardized `<phase>.<milestone>.<task>.<subtask>: <message>` format above.
-- `PRP_COMMIT_FORMAT=plain`: no prefix decoration at all; the commit message is just the descriptive text `stagecoach` produces (or the fallback placeholder). Use when the project wants human-authored messages without machine-generated prefixes.
+- `PRP_COMMIT_FORMAT=plain`: no prefix decoration at all; the commit message is just the descriptive text Smart Commit produces (or the fallback placeholder). Use when the project wants human-authored messages without machine-generated prefixes.
 
 When `task-prefix` is selected but the commit is not a backlog item (fallback / scaffolding / initial), the formatter MUST degrade to `plain` rather than emit a malformed or zero-filled prefix. Toggling the format affects only newly generated messages; existing history is never rewritten.
 
 **Commit Message Style (Learning & Explicit Modes):**
 
-`PRP_COMMIT_FORMAT` above governs only the **position prefix** — whether and how the backlog position (`1.2.1.1:`) is prepended. It says nothing about the **style** of the `<descriptive message>` that `stagecoach` actually writes: its tone, length, whether it uses a Conventional-Commit type/scope or gitmoji or plain prose. A generated commit message is therefore governed by two orthogonal layers, resolved independently:
+`PRP_COMMIT_FORMAT` above governs only the **position prefix** — whether and how the backlog position (`1.2.1.1:`) is prepended. It says nothing about the **style** of the `<descriptive message>` that Smart Commit actually writes: its tone, length, whether it uses a Conventional-Commit type/scope or gitmoji or plain prose. A generated commit message is therefore governed by two orthogonal layers, resolved independently:
 
 1. **Position layer** — `PRP_COMMIT_FORMAT` (`task-prefix` | `plain`): the position prefix. Never touches the wording of the descriptive message.
-2. **Style layer** — `PRP_COMMIT_STYLE` (this section): the contract for the descriptive message itself. Mirrors the style-learning and explicit-format-mode model of the `stagecoach` tool the pipeline delegates to (so the pipeline's own defaults and `stagecoach`'s defaults agree).
+2. **Style layer** — `PRP_COMMIT_STYLE` (this section): the contract for the descriptive message itself. The style-learning and explicit-format-mode model is native to Smart Commit's message-generation step.
 
 The style layer has two resolution modes — explicitly set, or learned from history:
 
 - **`PRP_COMMIT_STYLE=auto` (default — learned from history):** When no explicit style is set, the pipeline learns the project's style from recent history. The Smart Commit generation request MUST include the last `PRP_COMMIT_STYLE_EXAMPLES` (default **5**) commit messages from the repository as **style examples**, with a hard anti-reuse instruction: match the STYLE of the examples (format, tone, length, whether they carry a Conventional-Commit type prefix or a gitmoji), but NEVER copy or reuse their wording — produce entirely original wording for THIS change. The examples are sent VERBATIM, and the instruction MUST tell the agent to IGNORE any leading numeric position prefix (`1.2.1.1:`), which is a position marker the position layer adds — not part of the style to imitate and not part of the descriptive message to emit. The agent still emits ONLY the descriptive message; the position layer is applied afterward by `formatCommitMessage` exactly as today. When the repository has **≤1 commit** (nothing to learn), `auto` degrades to the `plain` contract below so a fresh repo is never asked to imitate absent history.
-- **`PRP_COMMIT_STYLE=plain` (explicit):** Plain descriptive imperative summary — imperative mood, ≤72-char subject, no trailing period, no type prefix, no scope, no emoji. This is the current fixed `stagecoach` system prompt, promoted to an explicit named mode; it is also the `auto` fallback for ≤1-commit repos.
+- **`PRP_COMMIT_STYLE=plain` (explicit):** Plain descriptive imperative summary — imperative mood, ≤72-char subject, no trailing period, no type prefix, no scope, no emoji. This is the current fixed commit-message system prompt, promoted to an explicit named mode; it is also the `auto` fallback for ≤1-commit repos.
 - **`PRP_COMMIT_STYLE=conventional` (explicit):** Conventional-Commits contract for the descriptive message — `type(scope): description` from the standard vocabulary (`feat fix docs style refactor perf test build ci chore revert`), scope optional, ~50-char description.
 - **`PRP_COMMIT_STYLE=gitmoji` (explicit):** The descriptive subject begins with exactly one gitmoji (the emoji character itself, not a `:shortcode:`), followed by a space and the description. The canonical gitmoji reference table is compiled into the binary at build time (no network fetch), refreshed with the same verification discipline as the model defaults.
 
 An explicit (non-`auto`) mode **replaces** the style-examples block in the generation request with that mode's contract; history examples are omitted entirely in explicit modes (they would fight the explicit contract). `auto` is the only mode that consults history.
 
-**Mode-conditional system prompt.** Because the styles conflict — `plain` forbids a type prefix while `conventional` requires one — the `stagecoach` agent's system prompt MUST be built dynamically from the resolved style mode (the current hardcoded `COMMIT_MESSAGE_SYSTEM` becomes the `plain` contract): `auto` injects the last-N examples + anti-reuse + ignore-position-prefix instructions; each explicit mode injects its contract verbatim. In every mode the output discipline is unchanged: emit ONLY the descriptive message (no position prefix, no `[PRP Auto]` banner, no `Co-Authored-By` trailer — those remain `formatCommitMessage`'s job).
+**Mode-conditional system prompt.** Because the styles conflict — `plain` forbids a type prefix while `conventional` requires one — the commit-message agent's system prompt MUST be built dynamically from the resolved style mode (the current hardcoded `COMMIT_MESSAGE_SYSTEM` becomes the `plain` contract): `auto` injects the last-N examples + anti-reuse + ignore-position-prefix instructions; each explicit mode injects its contract verbatim. In every mode the output discipline is unchanged: emit ONLY the descriptive message (no position prefix, no `[PRP Auto]` banner, no `Co-Authored-By` trailer — those remain `formatCommitMessage`'s job).
 
 **Interaction with the position layer.** Both layers apply in sequence, independently: the agent generates the descriptive message under the resolved style contract (and, in `auto`, with the last-5 examples in context); `formatCommitMessage` then layers the position prefix (`task-prefix`) or emits it bare (`plain`), exactly as today. When an explicit style that produces its own prefix (`conventional`, `gitmoji`) is combined with `PRP_COMMIT_FORMAT=task-prefix`, both prefixes render and the subject takes the form `<position>: type(scope): description` (or `<position>: <emoji> description`); a team that wants a clean Conventional-Commit / gitmoji history sets `PRP_COMMIT_FORMAT=plain` so the position layer does not double up. (Under `auto`, the same double-up can occur if the learned style is conventional/gitmoji — that is the project's own voice being matched, and the same `PRP_COMMIT_FORMAT=plain` remedy applies.)
 
-**Scope & guarantees.** Style examples are sent ONLY for the `stagecoach` descriptive-message generation request; they never affect the position layer, the Smart Commit Resilience fallback placeholder (`chore: commit-gen failed …`, which carries no descriptive message), or any non-generated commit. Toggling the style affects only newly generated messages; existing history is never rewritten. The anti-reuse instruction is advisory — it steers the model away from verbatim copying of the example wording — and is NOT a mechanical duplicate-rejection gate: a generated subject that happens to repeat a recent one is still committed, consistent with the pipeline's never-fail-on-commit contract (substance is never stranded for a style nicety). `PRP_COMMIT_STYLE_EXAMPLES=0` disables style learning even under `auto` (no examples are sent) and degrades to the `plain` contract.
+**Scope & guarantees.** Style examples are sent ONLY for Smart Commit's descriptive-message generation request; they never affect the position layer, the Smart Commit Resilience fallback placeholder (`chore: commit-gen failed …`, which carries no descriptive message), or any non-generated commit. Toggling the style affects only newly generated messages; existing history is never rewritten. The anti-reuse instruction is advisory — it steers the model away from verbatim copying of the example wording — and is NOT a mechanical duplicate-rejection gate: a generated subject that happens to repeat a recent one is still committed, consistent with the pipeline's never-fail-on-commit contract (substance is never stranded for a style nicety). `PRP_COMMIT_STYLE_EXAMPLES=0` disables style learning even under `auto` (no examples are sent) and degrades to the `plain` contract.
 
 **`tasks.json` Write Concurrency (lost-update prevention):**
 
