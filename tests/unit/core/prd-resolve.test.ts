@@ -29,6 +29,7 @@ import {
   mkdirSync,
   rmSync,
   chmodSync,
+  symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -491,6 +492,25 @@ describe('resolvePRD — entry-self-include elision (§2.3)', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+// resolvePRD — symlink-alias dedup (BUG-003, §2.3): the visited set keys on the canonical realpath,
+// so two paths that are aliases of ONE physical file expand exactly once (second reference elided).
+describe('resolvePRD — symlink-alias dedup (BUG-003, §2.3)', () => {
+  it('dedups two symlink aliases to one physical file (second reference elided)', async () => {
+    // SETUP — real.md is the physical file; alias.md is a symlink to it. main references both.
+    writeFileSync(join(tmp, 'real.md'), 'REAL');
+    symlinkSync(join(tmp, 'real.md'), join(tmp, 'alias.md'));
+    writeFileSync(join(tmp, 'main.md'), '@real.md @alias.md');
+
+    // EXECUTE
+    const out = await resolvePRD(join(tmp, 'main.md'));
+
+    // VERIFY — 'REAL' appears EXACTLY ONCE (the @alias.md reference ELIDES: same canonical file).
+    // Output is 'REAL ' (REAL + the gap space between the two tokens; the elided alias emits nothing).
+    expect(out).toBe('REAL ');
+    expect(out.split('REAL').length).toBe(2); // appears exactly once
   });
 });
 

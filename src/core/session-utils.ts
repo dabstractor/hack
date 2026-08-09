@@ -32,6 +32,7 @@ import {
   unlink,
   stat,
 } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { resolve, join, dirname, basename } from 'node:path';
 import { TextDecoder } from 'node:util';
 import { getLogger, type Logger } from '../utils/logger.js';
@@ -465,8 +466,9 @@ const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
  * @param baseDir - Directory to resolve include paths against (the entry PRD's directory).
  * @param maxDepth - Max nesting depth (defense-in-depth backstop; the gate is `depth >= maxDepth` → ELIDE resolvable survivors via {@link neutralizeResolvableTokens}, not recurse).
  * @param depth - Current nesting depth (the entry file is depth 0).
- * @param visited - GLOBAL flat set of absolute paths already expanded this resolution (shared by
- *        reference; first encounter wins, later references elide). The entry file is pre-seeded.
+ * @param visited - GLOBAL flat set of CANONICAL (realpath-resolved) absolute paths already expanded
+ *        this resolution (shared by reference; first encounter wins, later references elide; symlink
+ *        aliases to one physical file dedup). The entry file is pre-seeded. See {@link dedupKey}.
  * @param markers - When `true`, wrap each EXPANDED include in `<!-- @!include: token -->` /
  *        `<!-- @!end-include -->` markers, and emit `<!-- @!include-ref: token -->` for elided refs
  *        (PRD §2.3). The `!` after `@` makes these STRUCTURALLY non-resolvable (technique B).
@@ -476,6 +478,37 @@ const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
  * @throws {SessionFileError} If an existing included file cannot be read (e.g. invalid UTF-8)
  *         or a `stat` call fails with a non-ENOENT error (e.g. EACCES).
  */
+/**
+ * Canonical dedup key for the global-flat `visited` set (PRD §2.3, BUG-003).
+ *
+ * @remarks
+ * Returns the symlink-resolved canonical absolute path via `realpathSync`, with a LEXICAL fallback
+ * (`abs` unchanged) when the path cannot be resolved (ENOENT / not yet stat'd). Keying on the canonical
+ * path — not the lexical `path.resolve` result — means two paths that are symlink aliases to the SAME
+ * physical file get ONE visited entry, so the file expands exactly once (the second reference elides),
+ * honoring the §2.3 "a file expanded at most once" intent.
+ *
+ * The fallback is safe: `visited.add` runs only for existing files (post `st.isFile()`), and the entry
+ * pre-seed is an existing file, so both always take the realpath branch. The fallback mainly guards the
+ * elision `has` check against not-yet-stat'd / stale tokens, which are never in `visited` anyway.
+ *
+ * COST: one synchronous `realpath` syscall per encounter. Acceptable — dedup bounds encounters to one
+ * per file (a later alias hits `visited.has` and elides before the `add`), and PRDs are small. ALL THREE
+ * keying sites (elision `has`, mark-visited `add`, entry pre-seed) MUST use this: on macOS the tmpdir is
+ * symlinked (`/var` → `/private/var`), so mixing canonical and lexical keys across sites would break
+ * entry-back-edge / self-include elision.
+ *
+ * @param abs - The lexical absolute path (`path.resolve(baseDir, token)` or `path.resolve(prdPath)`).
+ * @returns The canonical realpath when resolvable; the lexical `abs` otherwise.
+ */
+function dedupKey(abs: string): string {
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs; // ENOENT / not-yet-stat'd → lexical fallback (safe; see @remarks)
+  }
+}
+
 async function expandIncludesRecursive(
   content: string,
   baseDir: string,
@@ -502,7 +535,7 @@ async function expandIncludesRecursive(
     const token = m[1];
     const abs = resolve(baseDir, token);
 
-    if (visited.has(abs)) {
+    if (visited.has(dedupKey(abs))) {
       // Second-or-later encounter (PRD §2.3 global-flat-dedup): the first encounter already
       // expanded this file. ELIDE — drop the @token entirely (markers off) or emit a stable,
       // non-resolvable reference comment (markers on). Elision is a SUCCESSFUL resolution → no
@@ -524,7 +557,7 @@ async function expandIncludesRecursive(
         const child = await readUTF8FileStrict(abs, 'read include');
         // GLOBAL FLAT DEDUP: mark THIS file visited BEFORE descending, in the SHARED set (no copy).
         // First-encounter-wins in document order; sibling-branch / cycle references elide.
-        visited.add(abs);
+        visited.add(dedupKey(abs));
         replacement = await expandIncludesRecursive(
           child,
           baseDir,
@@ -654,7 +687,8 @@ async function neutralizeResolvableTokens(
  * @remarks
  * Reads the entry PRD, then recursively expands include directives to their full depth:
  *  - **GLOBAL FLAT DEDUPLICATION** (PRD §2.3 "No duplication (dedup)"): a single visited `Set`,
- *    keyed on the resolved absolute path, is shared across the whole resolution (passed by
+ *    keyed on the canonical (realpath-resolved) absolute path (so symlink aliases to the same physical
+ *    file dedup correctly), is shared across the whole resolution (passed by
  *    reference into {@link expandIncludesRecursive}, never copied per branch). The first textual
  *    encounter of a file expands it inline; EVERY subsequent reference — in a sibling branch
  *    (diamond A→C and B→C), a cycle, or a back-edge — is ELIDED (the `@token` is dropped, or
@@ -736,7 +770,7 @@ export async function resolvePRD(
     baseDir,
     maxDepth,
     0,
-    new Set<string>([absEntry]),
+    new Set<string>([dedupKey(absEntry)]),
     markers
   );
 }

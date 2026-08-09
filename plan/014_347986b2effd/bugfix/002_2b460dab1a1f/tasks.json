@@ -66,14 +66,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "BUG-003: Key the dedup visited set on the canonical realpath so symlink aliases dedup",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The global-flat dedup visited set keys on the lexical path.resolve result at three sites (elision `has` check, mark-visited `add`, and the entry pre-seed in resolvePRD). Two symlinks to one physical file get distinct keys and the file is expanded twice, defeating dedup. Switch the KEY (and only the key) to the realpath-resolved canonical path with a safe lexical fallback, applied uniformly at all three sites.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Introduce a canonical dedupKey(realpathSync with lexical fallback) and apply it to all three visited-set sites + entry pre-seed",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/014_347986b2effd/bugfix/002_2b460dab1a1f/architecture/bugfix_findings.md §BUG-003 and system_context.md. realpathSync is NOT yet imported (stat is from node:fs/promises, line 33-34; node:path resolve/join/dirname/basename imported line 35). The THREE keying sites are: (a) elision check `if (visited.has(abs))` where abs=resolve(baseDir,token) in expandIncludesRecursive (~line 516); (b) mark-visited `visited.add(abs)` after st.isFile() (~line 525); (c) entry pre-seed `new Set<string>([absEntry])` in resolvePRD (~line 716), where absEntry=resolve(prdPath). On macOS the tmpdir is symlinked (/var/folders → /private/var/folders), so ALL THREE sites MUST use the SAME canonical key or self-include/entry-back-edge elision tests break.\n2. INPUT: The `visited: Set<string>` shared global-flat set and the existing `abs`/`absEntry` lexical values. No interface/signature change to expandIncludesRecursive or resolvePRD.\n3. LOGIC: (1) Add `import { realpathSync } from 'node:fs';`. (2) Add a private helper near expandIncludesRecursive: `function dedupKey(abs: string): string { try { return realpathSync(abs); } catch { return abs; } }` with a doc comment noting the fallback is for non-resolvable paths (realpathSync throws on ENOENT; visited.add only runs for existing files and the entry pre-seed is an existing file, so the fallback mainly guards the elision `has` check for not-yet-stat'd/stale tokens, which are never in visited anyway). Add a code comment noting the one-sync-syscall-per-encounter cost is acceptable (dedup bounds encounters to one per file; PRDs are small). (3) Replace the key at all three sites: `if (visited.has(dedupKey(abs)))`, `visited.add(dedupKey(abs))`, and `new Set<string>([dedupKey(absEntry)])`. Do NOT change marker tokens, message output, or stat semantics — ONLY the visited key.\n4. OUTPUT: Two symlink aliases to one physical file dedup correctly (second reference elided). Existing real-file dedup tests (diamond/cycle/self-include/entry-back-edge) keep passing: for non-symlink files realpathSync(abs) === normalized abs and behavior (content appears once) is unchanged; tests assert dedup BEHAVIOR, not the key string.\n5. DOCS: [Mode A] (a) Update the expandIncludesRecursive `@param visited` doc to state the key is the canonical (realpath-resolved) absolute path (symlink-safe). (b) In resolvePRD `@remarks` GLOBAL-FLAT-DEDUP bullet, change 'keyed on the resolved absolute path' → 'keyed on the canonical (realpath-resolved) absolute path, so symlink aliases to the same physical file dedup correctly'. Keep all other dedup/elision wording.\n6. TEST: Write the failing test FIRST in tests/unit/core/prd-resolve.test.ts (REAL tmpdir; add symlinkSync to the node:fs import): real.md='REAL'; symlinkSync(join(tmp,'real.md'), join(tmp,'alias.md')); main.md='@real.md @alias.md'; resolvePRD(main) → output === 'REAL ' and out.split('REAL').length === 2 (appears exactly once). If a symlink-capability guard is added, document why (primary dev platform supports symlinkSync). Then implement to pass. Run `npm run test:run -- prd-resolve prd-markers`, `npm run typecheck`, `npm run lint`.",
@@ -97,7 +97,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "Sweep README.md for include-marker / dedup / stale-warning accuracy",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
