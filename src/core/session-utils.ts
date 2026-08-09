@@ -549,9 +549,7 @@ async function expandIncludesRecursive(
     //     Routed through `console.warn` (→ process.stderr, sync) because the pino logger writes to
     //     stdout (PRD §2.3 requires stderr).
     if (replacement === undefined && token.endsWith('.md')) {
-      console.warn(
-        `[prd-resolver] stale include '@${token}': path does not resolve to an existing file (${abs})`
-      );
+      emitStaleIncludeWarning(token, abs);
     }
     // S3: optional include markers around EXPANDED content only (PRD §2.3). Literal survivors
     //     (missing/dir/cycle/depth) are never wrapped — `markers && replacement !== undefined`.
@@ -580,6 +578,20 @@ function elisionRefComment(token: string): string {
 }
 
 /**
+ * Emit the stale-include stderr warning (PRD §2.3 MUST — a `.md` token that fails to resolve).
+ *
+ * @remarks
+ * Routed via `console.warn` (→ process.stderr, sync) because the pino logger writes to stdout
+ * (PRD §2.3 requires stderr). Shared by the main recursive loop AND the depth-gate
+ * {@link neutralizeResolvableTokens} scan so the message is a single source of truth (no drift).
+ */
+function emitStaleIncludeWarning(token: string, abs: string): void {
+  console.warn(
+    `[prd-resolver] stale include '@${token}': path does not resolve to an existing file (${abs})`
+  );
+}
+
+/**
  * Depth-gate elision (BUG-002): neutralize resolvable `@token` survivors in a boundary body so none
  * reach a 2nd resolution pass. Mirrors the dedup-elision semantics without recursing.
  *
@@ -590,7 +602,9 @@ function elisionRefComment(token: string): string {
  * non-resolvable prose mention re-resolves identically, preserving idempotency). Does NOT recurse and
  * does NOT mutate `visited` — the cap's purpose is to bound recursion; this scan only neutralizes
  * survivors. A non-ENOENT `stat` error (e.g. EACCES) THROWS `SessionFileError` (mirrors the main loop).
- * Emits NO stale-include warning (elision = success; verbatim = non-resolving prose, which is silent).
+ * A non-resolvable `.md` token (ENOENT or directory) at the gate emits exactly one **stderr** warning
+ * via `console.warn` (PRD §2.3 MUST — same message as the main loop, via {@link emitStaleIncludeWarning}).
+ * Elided (resolvable) tokens, non-`.md` survivors, and successfully-resolved tokens are silent.
  */
 async function neutralizeResolvableTokens(
   content: string,
@@ -620,11 +634,14 @@ async function neutralizeResolvableTokens(
         );
       }
     }
+    if (!resolves && token.endsWith('.md')) {
+      emitStaleIncludeWarning(token, abs); // PRD §2.3 MUST — identical to the main-loop warn
+    }
     out += resolves
       ? markers
         ? elisionRefComment(token) // ELIDE — collision-proof ref (markers on)
         : '' // ELIDE — drop entirely (markers off)
-      : m[0]; // non-resolvable prose → verbatim (re-resolves identically)
+      : m[0]; // non-resolvable → verbatim (stale .md warned above; output bytes unchanged)
     last = idx + m[0].length;
   }
   out += content.slice(last); // tail
@@ -676,8 +693,10 @@ async function neutralizeResolvableTokens(
  *    to an existing file (ENOENT or a directory) emits exactly one **stderr** warning per resolve
  *    pass via `console.warn` (the pino logger writes to stdout; PRD §2.3 requires stderr). The
  *    token stays verbatim in the output. Non-`.md` tokens, elided references (cycles/diamonds/
- *    back-edges — elision is a SUCCESSFUL resolution), depth-exceeded tokens, and
- *    successfully-resolved tokens emit NO warning (PRD §2.3).
+ *    back-edges — elision is a SUCCESSFUL resolution), and successfully-resolved tokens emit NO
+ *    warning. A stale `.md` at the `maxDepth` gate ALSO emits exactly one warning (the depth-gate
+ *    {@link neutralizeResolvableTokens} scan runs the same stale-`.md` check as the main loop) —
+ *    only elided/resolved/non-`.md` tokens are silent everywhere (PRD §2.3).
  *
  * Missing files and directories stay verbatim; already-imported references (cycles, diamonds,
  * back-edges) are ELIDED (dropped, or a `<!-- @!include-ref -->` comment when markers are on).

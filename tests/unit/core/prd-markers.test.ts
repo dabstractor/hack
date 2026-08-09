@@ -315,3 +315,77 @@ describe('config/constants: getPrdIncludeMarkers', () => {
     expect(getPrdIncludeMarkers()).toBe(false);
   });
 });
+
+// P1.M1.T2.S1 (bugfix 002_2b460dab1a1f, BUG-002 minor): the depth gate's stale-`.md` stderr warning.
+// PRD §2.3 unconditionally: "A `.md` token that fails to resolve (stale include) MUST emit a stderr
+// warning." The main recursive loop warns; the depth-gate path (neutralizeResolvableTokens) must
+// warn too — so a typo'd deeply-nested `.md` include surfaces regardless of depth. Output bytes are
+// UNCHANGED (the verbatim survivor is still emitted) → idempotency is preserved.
+describe('resolvePRD — stale .md warning at the maxDepth gate (BUG-002)', () => {
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'prd-markers-gate-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('warns once for a stale .md token at the maxDepth gate', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // SETUP — g.md references a MISSING .md file; maxDepth=1 forces the gate on g's body.
+    writeFileSync(join(tmp, 'g.md'), 'G @missing.md END');
+    writeFileSync(join(tmp, 'main.md'), '@g.md');
+
+    // EXECUTE — g expands at depth 1; its body (containing @missing.md) hits the depth-1 gate.
+    const out = await resolvePRD(join(tmp, 'main.md'), { maxDepth: 1 });
+
+    // VERIFY — exactly ONE stderr warning naming the stale token; output unchanged (verbatim survivor).
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('missing.md');
+    expect(out).toBe('G @missing.md END');
+  });
+
+  it('does NOT warn for a non-.md token at the gate', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // SETUP — non-`.md` extension → not a stale-include per §2.3 (silent).
+    writeFileSync(join(tmp, 'g.md'), 'G @missing.txt END');
+    writeFileSync(join(tmp, 'main.md'), '@g.md');
+
+    // EXECUTE
+    await resolvePRD(join(tmp, 'main.md'), { maxDepth: 1 });
+
+    // VERIFY — silent (the stale-`.md` warning is `.md`-only).
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('elides (not warns) a resolvable token at the gate', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // SETUP — @h.md RESOLVES (h.md exists) → ELIDED at the gate (not a stale warning; a successful
+    // resolution). Cross-checks the BUG-002 idempotency fix output (double space = elision artifact).
+    writeFileSync(join(tmp, 'g.md'), 'G @h.md END');
+    writeFileSync(join(tmp, 'h.md'), 'H');
+    writeFileSync(join(tmp, 'main.md'), '@g.md');
+
+    // EXECUTE
+    const out = await resolvePRD(join(tmp, 'main.md'), { maxDepth: 1 });
+
+    // VERIFY — silent (elision is a SUCCESSFUL resolution); @h.md ELIDED (double space).
+    expect(warn).not.toHaveBeenCalled();
+    expect(out).toBe('G  END');
+  });
+
+  it('warns for a stale .md in the entry at maxDepth = 0 (uniform edge)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // SETUP — maxDepth=0 fires the gate at the ENTRY (depth 0); the entry is NOT exempt.
+    writeFileSync(join(tmp, 'main.md'), '@missing.md');
+
+    // EXECUTE
+    const out = await resolvePRD(join(tmp, 'main.md'), { maxDepth: 0 });
+
+    // VERIFY — exactly ONE warning (uniform treatment at every depth); output unchanged.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('missing.md');
+    expect(out).toBe('@missing.md');
+  });
+});
