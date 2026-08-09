@@ -238,7 +238,8 @@ export async function readUTF8FileStrict(
  *
  * Hashing the RESOLVED (include-expanded) document — never the raw entry file — is what guarantees
  * hash/snapshot/delta consistency for distributed (multi-file) PRDs (PRD §2.3 "Single canonical
- * document downstream"). Idempotency of {@link resolvePRD} (S3) makes a single resolution safe.
+ * document downstream"). {@link resolvePRD} produces a TRUE FIXED POINT
+ * (`resolve(resolve(x)) === resolve(x)`, PRD §2.3), so a single resolution is safe.
  *
  * @param resolved - The fully include-expanded PRD document.
  * @returns 64-character lowercase-hex SHA-256 digest.
@@ -321,8 +322,9 @@ export interface ResolveOpts {
    * Override the max-depth gate. Defaults to {@link getPrdIncludeMaxDepth}.
    *
    * @remarks
-   * In S1 this is honored only as the base-case depth gate (a depth `< 1` returns the content
-   * unchanged). The recursive depth-decrementing loop lands in S2.
+   * The max-depth gate. {@link resolvePRD}'s recursive resolver honors it as a DEFENSE-IN-DEPTH
+   * backstop (the global-flat-dedup is the primary recursion bound); {@link resolveIncludes}
+   * honors it as its single-level gate (a depth `< 1` returns content unchanged).
    */
   maxDepth?: number;
   /**
@@ -338,9 +340,12 @@ export interface ResolveOpts {
  * Resolve `@path/to/file.md` include directives in a PRD string (PRD §2.3).
  *
  * @remarks
- * **SINGLE-LEVEL in S1**: each resolved token is replaced inline by its file's UTF-8 contents
- * verbatim; substituted content is NOT re-scanned (recursive expansion + cycle detection =
- * S2; markers + stale-include warnings = S3).
+ * **SINGLE-LEVEL primitive**: each resolved `@token` is replaced inline by its file's UTF-8
+ * contents verbatim; the substituted content is NOT re-scanned. This function is NOT dedup-aware —
+ * it does not recurse and does not maintain a visited set, so it neither elides duplicates nor
+ * bounds cycles (a diamond through it would duplicate; a cycle would recurse up to `maxDepth`).
+ * For the recursive, global-flat-dedup-aware resolution used in production, use {@link resolvePRD}
+ * (which delegates to {@link expandIncludesRecursive}).
  *
  * A token expands iff BOTH hold:
  * 1. **BOUNDARY** — the `@` is at content start or preceded by a non-path char
@@ -350,7 +355,7 @@ export interface ResolveOpts {
  *
  * Path resolution is project-root-relative: `resolve(baseDir, token)`, where `baseDir` is
  * the entry PRD's directory (passed in by the caller). When a token does not expand, the
- * ORIGINAL match bytes (`@token`) are preserved verbatim (idempotency-friendly for S3).
+ * ORIGINAL match bytes (`@token`) are preserved verbatim.
  *
  * @param content - Raw PRD string to scan for include directives.
  * @param baseDir - Directory to resolve include paths against (the entry PRD's directory).
@@ -375,7 +380,7 @@ export async function resolveIncludes(
 ): Promise<string> {
   const maxDepth = opts?.maxDepth ?? getPrdIncludeMaxDepth();
   if (maxDepth < 1) {
-    return content; // depth gate (base case S2 recurses against)
+    return content; // depth gate (the recursive resolver in expandIncludesRecursive recurses against)
   }
 
   const matches = [...content.matchAll(INCLUDE_TOKEN)];
@@ -397,7 +402,9 @@ export async function resolveIncludes(
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err?.code === 'ENOENT') {
-        // missing → silent verbatim (S3 adds the .md-token stderr warning).
+        // missing → silent verbatim (the stale-include stderr warning lives in
+        // {@link expandIncludesRecursive}, the recursive resolver; this single-level
+        // primitive is silent on stale includes).
         replacement = undefined;
       } else {
         throw new SessionFileError(abs, 'stat include', e as Error);
@@ -548,33 +555,44 @@ async function expandIncludesRecursive(
  *
  * @remarks
  * Reads the entry PRD, then recursively expands include directives to their full depth:
- *  - **IDEMPOTENCY**: for any within-depth fixture, re-resolving this function's own output
- *    yields byte-identical results (`resolve(resolve(x)) === resolve(x)`). This is the basis
- *    for §4.1 hashing, §4.3 delta detection, and `prd_snapshot.md` consistency. Stale survivors
- *    (missing/dir) re-fail identically; depth-exceeded is an intentional safety-valve
- *    truncation that is NOT a fixed point.
- *  - **CYCLE DETECTION**: a path-based visited `Set` (absolute paths of the current ancestry)
- *    prevents infinite recursion on self/mutual cycles; the back-edge `@token` is left literal.
- *    Diamond includes (a→c and b→c) still expand `c` in both branches (the visited set is
- *    per-branch, not flat).
- *  - **MAX DEPTH**: expansion stops at {@link getPrdIncludeMaxDepth} (default 10) or the
- *    provided `opts.maxDepth`; deeper `@token`s stay literal. The entry file is depth 0, so
- *    `maxDepth = N` allows N nesting levels below the entry.
+ *  - **GLOBAL FLAT DEDUPLICATION** (PRD §2.3 "No duplication (dedup)"): a single visited `Set`,
+ *    keyed on the resolved absolute path, is shared across the whole resolution (passed by
+ *    reference into {@link expandIncludesRecursive}, never copied per branch). The first textual
+ *    encounter of a file expands it inline; EVERY subsequent reference — in a sibling branch
+ *    (diamond A→C and B→C), a cycle, or a back-edge — is ELIDED (the `@token` is dropped, or
+ *    replaced by a non-resolvable `<!-- @include-ref: token -->` comment when markers are on).
+ *    The entry file is pre-seeded in the visited set, so self-includes are elided. This bounds
+ *    recursion to one import per file, so cycles and diamond dependencies terminate without
+ *    relying on `maxDepth`.
+ *  - **TRUE FIXED POINT (idempotency)**: the resolved document is an idempotent fixed point —
+ *    `resolve(resolve(x)) === resolve(x)` (PRD §2.3). Global-flat-dedup via elision ensures every
+ *    resolvable token is expanded once or elided on the first pass, leaving no resolvable
+ *    survivors; the only `@token`s that survive are non-resolving prose mentions, which
+ *    re-resolve identically. This is the property that guarantees §4.1 hashing, §4.3 delta
+ *    detection, and `prd_snapshot.md` consistency.
+ *  - **MAX DEPTH**: DEFENSE-IN-DEPTH only — the global-flat-dedup already bounds recursion to one
+ *    import per file; `maxDepth` (default {@link getPrdIncludeMaxDepth}, 10) is a backstop against
+ *    pathological inputs. The entry file is depth 0, so `maxDepth = N` allows N nesting levels
+ *    below the entry.
  *  - **BASE INVARIANT**: all paths resolve project-root-relative — against the entry PRD's
  *    directory, regardless of which file contains the directive (PRD §2.3).
  *  - **MARKERS (optional)**: when `opts.markers` is `true` OR the `PRD_INCLUDE_MARKERS` env var
  *    is truthy (unset/empty/`0`/`false`/`no`/`off` → off), each EXPANDED include is wrapped as
  *    `<!-- @include: path -->` / `<!-- @end-include -->` (where `path` is the original matched
- *    token). Literal survivors (missing/dir/cycle/depth) are never wrapped. `opts.markers`
- *    overrides the env var in both directions. The marker format is self-protecting against
- *    re-expansion, so markers-on output remains idempotent (PRD §2.3).
+ *    token), and ELIDED references emit `<!-- @include-ref: token -->` (a non-resolvable comment
+ *    — its path is inside an HTML comment, not `@`-preceded — so it is idempotent on re-scan).
+ *    Missing/dir/depth-exceeded survivors are never wrapped. `opts.markers` overrides the env var
+ *    in both directions. The marker format is self-protecting against re-expansion, so
+ *    markers-on output remains idempotent (PRD §2.3).
  *  - **STALE-INCLUDE WARNING**: a `.md` token that matches the boundary rule but does NOT resolve
  *    to an existing file (ENOENT or a directory) emits exactly one **stderr** warning per resolve
  *    pass via `console.warn` (the pino logger writes to stdout; PRD §2.3 requires stderr). The
- *    token stays verbatim in the output. Non-`.md` tokens, cycle back-edges, depth-exceeded
- *    tokens, and successfully-resolved tokens emit NO warning (PRD §2.3).
+ *    token stays verbatim in the output. Non-`.md` tokens, elided references (cycles/diamonds/
+ *    back-edges — elision is a SUCCESSFUL resolution), depth-exceeded tokens, and
+ *    successfully-resolved tokens emit NO warning (PRD §2.3).
  *
- * Missing files, directories, and cycle back-edges stay verbatim.
+ * Missing files and directories stay verbatim; already-imported references (cycles, diamonds,
+ * back-edges) are ELIDED (dropped, or a `<!-- @include-ref -->` comment when markers are on).
  *
  * @param prdPath - Path to the entry PRD file (relative or absolute).
  * @param opts - Optional {@link ResolveOpts} (`maxDepth`, `markers`).
@@ -597,7 +615,7 @@ export async function resolvePRD(
   const absEntry = resolve(prdPath);
   const baseDir = dirname(absEntry); // project-root-relative base invariant (PRD §2.3)
   const maxDepth = opts?.maxDepth ?? getPrdIncludeMaxDepth();
-  const markers = opts?.markers ?? getPrdIncludeMarkers(); // S3: marker toggle (opts wins over env)
+  const markers = opts?.markers ?? getPrdIncludeMarkers(); // marker toggle (opts wins over env)
 
   logger().debug(
     { prdPath: absEntry, baseDir, maxDepth, markers },

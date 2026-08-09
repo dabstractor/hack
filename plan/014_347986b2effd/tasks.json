@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Implement Global Flat Dedup + Elision + JSDoc Rewrite in expandIncludesRecursive",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Rewrite the core algorithm in expandIncludesRecursive (src/core/session-utils.ts) so the visited set is global/shared/flat (mutated by reference, not copied per branch), and already-imported paths are elided rather than left literal. Rewrite all JSDoc on expandIncludesRecursive, resolvePRD, and resolveIncludes to describe the new dedup+elision model and cite §2.3. The current JSDoc actively endorses the old per-branch behavior and is factually wrong after this change.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Rewrite JSDoc on resolvePRD and resolveIncludes to match new dedup model",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -66,7 +66,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Rewrite existing diamond/cycle tests to assert dedup + elision",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
