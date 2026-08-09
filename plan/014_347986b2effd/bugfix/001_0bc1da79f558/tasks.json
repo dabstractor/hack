@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Distributed-PRD Include-Dedup Idempotency Bugfixes",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Fix the two MINOR §2.3 bugs found in the distributed-PRD @token include resolver (src/core/session-utils.ts): BUG-001 (marker-mode comments contain a resolvable @token of their own, breaking idempotency when a file named like a marker word exists) and BUG-002 (the depth gate returns boundary content unscanned, leaving resolvable @tokens that re-expand on a second pass for include chains deeper than PRD_INCLUDE_MAX_DEPTH). No new features, no new dependencies; behavior change is confined to two pathological edge cases that do not affect realistic distributed PRDs. All work targets src/core/session-utils.ts + its tests + changeset-level docs.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Restore §2.3 Idempotency & Marker Integrity",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Make resolvePRD a true idempotent fixed point (resolve(resolve(x)) === resolve(x)) unconditionally: marker comments become structurally non-resolvable (BUG-001) and depth-exceeded resolvable tokens are elided rather than left literal (BUG-002). Includes regression coverage and a changeset-level documentation sweep.",
           "tasks": [
             {
@@ -70,14 +70,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Mode B final doc sweep for the two §2.3 idempotency/marker bugfixes. Runs AFTER both implementing subtasks land. Ensures README.md and any overview docs accurately reflect the post-fix reality (markers are collision-proof / structurally non-resolvable; resolve(resolve(x))===resolve(x) now holds unconditionally including at and beyond PRD_INCLUDE_MAX_DEPTH) and contain no stale claims about the old marker byte format or the pre-fix literal-survivor depth behavior.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Sweep README.md & overview docs for the §2.3 idempotency/marker changeset",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

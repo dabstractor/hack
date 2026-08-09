@@ -132,7 +132,7 @@ A PRD can be authored across multiple files and assembled into one canonical doc
 time (PRD §2.3). An `@path/to/file.md` token is an _include directive_ — replaced inline by the
 referenced file's contents (resolved project-root-relative to the entry PRD's directory,
 recursively with cycle detection up to `PRD_INCLUDE_MAX_DEPTH`, default `10`). Set
-`PRD_INCLUDE_MARKERS` to emit `<!-- @include: path -->` markers; a stale include warns on
+`PRD_INCLUDE_MARKERS` to emit `<!-- @!include: path -->` markers; a stale include warns on
 stderr. Hashing, `prd_snapshot.md`, delta detection, and `prd_selectors`/mdsel all operate over
 the **fully-resolved** document, so a split PRD behaves identically to a monolithic one.
 `prd_selectors` additionally scope each researcher to only the relevant PRD sections. See

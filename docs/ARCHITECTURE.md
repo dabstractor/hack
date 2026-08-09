@@ -167,7 +167,7 @@ A token expands only when **both** conditions hold:
 
 Includes resolve **project-root-relative** (relative to the entry PRD's directory) and expand **recursively, with cycle detection**, up to `PRD_INCLUDE_MAX_DEPTH` (default `10`). Re-resolution is **idempotent** — identical input bytes yield identical resolved bytes.
 
-When `PRD_INCLUDE_MARKERS` is set, resolved output emits `<!-- @include: path -->` / `<!-- @end-include -->` markers around expanded includes; a `.md` token that fails to resolve (a _stale include_) emits a warning on stderr.
+When `PRD_INCLUDE_MARKERS` is set, resolved output emits `<!-- @!include: path -->` / `<!-- @!end-include -->` markers around expanded includes; a `.md` token that fails to resolve (a _stale include_) emits a warning on stderr.
 
 ### The Invariant: One Canonical Document Downstream
 
