@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Distributed-PRD Include Dedup Polish (PRD §2.3 bugfixes)",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Apply three rigorously-validated MINOR fixes (PRD §2.3 / Minor Issues) to the distributed (multi-file) PRD include resolver in src/core/session-utils.ts and src/config/constants.ts. The core include-dedup contract is already sound and fully tested (67-test suite passes): global-flat dedup, elision, idempotency as a fixed point, and exponential-blowup protection are all verified. These three issues are (1) stale user-facing JSDoc for the collision-proof @! marker format (BUG-001), (2) a missing stderr warning for a stale .md token at the maxDepth depth-gate (BUG-002), and (3) the dedup visited set keying on a lexical path instead of the canonical realpath so symlink aliases to one physical file fail to dedup (BUG-003). No new features, no behavioral surface added beyond closing these three gaps. Research findings are persisted in plan/014_347986b2effd/bugfix/002_2b460dab1a1f/architecture/ (system_context.md, bugfix_findings.md, external_deps.md).",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Resolve the three validated minor defects and sync docs",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Fix BUG-001 (JSDoc drift), BUG-002 (depth-gate stale .md warning), and BUG-003 (symlink-safe canonical dedup key), then run a final changeset-level doc sweep. The three implementation tasks are independent (disjoint source regions: BUG-001 is constants.ts only; BUG-002 edits neutralizeResolvableTokens + the resolvePRD stale-warning JSDoc bullet; BUG-003 edits expandIncludesRecursive visited keying + the entry pre-seed + the resolvePRD dedup JSDoc bullet). They MAY run in parallel; if serialized, any order is valid. The final doc-sweep task depends on all three implementation subtasks and runs last. Definition of Done for each: failing test first (where behavior changes), implementation, passing test, typecheck (`npm run typecheck`), lint (`npm run lint`), and `npm run test:run` green for the touched suites.",
           "tasks": [
             {
@@ -90,7 +90,7 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Sync changeset-level documentation (Mode-B final sweep)",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Cross-cutting / overview documentation that only makes sense once the whole changeset is in place. Per-doc JSDoc touched by each fix already rode with its implementing subtask (Mode A); this task sweeps the top-level/overview docs for marker-format, stale-warning, and symlink-safe-dedup accuracy. Depends on ALL three implementing subtasks and runs LAST.",
               "subtasks": [
                 {
@@ -135,7 +135,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S3",
                   "title": "Sweep docs/ARCHITECTURE.md and docs/CLI_REFERENCE.md for include / marker / dedup references",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
