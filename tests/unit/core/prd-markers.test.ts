@@ -200,6 +200,51 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
   });
 });
 
+// ============================================================================
+// P1.M1.T2.S2 (plan 014) — NEW invariant test N2 locking §2.3 marker-on elision +
+// fixed-point idempotency. No source changes. Disjoint describe (S1 owns the block above).
+// Self-contained tmp (the describe above scopes its own beforeEach/afterEach).
+// ============================================================================
+
+// resolvePRD — marker reference comments for elided refs (§2.3)
+describe('resolvePRD — marker reference comments for elided refs (§2.3)', () => {
+  let n2tmp: string;
+
+  beforeEach(() => {
+    n2tmp = mkdtempSync(join(tmpdir(), 'prd-markers-n2-'));
+  });
+
+  afterEach(() => {
+    rmSync(n2tmp, { recursive: true, force: true });
+  });
+
+  it('N2: markers-on emits @include-ref for the elided occurrence and is a fixed point', async () => {
+    // SETUP — diamond: D is shared; B precedes C in A. Under markers-on, the FIRST encounter of
+    // D (inside B) is wrapped in @include/@end-include; the SECOND (inside C) is elided as a
+    // stable @include-ref comment (non-resolvable). Re-resolving pass-1 output is a fixed point.
+    writeFileSync(join(n2tmp, 'D.md'), 'D-BODY');
+    writeFileSync(join(n2tmp, 'B.md'), 'B-OPEN @D.md B-CLOSE');
+    writeFileSync(join(n2tmp, 'C.md'), 'C-OPEN @D.md C-CLOSE');
+    writeFileSync(join(n2tmp, 'A.md'), 'A-TOP @B.md @C.md A-BOT'); // B before C
+    writeFileSync(join(n2tmp, 'main.md'), '@A.md');
+
+    const out1 = await resolvePRD(join(n2tmp, 'main.md'), { markers: true });
+
+    // VERIFY — the elided occurrence carries the reference comment; the first encounter is wrapped;
+    // D-BODY still appears exactly once.
+    expect(out1).toContain('<!-- @include-ref: D.md -->');
+    expect(out1).toContain('<!-- @include: D.md -->');
+    expect(out1.split('D-BODY').length).toBe(2);
+
+    // Idempotency: marker comments (@include/@include-ref/@end-include) match RESOLVE_TOKEN but
+    // resolve to ENOENT non-.md tokens → silent verbatim on re-scan → pass-1 is a fixed point.
+    const pass2 = join(n2tmp, 'pass2.md');
+    writeFileSync(pass2, out1);
+    const out2 = await resolvePRD(pass2, { markers: true });
+    expect(out2).toBe(out1);
+  });
+});
+
 describe('config/constants: getPrdIncludeMarkers', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

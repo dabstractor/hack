@@ -22,7 +22,7 @@
  * @see {@link ../../../src/config/constants.ts}
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   mkdtempSync,
   writeFileSync,
@@ -34,6 +34,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   resolvePRD,
+  resolveIncludes,
   SessionFileError,
 } from '../../../src/core/session-utils.js';
 
@@ -318,4 +319,123 @@ describe('resolvePRD — error branches', () => {
       }
     }
   );
+});
+
+// ============================================================================
+// P1.M1.T2.S2 (plan 014) — NEW invariant tests (N1, N3, N4, N5, N6, N7) locking the
+// §2.3 dedup / elision / idempotency of `expandIncludesRecursive`. No source changes.
+// Disjoint describes (S1 owns 'global-flat dedup & elision'); reuse the file-level `tmp`.
+// ============================================================================
+
+/** Shared diamond fixture for the dedup/marker tests (N1/N3 + prd-markers N2). */
+function writeDiamond(dir: string): void {
+  writeFileSync(join(dir, 'D.md'), 'D-BODY');
+  writeFileSync(join(dir, 'B.md'), 'B-OPEN @D.md B-CLOSE');
+  writeFileSync(join(dir, 'C.md'), 'C-OPEN @D.md C-CLOSE');
+  writeFileSync(join(dir, 'A.md'), 'A-TOP @B.md @C.md A-BOT'); // B before C
+  writeFileSync(join(dir, 'main.md'), '@A.md');
+}
+
+// resolvePRD — diamond dedup & first-encounter position (§2.3)
+describe('resolvePRD — diamond dedup & first-encounter position (§2.3)', () => {
+  it('N1: expands the shared include exactly once at its first-encounter (B before C) position', async () => {
+    writeDiamond(tmp);
+
+    const out = await resolvePRD(join(tmp, 'main.md'));
+
+    // VERIFY — D-BODY expanded once (inside B), elided from C (leaving the double-space). B precedes
+    // C in A, so D-BODY sits between B-OPEN/B-CLOSE, before C-OPEN.
+    expect(out).toBe('A-TOP B-OPEN D-BODY B-CLOSE C-OPEN  C-CLOSE A-BOT');
+    expect(out.split('D-BODY').length).toBe(2); // appears exactly once
+    expect(out).not.toContain('@D.md'); // no literal survivor
+    expect(out.indexOf('D-BODY')).toBeLessThan(out.indexOf('C-OPEN'));
+  });
+
+  it('N3: emits no @include-ref comments under markers-off elision and expands D exactly once', async () => {
+    writeDiamond(tmp);
+
+    const out = await resolvePRD(join(tmp, 'main.md'));
+
+    // VERIFY — markers-off elision is silent (no reference comments) and still dedups.
+    expect(out).not.toContain('@D.md');
+    expect(out).not.toContain('@include-ref');
+    expect(out.split('D-BODY').length).toBe(2);
+  });
+});
+
+// resolvePRD — idempotency fixed point (§2.3)
+describe('resolvePRD — idempotency fixed point (§2.3)', () => {
+  it('N4: re-resolving pass-1 output yields the same bytes (no surviving @tokens)', async () => {
+    writeFileSync(join(tmp, 'a.md'), 'A-body @c.md');
+    writeFileSync(join(tmp, 'b.md'), 'B-body @c.md');
+    writeFileSync(join(tmp, 'c.md'), 'C-body @a.md'); // cycle back to a (already visited → elided)
+    writeFileSync(join(tmp, 'main.md'), '@a.md\n@b.md');
+
+    const out1 = await resolvePRD(join(tmp, 'main.md'));
+
+    // Pass 2: resolvePRD takes a PATH — write pass-1 output to a temp file, then resolve that.
+    const pass2 = join(tmp, 'pass2.md');
+    writeFileSync(pass2, out1);
+    const out2 = await resolvePRD(pass2);
+
+    // VERIFY — fixed point (idempotent) + no surviving include tokens.
+    expect(out2).toBe(out1);
+    expect(out1).not.toMatch(/@a\.md|@b\.md|@c\.md/);
+  });
+});
+
+// resolvePRD — exponential-blowup guard (§2.3 dedup bounds recursion)
+describe('resolvePRD — exponential-blowup guard (§2.3 dedup bounds recursion)', () => {
+  it('N5: 8 mutually-referencing files resolve in bounded time/size (each body once)', async () => {
+    // SETUP — 8 files f0..f7, each referencing f(i+1)%8 and f(i+2)%8 (a dense cycle graph).
+    let totalInput = 0;
+    for (let i = 0; i < 8; i++) {
+      const body = `F${i} @f${(i + 1) % 8}.md @f${(i + 2) % 8}.md`;
+      writeFileSync(join(tmp, `f${i}.md`), body);
+      totalInput += body.length;
+    }
+    writeFileSync(join(tmp, 'main.md'), '@f0.md');
+    totalInput += '@f0.md'.length;
+
+    // EXECUTE — COMPLETES (no throw, no exponential blowup; dedup bounds the traversal).
+    const out = await resolvePRD(join(tmp, 'main.md'));
+
+    // VERIFY — each file body appears EXACTLY once (first-encounter wins; back-edges elided).
+    for (let i = 0; i < 8; i++) {
+      expect(out.split(`F${i}`).length).toBe(2);
+    }
+    // Bounded size: output is smaller than 2× the total input bytes (dedup, no duplication).
+    expect(out.length).toBeLessThan(totalInput * 2);
+  });
+});
+
+// resolvePRD — entry-self-include elision (§2.3)
+describe('resolvePRD — entry-self-include elision (§2.3)', () => {
+  it('N6: an include pointing back at the entry is elided silently (no stale-warn)', async () => {
+    // SETUP — entry is pre-seeded in `visited`, so @main.md is a back-edge → elided (emit nothing,
+    // leaving the double-space). Elision is SILENT — no stale-include console.warn.
+    writeFileSync(join(tmp, 'main.md'), 'X @main.md Y');
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe('X  Y');
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+// resolveIncludes — single-level, no dedup (§2.3)
+describe('resolveIncludes — single-level, no dedup (§2.3)', () => {
+  it('N7: a duplicate @token expands BOTH times (no visited set, no recursion)', async () => {
+    // SETUP — resolveIncludes is the single-level primitive: no dedup, no recursion. A repeated
+    // @a.md expands both occurrences.
+    writeFileSync(join(tmp, 'a.md'), 'A');
+
+    const out = await resolveIncludes('@a.md @a.md', tmp);
+
+    // VERIFY — both occurrences expanded (single-level: the contract has no visited set).
+    expect(out).toBe('A A');
+  });
 });
