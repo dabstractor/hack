@@ -1,0 +1,17 @@
+1f0835ed7181 spec/SPEC.md
+24c7c3acce3d spec/01-executive-summary.md
+f40f037c292d spec/02-core-concepts.md
+acd5b15818f5 spec/03-architecture.md
+9fedbdc532d5 spec/04-workflows.md
+d61a453db4ba spec/05-functional-requirements.md
+ed4c2ec2e0ff spec/06-prompts-personas.md
+0dddef51a73d spec/07-roadmap.md
+b98938d245b1 spec/08-tech-spec-overview.md
+6e3d9664aac2 spec/09-environment-config.md
+dd159d97e48f spec/10-system-components.md
+bd2528bfe623 spec/11-harness-system.md
+0efddaf963a1 spec/12-impl-roadmap.md
+635039d7c677 spec/13-logging.md
+7671d7cb9fc0 spec/14-hack-config.md
+2a43a93aec94 spec/15-repo-root.md
+54138854b3a7 spec/16-validation-gates.md
