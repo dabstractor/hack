@@ -454,11 +454,16 @@ const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
  * from an included file's location) — this preserves the project-root-relative base invariant.
  *
  * `maxDepth` is now DEFENSE-IN-DEPTH only — the global-flat-dedup already bounds recursion to one
- * import per file; the `depth >= maxDepth` gate is a backstop against pathological inputs.
+ * import per file; the `depth >= maxDepth` gate is a backstop against pathological inputs. The gate
+ * ELIDES resolvable survivors (via {@link neutralizeResolvableTokens}) rather than leaving them literal,
+ * so the idempotency MUST (`resolve(resolve(x)) === resolve(x)`, PRD §2.3 L27) holds UNCONDITIONALLY —
+ * even for deep unique linear chains (which dedup does not bound) or a user-lowered
+ * `PRD_INCLUDE_MAX_DEPTH` (§9.7.5). At `maxDepth = 0` the gate fires at the entry (depth 0) and
+ * uniformly elides the entry's resolvable tokens (the entry is NOT exempt) — `resolve('') === ''`.
  *
  * @param content - Raw string to scan for include directives.
  * @param baseDir - Directory to resolve include paths against (the entry PRD's directory).
- * @param maxDepth - Max nesting depth (defense-in-depth backstop; the gate is `depth >= maxDepth` → stop expanding).
+ * @param maxDepth - Max nesting depth (defense-in-depth backstop; the gate is `depth >= maxDepth` → ELIDE resolvable survivors via {@link neutralizeResolvableTokens}, not recurse).
  * @param depth - Current nesting depth (the entry file is depth 0).
  * @param visited - GLOBAL flat set of absolute paths already expanded this resolution (shared by
  *        reference; first encounter wins, later references elide). The entry file is pre-seeded.
@@ -480,7 +485,12 @@ async function expandIncludesRecursive(
   markers: boolean
 ): Promise<string> {
   if (depth >= maxDepth) {
-    return content; // depth gate — remaining @tokens stay literal
+    // BUG-002: depth-gate ELISION — neutralize resolvable survivors so NONE reach a 2nd pass
+    // (preserves the unconditional idempotency MUST: resolve(resolve(x)) === resolve(x), PRD §2.3 L27).
+    // For each @token: stat; resolvable-to-FILE → ELIDE (markers off → drop; markers on →
+    // collision-proof ref-comment, IDENTICAL to the dedup-elision branch). Non-resolvable
+    // (ENOENT/dir) → verbatim. Do NOT recurse (the cap's purpose); do NOT add boundary tokens to visited.
+    return neutralizeResolvableTokens(content, baseDir, markers);
   }
 
   const matches = [...content.matchAll(RESOLVE_TOKEN)];
@@ -500,7 +510,7 @@ async function expandIncludesRecursive(
       if (markers) {
         // @! is structurally non-resolvable: ! ∉ [A-Za-z0-9_./-] → RESOLVE_TOKEN's token group can't
         // start → zero captures (technique B, PRD §2.3 L26).
-        out += `<!-- @!include-ref: ${token} -->`;
+        out += elisionRefComment(token);
       }
       // markers === false → emit nothing (elide entirely)
       last = idx + m[0].length;
@@ -558,6 +568,70 @@ async function expandIncludesRecursive(
 }
 
 /**
+ * Collision-proof elision reference comment (structurally non-resolvable — S1 technique B).
+ *
+ * @remarks
+ * `@!` is non-resolvable: `!` ∉ `[A-Za-z0-9_./-]` → {@link RESOLVE_TOKEN}'s token group can't start →
+ * zero captures on re-resolution. Shared by the dedup-elision branch and the depth-gate
+ * {@link neutralizeResolvableTokens} scan so the marker format is a single source of truth.
+ */
+function elisionRefComment(token: string): string {
+  return `<!-- @!include-ref: ${token} -->`;
+}
+
+/**
+ * Depth-gate elision (BUG-002): neutralize resolvable `@token` survivors in a boundary body so none
+ * reach a 2nd resolution pass. Mirrors the dedup-elision semantics without recursing.
+ *
+ * @remarks
+ * For each `@token`: `stat()` it; if it resolves to an existing FILE → ELIDE (markers off → drop the
+ * token; markers on → emit the collision-proof `<!-- @!include-ref: token -->` ref-comment, IDENTICAL
+ * to the dedup-elision branch). If it does NOT resolve (ENOENT or a directory) → leave VERBATIM (a
+ * non-resolvable prose mention re-resolves identically, preserving idempotency). Does NOT recurse and
+ * does NOT mutate `visited` — the cap's purpose is to bound recursion; this scan only neutralizes
+ * survivors. A non-ENOENT `stat` error (e.g. EACCES) THROWS `SessionFileError` (mirrors the main loop).
+ * Emits NO stale-include warning (elision = success; verbatim = non-resolving prose, which is silent).
+ */
+async function neutralizeResolvableTokens(
+  content: string,
+  baseDir: string,
+  markers: boolean
+): Promise<string> {
+  const matches = [...content.matchAll(RESOLVE_TOKEN)];
+  let out = '';
+  let last = 0;
+  for (const m of matches) {
+    const idx = m.index!;
+    out += content.slice(last, idx); // gap before token (verbatim)
+    const token = m[1];
+    const abs = resolve(baseDir, token);
+    let resolves = false;
+    try {
+      resolves = (await stat(abs)).isFile(); // existing FILE → resolvable
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') {
+        resolves = false; // missing → non-resolvable → verbatim
+      } else {
+        throw new SessionFileError(
+          abs,
+          'stat include (depth gate)',
+          e as Error
+        );
+      }
+    }
+    out += resolves
+      ? markers
+        ? elisionRefComment(token) // ELIDE — collision-proof ref (markers on)
+        : '' // ELIDE — drop entirely (markers off)
+      : m[0]; // non-resolvable prose → verbatim (re-resolves identically)
+    last = idx + m[0].length;
+  }
+  out += content.slice(last); // tail
+  return out;
+}
+
+/**
  * Resolve a PRD entry file, recursively expanding `@path/to/file.md` includes (PRD §2.3).
  *
  * @remarks
@@ -580,7 +654,11 @@ async function expandIncludesRecursive(
  *  - **MAX DEPTH**: DEFENSE-IN-DEPTH only — the global-flat-dedup already bounds recursion to one
  *    import per file; `maxDepth` (default {@link getPrdIncludeMaxDepth}, 10) is a backstop against
  *    pathological inputs. The entry file is depth 0, so `maxDepth = N` allows N nesting levels
- *    below the entry.
+ *    below the entry. The depth gate ELIDES resolvable survivors (not literal), so the idempotency
+ *    MUST (`resolve(resolve(x)) === resolve(x)`, PRD §2.3 L27) holds UNCONDITIONALLY — even for deep
+ *    unique linear chains (which dedup does not bound) or a lowered `PRD_INCLUDE_MAX_DEPTH` (§9.7.5).
+ *    At `maxDepth = 0` the gate fires at the entry and uniformly elides its resolvable tokens
+ *    (entry NOT exempt; `resolve('') === ''`).
  *  - **BASE INVARIANT**: all paths resolve project-root-relative — against the entry PRD's
  *    directory, regardless of which file contains the directive (PRD §2.3).
  *  - **MARKERS (optional)**: when `opts.markers` is `true` OR the `PRD_INCLUDE_MARKERS` env var

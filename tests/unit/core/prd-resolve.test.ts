@@ -187,7 +187,7 @@ describe('resolvePRD — base invariant', () => {
 // ============================================================================
 
 describe('resolvePRD — max depth', () => {
-  it('stops expanding at opts.maxDepth (deeper tokens stay literal)', async () => {
+  it('elides resolvable survivors at opts.maxDepth (idempotency at the boundary)', async () => {
     // SETUP — entry→a→b→c; with maxDepth=1 only a expands; b is read but not recursed.
     writeFileSync(join(tmp, 'c.md'), 'C');
     writeFileSync(join(tmp, 'b.md'), 'B @c.md');
@@ -195,30 +195,36 @@ describe('resolvePRD — max depth', () => {
     writeFileSync(join(tmp, 'main.md'), '@a.md');
 
     // EXECUTE — maxDepth=1: a expands at depth 1, but a's body (containing @b.md) is the
-    // depth-1 boundary, so @b.md inside a is NOT recursed.
+    // depth-1 boundary. BUG-002 fix: @b.md (resolvable-to-file) is ELIDED (not left literal),
+    // so no resolvable survivor reaches a 2nd pass (unconditional idempotency, PRD §2.3 L27).
     const out = await resolvePRD(join(tmp, 'main.md'), { maxDepth: 1 });
 
-    // VERIFY — a expanded; @b.md stays literal (depth gate TRUE branch).
-    expect(out).toBe('A @b.md');
+    // VERIFY — a expanded; @b.md ELIDED (trailing space is the correct elision artifact).
+    expect(out).toBe('A ');
+    expect(out).not.toContain('@b.md'); // elided, not a literal survivor
     expect(out).toContain('A ');
     expect(out).not.toContain('B ');
     expect(out).not.toContain('C');
   });
 
-  it('stops expanding at opts.maxDepth = 0 (entry returned verbatim)', async () => {
+  it("elides the entry's resolvable tokens at opts.maxDepth = 0 (uniform-elision edge)", async () => {
     // SETUP — would expand at depth 1 if the gate were open.
     writeFileSync(join(tmp, 'a.md'), 'A');
     writeFileSync(join(tmp, 'main.md'), '@a.md');
 
-    // EXECUTE — depth gate closes immediately (0 >= 0 at entry, depth 0).
+    // EXECUTE — depth gate closes immediately (0 >= 0 at entry, depth 0). BUG-002: uniform
+    // elision — the entry is NOT exempt; its resolvable @a.md is ELIDED (so no survivor reaches
+    // a 2nd pass). resolve('') === '' → idempotency holds even at maxDepth=0.
     const out = await resolvePRD(join(tmp, 'main.md'), { maxDepth: 0 });
 
-    // VERIFY — identity; the @a.md token stays literal.
-    expect(out).toBe('@a.md');
+    // VERIFY — entry's @a.md ELIDED → empty output. Idempotent: re-resolving '' yields ''.
+    expect(out).toBe('');
+    writeFileSync(join(tmp, 'pass2.md'), out);
+    await expect(resolvePRD(join(tmp, 'pass2.md'))).resolves.toBe('');
   });
 
-  it('stops expanding at the default depth bound (PRD_INCLUDE_MAX_DEPTH)', async () => {
-    // SETUP — a 12-deep chain; default maxDepth (10) means levels 11–12 stay literal.
+  it('elides resolvable survivors at the default depth bound (PRD_INCLUDE_MAX_DEPTH)', async () => {
+    // SETUP — a 12-deep chain; default maxDepth (10) means the depth-10 boundary elides @l11.md.
     // main.md → l1 → l2 → ... → l12, where each lN includes @l{N+1}.md.
     for (let i = 12; i >= 1; i--) {
       const body = i === 12 ? 'LEAF' : `L${i} @l${i + 1}.md`;
@@ -226,15 +232,77 @@ describe('resolvePRD — max depth', () => {
     }
     writeFileSync(join(tmp, 'main.md'), '@l1.md');
 
-    // EXECUTE — default bound (10): levels 1–10 expand; @l11.md inside l10 stays literal.
+    // EXECUTE — default bound (10): levels 1–10 expand; @l11.md inside l10 is ELIDED (BUG-002 fix).
     const out = await resolvePRD(join(tmp, 'main.md'));
 
-    // VERIFY — levels 1–10 expanded inline; the @l11.md token (depth 10 boundary) stays literal.
+    // VERIFY — levels 1–10 expanded inline; the @l11.md token (depth 10 boundary) is ELIDED.
     expect(out).toContain('L1 ');
     expect(out).toContain('L10 ');
-    expect(out).toContain('@l11.md'); // literal — depth gate hit at the 10th nesting level
+    expect(out).not.toContain('@l11.md'); // elided at the depth-10 boundary (was literal pre-BUG-002 fix)
     expect(out).not.toContain('L11 ');
     expect(out).not.toContain('LEAF');
+  });
+
+  // --- BUG-002 regression: resolve(resolve(x)) === resolve(x) (PRD §2.3 L27, UNCONDITIONAL) ---
+
+  it('resolve(resolve(x)) === resolve(x) for a 12-deep linear chain (default maxDepth)', async () => {
+    // SETUP — a 12-deep LINEAR chain of UNIQUE files (dedup bounds cycles/diamonds, NOT unique
+    // chains; this is the BUG-002 reachability path). l12='LEAF'; lN=`L${i} @l${i+1}.md`.
+    for (let i = 12; i >= 1; i--) {
+      const body = i === 12 ? 'LEAF' : `L${i} @l${i + 1}.md`;
+      writeFileSync(join(tmp, `l${i}.md`), body);
+    }
+    writeFileSync(join(tmp, 'main.md'), '@l1.md');
+
+    // EXECUTE — pass 1; write its output to a file; resolve THAT as pass 2.
+    const o1 = await resolvePRD(join(tmp, 'main.md'));
+    writeFileSync(join(tmp, 'pass2.md'), o1);
+    const o2 = await resolvePRD(join(tmp, 'pass2.md'));
+
+    // VERIFY — fixed point: no resolvable survivor reached pass 2 (@l11.md was elided at the gate).
+    expect(o2).toBe(o1);
+  });
+
+  it('resolve(resolve(x)) === resolve(x) with a lowered opts.maxDepth (deep-chain boundary)', async () => {
+    // SETUP — a 5-deep chain; maxDepth=3 forces a depth-3 boundary with a resolvable survivor.
+    for (let i = 5; i >= 1; i--) {
+      const body = i === 5 ? 'LEAF' : `L${i} @l${i + 1}.md`;
+      writeFileSync(join(tmp, `d${i}.md`), body);
+    }
+    writeFileSync(join(tmp, 'main.md'), '@d1.md');
+
+    // EXECUTE — pass 1 with maxDepth=3; resolve its output (pass 2) with the same maxDepth.
+    const o1 = await resolvePRD(join(tmp, 'main.md'), { maxDepth: 3 });
+    writeFileSync(join(tmp, 'pass2.md'), o1);
+    const o2 = await resolvePRD(join(tmp, 'pass2.md'), { maxDepth: 3 });
+
+    // VERIFY — fixed point: the boundary survivor (@d4.md) was elided, not left literal.
+    expect(o2).toBe(o1);
+  });
+
+  it('markers ON at the depth boundary emit a collision-proof ref-comment and stay a fixed point', async () => {
+    // SETUP — a small chain; maxDepth=1 forces a depth-1 boundary so the gate fires with markers on.
+    writeFileSync(join(tmp, 'b.md'), 'B');
+    writeFileSync(join(tmp, 'a.md'), 'A @b.md');
+    writeFileSync(join(tmp, 'main.md'), '@a.md');
+
+    // EXECUTE — markers ON; maxDepth=1 → a's body 'A @b.md' hits the depth gate. @b.md (resolvable)
+    // is ELIDED and replaced by the collision-proof ref-comment (S1's @!include-ref format).
+    const o1 = await resolvePRD(join(tmp, 'main.md'), {
+      markers: true,
+      maxDepth: 1,
+    });
+
+    // VERIFY — the ref-comment was emitted (collision-proof: @! ∉ the token-char class).
+    expect(o1).toContain('<!-- @!include-ref:');
+
+    // VERIFY — fixed point: re-resolving o1 (with the same opts) is byte-identical.
+    writeFileSync(join(tmp, 'pass2.md'), o1);
+    const o2 = await resolvePRD(join(tmp, 'pass2.md'), {
+      markers: true,
+      maxDepth: 1,
+    });
+    expect(o2).toBe(o1);
   });
 });
 

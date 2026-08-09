@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Distributed-PRD Include-Dedup Idempotency Bugfixes",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Fix the two MINOR §2.3 bugs found in the distributed-PRD @token include resolver (src/core/session-utils.ts): BUG-001 (marker-mode comments contain a resolvable @token of their own, breaking idempotency when a file named like a marker word exists) and BUG-002 (the depth gate returns boundary content unscanned, leaving resolvable @tokens that re-expand on a second pass for include chains deeper than PRD_INCLUDE_MAX_DEPTH). No new features, no new dependencies; behavior change is confined to two pathological edge cases that do not affect realistic distributed PRDs. All work targets src/core/session-utils.ts + its tests + changeset-level docs.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Restore §2.3 Idempotency & Marker Integrity",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Make resolvePRD a true idempotent fixed point (resolve(resolve(x)) === resolve(x)) unconditionally: marker comments become structurally non-resolvable (BUG-001) and depth-exceeded resolvable tokens are elided rather than left literal (BUG-002). Includes regression coverage and a changeset-level documentation sweep.",
           "tasks": [
             {
@@ -43,14 +43,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "BUG-002 — Preserve idempotency at the PRD_INCLUDE_MAX_DEPTH boundary",
-              "status": "Researching",
+              "status": "Complete",
               "description": "PRD §2.3 (Issue 2 / BUG-002): the depth gate 'if (depth >= maxDepth) return content;' (src/core/session-utils.ts:479) returns the boundary file's body UNSCANNED, so resolvable @tokens in it survive literal and expand on a second resolution pass — breaking resolve(resolve(x))===resolve(x) for linear include chains deeper than PRD_INCLUDE_MAX_DEPTH (default 10; also reachable when a user lowers the limit below their actual include depth). Fix: at the gate, scan the content and elide resolvable survivors (mirroring existing cycle/diamond elision) so no resolvable token reaches a second pass; non-resolvable prose @mentions stay verbatim. Update JSDoc, update the three depth tests that assert the old literal-survivor behavior, and add deep-chain + lowered-maxDepth idempotency regression tests.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Elide resolvable survivors at the depth gate so resolve(resolve(x))===resolve(x) (TDD)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -70,14 +70,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Mode B final doc sweep for the two §2.3 idempotency/marker bugfixes. Runs AFTER both implementing subtasks land. Ensures README.md and any overview docs accurately reflect the post-fix reality (markers are collision-proof / structurally non-resolvable; resolve(resolve(x))===resolve(x) now holds unconditionally including at and beyond PRD_INCLUDE_MAX_DEPTH) and contain no stale claims about the old marker byte format or the pre-fix literal-survivor depth behavior.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Sweep README.md & overview docs for the §2.3 idempotency/marker changeset",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
