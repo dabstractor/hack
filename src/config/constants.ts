@@ -1280,14 +1280,17 @@ export function getPrdIncludeMaxDepth(): number {
 }
 
 /**
- * Environment variable name: emit `<!-- @include -->` markers around expanded includes
- * (PRD §2.3; consumed in S3).
+ * Environment variable name: emit `<!-- @!include -->` markers around expanded includes
+ * (PRD §2.3). The `@!` prefix makes markers structurally non-resolvable: `!` is outside
+ * RESOLVE_TOKEN's `[A-Za-z0-9_./-]` char-class, so the markers cannot match on re-scan —
+ * guaranteeing a true idempotent fixed point even when files named `include`/`end-include`/
+ * `include-ref` exist in the PRD directory.
  *
  * @remarks
- * When set, resolved include output emits `<!-- @include: path -->` / `<!-- @end-include -->`
- * comment markers, and a `.md` token that fails to resolve (stale include) emits a stderr
- * warning. This is declared here so S3 only adds behavior, not new plumbing; it is NOT
- * consumed by S1's `resolveIncludes`.
+ * When set, resolved include output emits three marker types:
+ * - `<!-- @!include: path -->` / `<!-- @!end-include -->` — wraps each expanded include body.
+ * - `<!-- @!include-ref: path -->` — marks an elided second-or-later reference (global-flat dedup).
+ * A `.md` token that fails to resolve (stale include) emits a stderr warning.
  *
  * @example
  * ```ts
