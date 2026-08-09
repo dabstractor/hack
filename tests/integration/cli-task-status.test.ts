@@ -204,6 +204,38 @@ describe('hack status / hack task (PRD §5.3 discovery + §5.4 color-coding)', (
     expect(stderrText()).not.toContain('Using main tasks');
   });
 
+  it('default listing under -o json emits the backlog as valid JSON (BUG-1)', async () => {
+    cwd = await mkRepoTmp();
+    process.chdir(cwd);
+    await makeSession();
+
+    await run(['status', '-o', 'json']);
+
+    // BUG-1: previously the default-list branch ignored `-o json` and printed
+    // the colored text tree, so stdout was NOT parseable JSON. Now stdout must
+    // be the backlog array verbatim, with no ANSI color escapes leaking in.
+    const emitted = JSON.parse(stdout());
+    expect(Array.isArray(emitted)).toBe(true);
+    expect(emitted[0].id).toBe('P1');
+    expect(emitted[0].milestones[0].tasks[0].subtasks[0].id).toBe(
+      'P1.M1.T1.S1'
+    );
+    expect(stdout()).not.toContain('\x1b'); // no colored text on the json path
+  });
+
+  it('default listing under -o json works for `hack task` too (BUG-1)', async () => {
+    cwd = await mkRepoTmp();
+    process.chdir(cwd);
+    await makeSession();
+
+    await run(['task', '-o', 'json']);
+
+    const emitted = JSON.parse(stdout());
+    expect(Array.isArray(emitted)).toBe(true);
+    expect(emitted[0].id).toBe('P1');
+    expect(stdout()).not.toContain('\x1b');
+  });
+
   it('skips discovery (no note) for an explicit --file override', async () => {
     cwd = await mkRepoTmp();
     process.chdir(cwd);

@@ -35,7 +35,7 @@ import { parseScope, ScopeParseError } from '../core/scope-resolver.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, relative, dirname, basename } from 'node:path';
 import chalk from 'chalk';
-import { getLogger, type Logger } from '../utils/logger.js';
+import { getLogger, setLogDestination, type Logger } from '../utils/logger.js';
 import { InspectCommand, type InspectorOptions } from './commands/inspect.js';
 import { ArtifactsCommand } from './commands/artifacts.js';
 import { ValidateStateCommand } from './commands/validate-state.js';
@@ -813,23 +813,31 @@ export function parseCLIArgs():
       } else {
         // Default: list all tasks, color-coded by completion status (PRD §5.4).
         // Mirrors the reference tsk tool: bold ID, status-colored title+status.
-        const listItems = (items: any[], indent = 0) => {
-          for (const item of items) {
-            const prefix = '  '.repeat(indent);
-            const color = taskStatusColor(item.status);
-            const points =
-              typeof item.story_points === 'number'
-                ? ` (${item.story_points} points)`
-                : '';
-            console.log(
-              `${prefix}${chalk.bold(item.id)}: ${color(item.title)} - ${color(item.status)}${points}`
-            );
-            if (item.subtasks) listItems(item.subtasks, indent + 1);
-            if (item.tasks) listItems(item.tasks, indent + 1);
-            if (item.milestones) listItems(item.milestones, indent + 1);
-          }
-        };
-        listItems(data.backlog || []);
+        if (options.output === 'json') {
+          // BUG-1: honour `-o json` for the default listing too. Previously the
+          // default-list branch ignored `--output json` and printed the colored
+          // text tree, so `hack status -o json | jq .` failed to parse. Emit the
+          // backlog tree as JSON, mirroring the `task next`/`task status` handlers.
+          console.log(JSON.stringify(data.backlog || [], null, 2));
+        } else {
+          const listItems = (items: any[], indent = 0) => {
+            for (const item of items) {
+              const prefix = '  '.repeat(indent);
+              const color = taskStatusColor(item.status);
+              const points =
+                typeof item.story_points === 'number'
+                  ? ` (${item.story_points} points)`
+                  : '';
+              console.log(
+                `${prefix}${chalk.bold(item.id)}: ${color(item.title)} - ${color(item.status)}${points}`
+              );
+              if (item.subtasks) listItems(item.subtasks, indent + 1);
+              if (item.tasks) listItems(item.tasks, indent + 1);
+              if (item.milestones) listItems(item.milestones, indent + 1);
+            }
+          };
+          listItems(data.backlog || []);
+        }
       }
       process.exit(0);
     } catch (error) {
@@ -910,6 +918,15 @@ export function parseCLIArgs():
     status: string,
     options: { file?: string; output?: string; session?: string }
   ): Promise<void> => {
+    // BUG-2: route structured logs to stderr under `-o json` so stdout carries
+    // ONLY the machine-readable JSON payload. `hack update` is a WRITE: it
+    // flows through `withLockedTasksJSON` → `writeTasksJSON`, which logs an
+    // INFO line via pino (default stdout). Without this redirect,
+    // `hack update … -o json | jq .` breaks on the leading log line. Set
+    // BEFORE any logging can occur (file discovery / lock / RMW).
+    if (options.output === 'json') {
+      setLogDestination(process.stderr);
+    }
     try {
       // 1. STATUS MATCH (pure, fail fast before any I/O).
       const statusResult = matchStatus(status);

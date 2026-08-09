@@ -47,16 +47,19 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
-const { mockLogger } = vi.hoisted(() => ({
+const { mockLogger, mockSetLogDestination } = vi.hoisted(() => ({
   mockLogger: {
     info: vi.fn(),
     error: vi.fn(),
     warn: vi.fn(),
     debug: vi.fn(),
   },
+  // BUG-2: updateAction calls setLogDestination(process.stderr) under `-o json`.
+  mockSetLogDestination: vi.fn(),
 }));
 vi.mock('../../../src/utils/logger.js', () => ({
   getLogger: vi.fn(() => mockLogger),
+  setLogDestination: mockSetLogDestination,
 }));
 
 const { mockConfigExecute } = vi.hoisted(() => ({
@@ -272,6 +275,9 @@ describe('hack update (PRD §5.4)', () => {
       status: 'Complete',
       title: 'Subtask One',
     });
+    // BUG-2: under `-o json` the handler routes structured logs to stderr so
+    // stdout carries only the JSON payload.
+    expect(mockSetLogDestination).toHaveBeenCalledWith(process.stderr);
 
     stdoutSpy.mockRestore();
   });

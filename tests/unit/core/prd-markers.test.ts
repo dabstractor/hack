@@ -58,7 +58,7 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
     writeFileSync(join(tmp, 'a.md'), 'A');
     writeFileSync(join(tmp, 'main.md'), '@a.md');
     await expect(resolvePRD(join(tmp, 'main.md'))).resolves.toBe(
-      '<!-- @include: a.md -->\nA\n<!-- @end-include -->'
+      '<!-- @!include: a.md -->\nA\n<!-- @!end-include -->'
     );
   });
 
@@ -67,7 +67,7 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
     writeFileSync(join(tmp, 'main.md'), '@a.md');
     await expect(
       resolvePRD(join(tmp, 'main.md'), { markers: true })
-    ).resolves.toBe('<!-- @include: a.md -->\nA\n<!-- @end-include -->');
+    ).resolves.toBe('<!-- @!include: a.md -->\nA\n<!-- @!end-include -->');
   });
 
   it('opts.markers=false suppresses markers even when env=1', async () => {
@@ -85,11 +85,11 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
     writeFileSync(join(tmp, 'a.md'), '@b.md');
     writeFileSync(join(tmp, 'main.md'), '@a.md');
     const out = await resolvePRD(join(tmp, 'main.md'));
-    expect(out).toContain('<!-- @include: a.md -->');
-    expect(out).toContain('<!-- @include: b.md -->');
+    expect(out).toContain('<!-- @!include: a.md -->');
+    expect(out).toContain('<!-- @!include: b.md -->');
     // b is nested inside a's marker block
     expect(out).toBe(
-      '<!-- @include: a.md -->\n<!-- @include: b.md -->\nB\n<!-- @end-include -->\n<!-- @end-include -->'
+      '<!-- @!include: a.md -->\n<!-- @!include: b.md -->\nB\n<!-- @!end-include -->\n<!-- @!end-include -->'
     );
   });
 
@@ -99,7 +99,7 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
     writeFileSync(join(tmp, 'main.md'), '@missing.md');
     const out = await resolvePRD(join(tmp, 'main.md'));
     expect(out).toBe('@missing.md'); // never wrap a non-expansion
-    expect(out).not.toContain('<!-- @include');
+    expect(out).not.toContain('<!-- @!include');
   });
 
   it('wraps inline expansions identically to line-start (surrounding prose preserved)', async () => {
@@ -110,9 +110,11 @@ describe('resolvePRD — markers, stale warnings, idempotency', () => {
     const inline = await resolvePRD(join(tmp, 'inline.md'));
     const linestart = await resolvePRD(join(tmp, 'linestart.md'));
     expect(inline).toBe(
-      'see <!-- @include: a.md -->\nA\n<!-- @end-include --> here'
+      'see <!-- @!include: a.md -->\nA\n<!-- @!end-include --> here'
     );
-    expect(linestart).toBe('<!-- @include: a.md -->\nA\n<!-- @end-include -->');
+    expect(linestart).toBe(
+      '<!-- @!include: a.md -->\nA\n<!-- @!end-include -->'
+    );
   });
 
   // ── STALE-WARNING CASES ────────────────────────────────────────────────────
@@ -232,16 +234,40 @@ describe('resolvePRD — marker reference comments for elided refs (§2.3)', () 
 
     // VERIFY — the elided occurrence carries the reference comment; the first encounter is wrapped;
     // D-BODY still appears exactly once.
-    expect(out1).toContain('<!-- @include-ref: D.md -->');
-    expect(out1).toContain('<!-- @include: D.md -->');
+    expect(out1).toContain('<!-- @!include-ref: D.md -->');
+    expect(out1).toContain('<!-- @!include: D.md -->');
     expect(out1.split('D-BODY').length).toBe(2);
 
-    // Idempotency: marker comments (@include/@include-ref/@end-include) match RESOLVE_TOKEN but
-    // resolve to ENOENT non-.md tokens → silent verbatim on re-scan → pass-1 is a fixed point.
+    // Idempotency: marker comments (@!include/@!include-ref/@!end-include) are STRUCTURALLY
+    // non-resolvable — the `!` after `@` defeats RESOLVE_TOKEN's token group [A-Za-z0-9_./-] → zero
+    // captures on re-scan → pass-1 is a fixed point (PRD §2.3 L26/L27).
     const pass2 = join(n2tmp, 'pass2.md');
     writeFileSync(pass2, out1);
     const out2 = await resolvePRD(pass2, { markers: true });
     expect(out2).toBe(out1);
+  });
+
+  it('BUG-001: markers are STRUCTURALLY non-resolvable — byte-idempotent even with marker-word collision files', async () => {
+    // The marker comments contain `@!include` / `@!end-include` / `@!include-ref`. The `!` after `@`
+    // is NOT in RESOLVE_TOKEN's token group [A-Za-z0-9_./-] → the group can't start → ZERO captures
+    // on re-scan → pass-1 is a fixed point EVEN when real files named `include`/`end-include`/
+    // `include-ref` exist in the PRD dir (the collision that would make a resolvable `@include`
+    // expand on pass 2 and break idempotency). PRD §2.3 L26/L27.
+    const coltmp = join(tmpdir(), 'bug001-collision-');
+    const col = mkdtempSync(coltmp);
+    writeFileSync(join(col, 'a.md'), 'A');
+    writeFileSync(join(col, 'include'), 'COLLISION');
+    writeFileSync(join(col, 'end-include'), 'COLLISION');
+    writeFileSync(join(col, 'include-ref'), 'COLLISION');
+    writeFileSync(join(col, 'main.md'), '@a.md');
+
+    const o1 = await resolvePRD(join(col, 'main.md'), { markers: true });
+    writeFileSync(join(col, 'pass2.md'), o1);
+    const o2 = await resolvePRD(join(col, 'pass2.md'), { markers: true });
+    expect(o2).toBe(o1); // byte-idempotent despite the collision files
+    // The output must contain NO COLLISION text (proves markers did NOT expand on pass 2).
+    expect(o2).not.toContain('COLLISION');
+    rmSync(col, { recursive: true, force: true });
   });
 });
 

@@ -67,3 +67,4 @@ docs/api/
 # Yalc package manager (local package linking)
 .yalc/
 yalc.lock
+*.log

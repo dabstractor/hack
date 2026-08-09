@@ -328,8 +328,8 @@ export interface ResolveOpts {
    */
   maxDepth?: number;
   /**
-   * When `true`, wrap each expanded include with `<!-- @include: path -->` /
-   * `<!-- @end-include -->` markers (PRD §2.3). Defaults to
+   * When `true`, wrap each expanded include with `<!-- @!include: path -->` /
+   * `<!-- @!end-include -->` markers (PRD §2.3). Defaults to
    * {@link getPrdIncludeMarkers} (the `PRD_INCLUDE_MARKERS` env var). Pass `false` explicitly
    * to suppress markers even when the env var is set.
    */
@@ -439,11 +439,13 @@ const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
  * 2. **ELISION on second+ encounter** (PRD §2.3): when `visited.has(abs)` is true, the `@token`
  *    is NOT echoed verbatim (a verbatim survivor would re-expand on re-resolution and break the
  *    idempotency fixed point). Instead it is ELIDED — dropped entirely (markers off) or replaced
- *    with a non-resolvable `<!-- @include-ref: ${token} -->` comment (markers on). The reference
- *    comment is idempotent: its path is inside an HTML comment, not `@`-preceded, so
- *    `RESOLVE_TOKEN` never matches it on re-scan. Elision is a SUCCESSFUL resolution (the file
- *    exists + was expanded on first encounter), so it NEVER triggers the stale-include warning
- *    (which fires only when `replacement === undefined`).
+ *    with a STRUCTURALLY non-resolvable `<!-- @!include-ref: ${token} -->` comment (markers on).
+ *    The reference comment is idempotent by construction: the `!` after `@` is NOT in
+ *    `RESOLVE_TOKEN`'s token group `[A-Za-z0-9_./-]`, so the group can't start and the regex
+ *    zero-captures on re-scan (technique B, PRD §2.3 L26) — even when a file named `include-ref`
+ *    exists in the PRD directory. Elision is a SUCCESSFUL resolution (the file exists + was
+ *    expanded on first encounter), so it NEVER triggers the stale-include warning (which fires
+ *    only when `replacement === undefined`).
  *
  * The result is an idempotent fixed point: `resolve(resolve(x)) === resolve(x)` — the property
  * that guarantees §4.1 hashing, §4.3 delta detection, and `prd_snapshot.md` consistency.
@@ -460,9 +462,10 @@ const RESOLVE_TOKEN = /(?<![\w./-])@([A-Za-z0-9_./-]+)/g;
  * @param depth - Current nesting depth (the entry file is depth 0).
  * @param visited - GLOBAL flat set of absolute paths already expanded this resolution (shared by
  *        reference; first encounter wins, later references elide). The entry file is pre-seeded.
- * @param markers - When `true`, wrap each EXPANDED include in `<!-- @include: token -->` /
- *        `<!-- @end-include -->` markers, and emit `<!-- @include-ref: token -->` for elided refs
- *        (PRD §2.3). Missing/dir/depth survivors are never wrapped.
+ * @param markers - When `true`, wrap each EXPANDED include in `<!-- @!include: token -->` /
+ *        `<!-- @!end-include -->` markers, and emit `<!-- @!include-ref: token -->` for elided refs
+ *        (PRD §2.3). The `!` after `@` makes these STRUCTURALLY non-resolvable (technique B).
+ *        Missing/dir/depth survivors are never wrapped.
  * @returns The content with includes recursively expanded inline (deduplicated; elision leaves no
  *         resolvable survivors → idempotent fixed point).
  * @throws {SessionFileError} If an existing included file cannot be read (e.g. invalid UTF-8)
@@ -495,7 +498,9 @@ async function expandIncludesRecursive(
       // non-resolvable reference comment (markers on). Elision is a SUCCESSFUL resolution → no
       // stale-include warning (the `continue` skips the stale-warning + marker-wrap below).
       if (markers) {
-        out += `<!-- @include-ref: ${token} -->`;
+        // @! is structurally non-resolvable: ! ∉ [A-Za-z0-9_./-] → RESOLVE_TOKEN's token group can't
+        // start → zero captures (technique B, PRD §2.3 L26).
+        out += `<!-- @!include-ref: ${token} -->`;
       }
       // markers === false → emit nothing (elide entirely)
       last = idx + m[0].length;
@@ -540,9 +545,11 @@ async function expandIncludesRecursive(
     }
     // S3: optional include markers around EXPANDED content only (PRD §2.3). Literal survivors
     //     (missing/dir/cycle/depth) are never wrapped — `markers && replacement !== undefined`.
+    //     @! is structurally non-resolvable: ! ∉ [A-Za-z0-9_./-] → RESOLVE_TOKEN's token group can't
+    //     start → zero captures (technique B, PRD §2.3 L26).
     out +=
       markers && replacement !== undefined
-        ? `<!-- @include: ${token} -->\n${replacement}\n<!-- @end-include -->`
+        ? `<!-- @!include: ${token} -->\n${replacement}\n<!-- @!end-include -->`
         : (replacement ?? m[0]);
     last = idx + m[0].length;
   }
@@ -560,7 +567,7 @@ async function expandIncludesRecursive(
  *    reference into {@link expandIncludesRecursive}, never copied per branch). The first textual
  *    encounter of a file expands it inline; EVERY subsequent reference — in a sibling branch
  *    (diamond A→C and B→C), a cycle, or a back-edge — is ELIDED (the `@token` is dropped, or
- *    replaced by a non-resolvable `<!-- @include-ref: token -->` comment when markers are on).
+ *    replaced by a non-resolvable `<!-- @!include-ref: token -->` comment when markers are on).
  *    The entry file is pre-seeded in the visited set, so self-includes are elided. This bounds
  *    recursion to one import per file, so cycles and diamond dependencies terminate without
  *    relying on `maxDepth`.
@@ -578,12 +585,15 @@ async function expandIncludesRecursive(
  *    directory, regardless of which file contains the directive (PRD §2.3).
  *  - **MARKERS (optional)**: when `opts.markers` is `true` OR the `PRD_INCLUDE_MARKERS` env var
  *    is truthy (unset/empty/`0`/`false`/`no`/`off` → off), each EXPANDED include is wrapped as
- *    `<!-- @include: path -->` / `<!-- @end-include -->` (where `path` is the original matched
- *    token), and ELIDED references emit `<!-- @include-ref: token -->` (a non-resolvable comment
- *    — its path is inside an HTML comment, not `@`-preceded — so it is idempotent on re-scan).
- *    Missing/dir/depth-exceeded survivors are never wrapped. `opts.markers` overrides the env var
- *    in both directions. The marker format is self-protecting against re-expansion, so
- *    markers-on output remains idempotent (PRD §2.3).
+ *    `<!-- @!include: path -->` / `<!-- @!end-include -->` (where `path` is the original matched
+ *    token), and ELIDED references emit `<!-- @!include-ref: token -->`. These markers are
+ *    STRUCTURALLY non-resolvable: the `!` after `@` is NOT in `RESOLVE_TOKEN`'s token group
+ *    `[A-Za-z0-9_./-]`, so the group can't start and the regex zero-captures on re-scan
+ *    (technique B, PRD §2.3 L26) — a true fixed point even when files named `include`,
+ *    `end-include`, or `include-ref` exist in the PRD directory. Missing/dir/depth-exceeded
+ *    survivors are never wrapped. `opts.markers` overrides the env var in both directions. The
+ *    marker format is structurally self-protecting against re-expansion, so markers-on output
+ *    remains idempotent (`resolve(resolve(x)) === resolve(x)`, PRD §2.3 L27).
  *  - **STALE-INCLUDE WARNING**: a `.md` token that matches the boundary rule but does NOT resolve
  *    to an existing file (ENOENT or a directory) emits exactly one **stderr** warning per resolve
  *    pass via `console.warn` (the pino logger writes to stdout; PRD §2.3 requires stderr). The
@@ -592,7 +602,7 @@ async function expandIncludesRecursive(
  *    successfully-resolved tokens emit NO warning (PRD §2.3).
  *
  * Missing files and directories stay verbatim; already-imported references (cycles, diamonds,
- * back-edges) are ELIDED (dropped, or a `<!-- @include-ref -->` comment when markers are on).
+ * back-edges) are ELIDED (dropped, or a `<!-- @!include-ref -->` comment when markers are on).
  *
  * @param prdPath - Path to the entry PRD file (relative or absolute).
  * @param opts - Optional {@link ResolveOpts} (`maxDepth`, `markers`).

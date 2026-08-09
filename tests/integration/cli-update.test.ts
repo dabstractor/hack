@@ -30,7 +30,7 @@ import { parseCLIArgs } from '../../src/cli/index.js';
 import { _resetBootstrap } from '../../src/utils/repo-root.js';
 
 // Silence the CLI logger so its output does not interfere with console spies.
-const { mockLogger } = vi.hoisted(() => ({
+const { mockLogger, mockSetLogDestination } = vi.hoisted(() => ({
   mockLogger: {
     info: vi.fn(),
     error: vi.fn(),
@@ -40,9 +40,12 @@ const { mockLogger } = vi.hoisted(() => ({
     fatal: vi.fn(),
     child: vi.fn(() => mockLogger),
   },
+  // BUG-2: updateAction calls setLogDestination(process.stderr) under `-o json`.
+  mockSetLogDestination: vi.fn(),
 }));
 vi.mock('../../src/utils/logger.js', () => ({
   getLogger: vi.fn(() => mockLogger),
+  setLogDestination: mockSetLogDestination,
 }));
 
 /**
@@ -273,6 +276,9 @@ describe('hack update (PRD §5.4 — end-to-end RMW + cascade + atomic write)', 
       status: 'Complete',
       title: 'Subtask One',
     });
+    // BUG-2: under `-o json` the handler routes structured logs to stderr so
+    // stdout stays a pure machine-readable payload (no leading pino INFO line).
+    expect(mockSetLogDestination).toHaveBeenCalledWith(process.stderr);
 
     const after = await readBacklog(tasksFile);
     expect(statusOf(after, 'P1.M1.T1.S1')).toBe('Complete');

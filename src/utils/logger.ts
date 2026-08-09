@@ -246,6 +246,21 @@ let _rootPretty: any; // human/pretty root — owns ONE pino-pretty Transform de
 let _rootJson: any; // machine-readable root — owns stdout (no separate stream)
 
 /**
+ * Process-wide log destination override.
+ *
+ * @remarks
+ * BUG-2: defaults to `undefined`, in which case both roots use their built-in
+ * default destination (pino JSON → stdout; pino-pretty → stdout) — byte-identical
+ * to the pre-fix behavior. When set (via {@link setLogDestination}) to a
+ * writable stream such as `process.stderr`, EVERY logger routes there instead,
+ * so a command emitting a machine-readable JSON payload on stdout (e.g.
+ * `hack update … -o json`) keeps stdout free of interleaved structured log
+ * lines (the `tasks.json written successfully` INFO line from
+ * `writeTasksJSON` would otherwise break `… -o json | jq .`).
+ */
+let _logDestination: NodeJS.WritableStream | undefined;
+
+/**
  * Builds a fresh root pino for the given output mode (configured ONCE; inherited by children).
  *
  * @param machineReadable - If true, build a JSON root (stdout). Otherwise, build a pretty root.
@@ -256,9 +271,13 @@ function buildRoot(machineReadable: boolean): any {
   const { pino, stdTimeFunctions } = getPino();
   const config = createLoggerConfig({}, stdTimeFunctions);
   if (machineReadable) {
-    // JSON → default stdout (sync); no 2nd arg, no pretty Transform.
-    // base:{} suppresses pid/hostname (preserve today's output).
-    return pino({ ...config, base: {} });
+    // JSON → default stdout (sync); no pretty Transform.
+    // base:{} suppresses pid/hostname (preserve today's output). When a
+    // destination override is set (BUG-2: `-o json` → stderr), route there so
+    // structured logs never interleave with a machine-readable stdout payload.
+    return _logDestination === undefined
+      ? pino({ ...config, base: {} })
+      : pino({ ...config, base: {} }, _logDestination);
   }
   const dest = pretty({
     colorize: true,
@@ -270,6 +289,8 @@ function buildRoot(machineReadable: boolean): any {
     ignore: 'pid,hostname,context,correlationId',
     messageFormat: '[{correlationId}] [{context}] {msg}',
     singleLine: false,
+    // pino-pretty defaults to stdout; route to the override when set (BUG-2).
+    ...(_logDestination === undefined ? {} : { destination: _logDestination }),
   });
   // base:{} suppresses pid/hostname; child bindings provide context & correlationId.
   return pino({ ...config, base: {} }, dest);
@@ -515,7 +536,42 @@ export function clearLoggerCache(): void {
   globalConfig = {};
   _rootPretty = undefined; // REQ-L3: force root rebuild on next getLogger (fresh config)
   _rootJson = undefined;
+  _logDestination = undefined; // BUG-2: clear any destination override (test reset)
   // NOTE: getPino()'s _pinoBundle is intentionally NOT reset (the pino module never changes).
+}
+
+/**
+ * Routes ALL subsequent log output to `dest` instead of the default stdout.
+ *
+ * @remarks
+ * BUG-2 fix. A per-command `-o json` output flag is independent of the global
+ * `--machine-readable` logger flag, so structured pino logs (e.g. the
+ * `tasks.json written successfully` INFO line from {@link writeTasksJSON})
+ * otherwise land on stdout and corrupt the machine-readable payload
+ * (`hack update … -o json | jq .` breaks on the leading log line). Calling
+ * this with `process.stderr` before a JSON-emitting command keeps stdout clean.
+ *
+ * Forcibly invalidates the cached shared roots and child loggers so the new
+ * destination takes effect immediately — even for lazily-instantiated loggers
+ * whose module-scope accessor (`const logger = () => (_logger ??= getLogger(…))`)
+ * has already captured a root. Safe to call before any logging has occurred
+ * (the normal CLI case); calling it mid-process rebuilds the roots on the next
+ * {@link getLogger} call.
+ *
+ * REQ-L1 (synchronous destinations, zero worker threads) is preserved: a plain
+ * Writable such as `process.stderr` is passed through to pino / pino-pretty
+ * directly, with NO `transport:` config key and NO ThreadStream. Reset to the
+ * default stdout destination via {@link clearLoggerCache}.
+ *
+ * @param dest - The writable stream to route logs to (e.g. `process.stderr`).
+ */
+export function setLogDestination(dest: NodeJS.WritableStream): void {
+  _logDestination = dest;
+  // Force the single shared root per mode (and every cached child logger) to
+  // rebuild against the new destination on the next getLogger() call.
+  _rootPretty = undefined;
+  _rootJson = undefined;
+  loggerCache.clear();
 }
 
 /**
