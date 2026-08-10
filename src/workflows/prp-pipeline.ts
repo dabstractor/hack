@@ -2189,18 +2189,64 @@ export class PRPPipeline extends Workflow {
     bugfixDir: string,
     prdContent: string
   ): Promise<TestResults> {
+    // PRD §4.4 "self-contained session": the bugfix child must execute its fix
+    // subtasks against a SessionManager/TaskOrchestrator scoped to the bugfix
+    // dir, so PRPs are generated into `${bugfixDir}/prps/` (not the parent's)
+    // and status is persisted to `${bugfixDir}/tasks.json`. Without this, bugfix
+    // subtasks — which reuse the parent's P1.M1.T1.S1… IDs — collide with the
+    // parent's PRPs (`{parent}/prps/{id}`, captured at orchestrator
+    // construction) and each task reuses the parent's stale PRP, so fixes never
+    // apply and the Fix→Re-test cycle cannot converge.
+    //
+    // The factory is invoked inside executeFixes, AFTER runStandardBreakdown has
+    // written `${bugfixDir}/tasks.json` (loadSession needs it + a prd_snapshot).
+    const bugfixOrchestratorFactory = async (): Promise<TaskOrchestrator> => {
+      const { resolve } = await import('node:path');
+      const { access, constants } = await import('node:fs/promises');
+      const { atomicWrite } = await import('../core/session-utils.js');
+      // SessionManager.loadSession requires a prd_snapshot.md in the session
+      // dir; seed one (the full PRD as bugfix PRP context) if absent.
+      const snapshotPath = resolve(bugfixDir, 'prd_snapshot.md');
+      try {
+        await access(snapshotPath, constants.F_OK);
+      } catch {
+        await atomicWrite(snapshotPath, prdContent);
+      }
+      const bugfixSessionManager = new SessionManagerClass(
+        this.#prdPath,
+        this.#planDir,
+        this.#flushRetries
+      );
+      await bugfixSessionManager.loadSessionAsCurrent(bugfixDir);
+      const retryConfig = {
+        maxAttempts: this.#taskRetry,
+        baseDelay: this.#retryBackoff,
+        enabled: !this.#noRetry,
+      };
+      return new TaskOrchestratorClass(
+        bugfixSessionManager,
+        this.#scope,
+        this.#noCache,
+        this.#researchQueueConcurrency,
+        this.#cacheTtl,
+        this.#prpCompression,
+        retryConfig
+      );
+    };
+
     const fixCycleWorkflow = new FixCycleWorkflow(
       bugfixDir,
       prdContent,
       this.taskOrchestrator,
       this.sessionManager,
       // PRD §4.2: forward parallel-research settings to the bugfix child
-      // so its shared orchestrator's depth-chain prefetch stays active
-      // during fix execution (the main items are already Complete by now).
+      // so its orchestrator's depth-chain prefetch stays active during fix
+      // execution (the main items are already Complete by now).
       {
         parallelResearch: isParallelResearch(),
         researchDepth: getResearchDepth(),
-      }
+      },
+      bugfixOrchestratorFactory
     );
     return await fixCycleWorkflow.run();
   }

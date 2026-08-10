@@ -82,6 +82,29 @@ export class FixCycleWorkflow extends Workflow {
   researchConfig: { parallelResearch: boolean; researchDepth: number } | null =
     null;
 
+  /**
+   * Optional factory that builds a bugfix-SCOPED TaskOrchestrator for
+   * executeFixes (PRD §4.4 "self-contained session"). When provided, fix
+   * subtasks execute against a SessionManager/TaskOrchestrator bound to the
+   * bugfix child dir, so PRPs are generated into `${sessionPath}/prps/` and
+   * status is persisted to `${sessionPath}/tasks.json` — ISOLATED from the
+   * parent session's namespace.
+   *
+   * This is the fix for the bugfix-cycle CONVERGENCE bug: without it, bugfix
+   * subtasks reuse the parent's `P1.M1.T1.S1`… IDs, and because the PRP path
+   * (`{sessionPath}/prps/{id}`) is captured at the PARENT session scope at
+   * orchestrator construction, each bugfix task hits "Reusing existing valid
+   * PRP file" (the parent's stale PRP) and never generates a bugfix-specific
+   * PRP — so the fix never applies and the Fix→Re-test loop cannot converge.
+   *
+   * The factory MUST be invoked AFTER runStandardBreakdown has written
+   * `${sessionPath}/tasks.json` (executeFixes does so). Null/omitted →
+   * executeFixes falls back to the shared parent orchestrator plus the
+   * self-contained `writeTasksJSON` persistence mirror (legacy path; used by
+   * unit tests).
+   */
+  bugfixOrchestratorFactory: (() => Promise<TaskOrchestrator>) | null = null;
+
   /** Current iteration counter (starts at 0, increments each loop) */
   iteration: number = 0;
 
@@ -139,7 +162,8 @@ export class FixCycleWorkflow extends Workflow {
     prdContent: string,
     taskOrchestrator: TaskOrchestrator,
     sessionManager: SessionManager,
-    researchConfig?: { parallelResearch: boolean; researchDepth: number }
+    researchConfig?: { parallelResearch: boolean; researchDepth: number },
+    bugfixOrchestratorFactory?: () => Promise<TaskOrchestrator>
   ) {
     super('FixCycleWorkflow');
 
@@ -153,6 +177,7 @@ export class FixCycleWorkflow extends Workflow {
     this.taskOrchestrator = taskOrchestrator;
     this.sessionManager = sessionManager;
     this.researchConfig = researchConfig ?? null;
+    this.bugfixOrchestratorFactory = bugfixOrchestratorFactory ?? null;
 
     // Validate bugfix session path
     this.logger.debug(
@@ -378,20 +403,49 @@ export class FixCycleWorkflow extends Workflow {
     let successCount = 0;
     let failureCount = 0;
 
+    // Build a bugfix-SCOPED orchestrator for this iteration when a factory is
+    // available. It MUST be created AFTER runStandardBreakdown wrote
+    // `${sessionPath}/tasks.json` so its SessionManager loads the bugfix
+    // backlog and routes PRPs/status into the bugfix dir — isolating them from
+    // the parent session's namespace (PRD §4.4 "self-contained session").
+    //
+    // This is the convergence fix: without it, bugfix subtasks (which reuse
+    // P1.M1.T1.S1… IDs) collide with the parent's PRPs — `{parent}/prps/{id}`
+    // is captured at orchestrator construction — so each task reuses the
+    // parent's stale PRP and the Fix→Re-test loop never converges.
+    let orchestrator: TaskOrchestrator = this.taskOrchestrator;
+    let usingBugfixScope = false;
+    if (this.bugfixOrchestratorFactory) {
+      try {
+        orchestrator = await this.bugfixOrchestratorFactory();
+        usingBugfixScope = true;
+        this.logger.info(
+          '[FixCycleWorkflow] Using bugfix-scoped orchestrator (self-contained session)'
+        );
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        // Fall back to the shared parent orchestrator + mirror persistence.
+        this.logger.warn(
+          `[FixCycleWorkflow] Failed to build bugfix-scoped orchestrator, falling back to shared orchestrator: ${errorMessage}`
+        );
+        orchestrator = this.taskOrchestrator;
+        usingBugfixScope = false;
+      }
+    }
+
     for (const fixTask of this.#fixTasks) {
       this.logger.info(
         `[FixCycleWorkflow] Executing fix task: ${fixTask.id} - ${fixTask.title}`
       );
 
       try {
-        await this.taskOrchestrator.executeSubtask(fixTask);
+        await orchestrator.executeSubtask(fixTask);
         successCount++;
-        // Mirror the outcome into the bugfix child's OWN backlog so it can be
-        // persisted to ${sessionPath}/tasks.json below. The shared orchestrator
-        // writes status to the PARENT registry under these same IDs (bugfix
-        // reuses P1.M1.… numbering); without this mirroring the bugfix
-        // tasks.json stays "Planned" forever and `hack status`/resume never see
-        // fix progress (PRD §4.4 / §5.3).
+        // Mirror the outcome into the bugfix backlog (used by the fallback
+        // persistence path below). The bugfix-scoped orchestrator already
+        // persists status to `${sessionPath}/tasks.json` via its own
+        // SessionManager, so this mirror is only WRITTEN on the fallback path.
         if (this.#bugfixBacklog) {
           this.#bugfixBacklog = updateItemStatus(
             this.#bugfixBacklog,
@@ -421,13 +475,14 @@ export class FixCycleWorkflow extends Workflow {
       }
     }
 
-    // Persist the recorded outcomes to the bugfix child's tasks.json. This is a
-    // SELF-CONTAINED write to ${sessionPath}/tasks.json (the bugfix backlog) —
-    // it deliberately does NOT touch the shared parent sessionManager registry
-    // (the §5 invariant preserved by runStandardBreakdown). updateItemStatus
-    // already rolled each 'Complete' leaf up to its Task/Milestone/Phase, so the
-    // bugfix hierarchy statuses reflect real progress too.
-    if (this.#bugfixBacklog) {
+    // Persist recorded outcomes to `${sessionPath}/tasks.json` ONLY on the
+    // fallback (shared-orchestrator) path. When using a bugfix-scoped
+    // orchestrator it already wrote each task's status (and survival commit) to
+    // the bugfix dir via its own SessionManager, so a second self-contained
+    // write here would race/clobber it. This fallback write never touches the
+    // shared parent sessionManager registry (the §5 invariant preserved by
+    // runStandardBreakdown).
+    if (!usingBugfixScope && this.#bugfixBacklog) {
       try {
         await writeTasksJSON(this.sessionPath, this.#bugfixBacklog);
         this.logger.info(
@@ -454,6 +509,7 @@ export class FixCycleWorkflow extends Workflow {
       success: successCount,
       failed: failureCount,
       total: this.#fixTasks.length,
+      usingBugfixScope,
     });
   }
 

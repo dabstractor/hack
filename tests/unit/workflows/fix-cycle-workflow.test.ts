@@ -696,11 +696,8 @@ describe('FixCycleWorkflow', () => {
 
       // VERIFY - writeTasksJSON called once against the bugfix sessionPath...
       expect(mockedWriteTasksJSON).toHaveBeenCalledTimes(1);
-      const [writtenPath, writtenBacklog] =
-        mockedWriteTasksJSON.mock.calls[0];
-      expect(writtenPath).toBe(
-        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918'
-      );
+      const [writtenPath, writtenBacklog] = mockedWriteTasksJSON.mock.calls[0];
+      expect(writtenPath).toBe('plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918');
       // ...with BOTH subtasks marked Complete (rolled up to the Task too).
       const sub = (writtenBacklog as any).backlog[0].milestones[0].tasks[0]
         .subtasks as Subtask[];
@@ -754,6 +751,102 @@ describe('FixCycleWorkflow', () => {
       const sub = writtenBacklog.backlog[0].milestones[0].tasks[0]
         .subtasks as Subtask[];
       expect(sub.map(s => s.status)).toEqual(['Failed', 'Complete']);
+    });
+
+    // Regression (convergence): when a bugfixOrchestratorFactory is provided,
+    // fix subtasks MUST execute against the factory-built (bugfix-scoped)
+    // orchestrator — never the shared parent orchestrator. This is what routes
+    // PRPs into `${bugfixDir}/prps/` so bugfix subtasks stop reusing the
+    // parent's stale PRP under colliding P1.M1.T1.S1 IDs.
+    it('uses the bugfix-scoped orchestrator from the factory (and skips the shared one) when a factory is provided', async () => {
+      // SETUP
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      const s2 = createFixSubtaskFixture('P1.M1.T1.S2');
+      mockResolveScope.mockReturnValue([s1, s2]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(createFixBacklog([s1, s2]));
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [createTestBug('BUG-001', 'critical', 'Bug 1', 'D', 'R')],
+          summary: 's',
+          recommendations: [],
+        } as TestResults);
+      });
+      mockedAccess.mockResolvedValue(undefined);
+      mockedWriteTasksJSON.mockClear();
+
+      // The PARENT (shared) orchestrator must NEVER be touched on this path.
+      const parentOrchestrator = createMockTaskOrchestrator();
+      // The bugfix-scoped orchestrator is its own mock.
+      const bugfixExecute = vi.fn().mockResolvedValue(undefined);
+      const bugfixOrchestrator: TaskOrchestrator = {
+        executeSubtask: bugfixExecute,
+      } as any;
+      const factory = vi.fn().mockResolvedValue(bugfixOrchestrator);
+
+      const workflow = new FixCycleWorkflow(
+        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        'PRD content',
+        parentOrchestrator,
+        createMockSessionManager(),
+        undefined,
+        factory
+      );
+      await workflow._loadBugReportForTesting();
+      await workflow.runStandardBreakdown();
+
+      // EXECUTE
+      await workflow.executeFixes();
+
+      // VERIFY - factory called once (after breakdown), bugfix orchestrator
+      // ran both subtasks, parent orchestrator untouched.
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(bugfixExecute).toHaveBeenCalledTimes(2);
+      expect(parentOrchestrator.executeSubtask).not.toHaveBeenCalled();
+      // The bugfix orchestrator owns persistence on this path → no fallback write.
+      expect(mockedWriteTasksJSON).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the shared orchestrator + mirror persistence when the factory throws', async () => {
+      // SETUP
+      const s1 = createFixSubtaskFixture('P1.M1.T1.S1');
+      mockResolveScope.mockReturnValue([s1]);
+      mockedReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('tasks.json')) {
+          return JSON.stringify(createFixBacklog([s1]));
+        }
+        return JSON.stringify({
+          hasBugs: true,
+          bugs: [createTestBug('BUG-001', 'critical', 'Bug 1', 'D', 'R')],
+          summary: 's',
+          recommendations: [],
+        } as TestResults);
+      });
+      mockedAccess.mockResolvedValue(undefined);
+      mockedWriteTasksJSON.mockClear();
+
+      const parentOrchestrator = createMockTaskOrchestrator();
+      const factory = vi.fn().mockRejectedValue(new Error('boom'));
+
+      const workflow = new FixCycleWorkflow(
+        'plan/003_b3d3efdaf0ed/bugfix/001_d5507a871918',
+        'PRD content',
+        parentOrchestrator,
+        createMockSessionManager(),
+        undefined,
+        factory
+      );
+      await workflow._loadBugReportForTesting();
+      await workflow.runStandardBreakdown();
+
+      // EXECUTE - must not throw despite the factory failure
+      await workflow.executeFixes();
+
+      // VERIFY - fell back to parent orchestrator + mirror persistence.
+      expect(parentOrchestrator.executeSubtask).toHaveBeenCalledTimes(1);
+      expect(mockedWriteTasksJSON).toHaveBeenCalledTimes(1);
     });
   });
 

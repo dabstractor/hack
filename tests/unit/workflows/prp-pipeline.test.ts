@@ -909,7 +909,8 @@ describe('PRPPipeline', () => {
         expect.any(String),
         expect.anything(),
         expect.anything(),
-        { parallelResearch: true, researchDepth: 3 }
+        { parallelResearch: true, researchDepth: 3 },
+        expect.any(Function)
       );
     });
 
@@ -976,7 +977,8 @@ describe('PRPPipeline', () => {
         expect.any(String),
         expect.anything(),
         expect.anything(),
-        { parallelResearch: false, researchDepth: 2 }
+        { parallelResearch: false, researchDepth: 2 },
+        expect.any(Function)
       );
     });
 
@@ -1045,7 +1047,8 @@ describe('PRPPipeline', () => {
         expect.any(String),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        expect.any(Function)
       );
     });
 
@@ -1227,7 +1230,8 @@ describe('PRPPipeline', () => {
         expect.any(String),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        expect.any(Function)
       );
       expect(pipeline.currentPhase).toBe('qa_complete');
     });
@@ -1404,7 +1408,8 @@ describe('PRPPipeline', () => {
           expect.any(String),
           expect.anything(),
           expect.anything(),
-          expect.anything()
+          expect.anything(),
+          expect.any(Function)
         );
       });
 
@@ -1432,7 +1437,8 @@ describe('PRPPipeline', () => {
           expect.any(String),
           expect.anything(),
           expect.anything(),
-          expect.anything()
+          expect.anything(),
+          expect.any(Function)
         );
       });
 
@@ -1508,7 +1514,8 @@ describe('PRPPipeline', () => {
           expect.any(String),
           expect.anything(),
           expect.anything(),
-          expect.anything()
+          expect.anything(),
+          expect.any(Function)
         );
       });
 
@@ -1534,7 +1541,8 @@ describe('PRPPipeline', () => {
           expect.any(String),
           expect.anything(),
           expect.anything(),
-          expect.anything()
+          expect.anything(),
+          expect.any(Function)
         );
       });
 
@@ -1722,7 +1730,8 @@ describe('PRPPipeline', () => {
         expect.any(String),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        expect.any(Function)
       );
       // (3e negative) Resume did NOT target 001 or the flat bugfix dir.
       expect(MockFixCycleWorkflow).not.toHaveBeenCalledWith(
@@ -1764,7 +1773,8 @@ describe('PRPPipeline', () => {
         expect.any(String),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        expect.any(Function)
       );
       // (3e negative) Resume did NOT target the healthy 001 child.
       expect(MockFixCycleWorkflow).not.toHaveBeenCalledWith(
