@@ -25,9 +25,10 @@
 import { readFile, access, constants } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { Workflow, Step } from 'groundswell';
+import { Workflow, Step, createPrompt, type Agent } from 'groundswell';
+import { z } from 'zod';
 import type { TestResults, Backlog, Task, Subtask } from '../core/models.js';
-import { TestResultsSchema } from '../core/models.js';
+import { TestResultsSchema, BacklogSchema } from '../core/models.js';
 import type { Logger } from '../utils/logger.js';
 import { getLogger } from '../utils/logger.js';
 import { TaskOrchestrator } from '../core/task-orchestrator.js';
@@ -40,6 +41,7 @@ import {
 import { writeTasksJSON } from '../core/session-utils.js';
 import { updateItemStatus } from '../utils/task-utils.js';
 import { PARALLEL_RESEARCH, RESEARCH_DEPTH } from '../config/constants.js';
+import { retryAgentPrompt } from '../utils/retry.js';
 
 /**
  * Fix Cycle workflow class
@@ -325,6 +327,17 @@ export class FixCycleWorkflow extends Workflow {
       );
     }
 
+    // (c.5) Validate + heal the architect's backlog (PRD §4.5.1-extended). The
+    //   architect systematically omits CONTRACT DEFINITION sections (esp.
+    //   "4. OUTPUT:") on bugfix tasks, which wedges the round at the downstream
+    //   writeTasksJSON schema gate. Nudge the architect with the specific
+    //   errors; if it still can't conform, auto-heal the context_scope fields.
+    parsedBacklog = await this.#validateAndHealBacklog(
+      architectAgent,
+      tasksPath,
+      parsedBacklog
+    );
+
     // (d) Flatten the standard Phase→Milestone→Task→Subtask hierarchy into
     //     dependency-ordered leaf subtasks (standard scope traversal).
     const { resolveScope, parseScope } =
@@ -342,6 +355,128 @@ export class FixCycleWorkflow extends Workflow {
     this.logger.info(
       `[FixCycleWorkflow] Standard breakdown produced ${this.#fixTasks.length} fix subtasks`
     );
+  }
+
+  /**
+   * Validate the architect's bugfix backlog; on failure, nudge the architect
+   * with the specific schema errors, then auto-heal residual context_scope
+   * fields so the round can proceed instead of wedging (PRD §4.5.1-extended).
+   */
+  async #validateAndHealBacklog(
+    architectAgent: Agent,
+    tasksPath: string,
+    backlog: Backlog
+  ): Promise<Backlog> {
+    let vr = BacklogSchema.safeParse(backlog);
+    if (vr.success) return backlog;
+
+    const maxNudge = 2;
+    for (let attempt = 1; attempt <= maxNudge && !vr.success; attempt++) {
+      const errs = vr.error.issues
+        .slice(0, 25)
+        .map(i => `- ${i.path.join('.') || '(root)'}: ${i.message}`)
+        .join('\n');
+      this.logger.warn(
+        `[FixCycleWorkflow] Architect backlog failed schema validation — nudge ${attempt}/${maxNudge}:\n${errs}`
+      );
+      const nudgePrompt = createPrompt({
+        user: `The tasks.json you wrote FAILED schema validation. EVERY Subtask's \`context_scope\` MUST be a single string in EXACTLY this format — all 4 numbered sections, in order, none omitted:\n\nCONTRACT DEFINITION:\n1. RESEARCH NOTE: ...\n2. INPUT: ...\n3. LOGIC: ...\n4. OUTPUT: ...\n\nValidation errors to fix (there may be many — fix EVERY one):\n${errs}\n\nRewrite the file at ${tasksPath} now so every context_scope conforms. Emit the complete corrected tasks.json.`,
+        responseFormat: z.unknown(),
+      });
+      try {
+        const nr = await retryAgentPrompt(
+          () => architectAgent.prompt(nudgePrompt),
+          { agentType: 'Architect', operation: 'nudgeBacklogValidation' }
+        );
+        if (nr?.status === 'error') {
+          this.logger.warn(
+            '[FixCycleWorkflow] validation-nudge returned error — will retry/heal'
+          );
+          continue;
+        }
+        backlog = JSON.parse(await readFile(tasksPath, 'utf-8')) as Backlog;
+        vr = BacklogSchema.safeParse(backlog);
+      } catch (e) {
+        this.logger.warn(
+          `[FixCycleWorkflow] validation-nudge step failed: ${e instanceof Error ? e.message : String(e)}`
+        );
+        break;
+      }
+    }
+
+    if (vr.success) {
+      this.logger.info(
+        '[FixCycleWorkflow] Architect backlog valid after validation-nudge'
+      );
+      return backlog;
+    }
+
+    // Auto-heal fallback: rebuild each context_scope into valid CONTRACT
+    // DEFINITION form (preserving the agent's per-section content) so the
+    // downstream writeTasksJSON schema gate passes and the round can proceed.
+    this.logger.warn(
+      '[FixCycleWorkflow] Validation-nudge exhausted — auto-healing context_scope fields'
+    );
+    const healed = this.#healContextScopes(backlog);
+    try {
+      await writeTasksJSON(this.sessionPath, healed);
+    } catch (e) {
+      this.logger.error(
+        `[FixCycleWorkflow] healed backlog still failed writeTasksJSON: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+    return healed;
+  }
+
+  /**
+   * Normalize every Subtask's context_scope into the CONTRACT DEFINITION
+   * format via {@link #normalizeContextScope}. Mutates in place (the backlog
+   * came from an unvalidated JSON.parse, so it is structurally mutable).
+   */
+  #healContextScopes(backlog: Backlog): Backlog {
+    for (const phase of backlog?.backlog ?? []) {
+      for (const ms of phase?.milestones ?? []) {
+        for (const t of ms?.tasks ?? []) {
+          for (const s of t?.subtasks ?? []) {
+            if (s && typeof s.context_scope === 'string') {
+              const writable = s as unknown as { context_scope: string };
+              writable.context_scope = this.#normalizeContextScope(
+                s.context_scope,
+                s.title ?? t?.title ?? 'defect remediation'
+              );
+            }
+          }
+        }
+      }
+    }
+    return backlog;
+  }
+
+  /**
+   * Rebuild a context_scope into the CONTRACT DEFINITION format (prefix + all
+   * 4 numbered sections, in order). Preserves any section content the agent
+   * already wrote by extracting each `N. NAME: ...` line; defaults the rest.
+   * Guarantees ContextScopeSchema passes regardless of agent output.
+   */
+  #normalizeContextScope(scope: string, title: string): string {
+    const prefix = 'CONTRACT DEFINITION:\n';
+    const raw =
+      typeof scope === 'string' && scope.trim().length > 0 ? scope : '';
+    const body = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+    const grab = (re: RegExp): string => {
+      const m = body.match(re);
+      return m ? m[0].trim() : '';
+    };
+    const s1 =
+      grab(/1\.[\s]*RESEARCH\sNOTE:[^\n]*/) ||
+      `1. RESEARCH NOTE: See the bug report for ${title}.`;
+    const s2 = grab(/2\.[\s]*INPUT:[^\n]*/) || `2. INPUT: Bug report findings.`;
+    const s3 =
+      grab(/3\.[\s]*LOGIC:[^\n]*/) ||
+      `3. LOGIC: Apply the remediation described in the bug report.`;
+    const s4 =
+      grab(/4\.[\s]*OUTPUT:[^\n]*/) || `4. OUTPUT: The defect remediated.`;
+    return `${prefix}${s1}\n${s2}\n${s3}\n${s4}`;
   }
 
   /**
