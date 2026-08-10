@@ -391,6 +391,9 @@ export class BugHuntWorkflow extends Workflow {
         throw new Error('QA results file is not valid JSON');
       }
     }
+    // Auto-heal: clamp over-long string fields (e.g. bug titles > 200 chars)
+    // so a verbose QA agent can't wedge the bug-hunt on a length gate (PRD §4.5.1).
+    parsed = this.#clampTestResultsStrings(parsed);
     const result = TestResultsSchema.safeParse(parsed);
     if (!result.success) {
       throw new Error(
@@ -398,6 +401,28 @@ export class BugHuntWorkflow extends Workflow {
       );
     }
     return result.data;
+  }
+
+  /**
+   * Clamp over-long string fields in the QA results so TestResultsSchema's
+   * length gates (e.g. bug title max 200) can't wedge the bug-hunt when the
+   * agent writes verbose titles. Mutates the parsed object in place.
+   */
+  #clampTestResultsStrings(obj: unknown): unknown {
+    if (obj && typeof obj === 'object') {
+      const o = obj as Record<string, unknown>;
+      if (Array.isArray(o.bugs)) {
+        for (const b of o.bugs) {
+          if (b && typeof b === 'object' && 'title' in b) {
+            const bug = b as Record<string, unknown>;
+            if (typeof bug.title === 'string' && bug.title.length > 200) {
+              bug.title = bug.title.slice(0, 197) + '...';
+            }
+          }
+        }
+      }
+    }
+    return obj;
   }
 
   /**
