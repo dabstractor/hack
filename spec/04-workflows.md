@@ -107,6 +107,8 @@ The Coder Agent's per-item result is a JSON envelope `{ "result": "success" | "e
 
 **Logging.** Each nudge emits a `WARN` with the task id, attempt number, and budget. The final post-nudge `coder-response` checkpoint records the envelope actually used (or the persisted `formatFailure` flag if it never arrived).
 
+**Researcher variant (PRP file write).** The identical recovery applies to the Researcher agent's output contract in `PRPGenerator.generate()`: the PRP is delivered as a *file* at a known path (the prompt tells the researcher exactly where to write), and the same brittleness exists here — the agent can run to completion yet silently fail to write the file (an upstream miss that never surfaces as `status:'error'`). The built-in `retryAgentPrompt` re-runs the *same* prompt; if the file is still missing after those retries, `PRPGenerator.#nudgeResearcherToWrite` re-prompts the same agent with a targeted "the file at `<path>` is still MISSING — write the complete PRP JSON now" nudge (the agent retains its turn context, so the nudge is short), re-checking the file up to `FORMAT_NUDGE_MAX` times before the original "did not write PRP file" error surfaces. Same budget-isolation and logging rules.
+
 ### 4.6 Adopt Mode (`--adopt-prd`): Legacy Codebase Adoption
 
 To integrate the pipeline into an _already-implemented_ project after writing the PRD — without wasting a full breakdown + implementation pass "building" code that already exists — `--adopt-prd` declares the PRD the source of truth for an already-shipped codebase. On a **fresh project** (no `plan/` sessions yet) it:

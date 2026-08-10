@@ -16,7 +16,8 @@ import { extractPRDSections } from '../core/prd-selector.js';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import { AgentError } from '../utils/errors.js';
-import type { Agent } from 'groundswell';
+import { createPrompt, type Agent } from 'groundswell';
+import { z } from 'zod';
 import type {
   PRPDocument,
   Task,
@@ -748,7 +749,20 @@ export class PRPGenerator {
         return generated;
       },
       { agentType: 'Researcher', operation: 'generatePRP' }
-    );
+    ).catch(async (err: unknown) => {
+      // Format-nudge recovery (PRD §4.5.1-extended). The retry loop above
+      // re-ran the SAME prompt; if the agent STILL did not write the PRP file
+      // (silent contract miss — it returned without producing the artifact),
+      // re-prompt with a targeted "the file is missing, write it now" nudge — a
+      // different message that breaks the miss pattern — before giving up.
+      if (
+        err instanceof AgentError &&
+        err.message.includes('did not write PRP file')
+      ) {
+        return this.#nudgeResearcherToWrite(task, prpOutputPath);
+      }
+      throw err;
+    });
 
     // Step 5: Validate the file contents against the schema.
     const validated = PRPDocumentSchema.parse(parsed);
@@ -789,6 +803,60 @@ export class PRPGenerator {
     }
 
     return compressed;
+  }
+
+  /**
+   * Write-nudge recovery for the Researcher agent (PRD §4.5.1-extended).
+   *
+   * @remarks
+   * Mirrors the Coder format-nudge: when the researcher ran but did not write
+   * the PRP file (silent contract miss — the most common researcher failure and
+   * one that, unhandled, has killed whole pipeline runs), re-prompt the SAME
+   * agent with a targeted reminder that the file is missing and must be
+   * written now. The agent retains its turn context, so the nudge is short.
+   * Bounded; on exhaustion the original "did not write" error surfaces.
+   */
+  async #nudgeResearcherToWrite(
+    task: { id: string },
+    prpOutputPath: string,
+    maxNudges = 2
+  ): Promise<unknown> {
+    for (let attempt = 1; attempt <= maxNudges; attempt++) {
+      this.#logger.warn(
+        { taskId: task.id, attempt, maxNudges },
+        'Researcher did not write PRP file after retries — sending write-nudge (PRD §4.5.1)'
+      );
+      const nudgePrompt = createPrompt({
+        user: `Your previous turn(s) did NOT write the PRP file. The file at this exact path is still MISSING:\n\n  ${prpOutputPath}\n\nYou already have the full task context from the prior turn — do NOT re-derive it. Using your file-writing tool, write the COMPLETE PRP JSON document to that exact path NOW. The file MUST exist and contain valid JSON (the PRP blueprint) when you finish. If you cannot produce the full document, write the most complete PRP you can — a missing file is a hard failure.`,
+        responseFormat: z.unknown(),
+      });
+      const r = await withAgentDeadline(
+        this.#researcherAgent.prompt(nudgePrompt)
+      );
+      if (r.status === 'error') {
+        this.#logger.warn(
+          { taskId: task.id, attempt, error: r.error?.message },
+          'Researcher write-nudge returned error — will retry'
+        );
+        continue;
+      }
+      try {
+        const text = await readFile(prpOutputPath, 'utf-8');
+        const parsed = this.#parsePRPText(text);
+        if (parsed !== null) {
+          this.#logger.info(
+            { taskId: task.id, attempt },
+            'Researcher write-nudge succeeded — PRP file written'
+          );
+          return parsed;
+        }
+      } catch {
+        // still missing — loop
+      }
+    }
+    throw new AgentError(
+      `Researcher did not write PRP file at ${prpOutputPath} after ${maxNudges} write-nudge(s) (PRD §4.5.1)`
+    );
   }
 
   /**
