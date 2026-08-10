@@ -195,6 +195,13 @@ interface ExecuteResult {
   result: 'error' | 'success' | 'issue';
   /** Detailed message about the result */
   message: string;
+  /**
+   * True iff the agent returned a response with NO parseable JSON result
+   * envelope (prose / non-JSON) — a transport/contract miss, not a genuine
+   * agent-reported error. Drives the format-nudge recovery loop (PRD §4.5.1).
+   * Only set by #parseCoderResult's catch path; never present on a real envelope.
+   */
+  formatFailure?: boolean;
 }
 
 /**
@@ -336,8 +343,46 @@ export class PRPExecutor {
       );
 
       // STEP 3: Extract response content and parse JSON result
-      const coderResponse = this.#extractResponseContent(coderAgentResponse);
-      const coderResult = this.#parseCoderResult(coderResponse);
+      let coderResponse = this.#extractResponseContent(coderAgentResponse);
+      let coderResult = this.#parseCoderResult(coderResponse);
+
+      // STEP 3a: Format-nudge recovery (PRD §4.5.1). If the Coder Agent returned
+      // prose / a non-JSON response instead of the required result envelope,
+      // nudge it in place with a format reminder and re-prompt — right then and
+      // there, before any validation gate runs. Bounded; on exhaustion the parse
+      // failure surfaces as a normal 'error'. This budget is separate from the
+      // validation maxFixAttempts and from ISSUE_RETRY_MAX.
+      let formatNudges = 0;
+      const maxFormatNudges = 2;
+      while (
+        coderResult.formatFailure === true &&
+        formatNudges < maxFormatNudges
+      ) {
+        formatNudges++;
+        this.#logger.warn(
+          { prpTaskId: prp.taskId, formatNudges, maxFormatNudges },
+          'Coder Agent response had no parseable JSON result envelope — sending format nudge (PRD §4.5.1)'
+        );
+        const nudgeResponse = await this.#nudgeForFormat(
+          prp,
+          formatNudges,
+          maxFormatNudges,
+          coderResponse
+        );
+        coderResponse = this.#extractResponseContent(nudgeResponse);
+        coderResult = this.#parseCoderResult(coderResponse);
+      }
+
+      // Still unparseable after nudges: surface a clear terminal message. The
+      // underlying result is already 'error' with formatFailure set; this just
+      // replaces the raw parse-error text with something that says why.
+      if (coderResult.formatFailure === true) {
+        coderResult = {
+          result: 'error',
+          formatFailure: true,
+          message: `Coder Agent did not return a parseable JSON result envelope after ${formatNudges} format nudge(s) (PRD §4.5.1). Last response: ${coderResponse.slice(0, 300)}`,
+        };
+      }
 
       // CHECKPOINT: Coder response - after parsing result
       const coderResponseState: CheckpointExecutionState = {
@@ -681,6 +726,70 @@ Output your result in the same JSON format:
   }
 
   /**
+   * Re-prompts the Coder Agent for its result envelope when the prior response
+   * was unparseable (PRD §4.5.1).
+   *
+   * @remarks
+   * A transport/contract recovery, NOT a code fix: the agent already did (or
+   * attempted) its work and simply failed to emit the required JSON tail. Shows
+   * the agent the truncated bad response, restates the envelope contract, and
+   * asks for ONLY the envelope — no re-implementation.
+   *
+   * @param prp - The PRPDocument being executed (task id is cited in the prompt).
+   * @param attemptNumber - Current nudge attempt (1-based).
+   * @param maxAttempts - Nudge budget ceiling.
+   * @param lastResponse - The unparseable response the agent just produced.
+   * @returns The Coder Agent's nudge response (caller re-extracts/re-parses).
+   * @private
+   */
+  async #nudgeForFormat(
+    prp: PRPDocument,
+    attemptNumber: number,
+    maxAttempts: number,
+    lastResponse: string
+  ): Promise<AgentResponse<unknown>> {
+    const trimmed =
+      lastResponse.length > 500
+        ? `${lastResponse.slice(0, 500)}…`
+        : lastResponse;
+
+    const nudgePrompt = createPrompt({
+      user: `
+Your previous response could not be parsed — it did not contain the required JSON result object, so the pipeline cannot tell whether you succeeded.
+
+PRP Task ID: ${prp.taskId}
+Format Nudge: ${attemptNumber}/${maxAttempts}
+
+Your last response (truncated) was:
+"""
+${trimmed}
+"""
+
+The LAST content of your reply must be the result envelope and NOTHING must follow it — no narration, no trailing prose, no apology. Emit exactly this JSON (inside a \`\`\`json fence or as bare JSON), with a real value:
+
+\`\`\`json
+{
+  "result": "success" | "error" | "issue",
+  "message": "Detailed explanation"
+}
+\`\`\`
+
+- "success" — you implemented the PRP and it is ready for validation.
+- "error"  — a hard implementation failure you cannot resolve.
+- "issue"  — a recoverable planning gap (the PRP is insufficient/ambiguous); explain what is missing.
+
+Do NOT repeat or redo your implementation. If your work is already complete, simply emit the result envelope that describes the outcome. Respond now with ONLY the result envelope.
+      `.trim(),
+      responseFormat: z.unknown(),
+    });
+
+    return retryAgentPrompt(
+      () => withAgentDeadline(this.#coderAgent.prompt(nudgePrompt)),
+      { agentType: 'Coder', operation: 'nudgeFormat' }
+    );
+  }
+
+  /**
    * Parses JSON result from Coder Agent response
    *
    * @remarks
@@ -699,9 +808,12 @@ Output your result in the same JSON format:
 
       return JSON.parse(jsonStr);
     } catch (error) {
-      // If parsing fails, assume error
+      // Parsing failed: the agent returned prose / no envelope. Flag distinctly
+      // from a genuine agent-reported 'error' so the format-nudge recovery
+      // (PRD §4.5.1) can re-prompt for the envelope instead of hard-failing.
       return {
         result: 'error',
+        formatFailure: true,
         message: `Failed to parse Coder Agent response: ${response}`,
       };
     }

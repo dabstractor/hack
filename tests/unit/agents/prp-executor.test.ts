@@ -677,7 +677,7 @@ describe('agents/prp-executor', () => {
       const prp = createMockPRPDocument('P1.M2.T2.S2');
       const prpPath = '/tmp/test-session/prps/P1M2T2S2.md';
 
-      // Mock Coder Agent to return invalid JSON
+      // Mock Coder Agent to ALWAYS return invalid JSON (never recovers)
       mockAgent.prompt.mockResolvedValue('This is not valid JSON');
 
       const executor = new PRPExecutor(sessionPath);
@@ -685,9 +685,49 @@ describe('agents/prp-executor', () => {
       // EXECUTE
       const result = await executor.execute(prp, prpPath);
 
-      // VERIFY: Execution failed gracefully
+      // VERIFY: Format-nudge recovery fired (initial + 2 nudges) then hard-failed
+      // with the envelope-exhaustion message (PRD §4.5.1) — NOT the raw parse error.
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Failed to parse Coder Agent response');
+      expect(result.error).toContain(
+        'did not return a parseable JSON result envelope'
+      );
+      expect(mockAgent.prompt).toHaveBeenCalledTimes(3); // 1 initial + 2 format nudges
+    });
+
+    it('recovers via format-nudge when the Coder Agent omits the envelope then emits it (PRD §4.5.1)', async () => {
+      // SETUP
+      const prp = createMockPRPDocument('P1.M3.T3.S1');
+      const prpPath = '/tmp/test-session/prps/P1M3T3S1.md';
+
+      // Turn 1: agent narrates a fix instead of emitting the result envelope
+      // (the real-world failure that used to kill multi-hour runs). Nudge turn:
+      // agent emits the valid envelope.
+      mockAgent.prompt
+        .mockResolvedValueOnce(
+          'Need to fix the type casts in the test file. The Pi AgentMessage type is not directly assignable to Record<string, unknown> — need to cast through unknown:'
+        )
+        .mockResolvedValueOnce(
+          JSON.stringify({ result: 'success', message: 'done' })
+        );
+
+      // Validation passes
+      mockExecuteBash.mockResolvedValue({
+        success: true,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const executor = new PRPExecutor(sessionPath);
+
+      // EXECUTE
+      const result = await executor.execute(prp, prpPath);
+
+      // VERIFY: The missing envelope was NOT treated as a hard failure — one
+      // format nudge recovered it, and validation proceeded normally.
+      expect(result.success).toBe(true);
+      expect(result.outcome).toBe('success');
+      expect(mockAgent.prompt).toHaveBeenCalledTimes(2); // initial + 1 nudge
     });
 
     it('should handle JSON wrapped in markdown code blocks', async () => {

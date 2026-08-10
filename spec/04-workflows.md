@@ -93,6 +93,20 @@ When an agent reports `issue`:
 
 **Status interaction:** An item undergoing re-planning keeps its original ID and dependency links; only its PRP and status are reset. Background research on its dependents is not cancelled, but those dependents cannot proceed until the re-planned item completes.
 
+#### 4.5.1 Format-Nudge Recovery (Missing Result Envelope)
+
+The Coder Agent's per-item result is a JSON envelope `{ "result": "success" | "error" | "issue", "message": "…" }` (§4.5), emitted as the final content of its turn (optionally inside a ` ```json ` fence). When the agent instead returns a response that contains **no parseable envelope** — free-form prose, a trailing sentence, narration of an intended fix, or any non-JSON body — the pipeline MUST **not** treat that as a hard item failure. It is a _transport/contract miss_, not a code or planning problem, and is recovered in place:
+
+1. **Detect.** A parse failure (`PRPExecutor.#parseCoderResult` cannot extract a JSON envelope from the response) is flagged distinctly (`formatFailure: true`) from a genuine agent-reported `error`/`issue`. Only a missing envelope triggers this path; a valid envelope reporting `error` or `issue` is handled by the existing paths (§4.5, fix-and-retry).
+2. **Nudge in place.** The pipeline immediately re-prompts the **same** Coder Agent with a format reminder: it shows the agent the (truncated) unparseable response it just produced, restates the required envelope shape and the meaning of each `result` value, instructs the agent **not** to repeat its implementation, and to reply with **only** the result envelope as the final content. This happens right then and there, inside the executor, before any validation gate runs.
+3. **Re-parse.** The nudge response is parsed with the same extractor. The loop repeats up to `FORMAT_NUDGE_MAX` (default **2**) attempts.
+4. **Budget isolation.** Format nudges are a **separate budget** from the validation `maxFixAttempts` (fix-and-retry) and from the `ISSUE_RETRY_MAX` re-planning loop (§4.5). A format nudge neither consumes nor resets either of those.
+5. **Terminal behavior.** If the envelope is still unparseable after `FORMAT_NUDGE_MAX` nudges, the item hard-fails as a normal `error` whose message states that the result envelope was never received and how many nudges were attempted. The partially-written working tree is left as-is (the existing "skip commit on failure" rule applies).
+
+**Rationale.** LLMs routinely narrate, apologize, or trail off instead of emitting a structured tail. In production this has killed entire multi-hour runs on a single agent turn that contained _no_ code problem — only a missing envelope (e.g. an agent that had already finished its work and replied with a sentence fragment like `"Need to fix the type casts … need to cast through unknown:"`). Re-prompting for the format, in place and bounded, turns these into self-correcting one-turn hiccups while preserving the tri-state contract for the cases that actually matter.
+
+**Logging.** Each nudge emits a `WARN` with the task id, attempt number, and budget. The final post-nudge `coder-response` checkpoint records the envelope actually used (or the persisted `formatFailure` flag if it never arrived).
+
 ### 4.6 Adopt Mode (`--adopt-prd`): Legacy Codebase Adoption
 
 To integrate the pipeline into an _already-implemented_ project after writing the PRD — without wasting a full breakdown + implementation pass "building" code that already exists — `--adopt-prd` declares the PRD the source of truth for an already-shipped codebase. On a **fresh project** (no `plan/` sessions yet) it:
