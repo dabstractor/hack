@@ -84,6 +84,12 @@ export interface TaskOrchestratorOptions {
    * persona here. Cleanup failure is always non-fatal to `executeSubtask`.
    */
   readonly cleanupRunner?: CleanupRunner;
+  /**
+   * If true, a subtask that fails (validation exhausted / exception) is marked
+   * Failed and the backlog loop advances instead of halting the pipeline.
+   * Mirrors PRPPipeline's --continue-on-error flag.
+   */
+  readonly continueOnError?: boolean;
 }
 
 /**
@@ -149,6 +155,8 @@ export class TaskOrchestrator {
 
   /** Injectable cleanup runner (DI-light). Defaults to the no-op createCleanupRunner(). */
   readonly #cleanupRunner: CleanupRunner;
+  /** --continue-on-error: subtask failures are marked Failed, not thrown. */
+  readonly #continueOnError: boolean;
 
   /** Current item ID being processed (for progress tracking) */
   currentItemId: string | null = null;
@@ -188,6 +196,7 @@ export class TaskOrchestrator {
     this.#prpCompression = prpCompression;
     // DI-light cleanup seam: default no-op; S3 (P3.M1.T3.S3) wires the real persona.
     this.#cleanupRunner = options?.cleanupRunner ?? createCleanupRunner();
+    this.#continueOnError = options?.continueOnError ?? false;
 
     // Load initial backlog from session state
     const currentSession = sessionManager.currentSession;
@@ -1176,6 +1185,20 @@ export class TaskOrchestrator {
 
       // FLUSH: Still flush on error to preserve failure state
       await this.sessionManager.flushUpdates();
+
+      // --continue-on-error: the subtask is already marked Failed above; don't
+      // propagate — let the backlog loop advance to the next item instead of
+      // halting the whole pipeline (PRPPipeline --continue-on-error). Without
+      // this, a TaskError from executeSubtask is wrapped as OrchestratorError
+      // at the processNextItem call-site and rethrown, bypassing executeBacklog's
+      // own continue-on-error catch — so a single failed task halted the run.
+      if (this.#continueOnError) {
+        this.#logger.warn(
+          { subtaskId: subtask.id, error: errorMessage },
+          'Subtask failed — continuing to next task (--continue-on-error)'
+        );
+        return;
+      }
 
       // PATTERN: Re-throw error for upstream handling
       throw error;

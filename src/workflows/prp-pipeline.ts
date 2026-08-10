@@ -667,7 +667,8 @@ export class PRPPipeline extends Workflow {
             this.#researchQueueConcurrency,
             this.#cacheTtl,
             this.#prpCompression,
-            retryConfig
+            retryConfig,
+            { continueOnError: this.#continueOnError }
           );
 
           // No delta branch fires: loadSessionAsCurrent() cached the loaded
@@ -778,7 +779,8 @@ export class PRPPipeline extends Workflow {
         this.#researchQueueConcurrency,
         this.#cacheTtl,
         this.#prpCompression,
-        retryConfig
+        retryConfig,
+        { continueOnError: this.#continueOnError }
       );
 
       // Check for PRD changes and handle delta if needed
@@ -2230,7 +2232,8 @@ export class PRPPipeline extends Workflow {
         this.#researchQueueConcurrency,
         this.#cacheTtl,
         this.#prpCompression,
-        retryConfig
+        retryConfig,
+        { continueOnError: this.#continueOnError }
       );
     };
 
