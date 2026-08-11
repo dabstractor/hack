@@ -626,13 +626,21 @@ export class PRPExecutor {
       // and discarded. Detect that pattern and instead run <realCmd> directly,
       // capture its full output, and check for the marker ourselves — so a
       // failure surfaces the real error to the fix-and-retry loop + artifacts.
-      const grepGate = gate.command.match(
-        /^\s*([\s\S]+?)\s*(?:2>&1\s*)?\|\s*grep\b.*?\b-q\S*\s+(?:--\s*)?(['"]?)([^\s'"]+)\2\s*$/
+      const pipeIdx = gate.command.lastIndexOf('|');
+      const afterPipe =
+        pipeIdx >= 0 ? gate.command.slice(pipeIdx + 1).trim() : '';
+      const isGrepGate =
+        /^grep\b/.test(afterPipe) && /(^|\s)-q\S*/.test(afterPipe);
+      const markerMatch = afterPipe.match(
+        /-q\S*\s+(?:--\s*)?["']?([^"'\s]+)["']?\s*$/
       );
       let result;
-      if (grepGate) {
-        const realCmd = grepGate[1];
-        const marker = grepGate[3];
+      if (isGrepGate && markerMatch) {
+        const realCmd = gate.command
+          .slice(0, pipeIdx)
+          .replace(/\s*2>&1\s*$/, '')
+          .trim();
+        const marker = markerMatch[1];
         const raw = await this.#bashMCP.execute_bash({
           command: realCmd,
           cwd: process.cwd(),
