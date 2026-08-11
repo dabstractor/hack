@@ -618,16 +618,43 @@ export class PRPExecutor {
         continue;
       }
 
-      // Execute command via BashMCP at the PROJECT ROOT (process.cwd()),
-      // where the coder agent writes implementation files. The prior
-      // `cwd: this.sessionPath` ran gates inside the plan/ metadata dir,
-      // so every path-relative check (test -d, tsc, npm test) saw the wrong
-      // tree and failed spuriously.
-      const result = await this.#bashMCP.execute_bash({
-        command: gate.command,
-        cwd: process.cwd(),
-        timeout: 120000, // 2 minute timeout for validation commands
-      });
+      // PRP gates are commonly authored as `<realCmd> 2>&1 | grep -q 'MARKER'`.
+      // Running that verbatim swallows ALL output (grep consumes it), so a
+      // failure records stdout='' / stderr='' and the coder is BLIND to why its
+      // code failed — observed churning a loadable, near-correct module to
+      // exhaustion because the gate's Lua assertion error was piped into grep
+      // and discarded. Detect that pattern and instead run <realCmd> directly,
+      // capture its full output, and check for the marker ourselves — so a
+      // failure surfaces the real error to the fix-and-retry loop + artifacts.
+      const grepGate = gate.command.match(
+        /^\s*([\s\S]+?)\s*(?:2>&1\s*)?\|\s*grep\b.*?\b-q\S*\s+(?:--\s*)?(['"]?)([^\s'"]+)\2\s*$/
+      );
+      let result;
+      if (grepGate) {
+        const realCmd = grepGate[1];
+        const marker = grepGate[3];
+        const raw = await this.#bashMCP.execute_bash({
+          command: realCmd,
+          cwd: process.cwd(),
+          timeout: 120000,
+        });
+        const combined = `${raw.stdout}\n${raw.stderr}`.trim();
+        const matched = combined.includes(marker);
+        result = {
+          success: matched,
+          stdout: matched ? marker : combined.slice(0, 4000),
+          stderr: matched ? '' : combined,
+          exitCode: matched ? 0 : (raw.exitCode ?? 1),
+          timedOut: raw.timedOut ?? false,
+          error: raw.error,
+        };
+      } else {
+        result = await this.#bashMCP.execute_bash({
+          command: gate.command,
+          cwd: process.cwd(),
+          timeout: 120000, // 2 minute timeout for validation commands
+        });
+      }
 
       const gateResult: ValidationGateResult = {
         level: gate.level,
