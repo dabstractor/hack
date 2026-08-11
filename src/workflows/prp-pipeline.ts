@@ -2380,7 +2380,28 @@ export class PRPPipeline extends Workflow {
     if (!BacklogReadSchema.safeParse(parsed).success) {
       return true; // invalid Backlog (lenient read-time schema)
     }
-    return false; // healthy
+    // Valid backlog — but if any subtask is still Planned/Failed the round is
+    // INCOMPLETE and must be resumed, not abandoned. Without this, a child with
+    // a valid tasks.json but unfinished work was marked "healthy" and skipped
+    // every run, so each run re-looped the main QA and spawned a NEW child
+    // while the incomplete one's Planned tasks were never executed.
+    const backlog = parsed as {
+      backlog?: Array<{
+        milestones?: Array<{
+          tasks?: Array<{ subtasks?: Array<{ status?: string }> }>;
+        }>;
+      }>;
+    };
+    const hasIncomplete = (backlog.backlog ?? []).some(p =>
+      (p.milestones ?? []).some(m =>
+        (m.tasks ?? []).some(t =>
+          (t.subtasks ?? []).some(
+            s => s?.status === 'Planned' || s?.status === 'Failed'
+          )
+        )
+      )
+    );
+    return hasIncomplete; // true = resume the incomplete round; false = all done
   }
 
   /**
