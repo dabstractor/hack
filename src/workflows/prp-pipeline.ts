@@ -1857,21 +1857,7 @@ export class PRPPipeline extends Workflow {
     // kills are terminal (ValidationFailedError carries timedOut/exitCode so
     // isWatchdogKillResult(error)===true → never retried by retryAgentPrompt).
     if (!outcome.success) {
-      const watchdog = outcome.timedOut || outcome.exitCode === 124;
-      // --continue-on-error: a non-watchdog validation failure (e.g. accumulated
-      // formatting/lint debt the per-task gates didn't enforce) must NOT abort
-      // the whole run when the operator explicitly asked to proceed past
-      // failures — same principle as the task-level continue-on-error path.
-      // Log + fall through to bug-hunt so the run can complete; the failure is
-      // already recorded in the outcome above. Watchdog kills still abort
-      // (terminal, PRD §9.3.2).
-      if (this.#continueOnError && !watchdog) {
-        this.logger.warn(
-          `[PRPPipeline] validate.sh failed (exitCode ${outcome.exitCode}) — proceeding under --continue-on-error (not aborting before bug-hunt)`
-        );
-      } else {
-        throw new ValidationFailedError(outcome);
-      }
+      throw new ValidationFailedError(outcome);
     }
   }
 
