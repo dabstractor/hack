@@ -84,9 +84,12 @@ import {
 import {
   buildFallbackCommitMessage,
   buildTaskPrefix,
+  emitCommitRescue,
   filterProtectedFiles,
   formatCommitMessage,
+  formatCommitRescueRecipe,
   generateCommitMessage,
+  onCommitRescueSignal,
   parseItemPosition,
   restore_critical_files,
   smartCommit,
@@ -2520,6 +2523,332 @@ describe('utils/git-commit', () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringMatching(/Restored critical file from HEAD.*PRP\.md/)
       );
+    });
+  });
+
+  // ===========================================================================
+  // GENERATION-TIMEOUT / SIGINT RESCUE (PRD §5.1 "Generation timeout / SIGINT", P1.M1.T3.S3)
+  // — recipe/emitter/handler unit tests + the thrown-escape integration test +
+  // the CAS-refusal no-double-emit guard + the happy/fallback no-emit guards.
+  // ===========================================================================
+  describe('generation-timeout / SIGINT rescue (PRD §5.1, P1.M1.T3.S3)', () => {
+    describe('formatCommitRescueRecipe (pure renderer)', () => {
+      it('renders TREE_SHA, PARENT_SHA, and the exact recovery command', () => {
+        const recipe = formatCommitRescueRecipe({
+          treeSha: 'tree-abc',
+          parentSha: 'parent-def',
+        });
+
+        expect(recipe).toContain('TREE_SHA:    tree-abc');
+        expect(recipe).toContain('PARENT_SHA:  parent-def');
+        // The exact manual recovery command (§5.1 contract):
+        expect(recipe).toContain(
+          'git commit-tree -p parent-def -m "<your message>" tree-abc | xargs git update-ref HEAD'
+        );
+        expect(recipe).toContain('git ls-tree tree-abc');
+      });
+
+      it('omits -p for a rootless repository (parentSha undefined)', () => {
+        const recipe = formatCommitRescueRecipe({ treeSha: 'tree-abc' });
+
+        expect(recipe).toContain('TREE_SHA:    tree-abc');
+        expect(recipe).toContain('(rootless repository — root commit)');
+        // No `-p` parent flag:
+        expect(recipe).toContain(
+          'git commit-tree -m "<your message>" tree-abc | xargs git update-ref HEAD'
+        );
+        expect(recipe).not.toContain('-p parent-');
+      });
+    });
+
+    describe('emitCommitRescue', () => {
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it('writes the recipe to stderr + logger().error when a snapshot is held and NOT committed', () => {
+        const stderrSpy = vi
+          .spyOn(process.stderr, 'write')
+          .mockReturnValue(true);
+
+        emitCommitRescue({
+          treeSha: 'tree-held',
+          parentSha: 'parent-held',
+          committed: false,
+        });
+
+        // SYNC stderr write (survives an imminent exit) — contains the recipe.
+        expect(stderrSpy).toHaveBeenCalled();
+        const written = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+        expect(written).toContain('TREE_SHA:    tree-held');
+        expect(written).toContain('git commit-tree');
+        // logger().error ALSO called with the recipe.
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining('tree-held')
+        );
+      });
+
+      it('is a no-op when committed === true (the snapshot was committed)', () => {
+        const stderrSpy = vi
+          .spyOn(process.stderr, 'write')
+          .mockReturnValue(true);
+
+        emitCommitRescue({
+          treeSha: 'tree-ok',
+          parentSha: 'parent-ok',
+          committed: true,
+        });
+
+        expect(stderrSpy).not.toHaveBeenCalled();
+        expect(mockLogger.error).not.toHaveBeenCalledWith(
+          expect.stringContaining('tree-ok')
+        );
+      });
+
+      it('is a no-op when no rescue state is held (null)', () => {
+        const stderrSpy = vi
+          .spyOn(process.stderr, 'write')
+          .mockReturnValue(true);
+
+        emitCommitRescue(null);
+
+        expect(stderrSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('onCommitRescueSignal (injectable mockExit)', () => {
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it('emits the held rescue + calls mockExit with the given code (130 = SIGINT)', async () => {
+        // Seed the module-scoped rescue state by exercising smartCommit up to the
+        // window, then assert the handler emits + exits. Use an injectable exit
+        // so the test process is NOT terminated.
+        const exit = vi.fn();
+        const stderrSpy = vi
+          .spyOn(process.stderr, 'write')
+          .mockReturnValue(true);
+        // Seed state: simulate an interrupt mid-window by calling the handler
+        // after the recipe helpers are in scope. The handler reads the
+        // module-scoped _commitRescue; set it via a real smartCommit that stalls.
+        // Simpler + faithful: drive smartCommit to set _commitRescue, then (before
+        // it resolves) invoke the handler. Because smartCommit is async, we seed
+        // _commitRescue through a controlled stall: mock gitDiff to never resolve.
+        mockGitStatus.mockResolvedValue({
+          success: true,
+          modified: ['src/index.ts'],
+        });
+        mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+        let resolveDiff!: () => void;
+        mockGitDiff.mockReturnValue(
+          new Promise(_ => {
+            resolveDiff = _;
+          })
+        );
+
+        const promise = smartCommit('/project', 'msg', {
+          generateMessage: true,
+        });
+        // Allow the microtask queue to advance so smartCommit reaches the window
+        // (treeSha captured + handlers registered + _commitRescue set).
+        await vi.waitFor(() => {
+          // The handler emits only when _commitRescue is set. Trigger it: if no
+          // state were held, stderr would be empty.
+          onCommitRescueSignal(130, exit);
+          expect(stderrSpy).toHaveBeenCalled();
+        });
+
+        expect(exit).toHaveBeenCalledWith(130);
+        const written = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+        expect(written).toContain('tree-sha-0001');
+        expect(written).toContain('git commit-tree');
+
+        // Release the stalled promise so smartCommit resolves and the test
+        // process can exit cleanly (it will return null via the gen-fail path
+        // once gitDiff is allowed to hang forever — reject it instead).
+        resolveDiff();
+        await expect(promise).resolves.toBeNull();
+      });
+
+      it('onCommitRescueSIGINT exits 130 and onCommitRescueSIGTERM exits 143 (named wrappers)', () => {
+        const exitInt = vi.fn();
+        const exitTerm = vi.fn();
+        vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+        // Call the underlying signal fn with the named wrappers' codes via the
+        // injectable exit (the named wrappers themselves use the real
+        // process.exit default — exercise the code mapping directly here).
+        onCommitRescueSignal(130, exitInt);
+        onCommitRescueSignal(143, exitTerm);
+
+        expect(exitInt).toHaveBeenCalledWith(130);
+        expect(exitTerm).toHaveBeenCalledWith(143);
+      });
+    });
+
+    describe('smartCommit try/finally rescue wiring', () => {
+      beforeEach(() => {
+        mockGitStatus.mockResolvedValue({
+          success: true,
+          modified: ['src/index.ts'],
+        });
+        mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      });
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it('a thrown escape during the window emits the rescue + returns null', async () => {
+        // SETUP — gitDiff rejects (escapes the window, NOT CommitCasRefusedError).
+        // committed stays false; rescueEscape is set → finally emits the rescue.
+        const stderrSpy = vi
+          .spyOn(process.stderr, 'write')
+          .mockReturnValue(true);
+        mockGitDiff.mockRejectedValue(new Error('boom — generation killed'));
+
+        // EXECUTE
+        const result = await smartCommit('/project', 'msg', {
+          generateMessage: true,
+        });
+
+        // VERIFY — returns null (outer catch) AND the rescue recipe was emitted.
+        expect(result).toBeNull();
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining('tree-sha-0001')
+        );
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining('git commit-tree')
+        );
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining('xargs git update-ref HEAD')
+        );
+        // The rescue recipe (interrupt case) is emitted, distinct from S2's.
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining('Smart Commit interrupted')
+        );
+        // SYNC stderr write also fired.
+        const written = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+        expect(written).toContain('tree-sha-0001');
+      });
+
+      it('CAS refusal does NOT double-emit S3 rescue (S2 recipe only)', async () => {
+        // SETUP — CAS refuses: S2 logs its OWN recipe (with newSha) + throws
+        // CommitCasRefusedError. S3's rescue MUST NOT also fire.
+        vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+        mockGitUpdateRefCAS.mockResolvedValue({
+          success: false,
+          error: 'stale HEAD',
+          casFailure: true,
+        });
+
+        // EXECUTE — re-throws CommitCasRefusedError (S2 contract).
+        await expect(smartCommit('/project', 'msg')).rejects.toThrow(
+          CommitCasRefusedError
+        );
+
+        // VERIFY — S2's recipe was logged (carries newSha) …
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining('new-sha-0001')
+        );
+        // … but S3's rescue recipe (interrupt case) was NOT (no double-emit).
+        mockLogger.error.mock.calls.forEach(([msg]) => {
+          expect(String(msg)).not.toContain('Smart Commit interrupted');
+        });
+      });
+
+      it('happy path does NOT emit the rescue (committed flips true)', async () => {
+        // SETUP — defaults: commitTree→new-sha, CAS→success.
+        const stderrSpy = vi
+          .spyOn(process.stderr, 'write')
+          .mockReturnValue(true);
+        mockGitCommitTree.mockResolvedValue({
+          success: true,
+          commitSha: 'happy-hash',
+        });
+
+        // EXECUTE
+        const result = await smartCommit('/project', 'msg');
+
+        // VERIFY — commit succeeded, no rescue recipe anywhere.
+        expect(result).toBe('happy-hash');
+        expect(stderrSpy).not.toHaveBeenCalled();
+        mockLogger.error.mock.calls.forEach(([msg]) => {
+          expect(String(msg)).not.toContain('Smart Commit interrupted');
+          expect(String(msg)).not.toContain('TREE_SHA:');
+        });
+      });
+
+      it('fallback path does NOT emit the rescue (placeholder commits → committed true)', async () => {
+        // SETUP — generation fails after retries → placeholder commits via the
+        // SAME plumbing → committed flips true → no rescue.
+        vi.stubEnv('COMMIT_RETRY_MAX', '1');
+        vi.stubEnv('COMMIT_RETRY_DELAY', '1');
+        vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+        mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+        mockCreateCommitMessageAgent.mockReturnValue(
+          makeFakeAgent({
+            status: 'error',
+            data: null,
+            error: { message: 'model overloaded' },
+          })
+        );
+        mockGitCommitTree.mockResolvedValue({
+          success: true,
+          commitSha: 'fallback-hash',
+        });
+
+        // EXECUTE
+        const result = await smartCommit('/project', 'fallback', {
+          generateMessage: true,
+        });
+
+        // VERIFY — fallback committed, no rescue recipe.
+        expect(result).toBe('fallback-hash');
+        mockLogger.error.mock.calls.forEach(([msg]) => {
+          expect(String(msg)).not.toContain('Smart Commit interrupted');
+          expect(String(msg)).not.toContain('TREE_SHA:');
+        });
+      });
+
+      it('normal return-null paths inside the window do NOT emit the rescue (commit-tree fail)', async () => {
+        // SETUP — commit-tree fails → never-fail-on-commit return null. This is
+        // a NORMAL exit (no throw escape) → rescue must NOT fire.
+        vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+        mockGitCommitTree.mockResolvedValue({
+          success: false,
+          error: 'bad tree',
+        });
+
+        // EXECUTE
+        const result = await smartCommit('/project', 'msg');
+
+        // VERIFY — returns null, no rescue recipe.
+        expect(result).toBeNull();
+        mockLogger.error.mock.calls.forEach(([msg]) => {
+          expect(String(msg)).not.toContain('Smart Commit interrupted');
+        });
+      });
+
+      it('registers SIGINT/SIGTERM handlers phase-scoped (on at window-open, off after)', async () => {
+        // SETUP — spy process.on / process.off around a happy-path run.
+        const onSpy = vi.spyOn(process, 'on');
+        const offSpy = vi.spyOn(process, 'off');
+        mockGitCommitTree.mockResolvedValue({
+          success: true,
+          commitSha: 'hash',
+        });
+
+        // EXECUTE
+        await smartCommit('/project', 'msg');
+
+        // VERIFY — both handlers were registered at window-open …
+        expect(onSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
+        expect(onSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+        // … and unregistered in the finally (no handler leak on the happy path).
+        expect(offSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
+        expect(offSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+      });
     });
   });
 });

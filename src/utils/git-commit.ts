@@ -446,6 +446,135 @@ export function buildFallbackCommitMessage(error: unknown): string {
   return `chore: commit-gen failed (exit ${exitCode}); fallback commit`;
 }
 
+// ===== GENERATION-TIMEOUT / SIGINT RESCUE (PRD §5.1, P1.M1.T3.S3) =====
+
+/**
+ * Snapshot held across the slow message-generation window so an interrupt
+ * (SIGINT / SIGTERM / thrown escape) can hand the operator the immutable
+ * TREE_SHA + a manual recovery command. `committed` flips `true` ONLY on a
+ * successful CAS HEAD advance; until then the snapshot is uncommitted and
+ * the rescue is meaningful.
+ *
+ * @internal
+ */
+export interface CommitRescueState {
+  readonly treeSha: string;
+  readonly parentSha?: string; // undefined → rootless repository (root commit)
+  committed: boolean; // true ONLY after gitUpdateRefCAS succeeds
+}
+
+/**
+ * Module-scoped rescue state. `smartCommit` is serial in the orchestrator (no
+ * concurrency), so a single slot mirrors `temp-prompt-cleanup`'s module-scoped
+ * tracking. Set right after S1's treeSha capture; cleared in the `finally` on
+ * every path. The phase-scoped signal handlers self-guard on this reference.
+ */
+let _commitRescue: CommitRescueState | null = null;
+
+/**
+ * Format the §5.1 "Generation timeout / SIGINT" rescue recipe.
+ *
+ * @remarks
+ * Distinct from {@link formatCommitRecoveryRecipe} (the CAS-refusal recipe):
+ * the interrupt case has NO `newSha` and NO generated message (generation was
+ * killed BEFORE `commit-tree` ran). The recipe hands the operator the
+ * immutable `TREE_SHA` + the exact manual recovery command so the snapshotted
+ * work is recoverable. Rootless repo (`parentSha` undefined) omits `-p`
+ * (root commit). The TREE_SHA is an immutable git object (system_context §5.2)
+ * — it survives any crash; this recipe just makes recovery *discoverable*.
+ *
+ * @internal
+ */
+export function formatCommitRescueRecipe(args: {
+  treeSha: string;
+  parentSha?: string;
+}): string {
+  const parentArg = args.parentSha ? `-p ${args.parentSha} ` : '';
+  return [
+    'Smart Commit interrupted (SIGINT/timeout/process kill) AFTER write-tree succeeded — ' +
+      'the snapshotted work is safe as the immutable tree object below; HEAD/index are unchanged.',
+    `  TREE_SHA:    ${args.treeSha}`,
+    args.parentSha
+      ? `  PARENT_SHA:  ${args.parentSha}`
+      : '  PARENT_SHA:  (rootless repository — root commit)',
+    '  The commit was NOT created (generation was killed). Recover manually (supply your own message):',
+    `    git commit-tree ${parentArg}-m "<your message>" ${args.treeSha} | xargs git update-ref HEAD`,
+    `  (Inspect the tree first if unsure: git ls-tree ${args.treeSha}.)`,
+  ].join('\n');
+}
+
+/**
+ * Emit the §5.1 "Generation timeout / SIGINT" rescue recipe.
+ *
+ * @remarks
+ * PRD §5.1 edge case — verbatim: "Generation timeout / SIGINT: the in-flight
+ * generation is killed; the subsystem enters a rescue path that prints
+ * TREE_SHA + the manual recovery command so the snapshotted work is never
+ * lost." Writes to BOTH `process.stderr.write` (synchronous — survives an
+ * imminent `process.exit(130/143)` even if buffered logs do not flush, per
+ * §9.6) AND `logger().error`. No-op when there is no held snapshot or the
+ * snapshot was already committed (the happy/fallback paths). Best-effort for
+ * SIGKILL/OOM/segfault where NO handler/finally can run — there the immutable
+ * TREE_SHA is still recoverable via `git fsck --lost-found`; this rescue
+ * covers everything that *can* run (SIGINT/SIGTERM/thrown-escape). The
+ * CAS-refusal path is EXCLUDED (S2's `formatCommitRecoveryRecipe` already
+ * logged its own recipe carrying `newSha` + the message before throwing — no
+ * double-emit).
+ *
+ * @internal
+ */
+export function emitCommitRescue(rescue: CommitRescueState | null): void {
+  if (!rescue || rescue.committed) return; // no snapshot held, or already committed → no-op
+  const recipe = formatCommitRescueRecipe({
+    treeSha: rescue.treeSha,
+    parentSha: rescue.parentSha,
+  });
+  process.stderr.write(`\n${recipe}\n`); // synchronous; survives a fast exit
+  logger().error(recipe);
+}
+
+/**
+ * Signal/exit handler: emit the rescue recipe (if an uncommitted snapshot is
+ * held), then exit with the given code. Mirrors `file-lock.ts`
+ * {@link onLockCleanupSignal | onLockCleanupSignal} EXACTLY.
+ *
+ * @remarks
+ * Exported for direct unit testing of both the SIGINT (130) and SIGTERM (143)
+ * code paths without terminating the test process. The default `mockExit` is
+ * the function EXPRESSION `c => process.exit(c)` (re-resolves `process.exit`
+ * at call time) so a `vi.spyOn(process, 'exit')` test is hit — NEVER
+ * `mockExit = process.exit` (a bound reference would defeat the spy). The
+ * handler does NOT suppress the signal: it prints the recipe THEN exits.
+ *
+ * @param code - Process exit code to pass through (130 = SIGINT, 143 = SIGTERM).
+ * @param mockExit - Injectable exit hook so the handler can be exercised
+ *                   without terminating the process.
+ * @internal
+ */
+export function onCommitRescueSignal(
+  code: number,
+  mockExit: (code: number) => void = c => process.exit(c)
+): void {
+  emitCommitRescue(_commitRescue);
+  mockExit(code);
+}
+
+/**
+ * Registered SIGINT handler (exported so the registration site has no
+ * anonymous arrow body that would otherwise be uncoverable). @internal
+ */
+export function onCommitRescueSIGINT(): void {
+  onCommitRescueSignal(130);
+}
+
+/**
+ * Registered SIGTERM handler (exported so the registration site has no
+ * anonymous arrow body that would otherwise be uncoverable). @internal
+ */
+export function onCommitRescueSIGTERM(): void {
+  onCommitRescueSignal(143);
+}
+
 // ===== CRITICAL-FILE DELETION PROTECTION (PRD §5.1, mechanical layer) =====
 
 /**
@@ -784,112 +913,147 @@ export async function smartCommit(
       { parentSha: parentSha ?? null, treeSha },
       'Captured pre-generation snapshot (PARENT_SHA + TREE_SHA)'
     );
-    // PARENT_SHA + TREE_SHA are consumed by the post-generation commit-tree + CAS update-ref
-    // (P1.M1.T3.S2). The existing message-generation path above is UNCHANGED for S1; S2 replaced the trailing gitCommit with commit-tree → CAS update-ref.
 
-    // Resolve the commit message. The DEFAULT path (option omitted / false)
-    // is byte-identical to the pre-stagecoach behavior: formatCommitMessage(
-    // message). The stagecoach path (generateMessage:true, PRD §5.1) reads the
-    // staged diff AFTER gitAdd (so it reflects the filtered staged set, not
-    // the raw working tree) and delegates generation to the LLM agent.
-    let formattedMessage: string;
-    if (options?.generateMessage) {
-      const diffResult = await gitDiff({ path: repoRoot, staged: true });
-      if (!diffResult.success) {
-        // Mirror the gitAdd-failure path: do NOT feed an undefined diff to the
-        // agent. The outer try/catch returns null here.
-        logger().error(`Git diff (staged) failed: ${diffResult.error}`);
+    // ── Generation-timeout / SIGINT rescue (PRD §5.1 "Generation timeout / SIGINT", P1.M1.T3.S3) ──
+    // treeSha (S1's write-tree) is an IMMUTABLE git object — it survives any crash (system_context §5.2).
+    // If the process is interrupted AFTER this point but BEFORE the CAS advances HEAD, emit treeSha +
+    // the manual recovery command so the snapshotted work is recoverable. Phase-scoped SIGINT/SIGTERM
+    // handlers (mirroring file-lock.ts/temp-prompt-cleanup.ts) + a try/finally complement for thrown
+    // escapes. The handlers self-guard on _commitRescue; process.off in the finally prevents a leak.
+    _commitRescue = { treeSha, parentSha, committed: false };
+    const rescueHandlers: Array<[NodeJS.Signals, () => void]> = [
+      ['SIGINT', onCommitRescueSIGINT],
+      ['SIGTERM', onCommitRescueSIGTERM],
+    ];
+    for (const [sig, fn] of rescueHandlers) process.on(sig, fn);
+    let rescueEscape: unknown; // captures a thrown escape so the finally can distinguish it from a normal return
+    try {
+      // PARENT_SHA + TREE_SHA are consumed by the post-generation commit-tree + CAS update-ref
+      // (P1.M1.T3.S2). The existing message-generation path above is UNCHANGED for S1; S2 replaced the trailing gitCommit with commit-tree → CAS update-ref.
+
+      // Resolve the commit message. The DEFAULT path (option omitted / false)
+      // is byte-identical to the pre-stagecoach behavior: formatCommitMessage(
+      // message). The stagecoach path (generateMessage:true, PRD §5.1) reads the
+      // staged diff AFTER gitAdd (so it reflects the filtered staged set, not
+      // the raw working tree) and delegates generation to the LLM agent.
+      let formattedMessage: string;
+      if (options?.generateMessage) {
+        const diffResult = await gitDiff({ path: repoRoot, staged: true });
+        if (!diffResult.success) {
+          // Mirror the gitAdd-failure path: do NOT feed an undefined diff to the
+          // agent. The outer try/catch returns null here.
+          logger().error(`Git diff (staged) failed: ${diffResult.error}`);
+          return null;
+        }
+        // generateCommitMessage is the transient-API-sensitive LLM boundary
+        // (PRD §5.1). Wrap ONLY this boundary in a bounded retry loop with
+        // exponential backoff — NOT gitDiff/gitAdd/gitCommit (the index is
+        // staged once and committed once; no re-staging between retries). The
+        // diff is read ONCE above and captured here; only the LLM call repeats.
+        // isRetryable is intentionally OMITTED → defaults to isTransientError
+        // (PRD §5.1 contract item 3c). generateCommitMessage throws AgentError
+        // (PIPELINE_AGENT_LLM_FAILED) which isTransientError classifies
+        // transient. Permanent errors (none today) would not retry.
+        try {
+          const generated = await retry(
+            () => generateCommitMessage(diffResult.diff ?? ''),
+            {
+              maxAttempts: getCommitRetryMax(),
+              baseDelay: getCommitRetryDelayMs(),
+              maxDelay: getCommitRetryDelayCapMs(),
+              backoffFactor: 2, // doubling (PRD §5.1)
+              onRetry: createDefaultOnRetry(
+                'stagecoach.generateCommitMessage',
+                getCommitRetryMax()
+              ),
+            }
+          );
+          formattedMessage = formatCommitMessage(generated, options.position);
+        } catch (genError) {
+          // PRD §5.1 last-resort fallback: generation failed after all retries.
+          // The index is still staged (gitAdd ran before generation), so commit
+          // the substance with a labeled placeholder so it's never stranded.
+          // LLM-API failures have no subprocess exit code → sentinel 0 (see
+          // buildFallbackCommitMessage). Flow CONTINUES (no rethrow) to the
+          // shared plumbing commit below (gitCommitTree + gitUpdateRefCAS),
+          // which handles both the happy path and this fallback path.
+          logger().warn(
+            `Commit-message generation failed after retries; falling back to placeholder commit: ${toErrorMessage(genError)}`
+          );
+          formattedMessage = formatCommitMessage(
+            buildFallbackCommitMessage(genError),
+            options.position
+          );
+        }
+      } else {
+        formattedMessage = formatCommitMessage(message, options?.position);
+      }
+
+      // Create commit — §5.1 snapshot-based atomic single-commit: commit-tree
+      // (dangling commit from S1's TREE_SHA + PARENT_SHA) → CAS update-ref
+      // (atomic HEAD advance). parentSha undefined → root commit (no -p) /
+      // unconditional advance (rootless repo). The message (generated OR
+      // fallback placeholder) converges on formattedMessage, so BOTH paths flow
+      // through this single plumbing commit.
+      const commitTreeResult = await gitCommitTree({
+        repoPath: repoRoot,
+        treeSha,
+        message: formattedMessage,
+        parentSha, // undefined → root commit (rootless repo, no -p)
+      });
+      if (!commitTreeResult.success) {
+        // never-fail-on-commit: log + return null; HEAD + index unchanged.
+        logger().error(
+          `Smart Commit aborted (commit-tree failed): ${commitTreeResult.error}`
+        );
         return null;
       }
-      // generateCommitMessage is the transient-API-sensitive LLM boundary
-      // (PRD §5.1). Wrap ONLY this boundary in a bounded retry loop with
-      // exponential backoff — NOT gitDiff/gitAdd/gitCommit (the index is
-      // staged once and committed once; no re-staging between retries). The
-      // diff is read ONCE above and captured here; only the LLM call repeats.
-      // isRetryable is intentionally OMITTED → defaults to isTransientError
-      // (PRD §5.1 contract item 3c). generateCommitMessage throws AgentError
-      // (PIPELINE_AGENT_LLM_FAILED) which isTransientError classifies
-      // transient. Permanent errors (none today) would not retry.
-      try {
-        const generated = await retry(
-          () => generateCommitMessage(diffResult.diff ?? ''),
-          {
-            maxAttempts: getCommitRetryMax(),
-            baseDelay: getCommitRetryDelayMs(),
-            maxDelay: getCommitRetryDelayCapMs(),
-            backoffFactor: 2, // doubling (PRD §5.1)
-            onRetry: createDefaultOnRetry(
-              'stagecoach.generateCommitMessage',
-              getCommitRetryMax()
-            ),
-          }
-        );
-        formattedMessage = formatCommitMessage(generated, options.position);
-      } catch (genError) {
-        // PRD §5.1 last-resort fallback: generation failed after all retries.
-        // The index is still staged (gitAdd ran before generation), so commit
-        // the substance with a labeled placeholder so it's never stranded.
-        // LLM-API failures have no subprocess exit code → sentinel 0 (see
-        // buildFallbackCommitMessage). Flow CONTINUES (no rethrow) to the
-        // shared plumbing commit below (gitCommitTree + gitUpdateRefCAS),
-        // which handles both the happy path and this fallback path.
-        logger().warn(
-          `Commit-message generation failed after retries; falling back to placeholder commit: ${toErrorMessage(genError)}`
-        );
-        formattedMessage = formatCommitMessage(
-          buildFallbackCommitMessage(genError),
-          options.position
-        );
-      }
-    } else {
-      formattedMessage = formatCommitMessage(message, options?.position);
-    }
+      const newSha = commitTreeResult.commitSha;
 
-    // Create commit — §5.1 snapshot-based atomic single-commit: commit-tree
-    // (dangling commit from S1's TREE_SHA + PARENT_SHA) → CAS update-ref
-    // (atomic HEAD advance). parentSha undefined → root commit (no -p) /
-    // unconditional advance (rootless repo). The message (generated OR
-    // fallback placeholder) converges on formattedMessage, so BOTH paths flow
-    // through this single plumbing commit.
-    const commitTreeResult = await gitCommitTree({
-      repoPath: repoRoot,
-      treeSha,
-      message: formattedMessage,
-      parentSha, // undefined → root commit (rootless repo, no -p)
-    });
-    if (!commitTreeResult.success) {
-      // never-fail-on-commit: log + return null; HEAD + index unchanged.
-      logger().error(
-        `Smart Commit aborted (commit-tree failed): ${commitTreeResult.error}`
-      );
-      return null;
-    }
-    const newSha = commitTreeResult.commitSha;
-
-    const casResult = await gitUpdateRefCAS({
-      repoPath: repoRoot,
-      newSha,
-      expectedOldSha: parentSha, // undefined → unconditional advance (rootless repo)
-    });
-    if (!casResult.success) {
-      // §5.1 "HEAD moved during generation": a concurrent commit advanced HEAD
-      // during message generation. MUST NOT force (would clobber it). Surface a
-      // manual recovery recipe + throw (narrow never-fail exception → non-zero
-      // exit). The snapshotted work is safe as a dangling commit.
-      const recipe = formatCommitRecoveryRecipe({
-        message: formattedMessage,
-        treeSha,
-        parentSha,
+      const casResult = await gitUpdateRefCAS({
+        repoPath: repoRoot,
         newSha,
-        error: casResult.error,
+        expectedOldSha: parentSha, // undefined → unconditional advance (rootless repo)
       });
-      logger().error(recipe);
-      throw new CommitCasRefusedError(recipe, { treeSha, parentSha, newSha });
-    }
+      if (!casResult.success) {
+        // §5.1 "HEAD moved during generation": a concurrent commit advanced HEAD
+        // during message generation. MUST NOT force (would clobber it). Surface a
+        // manual recovery recipe + throw (narrow never-fail exception → non-zero
+        // exit). The snapshotted work is safe as a dangling commit.
+        const recipe = formatCommitRecoveryRecipe({
+          message: formattedMessage,
+          treeSha,
+          parentSha,
+          newSha,
+          error: casResult.error,
+        });
+        logger().error(recipe);
+        throw new CommitCasRefusedError(recipe, { treeSha, parentSha, newSha });
+      }
 
-    // Return commit hash (the dangling commit's SHA, now HEAD).
-    logger().info(`Commit created: ${newSha}`);
-    return newSha;
+      // Return commit hash (the dangling commit's SHA, now HEAD).
+      if (_commitRescue) _commitRescue.committed = true; // window CLOSED only on CAS success
+      logger().info(`Commit created: ${newSha}`);
+      return newSha;
+    } catch (e) {
+      rescueEscape = e;
+      throw e; // re-throw: let the outer catch decide (S2 re-throws CommitCasRefusedError; others → null)
+    } finally {
+      for (const [sig, fn] of rescueHandlers) process.off(sig, fn); // ALWAYS unregister (phase-scoped)
+      // try/finally rescue: a genuine THROWN escape (timeout/unexpected error) with an uncommitted
+      // snapshot → emit rescue. Normal `return null` paths inside the window (gitDiff/commit-tree
+      // never-fail) reach the finally WITHOUT throwing (rescueEscape === undefined) → no rescue.
+      // CAS refusal already logged S2's recipe + carries newSha — do NOT double-emit.
+      if (
+        _commitRescue &&
+        !_commitRescue.committed &&
+        rescueEscape !== undefined &&
+        !(rescueEscape instanceof CommitCasRefusedError)
+      ) {
+        emitCommitRescue(_commitRescue);
+      }
+      _commitRescue = null; // ALWAYS clear
+    }
   } catch (error) {
     // Safety-critical: the CAS refusal MUST propagate → non-zero exit (PRD
     // §5.1). It is NOT swallowed to null.
