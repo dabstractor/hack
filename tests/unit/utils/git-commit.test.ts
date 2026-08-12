@@ -353,7 +353,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY — bare subject, trailer present, NEVER [PRP Auto]
       expect(result).toBe(
-        'cleanup: doc reorganization\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        'cleanup: doc reorganization>'
       );
       expect(result).not.toContain('[PRP Auto]');
     });
@@ -364,7 +364,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY
       expect(result).toBe(
-        'msg\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        'msg>'
       );
       expect(result).not.toContain('[PRP Auto]');
     });
@@ -380,7 +380,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY
       expect(result).toBe(
-        '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        '1.2.1.1: add utility>'
       );
       expect(result).not.toContain('[PRP Auto]');
     });
@@ -395,7 +395,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY — trailing level elided (1.2.1, never 1.2.1.0)
       expect(result).toBe(
-        '1.2.1: build CLI entry point\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        '1.2.1: build CLI entry point>'
       );
       expect(result).not.toContain('[PRP Auto]');
     });
@@ -414,7 +414,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY — plain opt-out: position supplied but ignored
       expect(result).toBe(
-        'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        'add utility>'
       );
       expect(result).not.toContain('[PRP Auto]');
     });
@@ -433,7 +433,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY
       expect(result).toBe(
-        '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        '1.2.1.1: add utility>'
       );
     });
 
@@ -450,11 +450,11 @@ describe('utils/git-commit', () => {
       // VERIFY — banner is gone; task-prefix applied to the stripped subject
       expect(result).not.toContain('[PRP Auto]');
       expect(result).toBe(
-        '1.2.1.1: msg\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        '1.2.1.1: msg>'
       );
     });
 
-    it('PRESERVES the Co-Authored-By trailer in EVERY output (both modes)', () => {
+    it('NEVER adds a Co-Authored-By trailer in ANY output (identity-transparent, §5.1)', () => {
       // EXECUTE a representative cross-section of both modes + the strip path.
       const results = [
         formatCommitMessage('plain msg'),
@@ -467,11 +467,13 @@ describe('utils/git-commit', () => {
         formatCommitMessage('[PRP Auto] stripped msg', null),
       ];
 
-      // VERIFY — trailer present in every output
+      // VERIFY — NO trailer/banner/machine author in any output (§5.1
+      // commit-identity transparency). The prior hardcoded
+      // `Co-Authored-By: Claude <noreply@anthropic.com` literal was a spec
+      // violation (it mis-attributed pi/z.ai work to Claude) and is removed.
       for (const result of results) {
-        expect(result).toContain(
-          'Co-Authored-By: Claude <noreply@anthropic.com>'
-        );
+        expect(result).not.toContain('Co-Authored-By');
+        expect(result).not.toMatch(/noreply@anthropic\.com/);
         // And NEVER the banner
         expect(result).not.toContain('[PRP Auto]');
       }
@@ -509,7 +511,7 @@ describe('utils/git-commit', () => {
         expect(mockGitCommit).toHaveBeenCalledWith({
           path: '/project',
           message:
-            'Test commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+            'Test commit>',
         });
       });
 
@@ -1292,7 +1294,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          'feat(api): add endpoint\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          'feat(api): add endpoint>',
       });
     });
 
@@ -1357,16 +1359,15 @@ describe('utils/git-commit', () => {
 
       // VERIFY — fallback commit made with the labeled placeholder. The
       // staged substance is preserved (never stranded). The placeholder is
-      // wrapped via formatCommitMessage (plain subject + Co-Authored-By
-      // trailer, no [PRP Auto] — non-backlog fallback degrades to plain per
-      // PRD §5.1). 'exit N' uses the sentinel 0 (LLM-API failures have no
-      // subprocess exit code).
+      // wrapped via formatCommitMessage (plain subject, no [PRP Auto] —
+      // non-backlog fallback degrades to plain per PRD §5.1). 'exit N' uses
+      // the sentinel 0 (LLM-API failures have no subprocess exit code).
       expect(result).toBe('fb000');
       expect(mockGitCommit).toHaveBeenCalledTimes(1);
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message: expect.stringMatching(
-          /chore: commit-gen failed \(exit \d+\); fallback commit[\s\S]*Co-Authored-By: Claude/
+          /chore: commit-gen failed \(exit \d+\); fallback commit/
         ),
       });
       // A warn log is emitted naming the fallback (NOT the outer 'Unexpected
@@ -1401,7 +1402,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          'Pre-formatted message\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          'Pre-formatted message>',
       });
     });
 
@@ -1535,7 +1536,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          'feat: retry works\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          'feat: retry works>',
       });
     });
 
@@ -1694,7 +1695,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          '1.2.1.1: add utility>',
       });
     });
 
@@ -1734,7 +1735,7 @@ describe('utils/git-commit', () => {
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
         message:
-          '1.2.1.1: feat(api): add endpoint\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+          '1.2.1.1: feat(api): add endpoint>',
       });
     });
 
@@ -1802,7 +1803,7 @@ describe('utils/git-commit', () => {
         | { message?: string }
         | undefined;
       expect(call?.message).toBe(
-        'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        'add utility>'
       );
       expect(call?.message).not.toContain('[PRP Auto]');
     });
@@ -1831,7 +1832,7 @@ describe('utils/git-commit', () => {
         | { message?: string }
         | undefined;
       expect(call?.message).toBe(
-        'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+        'add utility>'
       );
     });
   });

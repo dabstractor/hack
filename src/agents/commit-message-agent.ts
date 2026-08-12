@@ -80,7 +80,7 @@ Write a PLAIN DESCRIPTIVE summary of the change (imperative mood).
 HARD RULES:
 - Output ONLY the commit message (subject + optional body). No explanation.
 - No markdown fences, no leading/trailing whitespace, no preamble.
-- Do NOT include "[PRP Auto]", "Co-Authored-By", or any trailer — the caller adds those.
+- Do NOT include "[PRP Auto]", "Co-Authored-By", or any trailer — commits are identity-transparent (§5.1); no trailer is ever added.
 - If the diff is empty or whitespace-only, output the single word "skip".`;
 
 /**
@@ -95,14 +95,14 @@ HARD RULES:
  * {@link COMMIT_MESSAGE_SYSTEM} byte-for-byte. The three NEW contracts append
  * this shared block so every mode enforces the identical output shape: the
  * agent emits ONLY the descriptive message; the caller (`formatCommitMessage`
- * in `src/utils/git-commit.ts`) layers the standardized task-prefix and the
- * Co-Authored-By trailer.
+ * in `src/utils/git-commit.ts`) layers the standardized task-prefix (no trailer —
+ * commits are identity-transparent, §5.1).
  */
 const COMMIT_MESSAGE_DISCIPLINE = `OUTPUT DISCIPLINE (every mode):
 - Emit ONLY the descriptive commit message (subject + optional body). No explanation, no preamble.
 - Do NOT include any position prefix like "1.2.1.1:" — the caller (formatCommitMessage) adds it.
 - Do NOT include "[PRP Auto]" or any banner.
-- Do NOT include "Co-Authored-By" or any trailer — the caller adds it.
+- Do NOT include "Co-Authored-By" or any trailer — commits are identity-transparent (§5.1); no trailer is ever added.
 - No markdown fences, no leading/trailing whitespace.
 - If the diff is empty or whitespace-only, output the single word "skip".`;
 

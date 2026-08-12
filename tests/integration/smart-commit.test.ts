@@ -9,7 +9,7 @@
  * Tests verify:
  * - Git commit is triggered after successful subtask completion
  * - Commit subject: task-prefix `<n.n.n.n>:` over the message (subtasks,
- *   default) or plain (non-backlog) + Co-Authored-By trailer (PRD §5.1).
+ *   default) or plain (non-backlog) (PRD §5.1; identity-transparent — no trailer).
  *   No `[PRP Auto]` banner.
  * - Protected files (tasks.json, PRD.md, prd_snapshot.md) are not committed
  * - All other changes are staged and committed
@@ -44,9 +44,7 @@ vi.mock('../../src/utils/git-commit.js', () => ({
         !['tasks.json', 'PRD.md', 'prd_snapshot.md'].includes(basename(f))
     );
   }),
-  formatCommitMessage: vi.fn(
-    (msg: string) => `${msg}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
-  ),
+  formatCommitMessage: vi.fn((msg: string) => msg),
   // parseItemPosition is imported by TaskOrchestrator from this module; the mock
   // factory must re-export it (same shape as src/utils/git-commit.ts:137).
   parseItemPosition: vi.fn((id: string) => {
@@ -388,14 +386,13 @@ describe('integration/smart-commit > smart commit functionality', () => {
 
     it('should layer the task-prefix and NOT emit [PRP Auto] when position is supplied', async () => {
       // EXECUTE: Call the (mocked) formatCommitMessage with a position. The
-      // mock ignores position and emits plain subject + trailer, so assert
-      // the trailer presence + the ABSENCE of the forbidden [PRP Auto] banner
-      // (PRD §5.1). The real task-prefix behavior is covered by the unit tests
-      // in tests/unit/utils/git-commit.test.ts; here we lock the format contract.
+      // mock now mirrors the real identity-transparent behavior (no trailer),
+      // so assert the ABSENCE of both the forbidden [PRP Auto] banner and any
+      // Co-Authored-By trailer (PRD §5.1 commit-identity transparency). The
+      // real task-prefix behavior is covered by the unit tests in
+      // tests/unit/utils/git-commit.test.ts; here we lock the format contract.
       const baseMessage = 'P1.M2.T1.S3: Test';
-      mockFormatCommitMessage.mockReturnValue(
-        `${baseMessage}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`
-      );
+      mockFormatCommitMessage.mockReturnValue(baseMessage);
       const formatted = formatCommitMessage(baseMessage, {
         phase: 1,
         milestone: 2,
@@ -403,26 +400,22 @@ describe('integration/smart-commit > smart commit functionality', () => {
         subtask: 3,
       });
 
-      // VERIFY: NO [PRP Auto] banner; Co-Authored-By trailer present.
+      // VERIFY: NO [PRP Auto] banner; NO Co-Authored-By trailer.
       expect(formatted).not.toContain('[PRP Auto]');
       expect(formatted).toContain(baseMessage);
-      expect(formatted).toContain(
-        'Co-Authored-By: Claude <noreply@anthropic.com>'
-      );
+      expect(formatted).not.toContain('Co-Authored-By');
     });
 
-    it('should add Co-Authored-By trailer to commit message', async () => {
+    it('should NOT add any Co-Authored-By trailer (identity-transparent, §5.1)', async () => {
       // SETUP
       const baseMessage = 'P1.M2.T1.S3: Test';
 
       // EXECUTE
       const formatted = formatCommitMessage(baseMessage);
 
-      // VERIFY: Trailer added with blank line before
-      expect(formatted).toContain(
-        'Co-Authored-By: Claude <noreply@anthropic.com>'
-      );
-      expect(formatted).toMatch(/\n\nCo-Authored-By:/);
+      // VERIFY: No trailer, no machine author (§5.1 commit-identity transparency)
+      expect(formatted).not.toContain('Co-Authored-By');
+      expect(formatted).not.toMatch(/\n\nCo-Authored-By:/);
     });
   });
 

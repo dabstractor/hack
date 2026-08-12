@@ -188,10 +188,9 @@ export function buildTaskPrefix(pos: ItemPosition): string {
  *                   `<phase>.<milestone>.<task>[.<subtask>]:` prefix is layered
  *                   onto the subject. When absent/`null`, OR when the format is
  *                   `'plain'`, the subject is emitted verbatim (no prefix).
- * @returns The formatted commit message: `<prefix?><subject>\n\nCo-Authored-By:
- *          Claude <noreply@anthropic.com>`. The `Co-Authored-By` trailer is
- *          PRESERVED in BOTH modes (PRD §5.1 is silent on the trailer; only the
- *          `[PRP Auto]` banner is forbidden).
+ * @returns The formatted commit message: `<prefix?><subject>`. NO trailer,
+ *          banner, or machine author is appended — commits are identity-
+ *          transparent (PRD §5.1 "Commit-identity transparency").
  *
  * @remarks
  * - NEVER emits the legacy `[PRP Auto]` banner (PRD §5.1 forbids it). A stray
@@ -200,22 +199,25 @@ export function buildTaskPrefix(pos: ItemPosition): string {
  * - Non-backlog commits (initial, fallback, scaffolding, cleanup) pass NO
  *   `position` → plain subject (PRD §5.1: "When task-prefix selected but commit
  *   is not a backlog item → degrade to plain").
- * - The trailer is appended after a blank line in both modes (architecture
- *   decision: removing it is a separate product concern).
+ * - NEVER appends a `Co-Authored-By` trailer, a `Generated-by` footer, or any
+ *   machine/branded authorship. PRD §5.1 "Commit-identity transparency" forbids
+ *   them; the prior unconditional `Co-Authored-By: Claude <noreply@anthropic.com>`
+ *   literal was a spec violation (it mis-attributed pi/z.ai work to Claude on
+ *   every commit) and is removed.
  *
  * @example
  * ```ts
  * // task-prefix mode (DEFAULT — PRP_COMMIT_FORMAT unset):
  * formatCommitMessage('add utility', { phase:1, milestone:2, task:1, subtask:1 });
- * // => '1.2.1.1: add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ * // => '1.2.1.1: add utility'
  *
  * // plain mode (PRP_COMMIT_FORMAT=plain) — position ignored:
  * formatCommitMessage('add utility', { phase:1, milestone:2, task:1, subtask:1 });
- * // => 'add utility\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ * // => 'add utility'
  *
  * // no position (non-backlog) → always plain:
  * formatCommitMessage('cleanup: doc reorganization');
- * // => 'cleanup: doc reorganization\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+ * // => 'cleanup: doc reorganization'
  * ```
  */
 export function formatCommitMessage(
@@ -230,7 +232,11 @@ export function formatCommitMessage(
     position && getPrpCommitFormat() === 'task-prefix'
       ? `${buildTaskPrefix(position)}: ${subject}`
       : subject;
-  return `${withPrefix}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`;
+  // Identity-transparent (PRD §5.1): NO Co-Authored-By trailer, no machine
+  // author. The prior hardcoded `Co-Authored-By: Claude <noreply@anthropic.com>`
+  // was a spec violation that mis-attributed every commit to Claude regardless
+  // of the actual harness/model — it has been removed.
+  return withPrefix;
 }
 
 // ===== STAGECOACH (LLM COMMIT-MESSAGE GENERATION) =====
@@ -539,8 +545,7 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
  *      diff-accurate message instead of a fixed template — intended for the
  *      two-phase cleanup commits (P3.M1.T3.S2: pre-cleanup survival commit +
  *      post-cleanup commit) whose diffs are unpredictable.
- * 6. Create commit via `formatCommitMessage` (task-prefix or plain per PRD §5.1) + `Co-Authored-By` trailer
- * 7. Return commit hash for observability
+ * 6. Return commit hash for observability
  *
  * **Error Handling (never-fail-on-commit contract)**:
  * - Git operation failures are logged but don't throw.
