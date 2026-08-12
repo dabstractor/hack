@@ -641,6 +641,58 @@ async function gitWriteTree(repoPath?: string): Promise<GitWriteTreeResult> {
 }
 
 /**
+ * Result of {@link gitRevParseHead}: either the current HEAD commit SHA or a structured error.
+ *
+ * @remarks
+ * `success: false` is returned when HEAD is unborn (a rootless repository — no commits yet) or
+ * the ref is otherwise unresolvable. This is the PRD §5.1 "Rootless repo" edge case: PARENT_SHA is
+ * empty, so {@link gitCommitTree} is called without `-p` (a root commit) and {@link gitUpdateRefCAS}
+ * without an `expected-old` — NOT an error condition.
+ */
+type GitRevParseHeadResult =
+  | { success: true; sha: string }
+  | { success: false; error: string };
+
+/**
+ * `git rev-parse HEAD` — read the current HEAD commit SHA (PRD §5.1 "Commit Workflow Mechanics":
+ * PARENT_SHA capture for the snapshot-based atomic single-commit).
+ *
+ * @remarks
+ * Mirrors {@link gitWriteTree}: `validateRepositoryPath` → `simpleGit` → `git.raw(['rev-parse',
+ * 'HEAD'])` → `.trim()` → `{ success: true, sha }`. On throw (HEAD unborn / rootless repository, or a
+ * missing ref) it returns `{ success: false, error }` — the error is NOT re-thrown.
+ *
+ * Captured pre-message-generation by {@link smartCommit} (P1.M1.T3.S1) as PARENT_SHA, alongside the
+ * {@link gitWriteTree} TREE_SHA, so the post-generation `commit-tree` + CAS `update-ref` (P1.M1.T3.S2)
+ * can advance HEAD atomically.
+ *
+ * Uses `simpleGit.raw(['rev-parse', 'HEAD'])` — an argv VECTOR (not a shell-interpolated string), so it
+ * runs via `execFile` internally and satisfies §5.1's no-shell rule.
+ *
+ * **Commit-identity transparency** (PRD §5.1 / §9.10.1): `rev-parse` is a pure read that inherits the
+ * repo's git config + `process.env` only — it sets no `user.name`/`user.email` and passes no
+ * `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env.
+ *
+ * @param repoPath - Optional repository path (defaults to cwd via {@link validateRepositoryPath}).
+ * @returns `{ success: true, sha }` on success, or `{ success: false, error }` when HEAD is unborn.
+ */
+async function gitRevParseHead(
+  repoPath?: string
+): Promise<GitRevParseHeadResult> {
+  const safePath = await validateRepositoryPath(repoPath);
+  const git = simpleGit(safePath);
+  try {
+    const sha = (await git.raw(['rev-parse', 'HEAD'])).trim();
+    return { success: true, sha };
+  } catch {
+    return {
+      success: false,
+      error: 'HEAD is unborn (rootless repository — no commits yet)',
+    };
+  }
+}
+
+/**
  * Result of {@link gitCommitTree}: either a successful commit SHA or a structured error.
  *
  * @remarks
@@ -1057,6 +1109,7 @@ export type {
   GitWriteTreeResult,
   GitCommitTreeResult,
   GitUpdateRefCASResult,
+  GitRevParseHeadResult,
 };
 export {
   gitStatusTool,
@@ -1077,4 +1130,5 @@ export {
   gitWriteTree,
   gitCommitTree,
   gitUpdateRefCAS,
+  gitRevParseHead,
 };

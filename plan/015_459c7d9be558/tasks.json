@@ -91,14 +91,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Rewrite smartCommit to snapshot-based atomic plumbing commit",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Integrate the new plumbing primitives (T1) into smartCommit so the commit is atomic (write-tree → commit-tree → CAS update-ref), identity-transparent (no user.name/user.email/GIT_AUTHOR_*/GIT_COMMITTER_* injection), and handles all §5.1 edge cases (rootless repo, merge conflicts, HEAD-moved-during-generation, timeout/SIGINT rescue).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Pre-generation: capture PARENT_SHA, write-tree snapshot, identity transparency",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -115,7 +115,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Post-generation: commit-tree + CAS update-ref, edge-case handling",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2",
@@ -133,7 +133,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "Generation-timeout / SIGINT rescue path",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"

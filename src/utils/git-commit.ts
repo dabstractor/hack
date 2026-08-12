@@ -25,6 +25,8 @@ import {
   gitAdd,
   gitCommit,
   gitDiff,
+  gitWriteTree,
+  gitRevParseHead,
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
@@ -547,6 +549,27 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
  *      post-cleanup commit) whose diffs are unpredictable.
  * 6. Return commit hash for observability
  *
+ * **Snapshot-Based Atomic Single-Commit** (PRD §5.1 "Commit Workflow Mechanics"):
+ * After staging + `restore_critical_files` and BEFORE the (slow) message-generation step, this
+ * function captures the pre-generation snapshot: `PARENT_SHA` (current HEAD via `gitRevParseHead`;
+ * `undefined` for a rootless repo) and `TREE_SHA` (the staged index frozen into an immutable tree
+ * via `gitWriteTree`). The full atomic sequence is `write-tree` → (message gen) → `commit-tree` →
+ * CAS `update-ref`; PARENT_SHA + TREE_SHA are captured here (P1.M1.T3.S1), and the CAS advance is
+ * post-generation (P1.M1.T3.S2). Until S2 lands, `gitCommit` still runs — the snapshot capture +
+ * conflict fail-fast are live in S1; the atomic CAS advance lands in S2. Capturing the snapshot
+ * BEFORE generation ALSO fail-fast aborts on an unresolved-merge-conflict index (`gitWriteTree`
+ * returns `{success:false}`) → log + `return null`, never spending an LLM call on an uncommittable
+ * index (PRD §5.1 "Unresolved merge conflicts in the index" edge case).
+ *
+ * **Commit-identity transparency** (PRD §5.1 / §9.10.1): this subsystem MUST NOT set, override, or
+ * inject any git author/committer identity — no `user.name`/`user.email` config write and no
+ * `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env on any git subprocess. The plumbing wrappers
+ * (`gitRevParseHead`, `gitWriteTree`, and S2's `gitCommitTree`/`gitUpdateRefCAS`) use
+ * `simpleGit.raw([...])` (argv vector, no shell) and inherit the repo's existing git config +
+ * `process.env` only, so every commit is authored as whoever git resolves from the user's own
+ * config — a pipeline commit is indistinguishable in metadata from a hand-authored one. (The
+ * structural self-source-scan guard for this invariant is P1.M3.T1.)
+ *
  * **Error Handling (never-fail-on-commit contract)**:
  * - Git operation failures are logged but don't throw.
  * - `generateCommitMessage` (the stagecoach boundary) DOES throw
@@ -664,6 +687,37 @@ export async function smartCommit(
     // staged set. Must run AFTER gitAdd and BEFORE commit-message resolution.
     // Best-effort/non-fatal: restore_critical_files swallows its own errors.
     await restore_critical_files(repoRoot);
+
+    // ── Snapshot-Based Atomic Commit — PRE-GENERATION capture (PRD §5.1, P1.M1.T3.S1) ──
+    // Capture PARENT_SHA (current HEAD) BEFORE the (slow) message-generation step, then freeze the
+    // staged index into an immutable tree object (TREE_SHA). Both flow to the post-generation
+    // commit-tree + CAS update-ref (P1.M1.T3.S2). Capturing BEFORE generation ALSO fail-fast aborts
+    // on unresolved merge conflicts (write-tree fails) — never spending an LLM call on an
+    // uncommittable index (PRD §5.1 "Unresolved merge conflicts in the index" edge case).
+    //
+    // Commit-identity transparency (PRD §5.1 / §9.10.1): this path MUST NOT set user.name/user.email
+    // or pass GIT_AUTHOR_*/GIT_COMMITTER_* env on any git subprocess — the plumbing wrappers inherit
+    // the repo's existing git config only. Every commit is authored as whoever git resolves from the
+    // user's own config; a pipeline commit is indistinguishable in metadata from a hand-authored one.
+    const headResult = await gitRevParseHead(repoRoot);
+    const parentSha = headResult.success ? headResult.sha : undefined; // undefined → root commit (rootless)
+
+    const treeResult = await gitWriteTree(repoRoot);
+    if (!treeResult.success) {
+      // Unresolved merge conflicts in the index → abort BEFORE message generation (never-fail-on-commit
+      // contract: log + return null; do NOT throw — the index/HEAD are byte-for-byte unchanged).
+      logger().error(
+        `Smart Commit aborted (unresolved merge conflicts): ${treeResult.error}`
+      );
+      return null;
+    }
+    const treeSha = treeResult.treeSha;
+    logger().debug(
+      { parentSha: parentSha ?? null, treeSha },
+      'Captured pre-generation snapshot (PARENT_SHA + TREE_SHA)'
+    );
+    // PARENT_SHA + TREE_SHA are consumed by the post-generation commit-tree + CAS update-ref
+    // (P1.M1.T3.S2). The existing message-generation + gitCommit path below is UNCHANGED for S1.
 
     // Resolve the commit message. The DEFAULT path (option omitted / false)
     // is byte-identical to the pre-stagecoach behavior: formatCommitMessage(

@@ -26,6 +26,8 @@ vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitRestoreFileFromHead: vi.fn(),
   gitUnstagePath: vi.fn(),
   getRecentCommitMessages: vi.fn(),
+  gitWriteTree: vi.fn(),
+  gitRevParseHead: vi.fn(),
 }));
 
 // Mock the stagecoach commit-message agent factory so default-path tests
@@ -64,6 +66,8 @@ import {
   gitAdd,
   gitCommit,
   gitDiff,
+  gitWriteTree,
+  gitRevParseHead,
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
@@ -94,6 +98,8 @@ const mockGitDiff = vi.mocked(gitDiff);
 const mockGitListStagedDeletions = vi.mocked(gitListStagedDeletions);
 const mockGitRestoreFileFromHead = vi.mocked(gitRestoreFileFromHead);
 const mockGitUnstagePath = vi.mocked(gitUnstagePath);
+const mockGitWriteTree = vi.mocked(gitWriteTree);
+const mockGitRevParseHead = vi.mocked(gitRevParseHead);
 const mockCreateCommitMessageAgent = vi.mocked(createCommitMessageAgent);
 const mockBuildCommitMessageSystemPrompt = vi.mocked(
   buildCommitMessageSystemPrompt
@@ -135,6 +141,19 @@ describe('utils/git-commit', () => {
     mockGitListStagedDeletions.mockResolvedValue({ success: true, files: [] });
     mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
     mockGitUnstagePath.mockResolvedValue({ success: true });
+    // DEFAULT (P1.M1.T3.S1): the pre-generation snapshot capture runs in EVERY smartCommit path —
+    // gitRevParseHead → PARENT_SHA (success → a stable parent SHA; rootless-repo tests override to
+    // {success:false}) and gitWriteTree → TREE_SHA (success → a stable tree SHA; the conflict-fail-fast
+    // test overrides to {success:false}). A bare vi.fn() returns undefined → `treeResult.success`
+    // throws → outer catch → null → every existing smartCommit test expecting a hash would break.
+    mockGitRevParseHead.mockResolvedValue({
+      success: true,
+      sha: 'parent-sha-0001',
+    });
+    mockGitWriteTree.mockResolvedValue({
+      success: true,
+      treeSha: 'tree-sha-0001',
+    });
   });
 
   describe('filterProtectedFiles', () => {
@@ -868,6 +887,91 @@ describe('utils/git-commit', () => {
       expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' });
       // tasks.json is not protected → gitUnstagePath is never called for it.
       expect(mockGitUnstagePath).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // PRE-GENERATION SNAPSHOT (P1.M1.T3.S1): capture PARENT_SHA + write-tree →
+  // TREE_SHA after staging/restore, BEFORE message generation. Fail-fast aborts
+  // on an unresolved-merge-conflict index (gitWriteTree {success:false}) — log +
+  // return null, never spending an LLM call on an uncommittable index (PRD §5.1).
+  // ===========================================================================
+  describe('pre-generation snapshot (P1.M1.T3.S1)', () => {
+    it('aborts BEFORE message generation when write-tree reports unresolved merge conflicts', async () => {
+      // SETUP — normal status/add/restore succeed; gitRevParseHead ok; write-tree FAILS (conflicts).
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/a.ts'],
+        untracked: [],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitRevParseHead.mockResolvedValue({
+        success: true,
+        sha: 'parent-sha',
+      });
+      mockGitWriteTree.mockResolvedValue({
+        success: false,
+        error:
+          'Cannot write-tree: unresolved merge conflicts in the index — resolve them first',
+      });
+
+      // EXECUTE — generateMessage:true so the fail-fast-vs-generate distinction is meaningful
+      const result = await smartCommit('/project', 'msg', {
+        generateMessage: true,
+      });
+
+      // VERIFY — never-fail contract: returns null (no throw); the conflict was caught pre-generation
+      // so the staged-diff read (the first step of the stagecoach generateMessage path), the LLM
+      // message-generation boundary, and gitCommit were NEVER reached.
+      expect(result).toBeNull();
+      expect(mockGitRevParseHead).toHaveBeenCalledWith('/project');
+      expect(mockGitWriteTree).toHaveBeenCalledWith('/project');
+      // generateCommitMessage is the real (un-mocked) function; assert the stagecoach path never
+      // STARTED by checking the staged-diff read that immediately precedes it was never called.
+      expect(mockGitDiff).not.toHaveBeenCalled();
+      expect(mockGitCommit).not.toHaveBeenCalled();
+      // The abort is logged (never-fail contract: log + return null, not a throw).
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('treats a rootless repo (HEAD unborn) as parentSha undefined, not an error, and proceeds', async () => {
+      // SETUP — gitRevParseHead reports HEAD unborn (rootless repo); write-tree still succeeds →
+      // the commit proceeds (parentSha captured as undefined → S2 makes a root commit). This proves
+      // the rootless path is NOT treated as an abort (PRD §5.1 "Rootless repo").
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/a.ts'],
+        untracked: [],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+      mockGitRevParseHead.mockResolvedValue({
+        success: false,
+        error: 'HEAD is unborn (rootless repository — no commits yet)',
+      });
+      mockGitWriteTree.mockResolvedValue({
+        success: true,
+        treeSha: 'tree-sha-rootless',
+      });
+      mockGitCommit.mockResolvedValue({
+        success: true,
+        commitHash: 'root-commit-hash',
+      });
+
+      // EXECUTE — default path (no generateMessage); parentSha is undefined but the commit proceeds
+      const result = await smartCommit('/project', 'first commit');
+
+      // VERIFY — commit succeeded; write-tree was called; gitCommit ran (unchanged for S1). The
+      // debug log captured parentSha:null (undefined → null for logging) + the treeSha.
+      expect(result).toBe('root-commit-hash');
+      expect(mockGitWriteTree).toHaveBeenCalledWith('/project');
+      expect(mockGitCommit).toHaveBeenCalled();
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentSha: null,
+          treeSha: 'tree-sha-rootless',
+        }),
+        'Captured pre-generation snapshot (PARENT_SHA + TREE_SHA)'
+      );
     });
   });
 
