@@ -413,7 +413,7 @@ describe('utils/git-commit', () => {
       vi.unstubAllEnvs();
     });
 
-    it('no position (non-backlog) → plain subject + trailer (NO [PRP Auto])', () => {
+    it('no position (non-backlog) → plain subject, NO trailer (NO [PRP Auto])', () => {
       // EXECUTE
       const result = formatCommitMessage('cleanup: doc reorganization');
 
@@ -422,7 +422,7 @@ describe('utils/git-commit', () => {
       expect(result).not.toContain('[PRP Auto]');
     });
 
-    it('null position → plain subject + trailer (position explicitly null)', () => {
+    it('null position → plain subject, NO trailer (position explicitly null)', () => {
       // EXECUTE
       const result = formatCommitMessage('msg', null);
 
@@ -431,7 +431,7 @@ describe('utils/git-commit', () => {
       expect(result).not.toContain('[PRP Auto]');
     });
 
-    it('position + env UNSET (task-prefix DEFAULT) → 4-level prefix: <p.m.t.s>: <msg> + trailer', () => {
+    it('position + env UNSET (task-prefix DEFAULT) → 4-level prefix: <p.m.t.s>: <msg>, NO trailer', () => {
       // EXECUTE
       const result = formatCommitMessage('add utility', {
         phase: 1,
@@ -458,7 +458,7 @@ describe('utils/git-commit', () => {
       expect(result).not.toContain('[PRP Auto]');
     });
 
-    it('position + PRP_COMMIT_FORMAT=plain → plain (position IGNORED) + trailer', () => {
+    it('position + PRP_COMMIT_FORMAT=plain → plain (position IGNORED, NO trailer)', () => {
       // SETUP
       vi.stubEnv('PRP_COMMIT_FORMAT', 'plain');
 
@@ -475,7 +475,7 @@ describe('utils/git-commit', () => {
       expect(result).not.toContain('[PRP Auto]');
     });
 
-    it('position + PRP_COMMIT_FORMAT=task-prefix (explicit default honored) → prefix + trailer', () => {
+    it('position + PRP_COMMIT_FORMAT=task-prefix (explicit default honored) → prefix, NO trailer', () => {
       // SETUP
       vi.stubEnv('PRP_COMMIT_FORMAT', 'task-prefix');
 
@@ -506,27 +506,44 @@ describe('utils/git-commit', () => {
       expect(result).toBe('1.2.1.1: msg');
     });
 
-    it('NEVER adds a Co-Authored-By trailer in ANY output (identity-transparent, §5.1)', () => {
-      // EXECUTE a representative cross-section of both modes + the strip path.
-      const results = [
-        formatCommitMessage('plain msg'),
-        formatCommitMessage('prefixed msg', {
+    it('NEVER adds a Co-Authored-By trailer / banner in ANY mode (§9.10.2 identity-transparency)', () => {
+      // EXECUTE ALL FOUR §9.10.2 modes — task-prefix, plain,
+      // null-position (non-backlog), and the [PRP Auto]-strip path — asserting
+      // the ABSENCE triple in each. The describe-level beforeEach(delete) +
+      // afterEach(unstub) make the vi.stubEnv safe. The prior hardcoded
+      // `Co-Authored-By: Claude <noreply@anthropic.com` literal was a spec
+      // violation (it mis-attributed pi/z.ai work to Claude on every commit) and
+      // is removed; no style layer may add it back (§9.10.2).
+      const results: string[] = [
+        // (1) task-prefix mode — env UNSET (default); position supplied.
+        formatCommitMessage('task-prefix msg', {
           phase: 1,
           milestone: 2,
           task: 1,
           subtask: 1,
         }),
-        formatCommitMessage('[PRP Auto] stripped msg', null),
       ];
+      // (2) plain mode — PRP_COMMIT_FORMAT=plain; position supplied but ignored.
+      vi.stubEnv('PRP_COMMIT_FORMAT', 'plain');
+      results.push(
+        formatCommitMessage('plain-mode msg', {
+          phase: 1,
+          milestone: 2,
+          task: 1,
+          subtask: 1,
+        })
+      );
+      vi.unstubAllEnvs();
+      // (3) null-position mode (non-backlog) → plain.
+      results.push(formatCommitMessage('non-backlog msg'));
+      // (4) [PRP Auto]-strip path — banner input, null position.
+      results.push(formatCommitMessage('[PRP Auto] stripped msg', null));
 
-      // VERIFY — NO trailer/banner/machine author in any output (§5.1
-      // commit-identity transparency). The prior hardcoded
-      // `Co-Authored-By: Claude <noreply@anthropic.com` literal was a spec
-      // violation (it mis-attributed pi/z.ai work to Claude) and is removed.
+      // VERIFY — NO trailer / banner / machine author in ANY output, every mode.
+      expect(results).toHaveLength(4);
       for (const result of results) {
         expect(result).not.toContain('Co-Authored-By');
         expect(result).not.toMatch(/noreply@anthropic\.com/);
-        // And NEVER the banner
         expect(result).not.toContain('[PRP Auto]');
       }
     });
@@ -1397,7 +1414,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — commit hash returned + gitDiff called after gitAdd + message
-      // wrapped via formatCommitMessage (plain subject + Co-Authored-By
+      // wrapped via formatCommitMessage (plain subject, NO Co-Authored-By
       // trailer, no [PRP Auto] — default path emits plain until S3 threads a
       // position).
       expect(result).toBe('abc123');
@@ -1770,7 +1787,7 @@ describe('utils/git-commit', () => {
         position: parseItemPosition('P1.M2.T1.S1'),
       });
 
-      // VERIFY — gitCommit receives the prefixed subject + trailer.
+      // VERIFY — gitCommit receives the prefixed subject, NO trailer.
       expect(result).toBe('abc123');
       expect(mockGitCommitTree).toHaveBeenCalledWith({
         repoPath: '/project',
@@ -1806,7 +1823,7 @@ describe('utils/git-commit', () => {
         position: parseItemPosition('P1.M2.T1.S1'),
       });
 
-      // VERIFY — gitCommit receives the prefixed LLM subject + trailer. NO
+      // VERIFY — gitCommit receives the prefixed LLM subject, NO trailer. NO
       // [PRP Auto] banner (the wrap is via formatCommitMessage).
       expect(result).toBe('abc123');
       expect(mockGitCommitTree).toHaveBeenCalledWith({
@@ -1873,7 +1890,7 @@ describe('utils/git-commit', () => {
         position: null,
       });
 
-      // VERIFY — plain subject + trailer (no prefix, no [PRP Auto]).
+      // VERIFY — plain subject, NO trailer (no prefix, no [PRP Auto]).
       expect(result).toBe('abc123');
       const call = mockGitCommitTree.mock.calls[0]?.[0] as
         | { message?: string }

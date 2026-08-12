@@ -273,7 +273,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Commit-Identity Structural Guard",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add the self-source-scan guard test that prevents forbidden identity/attribution literals from ever entering production code. Invert the behavioral tests to assert trailer/banner absence. Remove the §5.1 carve-out loophole. Per §9.10.2.",
           "tasks": [
             {
@@ -305,14 +305,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Invert behavioral tests + fix stray > blocker bug",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Fix the stray `>` blocker bug in git-commit.test.ts, invert any remaining trailer-presence assertions to assert absence, and remove the §5.1 carve-out loophole from code/comments.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Fix stray > bug + assert trailer/banner absence in all modes",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T3.S2"

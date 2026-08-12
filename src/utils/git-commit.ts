@@ -204,10 +204,12 @@ export function buildTaskPrefix(pos: ItemPosition): string {
  *   `position` → plain subject (PRD §5.1: "When task-prefix selected but commit
  *   is not a backlog item → degrade to plain").
  * - NEVER appends a `Co-Authored-By` trailer, a `Generated-by` footer, or any
- *   machine/branded authorship. PRD §5.1 "Commit-identity transparency" forbids
- *   them; the prior unconditional `Co-Authored-By: Claude <noreply@anthropic.com>`
- *   literal was a spec violation (it mis-attributed pi/z.ai work to Claude on
- *   every commit) and is removed.
+ *   machine/branded authorship. PRD §5.1 "Commit-identity transparency" + §9.10.2
+ *   "Commit-Identity Structural Guard" forbid them; the prior unconditional
+ *   `Co-Authored-By: Claude <noreply@anthropic.com>` literal was a spec violation
+ *   (it mis-attributed pi/z.ai work to Claude on every commit) and is removed, and
+ *   no style layer may add a `Co-Authored-By` trailer, ever (§9.10.2 closes §5.1's
+ *   "unless an explicit style layer below adds one" carve-out).
  *
  * @example
  * ```ts
