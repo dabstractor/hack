@@ -52,6 +52,7 @@ import {
   gitRestoreFileFromHead,
   gitUnstagePath,
   gitCommitTree,
+  gitUpdateRefCAS,
   gitStatusTool,
   gitDiffTool,
   gitAddTool,
@@ -62,6 +63,7 @@ import {
   type GitCommitInput,
   type GitFileHistoryEntry,
   type GitCommitTreeResult,
+  type GitUpdateRefCASResult,
 } from '../../../src/tools/git-mcp.js';
 
 const mockExistsSync = vi.mocked(existsSync);
@@ -1444,6 +1446,85 @@ describe('tools/git-mcp', () => {
       });
 
       expect(result).toEqual({ success: false, error: 'string error' });
+    });
+  });
+
+  describe('gitUpdateRefCAS', () => {
+    // S3 (P1.M1.T1.S3): the CAS `update-ref` that atomically advances HEAD only if its current
+    // value still equals the expected-old SHA (PRD §5.1 step 3). Mirrors S1/S2's pattern
+    // (validateRepositoryPath + simpleGit.raw([argv]) + structured catch), with two deltas:
+    // (a) the expected-old is a BARE POSITIONAL appended after newSha (not a -p flag);
+    // (b) update-ref is SILENT on success → `{ success: true }` (no SHA to trim).
+    // afterEach(() => vi.clearAllMocks()) at the describe('tools/git-mcp') level resets the raw mock.
+
+    it('atomically advances HEAD with the expected-old SHA (bare positional in argv)', async () => {
+      mockGitInstance.raw.mockResolvedValue(''); // update-ref is silent on success (empty stdout)
+
+      const result = await gitUpdateRefCAS({
+        newSha: 'new1',
+        expectedOldSha: 'old1',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(mockGitInstance.raw).toHaveBeenCalledWith([
+        'update-ref',
+        'HEAD',
+        'new1',
+        'old1', // bare positional appended after newSha (NOT a -p flag)
+      ]);
+    });
+
+    it('advances HEAD without expected-old (rootless repo / first commit)', async () => {
+      mockGitInstance.raw.mockResolvedValue('');
+
+      const result = await gitUpdateRefCAS({
+        newSha: 'new1',
+      });
+
+      expect(result).toEqual({ success: true });
+      // NO expected-old: rootless-repo edge case (PRD §5.1). update-ref HEAD <new> with no <old>.
+      expect(mockGitInstance.raw).toHaveBeenCalledWith([
+        'update-ref',
+        'HEAD',
+        'new1',
+      ]);
+    });
+
+    it('reports casFailure when HEAD moved during generation (Error rejection)', async () => {
+      mockGitInstance.raw.mockRejectedValue(
+        new Error(
+          '! 0000000000000000000000000000000000000000: expected old1 but found actual1'
+        )
+      );
+
+      const result = await gitUpdateRefCAS({
+        newSha: 'new1',
+        expectedOldSha: 'old1',
+      });
+
+      // HEAD is UNCHANGED — the atomic advance did NOT happen. NEVER force (PRD §5.1).
+      expect(result).toEqual({
+        success: false,
+        casFailure: true,
+        error:
+          '! 0000000000000000000000000000000000000000: expected old1 but found actual1',
+      });
+    });
+
+    it('reports casFailure with String(e) on a non-Error rejection', async () => {
+      mockGitInstance.raw.mockRejectedValue('string error');
+
+      const result = await gitUpdateRefCAS({
+        newSha: 'new1',
+        expectedOldSha: 'old1',
+      });
+
+      // Covers the `instanceof Error` FALSE branch of the catch.
+      expect(result).toEqual({
+        success: false,
+        casFailure: true,
+        error: 'string error',
+      });
     });
   });
 });

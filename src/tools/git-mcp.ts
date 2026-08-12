@@ -707,6 +707,79 @@ async function gitCommitTree(input: {
 }
 
 /**
+ * Result of {@link gitUpdateRefCAS}: either HEAD was atomically advanced, or it refused (HEAD
+ * unchanged).
+ *
+ * @remarks
+ * `success: false` ALWAYS carries `casFailure: true` and the git error message. It means "the
+ * atomic HEAD advance did NOT happen" — true for the canonical CAS mismatch (HEAD moved during
+ * message generation), a bad `newSha`, or any git error. In every case HEAD is byte-for-byte
+ * unchanged and the caller MUST NOT force the advance (PRD §5.1). The git message is returned
+ * verbatim (NOT parsed — stderr wording is fragile across versions) for an actionable signal.
+ */
+type GitUpdateRefCASResult =
+  | { success: true }
+  | { success: false; error: string; casFailure: true };
+
+/**
+ * `git update-ref HEAD <new-sha> <expected-old-sha>` — the CAS (compare-and-swap) form atomically
+ * advances HEAD only if its current value still equals [expected-old] (PRD §5.1 "Commit Workflow
+ * Mechanics" step 3: snapshot-based atomic single-commit).
+ *
+ * @remarks
+ * Step 3 of the `write-tree` (S1) → `commit-tree` (S2) → CAS `update-ref` (S3) atomic workflow.
+ * This is the ONLY step that moves HEAD — it does so atomically (CAS) or not at all. The expected-old
+ * SHA is captured BEFORE message generation; if a concurrent commit moved HEAD in that window, git
+ * refuses (non-zero exit) and S3 reports `{ success: false, casFailure: true }` so the caller
+ * (P1.M1.T3.S2) surfaces a manual-recovery recipe instead of clobbering the concurrent commit.
+ *
+ * **NEVER force.** A `{ success: false, casFailure: true }` is terminal for this attempt — no
+ * `--force`, no retry without the expected-old, no fallback `git commit` (PRD §5.1 "MUST NOT force
+ * the update"). Forcing would silently overwrite history — the exact failure mode this plumbing
+ * commit exists to prevent. On any failure HEAD is byte-for-byte unchanged (the tree object from S1
+ * + dangling commit from S2 remain, reaped later by `git gc`).
+ *
+ * `expectedOldSha` is OPTIONAL: when omitted, no expected-old is passed and git advances HEAD
+ * unconditionally — the rootless-repo / first-commit edge case (PRD §5.1: "PARENT_SHA is empty;
+ * update-ref HEAD <new> is called without the expected-old argument").
+ *
+ * Uses `simpleGit.raw([...])` — an argv VECTOR (not a shell-interpolated string), so it runs via
+ * `execFile` internally and satisfies §5.1's no-shell rule. The expected-old is a BARE POSITIONAL
+ * appended after `newSha` (per `git update-ref <ref> <new> [<old>]` syntax), NOT a `-p`-style flag.
+ * `update-ref` is SILENT on success (exit 0, empty stdout) — there is no SHA to trim/return.
+ *
+ * @param input - `{ newSha, expectedOldSha?, repoPath? }`.
+ * @returns `{ success: true }` (no payload) on success, or
+ *          `{ success: false, error, casFailure: true }` with the git error message on refusal.
+ */
+async function gitUpdateRefCAS(input: {
+  newSha: string;
+  expectedOldSha?: string;
+  repoPath?: string;
+}): Promise<GitUpdateRefCASResult> {
+  const safePath = await validateRepositoryPath(input.repoPath);
+  const git = simpleGit(safePath);
+  const args = [
+    'update-ref',
+    'HEAD',
+    input.newSha,
+    ...(input.expectedOldSha ? [input.expectedOldSha] : []), // BARE POSITIONAL — omitted for rootless repos
+  ];
+  try {
+    await git.raw(args); // SILENT on success (exit 0, empty stdout) — HEAD atomically advanced
+    return { success: true };
+  } catch (e) {
+    // update-ref refused (HEAD moved during generation, bad SHA, git error). HEAD is UNCHANGED.
+    // NEVER force — the caller surfaces a manual-recovery recipe (§5.1 "HEAD moved during generation").
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : String(e),
+      casFailure: true, // the atomic advance did NOT happen
+    };
+  }
+}
+
+/**
  * Read the content of a file at a specific commit (blob fetch).
  *
  * @remarks
@@ -983,6 +1056,7 @@ export type {
   GitRestoreFromHeadResult,
   GitWriteTreeResult,
   GitCommitTreeResult,
+  GitUpdateRefCASResult,
 };
 export {
   gitStatusTool,
@@ -1002,4 +1076,5 @@ export {
   gitUnstagePath,
   gitWriteTree,
   gitCommitTree,
+  gitUpdateRefCAS,
 };

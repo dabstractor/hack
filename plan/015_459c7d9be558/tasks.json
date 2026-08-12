@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Git plumbing primitives: write-tree, commit-tree, CAS update-ref",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Create three new git-plumbing functions as argv-vector execs (never sh -c) to support the snapshot-based atomic commit. These live in src/tools/git-mcp.ts alongside the existing simple-git wrappers, using simpleGit.raw() or direct child_process.execFile.",
               "subtasks": [
                 {
@@ -53,7 +53,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "gitUpdateRefCAS — atomic compare-and-swap HEAD advance",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Per system_context.md §2.2 and §5.2, the CAS form `git update-ref HEAD <new> <expected-old>` atomically advances HEAD only if its current value equals expected-old. simpleGit.raw() uses execFile internally. Rootless repos: omit the expected-old argument entirely (first commit has no old HEAD to compare).\n2. INPUT: { newSha: string; expectedOldSha?: string; repoPath?: string }. expectedOldSha is OPTIONAL — omitted for rootless repos. From P1.M1.T3.S1 (PARENT_SHA) and P1.M1.T1.S2 (new commit SHA).\n3. LOGIC: Implement gitUpdateRefCAS that builds argv: ['update-ref', 'HEAD', newSha] and appends expectedOldSha when provided. Run via simpleGit.raw(). On success → { success: true }. On CAS failure (HEAD moved during generation — git exits non-zero with 'ref is at <actual> but expected <expected>') → { success: false, error: string, casFailure: true }. NEVER force the update.\n4. OUTPUT: Exported async function gitUpdateRefCAS(input) → GitUpdateRefCASResult from src/tools/git-mcp.ts. Consumed by P1.M1.T3.S2.\n5. DOCS: JSDoc on gitUpdateRefCAS citing §5.1 step 3 'CAS (compare-and-swap) form atomically advances HEAD only if its current value still equals PARENT_SHA. If HEAD moved (concurrent commit), the update refuses.'",
@@ -69,14 +69,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "ARG_MAX-safe staging refactor",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Refactor the staging path in git-commit.ts/smartCommit so it no longer enumerates every file path into an explicit argv (which overflows ARG_MAX on repos with unignored node_modules/). Default to pathspec staging (git add -A); chunk filtered sets under an ARG_MAX byte budget.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Pathspec-default staging + ARG_MAX chunked filtered sets",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: system_context.md §2.1 — current smartCommit calls gitAdd(repoRoot, filteredFiles) which calls git.add(['--', ...everyFile]) via simple-git. A repo with unignored node_modules/ (tens of thousands of files) overflows kernel ARG_MAX → spawn E2BIG → silently strands task status. git-mcp.ts gitAdd (line ~432) already supports `files ?? ['.']` → `git.add('.')` for the all-files path. The fix: stage by pathspec by default, chunk explicit filtered sets.\n2. INPUT: The current smartCommit flow provides a `filteredFiles: string[]` (files minus PROTECTED_FILES). The gitAdd function in git-mcp.ts accepts { path, files? }.\n3. LOGIC: In smartCommit (src/utils/git-commit.ts), change the staging strategy: (a) When no protected files were filtered OUT (common case), stage with pathspec `git add -A` (or gitAdd with files undefined → `git.add('.')`) — this respects .gitignore and never overflows ARG_MAX. (b) When protected files WERE filtered out, stage all files with `git add -A` first, then UNSTAGE the protected files via git reset HEAD -- <protectedfile> (the existing gitUnstagePath function already does this). This avoids ever building a massive explicit path list. If an explicit filtered set is unavoidable, chunk the path list into batches under an ARG_MAX byte budget (estimate ~128KB per exec on Linux; batch so total argv bytes stay well under). Keep restore_critical_files() running AFTER staging (unchanged). The existing gitAdd function already handles `files = ['.']` → `git.add('.')`, so modify smartCommit to pass `files: ['.']` or undefined for the default path, and use unstage for protected files.\n4. OUTPUT: Modified staging logic in smartCommit (src/utils/git-commit.ts) that never passes a massive explicit file list to gitAdd. No new exported interface (internal refactor). smartCommit's signature and return type are unchanged.\n5. DOCS: JSDoc on the staging section of smartCommit citing §5.1 'ARG_MAX-safe staging (no argument-vector overflow) — stage by pathspec (git add -A / git add .), and where an explicit filtered set is needed, chunk the path list into batches under an ARG_MAX byte budget.'",
@@ -98,7 +98,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Pre-generation: capture PARENT_SHA, write-tree snapshot, identity transparency",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
