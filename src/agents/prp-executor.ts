@@ -350,9 +350,10 @@ export class PRPExecutor {
       // STEP 3a: Format-nudge recovery (PRD §4.5.1). If the Coder Agent returned
       // prose / a non-JSON response instead of the required result envelope,
       // nudge it in place with a format reminder and re-prompt — right then and
-      // there, before any validation gate runs. Bounded; on exhaustion the parse
-      // failure surfaces as a normal 'error'. This budget is separate from the
-      // validation maxFixAttempts and from ISSUE_RETRY_MAX.
+      // there, before any validation gate runs. Bounded by `FORMAT_NUDGE_MAX`
+      // (default 2); on exhaustion the parse failure surfaces as a normal
+      // 'error'. This budget is separate from the validation maxFixAttempts and
+      // from ISSUE_RETRY_MAX (budget isolation, §4.5.1 #4).
       let formatNudges = 0;
       const maxFormatNudges = FORMAT_NUDGE_MAX;
       while (
@@ -826,14 +827,26 @@ Do NOT repeat or redo your implementation. If your work is already complete, sim
   }
 
   /**
-   * Parses JSON result from Coder Agent response
+   * Parse the Coder Agent's response into an {@link ExecuteResult}, flagging a missing JSON
+   * envelope distinctly from a genuine agent-reported error/issue (PRD §4.5.1 — Coder/envelope
+   * variant, DETECTION role).
    *
    * @remarks
-   * Extracts JSON from the Coder Agent response, handling both
-   * raw JSON and markdown code block wrapped JSON.
+   * On a successful JSON parse (optionally fenced in ```json), returns the envelope as-is. On a
+   * parse failure (prose / trailing sentence / no envelope), returns
+   * `{ result: 'error', formatFailure: true }`. That `formatFailure` flag is what
+   * {@link PRPExecutor.execute}'s in-place nudge loop keys on
+   * (`while (coderResult.formatFailure === true && formatNudges < maxFormatNudges)`): a
+   * transport/contract miss triggers a bounded {@link FORMAT_NUDGE_MAX} re-prompt for the envelope,
+   * NOT a hard item failure — distinct from a valid envelope reporting `error`/`issue`, which flows
+   * the existing fix-and-retry path. `formatFailure` is set ONLY on this parse miss, never on a
+   * successfully parsed envelope.
    *
-   * @param response - Raw string response from Coder Agent
-   * @returns Parsed result object with result and message fields
+   * **Budget isolation (§4.5.1 #4):** the nudge loop this flag gates is a SEPARATE budget from the
+   * validation `maxFixAttempts` and from `ISSUE_RETRY_MAX` (see the STEP 3a comment in {@link execute}).
+   *
+   * @param response - Raw string response from the Coder Agent.
+   * @returns Parsed result; on parse failure, `{ result: 'error', formatFailure: true, message }`.
    * @private
    */
   #parseCoderResult(response: string): ExecuteResult {

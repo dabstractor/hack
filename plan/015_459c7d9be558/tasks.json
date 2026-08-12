@@ -414,21 +414,21 @@
       "type": "Phase",
       "id": "P2",
       "title": "Format-Nudge Recovery",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Verify and complete the format-nudge recovery subsystem (§4.5.1) across three output-contract variants. The subsystem is ~90% implemented; this phase adds the missing FORMAT_NUDGE_MAX constant, wires it consistently, and confirms budget isolation + logging.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Confirm & complete format-nudge recovery across output contracts",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Add the named FORMAT_NUDGE_MAX constant (default 2) to config/constants.ts, replace the three inlined bounds, confirm budget isolation, add consistent WARN logging, and complete JSDoc. Per §4.5.1 — verify-and-complete, NOT rebuild.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "Add FORMAT_NUDGE_MAX constant + wire across all three variants",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Create the FORMAT_NUDGE_MAX named constant in config/constants.ts and replace the three inlined bound values (all currently hardcoded to 2) across prp-executor.ts, prp-generator.ts, and fix-cycle-workflow.ts.",
               "subtasks": [
                 {
@@ -447,7 +447,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Confirm budget isolation + consistent WARN logging + JSDoc completion",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"
@@ -467,28 +467,28 @@
       "type": "Phase",
       "id": "P3",
       "title": "Changeset-Level Documentation (Mode B)",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Sync cross-cutting, changeset-level documentation that only makes sense once Phases 1-2 are complete. Covers README.md feature/env-var sections, package.json description/keywords, and confirmation that FORMAT_NUDGE_MAX needs no .hack schema row. This is the catch-all final task per SOW §5 Mode B.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P3.M1",
           "title": "Sync changeset-level documentation",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Update README.md and package.json to surface the new commit-generation path (stagecoach), identity-transparency guarantee, agent tool scoping, and confirm no new .hack tunable is needed.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Update README.md to note stagecoach ships transitively, commits are identity-transparent, and agent tool access is scoped by role. Update package.json description/keywords. Confirm FORMAT_NUDGE_MAX needs no .hack/env schema row.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Update README.md — stagecoach, identity-transparency, tool scoping",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S2",
@@ -511,7 +511,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S2",
                   "title": "Update package.json + confirm no .hack schema row for FORMAT_NUDGE_MAX",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1",

@@ -362,9 +362,20 @@ export class FixCycleWorkflow extends Workflow {
   }
 
   /**
-   * Validate the architect's bugfix backlog; on failure, nudge the architect
-   * with the specific schema errors, then auto-heal residual context_scope
-   * fields so the round can proceed instead of wedging (PRD §4.5.1-extended).
+   * Validate the architect's bugfix backlog; on failure, nudge the architect with the specific
+   * schema errors, then auto-heal residual `context_scope` fields so the round can proceed instead
+   * of wedging (PRD §4.5.1 — Architect/breakdown variant).
+   *
+   * @remarks
+   * The Architect writes `tasks.json` directly, so a non-conforming `context_scope` (systematically a
+   * missing `4. OUTPUT:` on small bugfix tasks) is only caught at the downstream `writeTasksJSON`
+   * schema gate — which would reject it and wedge the round. This method validates immediately after
+   * read, nudges the SAME architect with the zod issues (bounded by {@link FORMAT_NUDGE_MAX},
+   * default 2), and on exhaustion auto-heals each `context_scope` back into valid CONTRACT DEFINITION form.
+   *
+   * **Budget isolation (§4.5.1 #4):** these schema-nudges are a SEPARATE budget from the validation
+   * `maxFixAttempts` (Coder fix-and-retry) and from `ISSUE_RETRY_MAX` (§4.5 re-planning). A nudge
+   * neither consumes nor resets either.
    */
   async #validateAndHealBacklog(
     architectAgent: Agent,
@@ -374,6 +385,9 @@ export class FixCycleWorkflow extends Workflow {
     let vr = BacklogSchema.safeParse(backlog);
     if (vr.success) return backlog;
 
+    // Budget isolation (PRD §4.5.1 #4): FORMAT_NUDGE_MAX schema-nudges are a SEPARATE budget from
+    // ISSUE_RETRY_MAX (re-planning) and from the Coder's maxFixAttempts (validation fix-and-retry).
+    // A schema-nudge neither consumes nor resets either.
     const maxNudge = FORMAT_NUDGE_MAX;
     for (let attempt = 1; attempt <= maxNudge && !vr.success; attempt++) {
       const errs = vr.error.issues
@@ -381,7 +395,13 @@ export class FixCycleWorkflow extends Workflow {
         .map(i => `- ${i.path.join('.') || '(root)'}: ${i.message}`)
         .join('\n');
       this.logger.warn(
-        `[FixCycleWorkflow] Architect backlog failed schema validation — nudge ${attempt}/${maxNudge}:\n${errs}`
+        'Architect backlog failed schema validation — sending schema-nudge (PRD §4.5.1)',
+        {
+          sessionPath: this.sessionPath,
+          attempt,
+          maxNudge,
+          validationErrors: errs,
+        }
       );
       const nudgePrompt = createPrompt({
         user: `The tasks.json you wrote FAILED schema validation. EVERY Subtask's \`context_scope\` MUST be a single string in EXACTLY this format — all 4 numbered sections, in order, none omitted:\n\nCONTRACT DEFINITION:\n1. RESEARCH NOTE: ...\n2. INPUT: ...\n3. LOGIC: ...\n4. OUTPUT: ...\n\nValidation errors to fix (there may be many — fix EVERY one):\n${errs}\n\nRewrite the file at ${tasksPath} now so every context_scope conforms. Emit the complete corrected tasks.json.`,
@@ -394,16 +414,18 @@ export class FixCycleWorkflow extends Workflow {
         );
         if (nr?.status === 'error') {
           this.logger.warn(
-            '[FixCycleWorkflow] validation-nudge returned error — will retry/heal'
+            'validation-nudge returned error — will retry/heal',
+            { sessionPath: this.sessionPath }
           );
           continue;
         }
         backlog = JSON.parse(await readFile(tasksPath, 'utf-8')) as Backlog;
         vr = BacklogSchema.safeParse(backlog);
       } catch (e) {
-        this.logger.warn(
-          `[FixCycleWorkflow] validation-nudge step failed: ${e instanceof Error ? e.message : String(e)}`
-        );
+        this.logger.warn('validation-nudge step failed', {
+          sessionPath: this.sessionPath,
+          error: e instanceof Error ? e.message : String(e),
+        });
         break;
       }
     }
@@ -419,7 +441,8 @@ export class FixCycleWorkflow extends Workflow {
     // DEFINITION form (preserving the agent's per-section content) so the
     // downstream writeTasksJSON schema gate passes and the round can proceed.
     this.logger.warn(
-      '[FixCycleWorkflow] Validation-nudge exhausted — auto-healing context_scope fields'
+      'Validation-nudge exhausted — auto-healing context_scope fields (PRD §4.5.1)',
+      { sessionPath: this.sessionPath }
     );
     const healed = this.#healContextScopes(backlog);
     try {

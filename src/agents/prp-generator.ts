@@ -807,21 +807,30 @@ export class PRPGenerator {
   }
 
   /**
-   * Write-nudge recovery for the Researcher agent (PRD §4.5.1-extended).
+   * Write-nudge recovery for the Researcher agent (PRD §4.5.1 — Researcher/PRP-file-write variant).
    *
    * @remarks
-   * Mirrors the Coder format-nudge: when the researcher ran but did not write
-   * the PRP file (silent contract miss — the most common researcher failure and
-   * one that, unhandled, has killed whole pipeline runs), re-prompt the SAME
-   * agent with a targeted reminder that the file is missing and must be
-   * written now. The agent retains its turn context, so the nudge is short.
-   * Bounded; on exhaustion the original "did not write" error surfaces.
+   * The most common researcher failure is a silent contract miss: the agent ran but did not write
+   * the PRP file (unhandled, this has killed whole pipeline runs). This re-prompts the SAME
+   * researcher with a targeted reminder that the file is missing and must be written now. The
+   * agent retains its turn context, so the nudge is short. The file is re-checked each attempt;
+   * bounded by {@link FORMAT_NUDGE_MAX} (default 2). On exhaustion the original "did not write PRP
+   * file" error surfaces.
+   *
+   * **Budget isolation (§4.5.1 #4):** these write-nudges are a SEPARATE budget from the validation
+   * `maxFixAttempts` (Coder fix-and-retry) and from `ISSUE_RETRY_MAX` (§4.5 re-planning). A
+   * write-nudge neither consumes nor resets either.
+   *
+   * @private
    */
   async #nudgeResearcherToWrite(
     task: { id: string },
     prpOutputPath: string,
     maxNudges = FORMAT_NUDGE_MAX
   ): Promise<unknown> {
+    // Budget isolation (PRD §4.5.1 #4): FORMAT_NUDGE_MAX write-nudges are a SEPARATE budget from
+    // ISSUE_RETRY_MAX (re-planning, prp-pipeline.ts) and from the Coder's maxFixAttempts
+    // (validation fix-and-retry, prp-executor.ts). A write-nudge neither consumes nor resets either.
     for (let attempt = 1; attempt <= maxNudges; attempt++) {
       this.#logger.warn(
         { taskId: task.id, attempt, maxNudges },
