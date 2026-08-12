@@ -206,14 +206,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Rewrite generateCommitMessage to invoke stagecoach --dry-run --single",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Replace the in-process LLM agent call in generateCommitMessage with spawning the stagecoach binary (argv vector, never sh -c). Forward provider/model/style. Capture stdout → descriptive message.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "generateCommitMessage → stagecoach --dry-run --single binary exec",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"
@@ -238,7 +238,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Delete commit-message-agent.ts + remove imports/factory wiring",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"

@@ -31,9 +31,9 @@ import {
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
-  getRecentCommitMessages,
 } from '../tools/git-mcp.js';
 import { basename } from 'node:path';
+import { spawn } from 'node:child_process';
 import { getLogger, type Logger } from './logger.js';
 import {
   AgentError,
@@ -41,22 +41,18 @@ import {
   isAgentError,
   toErrorMessage,
 } from './errors.js';
-import { createPrompt } from 'groundswell';
-import { z } from 'zod';
-import {
-  createCommitMessageAgent,
-  buildCommitMessageSystemPrompt,
-} from '../agents/commit-message-agent.js';
 import { retry, createDefaultOnRetry } from './retry.js';
+import { resolveStagecoachBinary } from './stagecoach-resolver.js';
+import { getModel } from '../config/environment.js';
 import {
   getCommitRetryMax,
   getCommitRetryDelayMs,
   getCommitRetryDelayCapMs,
   getPrpCommitFormat,
   getPrpCommitStyle,
-  getPrpCommitStyleExamples,
+  PRP_AGENT_HARNESS,
+  DEFAULT_HARNESS,
 } from '../config/constants.js';
-import type { PrpCommitStyle } from '../config/constants.js';
 
 let _logger: Logger | undefined;
 const logger = (): Logger => (_logger ??= getLogger('smartCommit'));
@@ -254,8 +250,8 @@ export function formatCommitMessage(
  *
  * @remarks
  * When `generateMessage` is `true`, {@link smartCommit} delegates
- * commit-message generation to the stagecoach LLM agent
- * ({@link createCommitMessageAgent}), which reads the staged diff and emits a
+ * commit-message generation to the stagecoach binary
+ * ({@link generateCommitMessage}), which reads the staged index and emits a
  * descriptive conventional-commit message. The default (omitted / `false`)
  * path uses the caller-provided `message` verbatim — byte-for-byte backward
  * compatible.
@@ -286,116 +282,77 @@ export interface SmartCommitOptions {
 }
 
 /**
- * Builds the user-turn prompt that injects the staged diff for the agent.
- *
- * @param diff - The staged diff text.
- * @returns A user prompt restating the formatting rules + the fenced diff.
- */
-function buildCommitMessageUserPrompt(diff: string): string {
-  return [
-    'Generate a git commit message for the staged diff below.',
-    'Follow the formatting rules in your system instructions exactly.',
-    '',
-    '```diff',
-    diff,
-    '```',
-  ].join('\n');
-}
-
-/**
- * Generate a descriptive conventional-commit message from a staged diff via
- * the stagecoach LLM agent.
- *
- * @param diff - The staged diff text (post-`gitAdd`, filtered staged set).
- * @returns The trimmed commit message (subject + optional body), WITHOUT the
- * `[PRP Auto]` prefix or `Co-Authored-By` trailer — the caller wraps those via
- * {@link formatCommitMessage}.
- * @throws {AgentError} On any failure: empty/whitespace-only `diff`, agent
- * `status: 'error'`, or empty/whitespace/sentinel (`'skip'`) agent output.
+ * Generate a commit message by exec'ing the stagecoach binary (PRD §5.1).
  *
  * @remarks
- * **Style resolution (PRD §5.1 "Commit Message Style" — P1.M1.T4.S1).**
- * This function resolves the STYLE layer of the commit message before agent
- * creation: it reads {@link getPrpCommitStyle} and — under `'auto'` — fetches
- * the last N commit messages via {@link getRecentCommitMessages} (N =
- * {@link getPrpCommitStyleExamples}) as style examples. With insufficient
- * history (`auto` + ≤1 example) or learning disabled (`EXAMPLES=0`),
- * `resolvedStyle` degrades to `'plain'` (PRD §5.1). The resolved style +
- * examples drive {@link buildCommitMessageSystemPrompt}, whose output is
- * threaded into {@link createCommitMessageAgent}. Explicit modes
- * (`'plain'` / `'conventional'` / `'gitmoji'`) ignore history entirely. The
- * POSITION layer (the `<phase>.<milestone>.<task>[.<subtask>]:` prefix) is
- * layered afterward by {@link formatCommitMessage} — unchanged.
+ * Spawns the resolved stagecoach binary with `--dry-run --single` (the binary
+ * reads the repo index itself, so it needs `cwd: repoRoot`). The `--provider`
+ * flag receives the AGENT-HARNESS id (pi|claude-code), NOT an LLM provider — the
+ * binary maps the harness to its backing model. `--model` receives the balanced
+ * model tier; `--format` is added only when the resolved style is not `auto`.
  *
- * **Transient-API boundary.** This is the transient-API-sensitive generation
- * boundary that P3.M1.T4.S1 wraps with a bounded `retry()` loop (PRD §5.1,
- * using the `COMMIT_RETRY_*` constants — NOT the hardcoded
- * `retryAgentPrompt`). A generation timeout is LLM-API slowness, not a stuck
- * subprocess — so the boundary throws {@link AgentError}
- * (which hardcodes `code = PIPELINE_AGENT_LLM_FAILED` and is classified
- * **transient** by `isTransientError`). This lets the retry layer distinguish
- * "LLM-API slowness (retry)" from an exit-124 subprocess hang (never retry).
- * The git-log call under `auto` also lives inside this retry boundary;
- * architecture §F1.F blesses that — git log is a fast local operation, not a
- * transient API call.
+ * Every failure mode — non-zero exit, empty stdout, spawn error, resolver
+ * throw — is wrapped in a transient {@link AgentError} so {@link smartCommit}'s
+ * bounded retry loop re-attempts the boundary and ultimately falls back to a
+ * labeled placeholder commit (PRD §5.1). The argv is passed as a vector
+ * (NEVER `sh -c`) via `spawn` with no shell.
  *
- * The agent's system prompt forbids emitting the `[PRP Auto]` prefix or
- * `Co-Authored-By` trailer; this function returns ONLY the descriptive
- * message. The caller (`smartCommit`) wraps it via `formatCommitMessage`.
- *
- * @example
- * ```typescript
- * // PRP_COMMIT_STYLE unset → auto → fetches recent history; degrades to plain
- * // when the repo has ≤1 commit. PRP_COMMIT_STYLE=conventional forces the
- * // Conventional-Commit contract regardless of history.
- * const msg = await generateCommitMessage(stagedDiff);
- * // msg: 'feat(api): add endpoint'
- * ```
+ * @param repoRoot - Repository root path (the binary reads the repo index; needs cwd).
+ * @param _diff - UNUSED (kept for call-site compatibility). The binary reads
+ *                the staged diff from the index itself.
+ * @returns The trimmed commit-message subject line from stagecoach's stdout.
+ * @throws {AgentError} On any failure (non-zero exit / empty stdout / spawn
+ *         error / resolver throw).
  */
-export async function generateCommitMessage(diff: string): Promise<string> {
-  if (!diff || !diff.trim()) {
-    throw new AgentError(
-      'stagecoach commit-message generation failed: empty staged diff'
-    );
-  }
-  // === STYLE RESOLUTION (PRD §5.1 "Commit Message Style" — P1.M1.T4.S1) ===
-  // Resolve the configured PRP_COMMIT_STYLE and — under `auto` — fetch the
-  // last N commit messages as style examples. ≤1 example (or EXAMPLES=0)
-  // leaves nothing to learn → degrade to the plain contract (PRD §5.1). The
-  // resolved style + examples drive the mode-conditional system prompt that
-  // is threaded into the agent factory.
+export async function generateCommitMessage(
+  repoRoot: string,
+  _diff?: string
+): Promise<string> {
+  const bin = resolveStagecoachBinary();
+  const argv: string[] = ['--dry-run', '--single'];
   const style = getPrpCommitStyle();
-  let resolvedStyle: PrpCommitStyle = style;
-  let examples: string[] | undefined;
-  if (style === 'auto') {
-    const n = getPrpCommitStyleExamples();
-    if (n > 0) {
-      examples = await getRecentCommitMessages(n);
-    }
-    // ≤1 commit (or EXAMPLES=0 → examples stays undefined) → nothing to learn
-    // → degrade to the plain contract (PRD §5.1).
-    if (!examples || examples.length <= 1) {
-      resolvedStyle = 'plain';
-    }
-  }
-  const system = buildCommitMessageSystemPrompt(resolvedStyle, examples);
-  const agent = createCommitMessageAgent(system);
-  const prompt = createPrompt({
-    user: buildCommitMessageUserPrompt(diff),
-    responseFormat: z.string(),
+  if (style !== 'auto') argv.push('--format', style);
+  argv.push('--provider', process.env[PRP_AGENT_HARNESS] ?? DEFAULT_HARNESS);
+  argv.push('--model', getModel('balanced'));
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const child = spawn(bin, argv, {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    let stderr = '';
+    child.stdout?.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
+    child.on('error', e =>
+      reject(
+        new AgentError(
+          `stagecoach commit-message generation failed: ${e.message}`
+        )
+      )
+    );
+    child.on('close', code => {
+      if (code !== 0) {
+        reject(
+          new AgentError(
+            `stagecoach commit-message generation failed (exit ${code ?? 'null'})` +
+              (stderr ? `: ${stderr.trim()}` : '')
+          )
+        );
+        return;
+      }
+      resolve(out);
+    });
   });
-  const r = await agent.prompt(prompt);
-  if (r.status === 'error') {
+  const message = stdout.trim();
+  if (!message)
     throw new AgentError(
-      `stagecoach commit-message generation failed: ${r.error?.message ?? 'unknown agent error'}`
+      'stagecoach commit-message generation failed: empty stdout'
     );
-  }
-  const message = (r.data ?? '').trim();
-  if (!message || message === 'skip') {
-    throw new AgentError(
-      'stagecoach commit-message generation failed: empty agent output'
-    );
-  }
   return message;
 }
 
@@ -956,7 +913,7 @@ export async function smartCommit(
         // transient. Permanent errors (none today) would not retry.
         try {
           const generated = await retry(
-            () => generateCommitMessage(diffResult.diff ?? ''),
+            () => generateCommitMessage(repoRoot, diffResult.diff ?? ''),
             {
               maxAttempts: getCommitRetryMax(),
               baseDelay: getCommitRetryDelayMs(),

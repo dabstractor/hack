@@ -14,9 +14,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // stagecoach generateMessage path — default-path tests never trigger it).
 // The three restore_* helpers are stubbed for the restore_critical_files
 // mechanical protection layer (PRD §5.1, P3.M2.T4.S2).
-// getRecentCommitMessages is added for the style-resolution block
-// (P1.M1.T4.S1) — the top-level beforeEach defaults it to [] so the env-unset
-// (auto) path degrades to plain and existing tests stay green.
 vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitStatus: vi.fn(),
   gitAdd: vi.fn(),
@@ -25,28 +22,24 @@ vi.mock('../../../src/tools/git-mcp.js', () => ({
   gitListStagedDeletions: vi.fn(),
   gitRestoreFileFromHead: vi.fn(),
   gitUnstagePath: vi.fn(),
-  getRecentCommitMessages: vi.fn(),
   gitWriteTree: vi.fn(),
   gitRevParseHead: vi.fn(),
   gitCommitTree: vi.fn(),
   gitUpdateRefCAS: vi.fn(),
 }));
 
-// Mock the stagecoach commit-message agent factory so default-path tests
-// (options absent) NEVER instantiate a real agent. Only the generateMessage
-// tests wire this mock to return a fake agent. buildCommitMessageSystemPrompt
-// is added for the style-resolution block (P1.M1.T4.S1) — it defaults to a
-// vi.fn() (undefined return); style-resolution tests override it via
-// mockImplementation to assert the WIRING via a MOCK[<style>] sentinel.
-vi.mock('../../../src/agents/commit-message-agent.js', () => ({
-  createCommitMessageAgent: vi.fn(),
-  buildCommitMessageSystemPrompt: vi.fn(),
+// Mock the stagecoach binary resolver so generateCommitMessage never looks for
+// a real binary. Tests override mockResolveStagecoachBinary to throw when
+// exercising the resolver-throw failure path.
+vi.mock('../../../src/utils/stagecoach-resolver.js', () => ({
+  resolveStagecoachBinary: vi.fn(() => '/fake/stagecoach'),
 }));
 
-// Mock groundswell's createPrompt: passthrough the options object so the test
-// can assert the prompt was built, without needing the real Prompt type.
-vi.mock('groundswell', () => ({
-  createPrompt: vi.fn((opts: unknown) => opts),
+// Mock node:child_process.spawn so generateCommitMessage never execs a real
+// process. Tests wire mockSpawn (via fakeChild) to emit 'data'+'close' (success)
+// or 'error'/'close:non-zero' (failure) via the fakeSpawnClose helper.
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
 }));
 
 // Mock the logger with hoisted variables
@@ -74,13 +67,10 @@ import {
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
-  getRecentCommitMessages,
 } from '../../../src/tools/git-mcp.js';
-import { createPrompt } from 'groundswell';
-import {
-  createCommitMessageAgent,
-  buildCommitMessageSystemPrompt,
-} from '../../../src/agents/commit-message-agent.js';
+import { spawn } from 'node:child_process';
+import { resolveStagecoachBinary } from '../../../src/utils/stagecoach-resolver.js';
+import { EventEmitter } from 'node:events';
 import {
   buildFallbackCommitMessage,
   buildTaskPrefix,
@@ -110,20 +100,54 @@ const mockGitWriteTree = vi.mocked(gitWriteTree);
 const mockGitRevParseHead = vi.mocked(gitRevParseHead);
 const mockGitCommitTree = vi.mocked(gitCommitTree);
 const mockGitUpdateRefCAS = vi.mocked(gitUpdateRefCAS);
-const mockCreateCommitMessageAgent = vi.mocked(createCommitMessageAgent);
-const mockBuildCommitMessageSystemPrompt = vi.mocked(
-  buildCommitMessageSystemPrompt
-);
-const mockCreatePrompt = vi.mocked(createPrompt);
-const mockGetRecentCommitMessages = vi.mocked(getRecentCommitMessages);
+const mockSpawn = vi.mocked(spawn);
+const mockResolveStagecoachBinary = vi.mocked(resolveStagecoachBinary);
 
-// Helper to build a fake agent whose .prompt() resolves a controlled response.
-function makeFakeAgent(response: {
-  status: 'success' | 'error' | 'partial';
-  data?: unknown;
-  error?: { message?: string } | null;
-}) {
-  return { prompt: vi.fn().mockResolvedValue(response) };
+/**
+ * Build a fake ChildProcess-like EventEmitter that generateCommitMessage's
+ * spawn() return value is wired to. Emits stdout/stderr 'data' then a 'close'
+ * (success) or 'error'/'close' (failure). Emission is deferred via
+ * process.nextTick so the listeners the function attaches synchronously AFTER
+ * spawn() returns are registered before we emit.
+ *
+ * IMPORTANT: pair with mockSpawn.mockImplementation(() => fakeChild(...)) (NOT
+ * mockReturnValue) so the child is created — and its emission scheduled — at
+ * spawn-call time (after the listeners attach), not at mock-setup time.
+ *
+ * @param opts.stdout - stdout payload (default '' for the empty-stdout case).
+ * @param opts.stderr - stderr payload (appended to the failure message).
+ * @param opts.exitCode - close code; non-zero → rejection. Use null for spawn error.
+ * @param opts.spawnError - if set, emit 'error' instead of 'close' (spawn fail).
+ */
+function fakeChild(opts: {
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number | null;
+  spawnError?: Error;
+}): EventEmitter {
+  const child = new EventEmitter();
+  (child as { stdout: EventEmitter }).stdout = new EventEmitter();
+  (child as { stderr: EventEmitter }).stderr = new EventEmitter();
+  const { stdout = '', stderr = '', exitCode = 0, spawnError } = opts;
+  // Defer emission so the listeners (registered synchronously after spawn()
+  // returns in the function body) are attached before we emit.
+  process.nextTick(() => {
+    if (stdout) (child as { stdout: EventEmitter }).stdout.emit('data', stdout);
+    if (stderr) (child as { stderr: EventEmitter }).stderr.emit('data', stderr);
+    if (spawnError) {
+      child.emit('error', spawnError);
+    } else {
+      child.emit('close', exitCode);
+    }
+  });
+  return child;
+}
+
+/** Wrap fakeChild for mockImplementation (call-time creation — see fakeChild). */
+function spawnReturning(
+  opts: Parameters<typeof fakeChild>[0]
+): () => EventEmitter {
+  return () => fakeChild(opts);
 }
 
 describe('utils/git-commit', () => {
@@ -137,13 +161,16 @@ describe('utils/git-commit', () => {
     mockLogger.debug.mockClear();
     // Mock process.cwd() so git operations use '/project' as repo root
     vi.spyOn(process, 'cwd').mockReturnValue('/project');
-    // DEFAULT: getRecentCommitMessages returns [] so the env-unset (auto)
-    // style-resolution path degrades to plain (PRD §5.1) and existing
-    // generateCommitMessage/smartCommit tests stay behaviorally identical to
-    // the pre-style fixed plain contract. Style-resolution tests override
-    // this per case. (A bare vi.fn() returning undefined would also work via
-    // the !examples guard, but [] is deterministic and self-documenting.)
-    mockGetRecentCommitMessages.mockResolvedValue([]);
+    // DEFAULT: the stagecoach binary resolves to a fake path (so
+    // generateCommitMessage never looks for a real binary). Per-test overrides
+    // throw to exercise the resolver-throw failure path.
+    mockResolveStagecoachBinary.mockReturnValue('/fake/stagecoach');
+    // DEFAULT: spawn emits a successful single-line message so every
+    // generateMessage-path test that doesn't wire a failure mode gets a clean
+    // commit message. Per-test overrides wire fakeChild to a failure.
+    mockSpawn.mockImplementation(
+      spawnReturning({ stdout: 'feat: generated message' })
+    );
     // DEFAULT: restore_critical_files (now invoked from smartCommit) is a
     // no-op for every pre-existing smartCommit test — gitListStagedDeletions
     // returns success with no staged deletions, so restore/unstage are never
@@ -1136,12 +1163,8 @@ describe('utils/git-commit', () => {
       vi.stubEnv('COMMIT_RETRY_MAX', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'error',
-          data: null,
-          error: { message: 'model overloaded' },
-        })
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 1, stderr: 'model overloaded' })
       );
       mockGitCommitTree.mockResolvedValue({
         success: true,
@@ -1179,356 +1202,164 @@ describe('utils/git-commit', () => {
   // with retryAgentPrompt. Throws AgentError on every failure mode.
   // ===========================================================================
   describe('generateCommitMessage', () => {
-    it('should return the trimmed message on agent success', async () => {
-      // SETUP
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'success',
-          data: 'feat(api): add endpoint',
-          error: null,
-        })
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('returns the trimmed stdout on exit 0', async () => {
+      // SETUP — stagecoach exits 0 with a multi-line stdout; the function trims.
+      mockSpawn.mockImplementation(
+        spawnReturning({ stdout: '  feat(api): add endpoint  \n' })
       );
 
       // EXECUTE
-      const result = await generateCommitMessage('diff --git ...');
+      const result = await generateCommitMessage('/repo');
 
-      // VERIFY
+      // VERIFY — trimmed stdout is returned.
       expect(result).toBe('feat(api): add endpoint');
-      expect(mockCreatePrompt).toHaveBeenCalledWith(
-        expect.objectContaining({ responseFormat: expect.anything() })
-      );
     });
 
-    it('should trim whitespace from the agent output', async () => {
-      // SETUP
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({ status: 'success', data: '  feat: x  \n', error: null })
-      );
+    it('forwards the harness id as --provider and the balanced model as --model', async () => {
+      // SETUP — pin the harness + model so the assertion is deterministic.
+      vi.stubEnv('PRP_AGENT_HARNESS', 'claude-code');
+      mockSpawn.mockImplementation(spawnReturning({ stdout: 'msg' }));
 
       // EXECUTE
-      const result = await generateCommitMessage('diff text');
+      await generateCommitMessage('/repo');
+
+      // VERIFY — argv vector passed to spawn contains --provider claude-code
+      // (the HARNESS id, NOT an LLM provider) + --model <balanced tier>, and
+      // the base flags --dry-run --single. cwd is repoRoot (NOT process.cwd()).
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const [, argv, options] = mockSpawn.mock.calls[0];
+      expect(argv).toEqual(
+        expect.arrayContaining(['--dry-run', '--single', '--provider'])
+      );
+      const providerIdx = argv.indexOf('--provider');
+      expect(argv[providerIdx + 1]).toBe('claude-code');
+      const modelIdx = argv.indexOf('--model');
+      expect(argv[modelIdx + 1]).toEqual(expect.any(String));
+      expect(argv[modelIdx + 1].length).toBeGreaterThan(0);
+      expect(options).toEqual(
+        expect.objectContaining({
+          cwd: '/repo',
+          env: process.env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+      );
+      // bin comes from the resolver.
+      expect(mockResolveStagecoachBinary).toHaveBeenCalledTimes(1);
+      expect(mockSpawn.mock.calls[0][0]).toBe('/fake/stagecoach');
+    });
+
+    it('falls back to DEFAULT_HARNESS when PRP_AGENT_HARNESS is unset', async () => {
+      // SETUP — harness env unset → argv uses DEFAULT_HARNESS ('pi').
+      delete process.env.PRP_AGENT_HARNESS;
+      mockSpawn.mockImplementation(spawnReturning({ stdout: 'msg' }));
+
+      // EXECUTE
+      await generateCommitMessage('/repo');
 
       // VERIFY
-      expect(result).toBe('feat: x');
+      const argv = mockSpawn.mock.calls[0][1] as string[];
+      const providerIdx = argv.indexOf('--provider');
+      expect(argv[providerIdx + 1]).toBe('pi');
     });
 
-    it('should throw AgentError on empty diff', async () => {
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('')).rejects.toThrow(AgentError);
-      await expect(generateCommitMessage('')).rejects.toThrow(
-        /empty staged diff/
-      );
-    });
-
-    it('should throw AgentError on whitespace-only diff', async () => {
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('   \n\t  ')).rejects.toThrow(
-        /empty staged diff/
-      );
-    });
-
-    it('should throw AgentError on agent status error', async () => {
-      // SETUP
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'error',
-          data: null,
-          error: { message: 'model overloaded' },
-        })
-      );
-
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        AgentError
-      );
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        /model overloaded/
-      );
-    });
-
-    it('should throw AgentError on empty/whitespace agent output', async () => {
-      // SETUP
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({ status: 'success', data: '   ', error: null })
-      );
-
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        /empty agent output/
-      );
-    });
-
-    it('should throw AgentError when agent outputs the "skip" sentinel', async () => {
-      // SETUP
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({ status: 'success', data: 'skip', error: null })
-      );
-
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        /empty agent output/
-      );
-    });
-
-    it('should throw a TRANSIENT AgentError (the P3.M1.T4 retry contract)', async () => {
-      // SETUP — agent status error throws AgentError
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'error',
-          data: null,
-          error: { message: 'timeout' },
-        })
-      );
+    it('adds --format <style> when PRP_COMMIT_STYLE is not auto', async () => {
+      // SETUP — explicit conventional → --format conventional is added.
+      vi.stubEnv('PRP_COMMIT_STYLE', 'conventional');
+      mockSpawn.mockImplementation(spawnReturning({ stdout: 'msg' }));
 
       // EXECUTE
+      await generateCommitMessage('/repo');
+
+      // VERIFY — --format conventional present in the argv.
+      const argv = mockSpawn.mock.calls[0][1] as string[];
+      const formatIdx = argv.indexOf('--format');
+      expect(formatIdx).toBeGreaterThan(-1);
+      expect(argv[formatIdx + 1]).toBe('conventional');
+    });
+
+    it('omits --format when PRP_COMMIT_STYLE is auto (default)', async () => {
+      // SETUP — auto (the default) → --format is NOT added.
+      delete process.env.PRP_COMMIT_STYLE;
+      mockSpawn.mockImplementation(spawnReturning({ stdout: 'msg' }));
+
+      // EXECUTE
+      await generateCommitMessage('/repo');
+
+      // VERIFY — no --format flag in the argv.
+      const argv = mockSpawn.mock.calls[0][1] as string[];
+      expect(argv).not.toContain('--format');
+    });
+
+    it('throws a TRANSIENT AgentError on non-zero exit', async () => {
+      // SETUP — stagecoach exits 1 with a stderr message.
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 1, stderr: 'boom' })
+      );
+
+      // EXECUTE + VERIFY — every failure wraps in a transient AgentError so
+      // smartCommit's retry loop re-attempts + ultimately falls back.
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(AgentError);
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(/exit 1/);
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(/boom/);
+    });
+
+    it('classifies the non-zero-exit AgentError as transient (retry contract)', async () => {
+      mockSpawn.mockImplementation(spawnReturning({ exitCode: 2 }));
       let thrown: unknown;
       try {
-        await generateCommitMessage('diff text');
+        await generateCommitMessage('/repo');
       } catch (e) {
         thrown = e;
       }
-
-      // VERIFY — the AgentError must be classified transient so
-      // retryAgentPrompt (P3.M1.T4.S1) re-attempts the boundary.
       expect(thrown).toBeInstanceOf(AgentError);
       expect(isTransientError(thrown)).toBe(true);
     });
 
-    it('should classify the empty-diff AgentError as transient', async () => {
-      // EXECUTE
-      let thrown: unknown;
-      try {
-        await generateCommitMessage('');
-      } catch (e) {
-        thrown = e;
-      }
-
-      // VERIFY — every AgentError (hardcoded PIPELINE_AGENT_LLM_FAILED) is
-      // transient per isTransientError.
-      expect(isTransientError(thrown)).toBe(true);
-    });
-
-    it('should handle agent error with missing error.message (fallback msg)', async () => {
-      // SETUP — error object present but no `message` field → exercises the
-      // `?? 'unknown agent error'` fallback branch.
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({ status: 'error', data: null, error: {} })
-      );
-
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        /unknown agent error/
+    it('throws AgentError on empty stdout (exit 0 but no message)', async () => {
+      mockSpawn.mockImplementation(spawnReturning({ stdout: '   ' }));
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(
+        /empty stdout/
       );
     });
 
-    it('should handle agent error with null error object', async () => {
-      // SETUP — error is null → exercises the `r.error?.message` optional chain.
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({ status: 'error', data: null, error: null })
+    it('throws AgentError on a spawn error event', async () => {
+      // SETUP — spawn emits 'error' (e.g. ENOENT on the binary).
+      mockSpawn.mockImplementation(
+        spawnReturning({ spawnError: new Error('ENOENT no such binary') })
       );
-
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        /unknown agent error/
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(
+        /ENOENT no such binary/
       );
     });
 
-    it('should handle partial status with undefined data (fallback to empty)', async () => {
-      // SETUP — partial response carries no `data` → `(r.data ?? '')` falls
-      // back to empty → empty-output AgentError.
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({ status: 'partial', data: undefined, error: null })
-      );
-
-      // EXECUTE + VERIFY
-      await expect(generateCommitMessage('diff text')).rejects.toThrow(
-        /empty agent output/
+    it('throws AgentError when the binary resolver throws', async () => {
+      // SETUP — resolveStagecoachBinary throws (no binary found on the host).
+      mockResolveStagecoachBinary.mockImplementation(() => {
+        throw new Error('stagecoach binary not found');
+      });
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(
+        /stagecoach binary not found/
       );
     });
 
-    // =======================================================================
-    // STYLE RESOLUTION (PRP_COMMIT_STYLE) — P1.M1.T4.S1.
-    // Proves generateCommitMessage resolves the configured PRP_COMMIT_STYLE,
-    // fetches recent-commit examples only under `auto` + a positive example
-    // count, degrades to plain when there is nothing to learn, and threads
-    // the resolved style into createCommitMessageAgent via
-    // buildCommitMessageSystemPrompt. The builder's PROMPT CONTENT is owned by
-    // its own unit test (commit-message-agent.test.ts); here we assert the
-    // WIRING via a MOCK[<style>] sentinel returned by a mocked builder.
-    // =======================================================================
-    describe('style resolution (PRP_COMMIT_STYLE)', () => {
-      // Env hygiene: the style getters read PRP_COMMIT_STYLE /
-      // PRP_COMMIT_STYLE_EXAMPLES at call time, so a stubbed env from a prior
-      // case must not bleed into the next. Nested hooks run AFTER the
-      // outer file-wide beforeEach (which clears mocks + defaults
-      // getRecentCommitMessages to []). Mirrors the formatCommitMessage harness.
-      beforeEach(() => {
-        delete process.env.PRP_COMMIT_STYLE;
-        delete process.env.PRP_COMMIT_STYLE_EXAMPLES;
-      });
+    it('appends stderr to the non-zero-exit message when present', async () => {
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 3, stderr: 'model overloaded' })
+      );
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(
+        /exit 3.*model overloaded/
+      );
+    });
 
-      afterEach(() => {
-        vi.unstubAllEnvs();
-      });
-
-      it('auto + >1 example → fetches N (default 5), factory receives the auto (learned-style) contract', async () => {
-        // SETUP — env unset → auto + default EXAMPLES=5. Provide >1 example so
-        // resolvedStyle stays 'auto' and the builder is called with 'auto'.
-        mockGetRecentCommitMessages.mockResolvedValue([
-          'feat: a',
-          'fix: b',
-          'chore: c',
-        ]);
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({ status: 'success', data: 'msg', error: null })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY — git-log fetched exactly once with the default N=5; the
-        // factory received the auto contract (NOT degraded to plain).
-        expect(mockGetRecentCommitMessages).toHaveBeenCalledTimes(1);
-        expect(mockGetRecentCommitMessages).toHaveBeenCalledWith(5);
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith('MOCK[auto]');
-      });
-
-      it('auto + ≤1 example → degrades to plain; factory receives the plain contract', async () => {
-        // SETUP — env unset → auto, but the repo has only 1 commit → nothing
-        // to learn → resolvedStyle degrades to plain (PRD §5.1).
-        mockGetRecentCommitMessages.mockResolvedValue(['only commit']);
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({ status: 'success', data: 'msg', error: null })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY — git-log WAS called (auto + N>0), but ≤1 example flipped
-        // resolvedStyle to plain, so the factory received the plain contract.
-        expect(mockGetRecentCommitMessages).toHaveBeenCalledTimes(1);
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
-          'MOCK[plain]'
-        );
-      });
-
-      it('auto + PRP_COMMIT_STYLE_EXAMPLES=0 → NO git-log call, degrades to plain', async () => {
-        // SETUP — learning disabled (EXAMPLES=0). The n>0 gate skips the
-        // git-log call entirely; examples stays undefined → degrade to plain.
-        vi.stubEnv('PRP_COMMIT_STYLE_EXAMPLES', '0'); // PRP_COMMIT_STYLE unset → auto
-        mockGetRecentCommitMessages.mockResolvedValue([
-          'feat: a',
-          'fix: b',
-          'chore: c',
-        ]); // would be enough to learn, but must NOT be called
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({ status: 'success', data: 'msg', error: null })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY — git-log NEVER called (EXAMPLES=0 → n>0 gate skips it);
-        // resolvedStyle degraded to plain.
-        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
-          'MOCK[plain]'
-        );
-      });
-
-      it('PRP_COMMIT_STYLE=plain → skips git log, factory receives the plain contract', async () => {
-        // SETUP — explicit plain: history is ignored entirely.
-        vi.stubEnv('PRP_COMMIT_STYLE', 'plain');
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({ status: 'success', data: 'msg', error: null })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY
-        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
-          'MOCK[plain]'
-        );
-      });
-
-      it('PRP_COMMIT_STYLE=conventional → skips git log, factory receives the conventional contract', async () => {
-        // SETUP — explicit conventional: history ignored.
-        vi.stubEnv('PRP_COMMIT_STYLE', 'conventional');
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({ status: 'success', data: 'feat: x', error: null })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY
-        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
-          'MOCK[conventional]'
-        );
-      });
-
-      it('PRP_COMMIT_STYLE=gitmoji → skips git log, factory receives the gitmoji contract', async () => {
-        // SETUP — explicit gitmoji: history ignored.
-        vi.stubEnv('PRP_COMMIT_STYLE', 'gitmoji');
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({
-            status: 'success',
-            data: ':sparkles: x',
-            error: null,
-          })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY
-        expect(mockGetRecentCommitMessages).not.toHaveBeenCalled();
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith(
-          'MOCK[gitmoji]'
-        );
-      });
-
-      it('auto + PRP_COMMIT_STYLE_EXAMPLES=3 → git-log called once with 3', async () => {
-        // SETUP — custom example count threads through to the git-log call.
-        vi.stubEnv('PRP_COMMIT_STYLE_EXAMPLES', '3'); // PRP_COMMIT_STYLE unset → auto
-        mockGetRecentCommitMessages.mockResolvedValue(['a', 'b', 'c']); // >1 → stays auto
-        mockBuildCommitMessageSystemPrompt.mockImplementation(
-          s => `MOCK[${s}]` as string
-        );
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({ status: 'success', data: 'msg', error: null })
-        );
-
-        // EXECUTE
-        await generateCommitMessage('diff text');
-
-        // VERIFY — the custom EXAMPLES count threads through to the git-log
-        // call; resolvedStyle stays auto (>1 example).
-        expect(mockGetRecentCommitMessages).toHaveBeenCalledTimes(1);
-        expect(mockGetRecentCommitMessages).toHaveBeenCalledWith(3);
-        expect(mockCreateCommitMessageAgent).toHaveBeenCalledWith('MOCK[auto]');
-      });
+    it('omits stderr from the message when the non-zero exit had none', async () => {
+      mockSpawn.mockImplementation(spawnReturning({ exitCode: 4 }));
+      await expect(generateCommitMessage('/repo')).rejects.toThrow(
+        /^stagecoach commit-message generation failed \(exit 4\)$/m
+      );
     });
   });
 
@@ -1552,12 +1383,8 @@ describe('utils/git-commit', () => {
         success: true,
         diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
       });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'success',
-          data: 'feat(api): add endpoint',
-          error: null,
-        })
+      mockSpawn.mockImplementation(
+        spawnReturning({ stdout: 'feat(api): add endpoint' })
       );
       mockGitCommitTree.mockResolvedValue({
         success: true,
@@ -1586,7 +1413,7 @@ describe('utils/git-commit', () => {
       });
     });
 
-    it('gitDiff failure → returns null, agent never called, error logged', async () => {
+    it('gitDiff failure → returns null, spawn never called, error logged', async () => {
       // SETUP
       mockGitStatus.mockResolvedValue({
         success: true,
@@ -1605,7 +1432,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY
       expect(result).toBeNull();
-      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
       expect(mockGitCommitTree).not.toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Git diff (staged) failed: not a git repo'
@@ -1613,12 +1440,11 @@ describe('utils/git-commit', () => {
     });
 
     it('generateCommitMessage throws after retries → FALLBACK placeholder commit made (PRD §5.1)', async () => {
-      // SETUP — agent status error → generateCommitMessage throws AgentError.
-      // Disable the retry loop (1 attempt = no retries) so the boundary is
-      // called once and the test stays fast (no 10s backoff sleeps). P3.M1.T4.S1
-      // wraps generateCommitMessage in a bounded retry; with COMMIT_RETRY_MAX=1
-      // the exhausted-retry throw propagates to the INNER catch (P3.M1.T4.S2),
-      // which now makes a FALLBACK placeholder commit instead of returning null.
+      // SETUP — stagecoach exits non-zero → generateCommitMessage throws
+      // AgentError. Disable the retry loop (1 attempt = no retries) so the
+      // boundary is called once and the test stays fast (no 10s backoff sleeps).
+      // With COMMIT_RETRY_MAX=1 the exhausted-retry throw propagates to the
+      // INNER catch (P3.M1.T4.S2), which makes a FALLBACK placeholder commit.
       vi.stubEnv('COMMIT_RETRY_MAX', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       mockGitStatus.mockResolvedValue({
@@ -1627,12 +1453,8 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'error',
-          data: null,
-          error: { message: 'model overloaded' },
-        })
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 1, stderr: 'model overloaded' })
       );
       // The fallback gitCommit succeeds → returns the fallback hash.
       mockGitCommitTree.mockResolvedValue({
@@ -1648,8 +1470,7 @@ describe('utils/git-commit', () => {
       // VERIFY — fallback commit made with the labeled placeholder. The
       // staged substance is preserved (never stranded). The placeholder is
       // wrapped via formatCommitMessage (plain subject, no [PRP Auto] —
-      // non-backlog fallback degrades to plain per PRD §5.1). 'exit N' uses
-      // the sentinel 0 (LLM-API failures have no subprocess exit code).
+      // non-backlog fallback degrades to plain per PRD §5.1).
       expect(result).toBe('fb000');
       expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
       expect(mockGitCommitTree).toHaveBeenCalledWith({
@@ -1670,7 +1491,7 @@ describe('utils/git-commit', () => {
       );
     });
 
-    it('BACKWARD COMPAT: no options → gitDiff never called, agent never instantiated, gitCommit uses formatCommitMessage(msg)', async () => {
+    it('BACKWARD COMPAT: no options → gitDiff never called, spawn never called, gitCommit uses formatCommitMessage(msg)', async () => {
       // SETUP
       mockGitStatus.mockResolvedValue({
         success: true,
@@ -1688,7 +1509,7 @@ describe('utils/git-commit', () => {
       // VERIFY — default path is byte-identical to pre-stagecoach behavior
       expect(result).toBe('abc123');
       expect(mockGitDiff).not.toHaveBeenCalled();
-      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
       expect(mockGitCommitTree).toHaveBeenCalledWith({
         repoPath: '/project',
         treeSha: 'tree-sha-0001',
@@ -1697,7 +1518,7 @@ describe('utils/git-commit', () => {
       });
     });
 
-    it('BACKWARD COMPAT: { generateMessage: false } → default path (agent never called)', async () => {
+    it('BACKWARD COMPAT: { generateMessage: false } → default path (spawn never called)', async () => {
       // SETUP
       mockGitStatus.mockResolvedValue({
         success: true,
@@ -1717,17 +1538,17 @@ describe('utils/git-commit', () => {
       // VERIFY
       expect(result).toBe('abc123');
       expect(mockGitDiff).not.toHaveBeenCalled();
-      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it('gitDiff success but missing diff field → empty-diff throws → FALLBACK placeholder commit (PRD §5.1)', async () => {
+    it('gitDiff success but missing diff field → spawn sees empty stdout → FALLBACK placeholder commit (PRD §5.1)', async () => {
       // SETUP — gitDiff returns success:true but no `diff` string. smartCommit
-      // passes `diffResult.diff ?? ''` to generateCommitMessage, which throws
-      // AgentError on the empty diff. With S2, that throw propagates through
-      // the retry (exhausted at 1 attempt) to the INNER catch → fallback
-      // placeholder commit (the staged substance is preserved).
-      // Disable the retry loop so the boundary is called once and the test
-      // stays fast (no backoff sleeps).
+      // passes `diffResult.diff ?? ''` to generateCommitMessage. The new
+      // stagecoach binary reads the repo index itself, so the unused _diff
+      // doesn't short-circuit; instead the binary (mocked) returns empty
+      // stdout → empty-stdout AgentError. With S2, that throw propagates
+      // through the retry (exhausted at 1 attempt) to the INNER catch →
+      // fallback placeholder commit (the staged substance is preserved).
       vi.stubEnv('COMMIT_RETRY_MAX', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       mockGitStatus.mockResolvedValue({
@@ -1736,6 +1557,7 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true }); // no diff field
+      mockSpawn.mockImplementation(spawnReturning({ stdout: '' })); // empty stdout
       mockGitCommitTree.mockResolvedValue({
         success: true,
         commitSha: 'fb-empty',
@@ -1746,24 +1568,20 @@ describe('utils/git-commit', () => {
         generateMessage: true,
       });
 
-      // VERIFY — the empty-diff AgentError propagates through retry → INNER
+      // VERIFY — the empty-stdout AgentError propagates through retry → INNER
       // catch → fallback placeholder commit (NOT null).
       expect(result).toBe('fb-empty');
       expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
-      // The agent factory is never called (generateCommitMessage throws on the
-      // empty diff BEFORE instantiating the agent).
-      expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringMatching(/falling back to placeholder commit/i)
       );
     });
 
     it('PRD §5.1 retry: transient error retried, succeeds on 3rd attempt → commit created, gitDiff called once', async () => {
-      // SETUP — P3.M1.T4.S1 wraps generateCommitMessage in a bounded retry loop.
-      // Lower the delays so the backoff sleeps are ~1ms instead of 10s/120s
-      // (CRITICAL for test speed). The agent's prompt() throws a transient
-      // AgentError on the first 2 calls then succeeds on the 3rd → retry loops
-      // twice and returns the 3rd result → smartCommit commits it.
+      // SETUP — stagecoach exits non-zero on the first 2 attempts then exits 0
+      // on the 3rd → retry loops twice and returns the 3rd result → smartCommit
+      // commits it. Lower the delays so the backoff sleeps are ~1ms (test speed).
       vi.stubEnv('COMMIT_RETRY_MAX', '3');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY_CAP', '1');
@@ -1776,32 +1594,17 @@ describe('utils/git-commit', () => {
         success: true,
         diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
       });
-      // Build a fake agent, then rewire its .prompt() to throw twice then
-      // succeed. makeFakeAgent returns { prompt: vi.fn().mockResolvedValue(r) }.
-      const fakeAgent = makeFakeAgent({
-        status: 'success',
-        data: 'feat: retry works',
-        error: null,
-      });
-      const mockPrompt = vi.mocked(fakeAgent.prompt);
-      mockPrompt.mockReset();
-      mockPrompt
-        .mockRejectedValueOnce(
-          new AgentError(
-            'stagecoach commit-message generation failed: timeout #1'
-          )
+      // spawn fails twice (non-zero exit → transient AgentError) then succeeds.
+      mockSpawn
+        .mockImplementationOnce(
+          spawnReturning({ exitCode: 1, stderr: 'timeout #1' })
         )
-        .mockRejectedValueOnce(
-          new AgentError(
-            'stagecoach commit-message generation failed: timeout #2'
-          )
+        .mockImplementationOnce(
+          spawnReturning({ exitCode: 1, stderr: 'timeout #2' })
         )
-        .mockResolvedValueOnce({
-          status: 'success',
-          data: 'feat: retry works',
-          error: null,
-        });
-      mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
+        .mockImplementationOnce(
+          spawnReturning({ stdout: 'feat: retry works' })
+        );
       mockGitCommitTree.mockResolvedValue({
         success: true,
         commitSha: 'retry-hash',
@@ -1816,12 +1619,12 @@ describe('utils/git-commit', () => {
       // The transient AgentErrors are classified retryable by isTransientError
       // (the default RetryOptions.isRetryable), so retry looped.
       expect(result).toBe('retry-hash');
-      // The boundary (agent.prompt) was invoked exactly 3 times (2 transient
+      // The boundary (spawn) was invoked exactly 3 times (2 transient
       // failures + 1 success).
-      expect(mockPrompt).toHaveBeenCalledTimes(3);
+      expect(mockSpawn).toHaveBeenCalledTimes(3);
       // gitDiff is called ONCE (outside the retry closure — the diff is read
-      // once and captured; only the LLM call repeats). PRD §5.1: "the index is
-      // left untouched."
+      // once and captured; only the generate call repeats). PRD §5.1: "the
+      // index is left untouched."
       expect(mockGitDiff).toHaveBeenCalledTimes(1);
       // The committed message is the 3rd-attempt output, wrapped.
       expect(mockGitCommitTree).toHaveBeenCalledWith({
@@ -1833,10 +1636,9 @@ describe('utils/git-commit', () => {
     });
 
     it('PRD §5.1 retry: exhausted attempts → FALLBACK placeholder commit (P3.M1.T4.S2)', async () => {
-      // SETUP — the agent always throws a transient AgentError. With
-      // COMMIT_RETRY_MAX=2 the boundary is attempted twice then the last error
-      // propagates → INNER catch (P3.M1.T4.S2) → fallback placeholder commit.
-      // Lower the delays for speed.
+      // SETUP — stagecoach always exits non-zero. With COMMIT_RETRY_MAX=2 the
+      // boundary is attempted twice then the last error propagates → INNER
+      // catch (P3.M1.T4.S2) → fallback placeholder commit. Lower delays for speed.
       vi.stubEnv('COMMIT_RETRY_MAX', '2');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY_CAP', '1');
@@ -1846,19 +1648,9 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-      const fakeAgent = makeFakeAgent({
-        status: 'success',
-        data: 'unused',
-        error: null,
-      });
-      const mockPrompt = vi.mocked(fakeAgent.prompt);
-      mockPrompt.mockReset();
-      mockPrompt.mockRejectedValue(
-        new AgentError(
-          'stagecoach commit-message generation failed: always fails'
-        )
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 1, stderr: 'always fails' })
       );
-      mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
       // The fallback gitCommit succeeds → returns the fallback hash.
       mockGitCommitTree.mockResolvedValue({
         success: true,
@@ -1874,7 +1666,7 @@ describe('utils/git-commit', () => {
       // propagated to smartCommit's INNER catch → fallback placeholder commit
       // (the staged substance is preserved, never stranded — PRD §5.1).
       expect(result).toBe('fallback-hash');
-      expect(mockPrompt).toHaveBeenCalledTimes(2);
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
       expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
       expect(mockGitDiff).toHaveBeenCalledTimes(1); // read once outside retry
       expect(mockGitCommitTree).toHaveBeenCalledWith({
@@ -1891,9 +1683,9 @@ describe('utils/git-commit', () => {
     });
 
     it('fallback commit: gitCommit ALSO fails → returns null (never-fail-on-commit)', async () => {
-      // SETUP — agent status error → retry exhausts (1 attempt) → INNER catch
-      // → fallback placeholder commit attempted, BUT gitCommit itself fails
-      // (e.g. disk full). smartCommit must return null (never-fail-on-commit).
+      // SETUP — stagecoach exits non-zero → retry exhausts (1 attempt) → INNER
+      // catch → fallback placeholder commit attempted, BUT gitCommit itself
+      // fails (e.g. disk full). smartCommit must return null (never-fail-on-commit).
       vi.stubEnv('COMMIT_RETRY_MAX', '1');
       vi.stubEnv('COMMIT_RETRY_DELAY', '1');
       mockGitStatus.mockResolvedValue({
@@ -1902,12 +1694,8 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'error',
-          data: null,
-          error: { message: 'model overloaded' },
-        })
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 1, stderr: 'model overloaded' })
       );
       // The fallback gitCommit FAILS → smartCommit returns null.
       mockGitCommitTree.mockResolvedValue({
@@ -1936,15 +1724,12 @@ describe('utils/git-commit', () => {
 
     // NOTE (permanent-error path): contract item 3c requires the retry to use
     // isTransientError() so permanent errors are NOT retried. We do NOT assert
-    // that here via smartCommit because generateCommitMessage ONLY ever throws
-    // AgentError (hardcoded code = PIPELINE_AGENT_LLM_FAILED), which
-    // isTransientError always classifies transient. Exercising the
-    // permanent-error short-circuit through smartCommit would require mocking
-    // the boundary to throw a non-transient error, but generateCommitMessage
-    // wraps every failure in a transient AgentError. The permanent-error
-    // classification is therefore owned + tested by retry.ts's own
-    // isTransientError unit tests (unchanged by this task). This test would
-    // belong here only if generateCommitMessage gained a permanent failure mode.
+    // that here via smartCommit because generateCommitMessage wraps every
+    // failure (non-zero exit / empty stdout / spawn error / resolver throw) in
+    // an AgentError (PIPELINE_AGENT_LLM_FAILED), which isTransientError always
+    // classifies transient. The permanent-error classification is therefore
+    // owned + tested by retry.ts's own isTransientError unit tests (unchanged
+    // by this task).
   });
 
   // ===========================================================================
@@ -2006,12 +1791,8 @@ describe('utils/git-commit', () => {
         success: true,
         diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
       });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'success',
-          data: 'feat(api): add endpoint',
-          error: null,
-        })
+      mockSpawn.mockImplementation(
+        spawnReturning({ stdout: 'feat(api): add endpoint' })
       );
       mockGitCommitTree.mockResolvedValue({
         success: true,
@@ -2047,12 +1828,8 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'error',
-          data: null,
-          error: { message: 'model overloaded' },
-        })
+      mockSpawn.mockImplementation(
+        spawnReturning({ exitCode: 1, stderr: 'model overloaded' })
       );
       mockGitCommitTree.mockResolvedValue({
         success: true,
@@ -2459,13 +2236,7 @@ describe('utils/git-commit', () => {
         files: [],
       });
       mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-      mockCreateCommitMessageAgent.mockReturnValue(
-        makeFakeAgent({
-          status: 'success',
-          data: 'feat: x',
-          error: null,
-        })
-      );
+      mockSpawn.mockImplementation(spawnReturning({ stdout: 'feat: x' }));
       mockGitCommitTree.mockResolvedValue({
         success: true,
         commitSha: 'abc123',
@@ -2786,12 +2557,8 @@ describe('utils/git-commit', () => {
         vi.stubEnv('COMMIT_RETRY_DELAY', '1');
         vi.spyOn(process.stderr, 'write').mockReturnValue(true);
         mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
-        mockCreateCommitMessageAgent.mockReturnValue(
-          makeFakeAgent({
-            status: 'error',
-            data: null,
-            error: { message: 'model overloaded' },
-          })
+        mockSpawn.mockImplementation(
+          spawnReturning({ exitCode: 1, stderr: 'model overloaded' })
         );
         mockGitCommitTree.mockResolvedValue({
           success: true,
