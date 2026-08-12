@@ -72,6 +72,9 @@ export const ErrorCodes = {
   PIPELINE_AGENT_TIMEOUT: 'PIPELINE_AGENT_TIMEOUT',
   PIPELINE_AGENT_PARSE_FAILED: 'PIPELINE_AGENT_PARSE_FAILED',
 
+  // Commit errors
+  PIPELINE_COMMIT_CAS_REFUSED: 'PIPELINE_COMMIT_CAS_REFUSED',
+
   // Validation errors
   PIPELINE_VALIDATION_INVALID_INPUT: 'PIPELINE_VALIDATION_INVALID_INPUT',
   PIPELINE_VALIDATION_MISSING_FIELD: 'PIPELINE_VALIDATION_MISSING_FIELD',
@@ -425,6 +428,42 @@ export class AgentError extends PipelineError {
   constructor(message: string, context?: PipelineErrorContext, cause?: Error) {
     super(message, context, cause);
     Object.setPrototypeOf(this, AgentError.prototype);
+  }
+}
+
+/**
+ * Commit CAS (compare-and-swap) refusal — HEAD moved during commit-message
+ * generation (PRD §5.1 "Commit Workflow Mechanics" → "Edge cases: HEAD moved
+ * during generation").
+ *
+ * @remarks
+ * Raised by {@link smartCommit} (in `src/utils/git-commit.ts`, P1.M1.T3.S2)
+ * when the post-generation `gitUpdateRefCAS` reports `{success:false,
+ * casFailure:true}` — a concurrent commit advanced HEAD inside the (slow)
+ * message-generation window, so the snapshot-based atomic commit refuses to
+ * force the advance (forcing would silently clobber the concurrent commit).
+ *
+ * This is a deliberate, narrow exception to smartCommit's never-fail-on-commit
+ * contract: the staged substance is safe as a dangling commit and HEAD is
+ * byte-for-byte unchanged, but the process MUST exit non-zero and surface a
+ * manual recovery recipe (PRD §5.1 "MUST NOT force … surfaces the generated
+ * message plus a manual recovery recipe … and exits non-zero"). The recovery
+ * recipe is the error `message`; the snapshot ({@link treeSha},
+ * {@link parentSha}, {@link newSha}) rides in `context`. `smartCommit`'s outer
+ * catch RE-THROWS this error (it is NOT swallowed to `null`) so the
+ * orchestrator's top-level handler propagates it to a non-zero exit.
+ *
+ * @example
+ * ```typescript
+ * throw new CommitCasRefusedError(recipe, { treeSha, parentSha, newSha });
+ * ```
+ */
+export class CommitCasRefusedError extends PipelineError {
+  readonly code = ErrorCodes.PIPELINE_COMMIT_CAS_REFUSED;
+
+  constructor(message: string, context?: PipelineErrorContext, cause?: Error) {
+    super(message, context, cause);
+    Object.setPrototypeOf(this, CommitCasRefusedError.prototype);
   }
 }
 

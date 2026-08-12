@@ -28,6 +28,8 @@ vi.mock('../../../src/tools/git-mcp.js', () => ({
   getRecentCommitMessages: vi.fn(),
   gitWriteTree: vi.fn(),
   gitRevParseHead: vi.fn(),
+  gitCommitTree: vi.fn(),
+  gitUpdateRefCAS: vi.fn(),
 }));
 
 // Mock the stagecoach commit-message agent factory so default-path tests
@@ -64,10 +66,11 @@ vi.mock('../../../src/utils/logger.js', () => ({
 import {
   gitStatus,
   gitAdd,
-  gitCommit,
   gitDiff,
   gitWriteTree,
   gitRevParseHead,
+  gitCommitTree,
+  gitUpdateRefCAS,
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
@@ -88,18 +91,22 @@ import {
   restore_critical_files,
   smartCommit,
 } from '../../../src/utils/git-commit.js';
-import { AgentError } from '../../../src/utils/errors.js';
+import {
+  AgentError,
+  CommitCasRefusedError,
+} from '../../../src/utils/errors.js';
 import { isTransientError } from '../../../src/utils/retry.js';
 
 const mockGitStatus = vi.mocked(gitStatus);
 const mockGitAdd = vi.mocked(gitAdd);
-const mockGitCommit = vi.mocked(gitCommit);
 const mockGitDiff = vi.mocked(gitDiff);
 const mockGitListStagedDeletions = vi.mocked(gitListStagedDeletions);
 const mockGitRestoreFileFromHead = vi.mocked(gitRestoreFileFromHead);
 const mockGitUnstagePath = vi.mocked(gitUnstagePath);
 const mockGitWriteTree = vi.mocked(gitWriteTree);
 const mockGitRevParseHead = vi.mocked(gitRevParseHead);
+const mockGitCommitTree = vi.mocked(gitCommitTree);
+const mockGitUpdateRefCAS = vi.mocked(gitUpdateRefCAS);
 const mockCreateCommitMessageAgent = vi.mocked(createCommitMessageAgent);
 const mockBuildCommitMessageSystemPrompt = vi.mocked(
   buildCommitMessageSystemPrompt
@@ -154,6 +161,16 @@ describe('utils/git-commit', () => {
       success: true,
       treeSha: 'tree-sha-0001',
     });
+    // DEFAULT (P1.M1.T3.S2): the post-generation plumbing commit runs in EVERY happy-path smartCommit
+    // call — gitCommitTree → {success:true, commitSha} (the returned hash) and gitUpdateRefCAS →
+    // {success:true} (atomic HEAD advance). Tests asserting a SPECIFIC commit hash override
+    // mockGitCommitTree's commitSha; the CAS-refusal / commit-tree-fail tests override these. A bare
+    // vi.fn() returns undefined → `commitTreeResult.success` throws → outer catch → null → regression.
+    mockGitCommitTree.mockResolvedValue({
+      success: true,
+      commitSha: 'new-sha-0001',
+    });
+    mockGitUpdateRefCAS.mockResolvedValue({ success: true });
   });
 
   describe('filterProtectedFiles', () => {
@@ -371,7 +388,7 @@ describe('utils/git-commit', () => {
       const result = formatCommitMessage('cleanup: doc reorganization');
 
       // VERIFY — bare subject, trailer present, NEVER [PRP Auto]
-      expect(result).toBe('cleanup: doc reorganization>');
+      expect(result).toBe('cleanup: doc reorganization');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -380,7 +397,7 @@ describe('utils/git-commit', () => {
       const result = formatCommitMessage('msg', null);
 
       // VERIFY
-      expect(result).toBe('msg>');
+      expect(result).toBe('msg');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -394,7 +411,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY
-      expect(result).toBe('1.2.1.1: add utility>');
+      expect(result).toBe('1.2.1.1: add utility');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -407,7 +424,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — trailing level elided (1.2.1, never 1.2.1.0)
-      expect(result).toBe('1.2.1: build CLI entry point>');
+      expect(result).toBe('1.2.1: build CLI entry point');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -424,7 +441,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — plain opt-out: position supplied but ignored
-      expect(result).toBe('add utility>');
+      expect(result).toBe('add utility');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -441,7 +458,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY
-      expect(result).toBe('1.2.1.1: add utility>');
+      expect(result).toBe('1.2.1.1: add utility');
     });
 
     it("DEFENSE-IN-DEPTH: strips a leading '[PRP Auto] ' banner from the message", () => {
@@ -456,7 +473,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY — banner is gone; task-prefix applied to the stripped subject
       expect(result).not.toContain('[PRP Auto]');
-      expect(result).toBe('1.2.1.1: msg>');
+      expect(result).toBe('1.2.1.1: msg');
     });
 
     it('NEVER adds a Co-Authored-By trailer in ANY output (identity-transparent, §5.1)', () => {
@@ -498,9 +515,9 @@ describe('utils/git-commit', () => {
           success: true,
           stagedCount: 2,
         });
-        mockGitCommit.mockResolvedValue({
+        mockGitCommitTree.mockResolvedValue({
           success: true,
-          commitHash: 'abc123def456',
+          commitSha: 'abc123def456',
         });
 
         // EXECUTE
@@ -513,9 +530,11 @@ describe('utils/git-commit', () => {
         expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' });
         // No protected files in this fixture → gitUnstagePath is never called.
         expect(mockGitUnstagePath).not.toHaveBeenCalled();
-        expect(mockGitCommit).toHaveBeenCalledWith({
-          path: '/project',
-          message: 'Test commit>',
+        expect(mockGitCommitTree).toHaveBeenCalledWith({
+          repoPath: '/project',
+          treeSha: 'tree-sha-0001',
+          message: 'Test commit',
+          parentSha: 'parent-sha-0001',
         });
       });
 
@@ -530,9 +549,9 @@ describe('utils/git-commit', () => {
           success: true,
           stagedCount: 2,
         });
-        mockGitCommit.mockResolvedValue({
+        mockGitCommitTree.mockResolvedValue({
           success: true,
-          commitHash: 'abc123',
+          commitSha: 'abc123',
         });
 
         // EXECUTE
@@ -560,7 +579,7 @@ describe('utils/git-commit', () => {
         // VERIFY
         expect(result).toBeNull();
         expect(mockGitAdd).not.toHaveBeenCalled();
-        expect(mockGitCommit).not.toHaveBeenCalled();
+        expect(mockGitCommitTree).not.toHaveBeenCalled();
       });
 
       it('should return null when no changes in repository', async () => {
@@ -575,7 +594,7 @@ describe('utils/git-commit', () => {
         // VERIFY
         expect(result).toBeNull();
         expect(mockGitAdd).not.toHaveBeenCalled();
-        expect(mockGitCommit).not.toHaveBeenCalled();
+        expect(mockGitCommitTree).not.toHaveBeenCalled();
       });
     });
 
@@ -643,7 +662,7 @@ describe('utils/git-commit', () => {
         // VERIFY
         expect(result).toBeNull();
         expect(mockGitAdd).not.toHaveBeenCalled();
-        expect(mockGitCommit).not.toHaveBeenCalled();
+        expect(mockGitCommitTree).not.toHaveBeenCalled();
       });
 
       it('should return null when git add fails', async () => {
@@ -662,11 +681,13 @@ describe('utils/git-commit', () => {
 
         // VERIFY
         expect(result).toBeNull();
-        expect(mockGitCommit).not.toHaveBeenCalled();
+        expect(mockGitCommitTree).not.toHaveBeenCalled();
       });
 
-      it('should return null when git commit fails', async () => {
-        // SETUP
+      it('should return null when gitCommitTree fails (never-fail; update-ref not called)', async () => {
+        // SETUP — commit-tree reports {success:false} (bad tree SHA, git internal).
+        // smartCommit MUST log + return null (never-fail; HEAD/index unchanged) and
+        // MUST NOT proceed to gitUpdateRefCAS.
         mockGitStatus.mockResolvedValue({
           success: true,
           modified: ['src/index.ts'],
@@ -675,16 +696,20 @@ describe('utils/git-commit', () => {
           success: true,
           stagedCount: 1,
         });
-        mockGitCommit.mockResolvedValue({
+        mockGitCommitTree.mockResolvedValue({
           success: false,
-          error: 'Git commit failed',
+          error: 'commit-tree failed: bad tree',
         });
 
         // EXECUTE
         const result = await smartCommit('/project', 'Test commit');
 
-        // VERIFY
+        // VERIFY — never-fail: null returned; the CAS advance never runs.
         expect(result).toBeNull();
+        expect(mockGitUpdateRefCAS).not.toHaveBeenCalled();
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringMatching(/commit-tree failed/i)
+        );
       });
 
       it('should handle unexpected errors', async () => {
@@ -708,7 +733,10 @@ describe('utils/git-commit', () => {
           modified: ['src/index.ts'],
         });
         mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
-        mockGitCommit.mockResolvedValue({ success: true }); // no commitHash
+        mockGitCommitTree.mockResolvedValue({
+          success: false,
+          error: 'commit-tree failed',
+        }); // commit-tree fails -> null
 
         // EXECUTE
         const result = await smartCommit('/project', 'Test commit');
@@ -729,9 +757,9 @@ describe('utils/git-commit', () => {
           success: true,
           stagedCount: 1,
         });
-        mockGitCommit.mockResolvedValue({
+        mockGitCommitTree.mockResolvedValue({
           success: true,
-          commitHash: 'abc123',
+          commitSha: 'abc123',
         });
 
         // EXECUTE
@@ -802,9 +830,9 @@ describe('utils/git-commit', () => {
         success: true,
         stagedCount: 2,
       });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -826,9 +854,9 @@ describe('utils/git-commit', () => {
         success: true,
         stagedCount: 1,
       });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -849,9 +877,9 @@ describe('utils/git-commit', () => {
         success: true,
         stagedCount: 3,
       });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -873,9 +901,9 @@ describe('utils/git-commit', () => {
         success: true,
         stagedCount: 3,
       });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -929,7 +957,7 @@ describe('utils/git-commit', () => {
       // generateCommitMessage is the real (un-mocked) function; assert the stagecoach path never
       // STARTED by checking the staged-diff read that immediately precedes it was never called.
       expect(mockGitDiff).not.toHaveBeenCalled();
-      expect(mockGitCommit).not.toHaveBeenCalled();
+      expect(mockGitCommitTree).not.toHaveBeenCalled();
       // The abort is logged (never-fail contract: log + return null, not a throw).
       expect(mockLogger.error).toHaveBeenCalled();
     });
@@ -952,9 +980,9 @@ describe('utils/git-commit', () => {
         success: true,
         treeSha: 'tree-sha-rootless',
       });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'root-commit-hash',
+        commitSha: 'root-commit-hash',
       });
 
       // EXECUTE — default path (no generateMessage); parentSha is undefined but the commit proceeds
@@ -964,7 +992,20 @@ describe('utils/git-commit', () => {
       // debug log captured parentSha:null (undefined → null for logging) + the treeSha.
       expect(result).toBe('root-commit-hash');
       expect(mockGitWriteTree).toHaveBeenCalledWith('/project');
-      expect(mockGitCommit).toHaveBeenCalled();
+      // §5.1 rootless edge case: commit-tree called with parentSha:undefined →
+      // no -p (root commit); update-ref called with expectedOldSha:undefined
+      // → unconditional advance.
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-rootless',
+        message: 'first commit',
+        parentSha: undefined,
+      });
+      expect(mockGitUpdateRefCAS).toHaveBeenCalledWith({
+        repoPath: '/project',
+        newSha: 'root-commit-hash',
+        expectedOldSha: undefined,
+      });
       expect(mockLogger.debug).toHaveBeenCalledWith(
         expect.objectContaining({
           parentSha: null,
@@ -972,6 +1013,160 @@ describe('utils/git-commit', () => {
         }),
         'Captured pre-generation snapshot (PARENT_SHA + TREE_SHA)'
       );
+    });
+  });
+
+  // ===========================================================================
+  // POST-GENERATION PLUMBING COMMIT (P1.M1.T3.S2): the §5.1 snapshot-based
+  // atomic single-commit — commit-tree (dangling commit) → CAS update-ref.
+  // Covers the CAS-refusal edge case (HEAD moved → MUST NOT force → throws
+  // CommitCasRefusedError → non-zero exit) + the fallback-uses-plumbing proof.
+  // ===========================================================================
+  describe('post-generation plumbing commit (P1.M1.T3.S2)', () => {
+    beforeEach(() => {
+      mockGitStatus.mockResolvedValue({
+        success: true,
+        modified: ['src/index.ts'],
+      });
+      mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
+    });
+
+    it('CAS casFailure (HEAD moved) → throws CommitCasRefusedError + logs the recovery recipe (MUST NOT force)', async () => {
+      // SETUP — update-ref refuses: a concurrent commit moved HEAD during
+      // message generation. §5.1: MUST NOT force; surface the recipe + throw.
+      mockGitUpdateRefCAS.mockResolvedValue({
+        success: false,
+        error: 'ref update aborted: stale HEAD',
+        casFailure: true,
+      });
+
+      // EXECUTE — smartCommit re-throws CommitCasRefusedError (narrow
+      // never-fail exception → non-zero exit). It is NOT swallowed to null.
+      await expect(smartCommit('/project', 'Test commit')).rejects.toThrow(
+        CommitCasRefusedError
+      );
+
+      // VERIFY — the recovery recipe was logged (error level). It carries the
+      // snapshot SHAs, the message, and the manual `git commit-tree … |
+      // xargs git update-ref HEAD` command.
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
+        message: 'Test commit',
+        parentSha: 'parent-sha-0001',
+      });
+      expect(mockGitUpdateRefCAS).toHaveBeenCalledWith({
+        repoPath: '/project',
+        newSha: 'new-sha-0001',
+        expectedOldSha: 'parent-sha-0001',
+      });
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('CAS refused')
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('tree-sha-0001')
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('new-sha-0001')
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('git commit-tree')
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('xargs git update-ref HEAD')
+      );
+      // The generated message is surfaced in the recipe.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Test commit')
+      );
+    });
+
+    it('CAS-refused error context carries the snapshot SHAs (treeSha/parentSha/newSha)', async () => {
+      // SETUP
+      mockGitUpdateRefCAS.mockResolvedValue({
+        success: false,
+        error: 'stale',
+        casFailure: true,
+      });
+
+      // EXECUTE — capture the thrown error to assert its context.
+      let thrown: unknown;
+      try {
+        await smartCommit('/project', 'msg');
+      } catch (e) {
+        thrown = e;
+      }
+
+      // VERIFY — the CommitCasRefusedError context rides the snapshot SHAs.
+      expect(thrown).toBeInstanceOf(CommitCasRefusedError);
+      expect((thrown as CommitCasRefusedError).context).toMatchObject({
+        treeSha: 'tree-sha-0001',
+        parentSha: 'parent-sha-0001',
+        newSha: 'new-sha-0001',
+      });
+    });
+
+    it("returns gitCommitTree's commitSha on a successful atomic advance", async () => {
+      // SETUP — defaults: commitTree→new-sha-0001, CAS→success. The returned
+      // hash is the dangling commit's SHA (now HEAD).
+      mockGitCommitTree.mockResolvedValue({
+        success: true,
+        commitSha: 'dangling-now-head',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'msg');
+
+      // VERIFY — return value is the commitSha (NOT a gitCommit commitHash).
+      expect(result).toBe('dangling-now-head');
+      expect(mockGitUpdateRefCAS).toHaveBeenCalledWith({
+        repoPath: '/project',
+        newSha: 'dangling-now-head',
+        expectedOldSha: 'parent-sha-0001',
+      });
+    });
+
+    it('fallback placeholder message flows through the SAME plumbing commit (NOT gitCommit)', async () => {
+      // SETUP — generation fails after retries → buildFallbackCommitMessage
+      // placeholder. The placeholder MUST flow through gitCommitTree +
+      // gitUpdateRefCAS (the single plumbing path), not a separate gitCommit.
+      vi.stubEnv('COMMIT_RETRY_MAX', '1');
+      vi.stubEnv('COMMIT_RETRY_DELAY', '1');
+      mockGitDiff.mockResolvedValue({ success: true, diff: 'diff text' });
+      mockCreateCommitMessageAgent.mockReturnValue(
+        makeFakeAgent({
+          status: 'error',
+          data: null,
+          error: { message: 'model overloaded' },
+        })
+      );
+      mockGitCommitTree.mockResolvedValue({
+        success: true,
+        commitSha: 'fallback-via-plumbing',
+      });
+
+      // EXECUTE
+      const result = await smartCommit('/project', 'fallback', {
+        generateMessage: true,
+      });
+
+      // VERIFY — the placeholder message went through gitCommitTree (the
+      // plumbing commit), and the returned hash is its commitSha.
+      expect(result).toBe('fallback-via-plumbing');
+      expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
+      expect(mockGitCommitTree).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringMatching(
+            /chore: commit-gen failed \(exit \d+\); fallback commit/
+          ),
+        })
+      );
+      expect(mockGitUpdateRefCAS).toHaveBeenCalledTimes(1);
+      expect(mockGitUpdateRefCAS).toHaveBeenCalledWith({
+        repoPath: '/project',
+        newSha: 'fallback-via-plumbing',
+        expectedOldSha: 'parent-sha-0001',
+      });
     });
   });
 
@@ -1361,9 +1556,9 @@ describe('utils/git-commit', () => {
           error: null,
         })
       );
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -1380,9 +1575,11 @@ describe('utils/git-commit', () => {
         path: '/project',
         staged: true,
       });
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
-        message: 'feat(api): add endpoint>',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
+        message: 'feat(api): add endpoint',
+        parentSha: 'parent-sha-0001',
       });
     });
 
@@ -1406,7 +1603,7 @@ describe('utils/git-commit', () => {
       // VERIFY
       expect(result).toBeNull();
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
-      expect(mockGitCommit).not.toHaveBeenCalled();
+      expect(mockGitCommitTree).not.toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Git diff (staged) failed: not a git repo'
       );
@@ -1435,9 +1632,9 @@ describe('utils/git-commit', () => {
         })
       );
       // The fallback gitCommit succeeds → returns the fallback hash.
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'fb000',
+        commitSha: 'fb000',
       });
 
       // EXECUTE — smartCommit now makes a fallback commit (not null).
@@ -1451,12 +1648,14 @@ describe('utils/git-commit', () => {
       // non-backlog fallback degrades to plain per PRD §5.1). 'exit N' uses
       // the sentinel 0 (LLM-API failures have no subprocess exit code).
       expect(result).toBe('fb000');
-      expect(mockGitCommit).toHaveBeenCalledTimes(1);
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
+      expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
         message: expect.stringMatching(
           /chore: commit-gen failed \(exit \d+\); fallback commit/
         ),
+        parentSha: 'parent-sha-0001',
       });
       // A warn log is emitted naming the fallback (NOT the outer 'Unexpected
       // error' log — the fallback path never reaches the outer catch).
@@ -1475,9 +1674,9 @@ describe('utils/git-commit', () => {
         modified: ['src/index.ts'],
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE — no options (the default path)
@@ -1487,9 +1686,11 @@ describe('utils/git-commit', () => {
       expect(result).toBe('abc123');
       expect(mockGitDiff).not.toHaveBeenCalled();
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
-        message: 'Pre-formatted message>',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
+        message: 'Pre-formatted message',
+        parentSha: 'parent-sha-0001',
       });
     });
 
@@ -1500,9 +1701,9 @@ describe('utils/git-commit', () => {
         modified: ['src/index.ts'],
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE — generateMessage explicitly false
@@ -1532,9 +1733,9 @@ describe('utils/git-commit', () => {
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
       mockGitDiff.mockResolvedValue({ success: true }); // no diff field
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'fb-empty',
+        commitSha: 'fb-empty',
       });
 
       // EXECUTE
@@ -1545,7 +1746,7 @@ describe('utils/git-commit', () => {
       // VERIFY — the empty-diff AgentError propagates through retry → INNER
       // catch → fallback placeholder commit (NOT null).
       expect(result).toBe('fb-empty');
-      expect(mockGitCommit).toHaveBeenCalledTimes(1);
+      expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
       // The agent factory is never called (generateCommitMessage throws on the
       // empty diff BEFORE instantiating the agent).
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
@@ -1598,9 +1799,9 @@ describe('utils/git-commit', () => {
           error: null,
         });
       mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'retry-hash',
+        commitSha: 'retry-hash',
       });
 
       // EXECUTE
@@ -1620,9 +1821,11 @@ describe('utils/git-commit', () => {
       // left untouched."
       expect(mockGitDiff).toHaveBeenCalledTimes(1);
       // The committed message is the 3rd-attempt output, wrapped.
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
-        message: 'feat: retry works>',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
+        message: 'feat: retry works',
+        parentSha: 'parent-sha-0001',
       });
     });
 
@@ -1654,9 +1857,9 @@ describe('utils/git-commit', () => {
       );
       mockCreateCommitMessageAgent.mockReturnValue(fakeAgent);
       // The fallback gitCommit succeeds → returns the fallback hash.
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'fallback-hash',
+        commitSha: 'fallback-hash',
       });
 
       // EXECUTE
@@ -1669,13 +1872,15 @@ describe('utils/git-commit', () => {
       // (the staged substance is preserved, never stranded — PRD §5.1).
       expect(result).toBe('fallback-hash');
       expect(mockPrompt).toHaveBeenCalledTimes(2);
-      expect(mockGitCommit).toHaveBeenCalledTimes(1);
+      expect(mockGitCommitTree).toHaveBeenCalledTimes(1);
       expect(mockGitDiff).toHaveBeenCalledTimes(1); // read once outside retry
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
         message: expect.stringMatching(
           /chore: commit-gen failed \(exit \d+\); fallback commit/
         ),
+        parentSha: 'parent-sha-0001',
       });
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringMatching(/falling back to placeholder commit/i)
@@ -1702,7 +1907,7 @@ describe('utils/git-commit', () => {
         })
       );
       // The fallback gitCommit FAILS → smartCommit returns null.
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: false,
         error: 'disk full',
       });
@@ -1715,13 +1920,14 @@ describe('utils/git-commit', () => {
       // VERIFY — the fallback gitCommit was attempted (once) but failed → null.
       // The never-fail-on-commit contract is preserved.
       expect(result).toBeNull();
-      expect(mockGitCommit).toHaveBeenCalledTimes(1); // the fallback attempt
+      expect(mockGitCommitTree).toHaveBeenCalledTimes(1); // the fallback attempt
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringMatching(/falling back/i)
       );
-      // The existing commitResult.success-check logs 'Git commit failed: ...'.
+      // The commit-tree failure logs 'Smart Commit aborted (commit-tree failed): ...'
+      // (P1.M1.T3.S2: the plumbing commit reports its own failure, never-fail → null).
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringMatching(/Git commit failed/i)
+        expect.stringMatching(/commit-tree failed/i)
       );
     });
 
@@ -1765,9 +1971,9 @@ describe('utils/git-commit', () => {
         modified: ['src/index.ts'],
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE — default path (no generateMessage) WITH a position. The
@@ -1778,9 +1984,11 @@ describe('utils/git-commit', () => {
 
       // VERIFY — gitCommit receives the prefixed subject + trailer.
       expect(result).toBe('abc123');
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
-        message: '1.2.1.1: add utility>',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
+        message: '1.2.1.1: add utility',
+        parentSha: 'parent-sha-0001',
       });
     });
 
@@ -1802,9 +2010,9 @@ describe('utils/git-commit', () => {
           error: null,
         })
       );
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE — generateMessage path WITH a position. The LLM subject gets
@@ -1817,9 +2025,11 @@ describe('utils/git-commit', () => {
       // VERIFY — gitCommit receives the prefixed LLM subject + trailer. NO
       // [PRP Auto] banner (the wrap is via formatCommitMessage).
       expect(result).toBe('abc123');
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
-        message: '1.2.1.1: feat(api): add endpoint>',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
+        message: '1.2.1.1: feat(api): add endpoint',
+        parentSha: 'parent-sha-0001',
       });
     });
 
@@ -1841,9 +2051,9 @@ describe('utils/git-commit', () => {
           error: { message: 'model overloaded' },
         })
       );
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'fb000',
+        commitSha: 'fb000',
       });
 
       // EXECUTE — generateMessage path WITH a position, agent always fails →
@@ -1855,11 +2065,13 @@ describe('utils/git-commit', () => {
 
       // VERIFY — the fallback placeholder gets the task-prefix START.
       expect(result).toBe('fb000');
-      expect(mockGitCommit).toHaveBeenCalledWith({
-        path: '/project',
+      expect(mockGitCommitTree).toHaveBeenCalledWith({
+        repoPath: '/project',
+        treeSha: 'tree-sha-0001',
         message: expect.stringContaining(
           '1.2.1.1: chore: commit-gen failed (exit 0); fallback commit'
         ),
+        parentSha: 'parent-sha-0001',
       });
     });
 
@@ -1870,9 +2082,9 @@ describe('utils/git-commit', () => {
         modified: ['src/index.ts'],
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE — position explicitly null (e.g. a malformed subtask.id →
@@ -1883,10 +2095,10 @@ describe('utils/git-commit', () => {
 
       // VERIFY — plain subject + trailer (no prefix, no [PRP Auto]).
       expect(result).toBe('abc123');
-      const call = mockGitCommit.mock.calls[0]?.[0] as
+      const call = mockGitCommitTree.mock.calls[0]?.[0] as
         | { message?: string }
         | undefined;
-      expect(call?.message).toBe('add utility>');
+      expect(call?.message).toBe('add utility');
       expect(call?.message).not.toContain('[PRP Auto]');
     });
 
@@ -1898,9 +2110,9 @@ describe('utils/git-commit', () => {
         modified: ['src/index.ts'],
       });
       mockGitAdd.mockResolvedValue({ success: true, stagedCount: 1 });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -1910,10 +2122,10 @@ describe('utils/git-commit', () => {
 
       // VERIFY — plain despite the position (format=plain wins).
       expect(result).toBe('abc123');
-      const call = mockGitCommit.mock.calls[0]?.[0] as
+      const call = mockGitCommitTree.mock.calls[0]?.[0] as
         | { message?: string }
         | undefined;
-      expect(call?.message).toBe('add utility>');
+      expect(call?.message).toBe('add utility');
     });
   });
 
@@ -2207,9 +2419,9 @@ describe('utils/git-commit', () => {
         success: true,
         files: [],
       });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -2222,7 +2434,7 @@ describe('utils/git-commit', () => {
       const addOrder = mockGitAdd.mock.invocationCallOrder[0];
       const restoreOrder =
         mockGitListStagedDeletions.mock.invocationCallOrder[0];
-      const commitOrder = mockGitCommit.mock.invocationCallOrder[0];
+      const commitOrder = mockGitCommitTree.mock.invocationCallOrder[0];
       expect(addOrder).toBeDefined();
       expect(restoreOrder).toBeDefined();
       expect(commitOrder).toBeDefined();
@@ -2251,9 +2463,9 @@ describe('utils/git-commit', () => {
           error: null,
         })
       );
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE
@@ -2267,7 +2479,7 @@ describe('utils/git-commit', () => {
       const restoreOrder =
         mockGitListStagedDeletions.mock.invocationCallOrder[0];
       const diffOrder = mockGitDiff.mock.invocationCallOrder[0];
-      const commitOrder = mockGitCommit.mock.invocationCallOrder[0];
+      const commitOrder = mockGitCommitTree.mock.invocationCallOrder[0];
       expect(addOrder).toBeLessThan(restoreOrder);
       expect(restoreOrder).toBeLessThan(diffOrder);
       expect(diffOrder).toBeLessThan(commitOrder);
@@ -2291,9 +2503,9 @@ describe('utils/git-commit', () => {
         files: ['plan/x/PRP.md'],
       });
       mockGitRestoreFileFromHead.mockResolvedValue({ success: true });
-      mockGitCommit.mockResolvedValue({
+      mockGitCommitTree.mockResolvedValue({
         success: true,
-        commitHash: 'abc123',
+        commitSha: 'abc123',
       });
 
       // EXECUTE

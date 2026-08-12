@@ -23,10 +23,11 @@
 import {
   gitStatus,
   gitAdd,
-  gitCommit,
   gitDiff,
   gitWriteTree,
   gitRevParseHead,
+  gitCommitTree,
+  gitUpdateRefCAS,
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
@@ -34,7 +35,12 @@ import {
 } from '../tools/git-mcp.js';
 import { basename } from 'node:path';
 import { getLogger, type Logger } from './logger.js';
-import { AgentError, isAgentError, toErrorMessage } from './errors.js';
+import {
+  AgentError,
+  CommitCasRefusedError,
+  isAgentError,
+  toErrorMessage,
+} from './errors.js';
 import { createPrompt } from 'groundswell';
 import { z } from 'zod';
 import {
@@ -515,6 +521,53 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
   }
 }
 
+/**
+ * Render the §5.1 "HEAD moved during generation" manual recovery recipe.
+ *
+ * @remarks
+ * Pure string renderer used by {@link smartCommit} when the post-generation
+ * `gitUpdateRefCAS` refuses the atomic HEAD advance (`casFailure:true` — a
+ * concurrent commit moved HEAD during message generation). Per PRD §5.1 the
+ * caller MUST NOT force the advance; instead it surfaces the generated
+ * message plus this recipe and exits non-zero. The snapshotted work is safe
+ * as a dangling commit (`newSha`) and HEAD is byte-for-byte unchanged, so a
+ * human can recover by reviewing the message and running the copy-paste
+ * `git commit-tree … | xargs git update-ref HEAD` command below.
+ *
+ * `parentSha` omitted → the recipe notes the rootless-repository case and the
+ * command drops `-p` (root commit). Exported so P1.M1.T3.S3 (SIGINT/timeout
+ * rescue) and tests can reuse the exact text.
+ *
+ * @param args - `{ message, treeSha, parentSha?, newSha, error? }`.
+ * @returns The multi-line recovery recipe string (header + snapshot SHAs +
+ *          message + the manual `git commit-tree … | xargs git update-ref HEAD`
+ *          command).
+ */
+export function formatCommitRecoveryRecipe(args: {
+  message: string;
+  treeSha: string;
+  parentSha?: string;
+  newSha: string;
+  error?: string;
+}): string {
+  const parentArg = args.parentSha ? `-p ${args.parentSha} ` : '';
+  return [
+    'Smart Commit CAS refused (HEAD moved during message generation) — MUST NOT force.',
+    '  The snapshotted work is safe as a dangling commit; HEAD is byte-for-byte unchanged.',
+    `  treeSha:    ${args.treeSha}`,
+    args.parentSha
+      ? `  parentSha:  ${args.parentSha}`
+      : '  parentSha:  (rootless repository — root commit)',
+    `  newSha:     ${args.newSha}`,
+    `  message:    ${JSON.stringify(args.message)}`,
+    args.error ? `  git error:  ${args.error}` : null,
+    '  Manual recovery (review the message above, then run):',
+    `    git commit-tree ${parentArg}-m "<msg>" ${args.treeSha} | xargs git update-ref HEAD`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 // ===== MAIN FUNCTION =====
 
 /**
@@ -529,6 +582,10 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
  * otherwise `message` is used verbatim (default — byte-for-byte backward
  * compatible).
  * @returns Promise resolving to commit hash, or `null` if no commit was made.
+ *   **Throws** {@link CommitCasRefusedError} when the post-generation atomic
+ *   HEAD advance refuses (HEAD moved during message generation) — a narrow,
+ *   safety-critical exception to the never-fail-on-commit contract (see
+ *   remarks).
  *
  * @remarks
  * **Workflow**:
@@ -554,12 +611,23 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
  * function captures the pre-generation snapshot: `PARENT_SHA` (current HEAD via `gitRevParseHead`;
  * `undefined` for a rootless repo) and `TREE_SHA` (the staged index frozen into an immutable tree
  * via `gitWriteTree`). The full atomic sequence is `write-tree` → (message gen) → `commit-tree` →
- * CAS `update-ref`; PARENT_SHA + TREE_SHA are captured here (P1.M1.T3.S1), and the CAS advance is
- * post-generation (P1.M1.T3.S2). Until S2 lands, `gitCommit` still runs — the snapshot capture +
- * conflict fail-fast are live in S1; the atomic CAS advance lands in S2. Capturing the snapshot
- * BEFORE generation ALSO fail-fast aborts on an unresolved-merge-conflict index (`gitWriteTree`
- * returns `{success:false}`) → log + `return null`, never spending an LLM call on an uncommittable
- * index (PRD §5.1 "Unresolved merge conflicts in the index" edge case).
+ * CAS `update-ref`: PARENT_SHA + TREE_SHA are captured pre-generation (P1.M1.T3.S1); the dangling
+ * commit is composed via `gitCommitTree` + HEAD advanced atomically via `gitUpdateRefCAS`
+ * post-generation (P1.M1.T3.S2). Only the CAS `update-ref` moves HEAD — every code path that does
+ * not reach a successful `update-ref` leaves HEAD + the index byte-for-byte unchanged. Capturing
+ * the snapshot BEFORE generation ALSO fail-fast aborts on an unresolved-merge-conflict index
+ * (`gitWriteTree` returns `{success:false}`) → log + `return null`, never spending an LLM call on
+ * an uncommittable index (PRD §5.1 "Unresolved merge conflicts in the index" edge case).
+ *
+ * **HEAD moved during generation** (PRD §5.1 "Edge cases"): if a concurrent commit advanced HEAD
+ * in the message-generation window, `gitUpdateRefCAS` reports `{success:false, casFailure:true}`.
+ * This function **MUST NOT force** the advance (forcing would silently clobber the concurrent
+ * commit). Instead it surfaces the generated message plus a manual recovery recipe
+ * ({@link formatCommitRecoveryRecipe}) and **throws {@link CommitCasRefusedError}** — a narrow,
+ * safety-critical exception to the never-fail-on-commit contract. The outer catch RE-THROWS it
+ * (it is NOT swallowed to `null`) so the orchestrator exits non-zero. The snapshotted work is
+ * safe as a dangling commit (`newSha`) and HEAD is byte-for-byte unchanged; a human recovers via
+ * the recipe.
  *
  * **Commit-identity transparency** (PRD §5.1 / §9.10.1): this subsystem MUST NOT set, override, or
  * inject any git author/committer identity — no `user.name`/`user.email` config write and no
@@ -579,8 +647,8 @@ export async function restore_critical_files(repoRoot: string): Promise<void> {
  *   `COMMIT_RETRY_*` constants (PRD §5.1), NOT `smartCommit`. When all retry
  *   attempts are exhausted, `retry()` rethrows the last `AgentError`, which an
  *   INNER `try/catch` (PRD §5.1, P3.M1.T4.S2) catches and converts into a
- *   **last-resort fallback placeholder commit** via {@link buildFallbackCommitMessage} + a direct `gitCommit` — the staged substance is NEVER stranded. The outer `try/catch` only catches truly unexpected throws (e.g. a git operation throwing) → `null` return.
- * - Returns `null` on any failure to allow the pipeline to continue.
+ *   **last-resort fallback placeholder commit** via {@link buildFallbackCommitMessage} — the placeholder flows through the SAME `gitCommitTree` + `gitUpdateRefCAS` plumbing (the staged substance is NEVER stranded). The outer `try/catch` returns `null` for all other failures EXCEPT the safety-critical {@link CommitCasRefusedError}, which it RE-THROWS (→ non-zero exit).
+ * - Returns `null` on any non-CAS failure to allow the pipeline to continue.
  *
  * **Protected Files**:
  * - `PRD.md`: Original PRD document
@@ -683,7 +751,7 @@ export async function smartCommit(
 
     // ── Critical-File Deletion Protection (PRD §5.1, mechanical layer) ──
     // Detect staged deletions of PRD.md / nested PRP.md and undo them, so the
-    // stagecoach gitDiff({staged:true}) + gitCommit below see a deletion-free
+    // stagecoach gitDiff({staged:true}) + the plumbing commit below see a deletion-free
     // staged set. Must run AFTER gitAdd and BEFORE commit-message resolution.
     // Best-effort/non-fatal: restore_critical_files swallows its own errors.
     await restore_critical_files(repoRoot);
@@ -717,7 +785,7 @@ export async function smartCommit(
       'Captured pre-generation snapshot (PARENT_SHA + TREE_SHA)'
     );
     // PARENT_SHA + TREE_SHA are consumed by the post-generation commit-tree + CAS update-ref
-    // (P1.M1.T3.S2). The existing message-generation + gitCommit path below is UNCHANGED for S1.
+    // (P1.M1.T3.S2). The existing message-generation path above is UNCHANGED for S1; S2 replaced the trailing gitCommit with commit-tree → CAS update-ref.
 
     // Resolve the commit message. The DEFAULT path (option omitted / false)
     // is byte-identical to the pre-stagecoach behavior: formatCommitMessage(
@@ -763,8 +831,8 @@ export async function smartCommit(
         // the substance with a labeled placeholder so it's never stranded.
         // LLM-API failures have no subprocess exit code → sentinel 0 (see
         // buildFallbackCommitMessage). Flow CONTINUES (no rethrow) to the
-        // shared gitCommit call below, which handles both the happy path and
-        // this fallback path.
+        // shared plumbing commit below (gitCommitTree + gitUpdateRefCAS),
+        // which handles both the happy path and this fallback path.
         logger().warn(
           `Commit-message generation failed after retries; falling back to placeholder commit: ${toErrorMessage(genError)}`
         );
@@ -777,22 +845,55 @@ export async function smartCommit(
       formattedMessage = formatCommitMessage(message, options?.position);
     }
 
-    // Create commit
-    const commitResult = await gitCommit({
-      path: repoRoot,
+    // Create commit — §5.1 snapshot-based atomic single-commit: commit-tree
+    // (dangling commit from S1's TREE_SHA + PARENT_SHA) → CAS update-ref
+    // (atomic HEAD advance). parentSha undefined → root commit (no -p) /
+    // unconditional advance (rootless repo). The message (generated OR
+    // fallback placeholder) converges on formattedMessage, so BOTH paths flow
+    // through this single plumbing commit.
+    const commitTreeResult = await gitCommitTree({
+      repoPath: repoRoot,
+      treeSha,
       message: formattedMessage,
+      parentSha, // undefined → root commit (rootless repo, no -p)
     });
-
-    if (!commitResult.success) {
-      logger().error(`Git commit failed: ${commitResult.error}`);
+    if (!commitTreeResult.success) {
+      // never-fail-on-commit: log + return null; HEAD + index unchanged.
+      logger().error(
+        `Smart Commit aborted (commit-tree failed): ${commitTreeResult.error}`
+      );
       return null;
     }
+    const newSha = commitTreeResult.commitSha;
 
-    // Return commit hash
-    const commitHash = commitResult.commitHash ?? null;
-    logger().info(`Commit created: ${commitHash}`);
-    return commitHash;
+    const casResult = await gitUpdateRefCAS({
+      repoPath: repoRoot,
+      newSha,
+      expectedOldSha: parentSha, // undefined → unconditional advance (rootless repo)
+    });
+    if (!casResult.success) {
+      // §5.1 "HEAD moved during generation": a concurrent commit advanced HEAD
+      // during message generation. MUST NOT force (would clobber it). Surface a
+      // manual recovery recipe + throw (narrow never-fail exception → non-zero
+      // exit). The snapshotted work is safe as a dangling commit.
+      const recipe = formatCommitRecoveryRecipe({
+        message: formattedMessage,
+        treeSha,
+        parentSha,
+        newSha,
+        error: casResult.error,
+      });
+      logger().error(recipe);
+      throw new CommitCasRefusedError(recipe, { treeSha, parentSha, newSha });
+    }
+
+    // Return commit hash (the dangling commit's SHA, now HEAD).
+    logger().info(`Commit created: ${newSha}`);
+    return newSha;
   } catch (error) {
+    // Safety-critical: the CAS refusal MUST propagate → non-zero exit (PRD
+    // §5.1). It is NOT swallowed to null.
+    if (error instanceof CommitCasRefusedError) throw error;
     // Catch any unexpected errors
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger().error(`Unexpected error: ${errorMessage}`);
