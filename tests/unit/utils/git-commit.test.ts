@@ -490,10 +490,10 @@ describe('utils/git-commit', () => {
         // VERIFY
         expect(result).toBe('abc123def456');
         expect(mockGitStatus).toHaveBeenCalledWith({ path: '/project' });
-        expect(mockGitAdd).toHaveBeenCalledWith({
-          path: '/project',
-          files: ['src/index.ts', 'src/utils.ts'],
-        });
+        // PRD §5.1: ARG_MAX-safe pathspec staging — no `files` key → git.add('.') (never an explicit list).
+        expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' });
+        // No protected files in this fixture → gitUnstagePath is never called.
+        expect(mockGitUnstagePath).not.toHaveBeenCalled();
         expect(mockGitCommit).toHaveBeenCalledWith({
           path: '/project',
           message: 'Test commit>',
@@ -522,10 +522,10 @@ describe('utils/git-commit', () => {
         // VERIFY
         expect(result).toBe('abc123');
         // tasks.json is NOT protected, PRD.md IS protected
-        expect(mockGitAdd).toHaveBeenCalledWith({
-          path: '/project',
-          files: ['src/index.ts', 'tasks.json'],
-        });
+        // PRD §5.1: ARG_MAX-safe pathspec staging — no `files` key → git.add('.').
+        expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' });
+        // PRD.md was filtered out → unstaged via gitUnstagePath after pathspec staging.
+        expect(mockGitUnstagePath).toHaveBeenCalledWith('PRD.md', '/project');
       });
 
       it('should return null when no files to commit after filtering', async () => {
@@ -862,12 +862,12 @@ describe('utils/git-commit', () => {
       // EXECUTE
       const result = await smartCommit('/project', 'Test commit');
 
-      // VERIFY - tasks.json is NOT protected
+      // VERIFY - tasks.json is NOT protected (staged via pathspec like everything else).
       expect(result).toBe('abc123');
-      expect(mockGitAdd).toHaveBeenCalledWith({
-        path: '/project',
-        files: ['src/index.ts', 'plan/session/tasks.json', 'src/utils.ts'],
-      });
+      // PRD §5.1: ARG_MAX-safe pathspec staging — no `files` key → git.add('.').
+      expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' });
+      // tasks.json is not protected → gitUnstagePath is never called for it.
+      expect(mockGitUnstagePath).not.toHaveBeenCalled();
     });
   });
 

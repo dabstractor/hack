@@ -627,21 +627,35 @@ export async function smartCommit(
     // Filter out protected files
     const filteredFiles = filterProtectedFiles(filesToStage);
 
-    // Skip commit if no files to stage
+    // Skip commit if no files to stage after filtering protected files.
     if (filteredFiles.length === 0) {
       logger().info('No files to commit after filtering protected files');
       return null;
     }
 
-    // Stage the files
-    const addResult = await gitAdd({
-      path: repoRoot,
-      files: filteredFiles,
-    });
+    // PRD §5.1: ARG_MAX-safe staging (no argument-vector overflow) — stage by pathspec
+    // (git add -A / git add .), NOT an explicit file list. A repo with an unignored node_modules/
+    // (tens of thousands of files) makes git.add(['--', ...everyFile]) overflow ARG_MAX → spawn E2BIG
+    // → silently strands task status. Pathspec staging respects .gitignore and never overflows. Where
+    // an explicit filtered set is needed, chunk the path list into batches under an ARG_MAX byte budget.
+    const addResult = await gitAdd({ path: repoRoot }); // no `files` key → pathspec git.add('.')
 
     if (!addResult.success) {
       logger().error(`Git add failed: ${addResult.error}`);
       return null;
+    }
+
+    // Unstage protected files that were in the status but filtered out (§5.1 protected-files).
+    // A handful of basenames — no ARG_MAX risk. Non-fatal: if unstage fails, the file stays staged
+    // (restore_critical_files may catch PRD.md deletions; the commit proceeds — substance is never stranded).
+    const excludedFiles = filesToStage.filter(f => !filteredFiles.includes(f));
+    for (const excluded of excludedFiles) {
+      const unstageResult = await gitUnstagePath(excluded, repoRoot);
+      if (!unstageResult.success) {
+        logger().warn(
+          `Failed to unstage protected file ${excluded}: ${unstageResult.error}`
+        );
+      }
     }
 
     // ── Critical-File Deletion Protection (PRD §5.1, mechanical layer) ──

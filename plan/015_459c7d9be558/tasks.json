@@ -69,14 +69,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "ARG_MAX-safe staging refactor",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Refactor the staging path in git-commit.ts/smartCommit so it no longer enumerates every file path into an explicit argv (which overflows ARG_MAX on repos with unignored node_modules/). Default to pathspec staging (git add -A); chunk filtered sets under an ARG_MAX byte budget.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Pathspec-default staging + ARG_MAX chunked filtered sets",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: system_context.md §2.1 — current smartCommit calls gitAdd(repoRoot, filteredFiles) which calls git.add(['--', ...everyFile]) via simple-git. A repo with unignored node_modules/ (tens of thousands of files) overflows kernel ARG_MAX → spawn E2BIG → silently strands task status. git-mcp.ts gitAdd (line ~432) already supports `files ?? ['.']` → `git.add('.')` for the all-files path. The fix: stage by pathspec by default, chunk explicit filtered sets.\n2. INPUT: The current smartCommit flow provides a `filteredFiles: string[]` (files minus PROTECTED_FILES). The gitAdd function in git-mcp.ts accepts { path, files? }.\n3. LOGIC: In smartCommit (src/utils/git-commit.ts), change the staging strategy: (a) When no protected files were filtered OUT (common case), stage with pathspec `git add -A` (or gitAdd with files undefined → `git.add('.')`) — this respects .gitignore and never overflows ARG_MAX. (b) When protected files WERE filtered out, stage all files with `git add -A` first, then UNSTAGE the protected files via git reset HEAD -- <protectedfile> (the existing gitUnstagePath function already does this). This avoids ever building a massive explicit path list. If an explicit filtered set is unavoidable, chunk the path list into batches under an ARG_MAX byte budget (estimate ~128KB per exec on Linux; batch so total argv bytes stay well under). Keep restore_critical_files() running AFTER staging (unchanged). The existing gitAdd function already handles `files = ['.']` → `git.add('.')`, so modify smartCommit to pass `files: ['.']` or undefined for the default path, and use unstage for protected files.\n4. OUTPUT: Modified staging logic in smartCommit (src/utils/git-commit.ts) that never passes a massive explicit file list to gitAdd. No new exported interface (internal refactor). smartCommit's signature and return type are unchanged.\n5. DOCS: JSDoc on the staging section of smartCommit citing §5.1 'ARG_MAX-safe staging (no argument-vector overflow) — stage by pathspec (git add -A / git add .), and where an explicit filtered set is needed, chunk the path list into batches under an ARG_MAX byte budget.'",
@@ -98,7 +98,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Pre-generation: capture PARENT_SHA, write-tree snapshot, identity transparency",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
