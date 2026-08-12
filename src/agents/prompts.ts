@@ -219,6 +219,16 @@ session and can be committed permanently by Smart Commit (\`git add -A\`).
 Pipeline-state files (\`PRD.md\`, \`PRP.md\`, \`tasks.json\`, \`prd_snapshot.md\`) are
 **NOT temporary** — do not delete them.
 
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: \`git push\`,
+\`git remote\`, \`git update-ref\`, \`gh repo\` (any subcommand),
+\`gh api -X PATCH|POST|DELETE\`, \`curl\`/\`wget\` to \`api.github.com\`, or any
+reference to \`default_branch\`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
+
 ## MULTI-PRP BATCHING POLICY — READ THIS BEFORE WRITING MORE THAN ONE PRP
 
 **Default: write exactly ONE PRP per call — the one you were asked for, at the exact path given.** Do not write PRPs for other work items "to be helpful" or to save tokens. Each item normally gets its own dedicated research session, and that is the expected, high-quality path.
@@ -709,6 +719,16 @@ session and can be committed permanently by Smart Commit (\`git add -A\`).
 Pipeline-state files (\`PRD.md\`, \`PRP.md\`, \`tasks.json\`, \`prd_snapshot.md\`) are
 **NOT temporary** — do not delete them.
 
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: \`git push\`,
+\`git remote\`, \`git update-ref\`, \`gh repo\` (any subcommand),
+\`gh api -X PATCH|POST|DELETE\`, \`curl\`/\`wget\` to \`api.github.com\`, or any
+reference to \`default_branch\`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
+
 ## Mission: One-Pass Implementation Success
 
 PRPs enable working code on the first attempt through:
@@ -1101,6 +1121,16 @@ session and can be committed permanently by Smart Commit (\`git add -A\`).
 Pipeline-state files (\`PRD.md\`, \`PRP.md\`, \`tasks.json\`, \`prd_snapshot.md\`) are
 **NOT temporary** — do not delete them.
 
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: \`git push\`,
+\`git remote\`, \`git update-ref\`, \`gh repo\` (any subcommand),
+\`gh api -X PATCH|POST|DELETE\`, \`curl\`/\`wget\` to \`api.github.com\`, or any
+reference to \`default_branch\`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
+
 ## Output - IMPORTANT
 
 **It is IMPORTANT that you follow these rules exactly:**
@@ -1225,6 +1255,16 @@ You **MUST NOT** run \`git commit\` or \`git add\` — the orchestrator commits 
 reorganization via the Smart Commit post-cleanup commit. Committing yourself
 causes a double-commit race. Read-only \`git\` inspection (e.g. \`git status\`) is
 fine.
+
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: \`git push\`,
+\`git remote\`, \`git update-ref\`, \`gh repo\` (any subcommand),
+\`gh api -X PATCH|POST|DELETE\`, \`curl\`/\`wget\` to \`api.github.com\`, or any
+reference to \`default_branch\`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
 
 ## Operational Notes
 

@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Commit Generation & Agent Tool Safety",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Implement §9.10 (new) consolidating commit-message generation (stagecoach binary delegation), commit-identity structural guard (self-source-scan), snapshot-based atomic plumbing commit (§5.1 new blocks), ARG_MAX-safe staging, baseline .gitignore scaffolding, per-role agent tool matrix, and bash remote-mutation denylist. Also covers §9.1 tech-stack bullet, §4.1 .gitignore cross-reference, and terminology cleanup (stagecoach-the-in-process-tool → Smart Commit).",
       "milestones": [
         {
@@ -332,7 +332,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Agent Tool-Access Scoping & Remote-Mutation Prohibition",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Implement the per-role tool matrix (Research/Planner/Coder → no bash, read-only git; Commit → no bash, git_commit only; Validation → denylisted bash), the bash denylist (refuse remote/default-branch-mutating commands before exec), and the universal remote-mutation prohibition in all deletion-capable agent prompts. Per §9.10.3.",
           "tasks": [
             {
@@ -387,14 +387,14 @@
               "type": "Task",
               "id": "P1.M4.T3",
               "title": "Universal remote-mutation prohibition in agent prompts",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Add remote-mutating operations to the Universal Forbidden Operations (§5.2) and to every deletion-capable agent prompt in src/agents/prompts.ts + PROMPTS.md.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T3.S1",
                   "title": "Add remote-mutation prohibition to FORBIDDEN OPERATIONS sections",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: system_context.md §3.1 + PROMPTS.md grep results. The FORBIDDEN ACTIONS sections exist at multiple locations in src/agents/prompts.ts (lines ~194, ~684, ~1076, ~1194) and PROMPTS.md. The 'Universal Forbidden Operations (all agents)' in §5.2 lists: never modify PRD.md, never add plan/PRD.md/task files to .gitignore, never run prd/run-prd.sh/tsk, never create session-pattern dirs. Remote-mutation prohibition is NOT currently listed.\n2. INPUT: No code inputs — prompt-text changes.\n3. LOGIC: In src/agents/prompts.ts and PROMPTS.md: (a) Add to every FORBIDDEN OPERATIONS / Universal Forbidden Operations section the remote-mutation prohibition: 'NEVER run any remote-mutating git/GitHub command: git push, git remote, git update-ref, gh repo (any subcommand), gh api -X PATCH|POST|DELETE, curl/wget to api.github.com, or any reference to default_branch. These are human-only operations. No agent reaches git through the bash tool — use structured git tools only.' (b) Ensure every deletion-capable agent prompt (cleanup, bug-hunter, bug-fix breakdown, post-validation fix) includes this prohibition. (c) Mirror in PROMPTS.md.\n4. OUTPUT: Modified FORBIDDEN OPERATIONS sections in src/agents/prompts.ts + PROMPTS.md.\n5. DOCS: The prompt edits themselves are the documentation (Mode A). Cite §9.10.3 'Repo-remote-mutating operations are never exposed as any agent tool, in any role. These are human-only operations, and this rule is added to the §5.2 Universal Forbidden Operations.'",
@@ -414,28 +414,28 @@
       "type": "Phase",
       "id": "P2",
       "title": "Format-Nudge Recovery",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Verify and complete the format-nudge recovery subsystem (§4.5.1) across three output-contract variants. The subsystem is ~90% implemented; this phase adds the missing FORMAT_NUDGE_MAX constant, wires it consistently, and confirms budget isolation + logging.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Confirm & complete format-nudge recovery across output contracts",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Add the named FORMAT_NUDGE_MAX constant (default 2) to config/constants.ts, replace the three inlined bounds, confirm budget isolation, add consistent WARN logging, and complete JSDoc. Per §4.5.1 — verify-and-complete, NOT rebuild.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "Add FORMAT_NUDGE_MAX constant + wire across all three variants",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Create the FORMAT_NUDGE_MAX named constant in config/constants.ts and replace the three inlined bound values (all currently hardcoded to 2) across prp-executor.ts, prp-generator.ts, and fix-cycle-workflow.ts.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "FORMAT_NUDGE_MAX constant in constants.ts + import at all call sites",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: format-nudge-analysis.md §4 + §5. The FORMAT_NUDGE_MAX constant does NOT exist in config/constants.ts. The bound is inlined in three places: prp-executor.ts line 357 (`const maxFormatNudges = 2`), prp-generator.ts line 821 (`maxNudges = 2` default param), fix-cycle-workflow.ts line 373 (`const maxNudge = 2`). All are 2, matching §4.5.1's default. The constant is intentionally NOT exposed as an env/.hack knob (§4.5.1 gives it a fixed default with no documented env var). The existing config/constants.ts pattern is: named const + DEFAULT_* value + get*() reader (e.g. COMMIT_RETRY_MAX at line 451). For FORMAT_NUDGE_MAX, since it's not env-configurable, export just `export const FORMAT_NUDGE_MAX = 2;` (no env reader needed).\n2. INPUT: No code inputs — new constant.\n3. LOGIC: (a) Add `export const FORMAT_NUDGE_MAX = 2;` to src/config/constants.ts with JSDoc citing §4.5.1. (b) In prp-executor.ts: import FORMAT_NUDGE_MAX, replace `const maxFormatNudges = 2;` at line 357 with `const maxFormatNudges = FORMAT_NUDGE_MAX;`. (c) In prp-generator.ts: import FORMAT_NUDGE_MAX, change `#nudgeResearcherToWrite(task, prpOutputPath, maxNudges = 2)` default param to `maxNudges = FORMAT_NUDGE_MAX`. (d) In fix-cycle-workflow.ts: import FORMAT_NUDGE_MAX, replace `const maxNudge = 2;` at line 373 with `const maxNudge = FORMAT_NUDGE_MAX;`.\n4. OUTPUT: New FORMAT_NUDGE_MAX export in config/constants.ts. Three call sites wired to the constant. No behavioral change (value is still 2).\n5. DOCS: JSDoc on FORMAT_NUDGE_MAX citing §4.5.1 'default 2, internal constant intentionally NOT exposed as .hack/env knob.'",
@@ -447,7 +447,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Confirm budget isolation + consistent WARN logging + JSDoc completion",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"

@@ -663,6 +663,17 @@ bandit -r src/
 - ❌ Don't use sync functions in async context
 - ❌ Don't hardcode values that should be config
 - ❌ Don't catch all exceptions - be specific
+
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: `git push`,
+`git remote`, `git update-ref`, `gh repo` (any subcommand),
+`gh api -X PATCH|POST|DELETE`, `curl`/`wget` to `api.github.com`, or any
+reference to `default_branch`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
+
   </PRP-TEMPLATE>
 
 ````
@@ -755,6 +766,16 @@ Strictly output your results in this JSON format:
 <PRP-README>
 $PRP_README
 </PRP-README>
+
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: `git push`,
+`git remote`, `git update-ref`, `gh repo` (any subcommand),
+`gh api -X PATCH|POST|DELETE`, `curl`/`wget` to `api.github.com`, or any
+reference to `default_branch`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
 ````
 
 ## 6. CLEANUP_PROMPT
@@ -832,6 +853,16 @@ We are preparing to commit. Ensure the repo is clean.
    - Any other generated files that should NOT be committed
 
 Be selective - keep the root clean and organized.
+
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: `git push`,
+`git remote`, `git update-ref`, `gh repo` (any subcommand),
+`gh api -X PATCH|POST|DELETE`, `curl`/`wget` to `api.github.com`, or any
+reference to `default_branch`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
 ```
 
 ## 7. DELTA_PRD_GENERATION_PROMPT
@@ -1214,6 +1245,16 @@ Small improvements or polish items.
 - **If you find NO Critical or Major bugs**: Do NOT write any file. Do NOT create `./$BUG_RESULTS_FILE`. Leave no trace. The absence of the file signals success.
 
 This is imperative. The presence or absence of the bug report file controls the entire bugfix pipeline. Writing an empty or "no bugs found" file will cause unnecessary work. Not writing the file when there ARE bugs will cause bugs to be missed.
+
+## FORBIDDEN ACTIONS — Remote-Mutation Prohibition (PRD §9.10.3)
+
+You **MUST NEVER** run any remote-mutating git/GitHub command: `git push`,
+`git remote`, `git update-ref`, `gh repo` (any subcommand),
+`gh api -X PATCH|POST|DELETE`, `curl`/`wget` to `api.github.com`, or any
+reference to `default_branch`. These are **human-only operations**. No agent
+reaches git through the bash tool — use the structured git tools only.
+Repo-remote-mutating operations are never exposed as any agent tool, in any role
+(PRD §9.10.3), and this rule is part of the §5.2 Universal Forbidden Operations.
 
 ```
 
