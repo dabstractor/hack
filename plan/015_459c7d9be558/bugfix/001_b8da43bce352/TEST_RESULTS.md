@@ -1,0 +1,50 @@
+# Bug Fix Requirements
+
+## Overview
+Creative end-to-end PRD validation of the hacky-hack pipeline. I built the project, ran the full suite (7319 pass / 9 fail / 71 skip), and exercised many PRD acceptance criteria behaviorally in isolated temp git repos: §9.6 --help/--version/<2s + outside-git short-circuit (PASS, ~0.6s); §9.8 repo-root resolution from nested subdirs, worktree (.git file), and outside-git hard-error (PASS); §9.2.7 auth preflight aborts rc=1 with no session + actionable message when no credential is resolvable (PASS); §9.7.6 .hack secrets refusal + .hack.local acceptance (PASS); §9.7.7/§9.2.9 out-of-range/invalid reasoning/mode/harness hard-errors and unknown-section warnings (PASS); §5.4 hack update loose task-ID + loose status matching, cascade-Complete-down, ancestor-min-recompute (incl. reset regression), JSON {id,status,title} output, and not-found/ambiguous/unknown error exits (PASS); §5.3 breakdown-in-progress calm notice + awaiting_breakdown JSON vs 'No sessions' distinction (PASS); §4.3 change/artifact classifier fail-to-protective-default SUBSTANTIVE/DIRTY (PASS, code-inspected); §9.9 negated-existence gate neutralization detector (PASS, matches spec); §9.10.1 stagecoach binary delegation + §9.10.2 no Co-Authored-By literals in non-comment src (PASS); §4.2 PARALLEL_RESEARCH/RESEARCH_DEPTH forwarding to bugfix child (PASS). I found one genuine product defect: §4.4 validation abort is swallowed under --continue-on-error (BUG-001, major), plus a red test suite from 8 stale tests after legitimate §4.5.1/§5.1 changes (BUG-002, minor). The implementation is broadly mature and PRD-compliant across the surface I tested.
+
+
+## Critical Issues (Must Fix)
+Issues that prevent core functionality from working.
+
+None.
+
+
+## Major Issues (Should Fix)
+Issues that significantly impact user experience or functionality.
+
+### Issue 1: Validation failure is swallowed under --continue-on-error, allowing bug-hunt and commits on a half-validated build (violates PRD §4.4)
+**Severity**: Major
+**ID**: BUG-001
+**Location**: src/workflows/prp-pipeline.ts:1866-1873 (PRPPipeline.#runValidation, --continue-on-error && !watchdog branch)
+
+**Description**:
+PRD §4.4 'Abort-on-failure' is unconditional: 'If validation does not finish (non-zero exit), the run MUST abort _before_ cleanup, commit, and bug-hunt. Proceeding on a half-validated build is forbidden.' The only special-case the section names is watchdog kills ('a watchdog-killed validation is a hard failure, never retried'). The implementation in PRPPipeline.#runValidation() adds an UNDOCUMENTED carve-out: when --continue-on-error is set and the failure is non-watchdog (exitCode != 124 and not timedOut), it logs a warning and FALLS THROUGH to bug-hunt instead of throwing ValidationFailedError. This lets the pipeline run the QA/bug-fix cycle and Smart Commit on a build whose validate.sh just failed (non-zero exit) — exactly the 'half-validated build' state §4.4 forbids. The dedicated unit test 'should NOT swallow a validation abort under --continue-on-error' encodes the PRD intent and currently FAILS (it observes result.success === true where false is required, and MockBugHunt is reached). The implementation comment even acknowledges the divergence ('must NOT abort the whole run when the operator explicitly asked to proceed past failures'), which directly contradicts the PRD's 'MUST abort' / 'forbidden' wording.
+
+**Steps to Reproduce**:
+1. Build: npm run build. 2. Run the test: npx vitest run tests/unit/workflows/prp-pipeline-validation.test.ts -t 'should NOT swallow a validation abort under --continue-on-error' -> FAIL (AssertionError: expected true to be false; result.success is true because validation abort was swallowed). 3. Code path: src/workflows/prp-pipeline.ts #runValidation(), the branch `if (this.#continueOnError && !watchdog) { this.logger.warn(...) } else { throw new ValidationFailedError(outcome); }`. For a non-watchdog validation failure (e.g. exitCode 1, timedOut false) under --continue-on-error, the throw is skipped and runQACycle()/bug-hunt proceeds. To confirm behaviorally: trigger any run with --continue-on-error against a repo whose validate.sh exits non-zero (not via timeout/124); observe the run does not abort and reaches the bug-hunt/commit phase.
+
+
+## Minor Issues (Nice to Fix)
+Small improvements or polish items.
+
+### Issue 1: Test suite is red: 8 unit/integration tests are stale relative to PRD-compliant behavior changes (CI cannot pass)
+**Severity**: Minor
+**ID**: BUG-002
+**Location**: tests/unit/workflows/fix-cycle-workflow.test.ts, tests/unit/protected-files.test.ts:738, tests/integration/prp-executor-integration.test.ts:497
+
+**Description**:
+`npx vitest run` reports 9 failures across 4 files. Beyond BUG-001, the remaining 8 failures are NOT product defects — the implementation behaves per the PRD — but the tests were never updated after legitimate changes, so `npm test` / `npm run validate` (and any CI gate) fail. Breakdown: (a) tests/unit/workflows/fix-cycle-workflow.test.ts (6 failures) — fixtures carry weak `context_scope` strings (missing the '4. OUTPUT:' section); the current BacklogSchema correctly rejects them, which triggers the §4.5.1 backlog-heal path. That heal path legitimately adds extra `retryAgentPrompt` (schema-nudge) and `writeTasksJSON` calls and mutates the backlog, so the tests' exact call-count/backlog-equality assertions drift (e.g. 'creates the architect agent ONCE ... retryAgentPrompt called 1 times, but got 3'). Verified directly: a minimal backlog with a full CONTRACT DEFINITION context_scope PASSES BacklogSchema; the same backlog missing '4. OUTPUT:' FAILS and would trigger heal. (b) tests/unit/protected-files.test.ts (1 failure) — expects explicit per-file `gitAdd({path, files:[...]})` staging, but Smart Commit now stages via pathspec `gitAdd({path})` per §5.1 'ARG_MAX-safe staging'. (c) tests/integration/prp-executor-integration.test.ts (1 failure) — asserts the legacy error text 'Failed to parse Coder Agent response', but the §4.5.1 format-nudge path now emits the improved 'Coder Agent did not return a parseable JSON result envelope after 2 format nudge(s) ...' message. None of these 8 indicate wrong runtime behavior, but a permanently-red suite hides real regressions and breaks the project's own `validate` script.
+
+**Steps to Reproduce**:
+1. npm run build. 2. npx vitest run -> 'Test Files 4 failed | 215 passed', 'Tests 9 failed | 7319 passed'. 3. The 8 non-BUG-001 failures: npx vitest run tests/unit/workflows/fix-cycle-workflow.test.ts (6 fail), tests/unit/protected-files.test.ts (1 fail, 'should filter all protected files in smart commit workflow'), tests/integration/prp-executor-integration.test.ts (1 fail, 'should handle invalid JSON from Coder Agent'). Each fails on an assertion that encodes pre-§4.5.1 / pre-§5.1 behavior.
+
+## Testing Summary
+- Total bugs found: 2
+- Critical: 0
+- Major: 1
+- Minor: 1
+
+## Recommendations
+- BUG-001: In PRPPipeline.#runValidation(), remove the `this.#continueOnError && !watchdog` fall-through so every non-success validation outcome throws ValidationFailedError (aborting before bug-hunt/commit) regardless of --continue-on-error, as §4.4 mandates. If operators genuinely need to proceed past validation debt, that should be a separate, explicitly-scoped flag documented as an §4.4 exception in the PRD — not an overload of --continue-on-error.
+- BUG-002: Update the 8 stale tests to match the PRD-compliant behavior: (a) give fix-cycle-workflow fixtures a full CONTRACT DEFINITION context_scope (or assert on the heal path explicitly); (b) update protected-files.test.ts to expect pathspec `gitAdd({path})` staging; (c) update prp-executor-integration.test.ts to assert the new §4.5.1 format-nudge error text. Restoring a green suite is prerequisite for the project's own `npm run validate` CI gate.
