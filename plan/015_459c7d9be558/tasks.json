@@ -183,14 +183,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Add stagecoach-ai dependency + binary resolver module",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Declare stagecoach-ai as an npm dependency and create a resolver that locates the native binary via the dependency's resolved path. On missing binary, surface a clear actionable error.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "stagecoach-ai dependency + resolveStagecoachBinary() resolver",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: stagecoach-and-agent-factory.md §1.1–§1.4 — stagecoach-ai v0.1.16 exists on npm, downloads a per-platform Go binary at postinstall into ~/.stagecoach/versions/<version>/<goos>-<goarch>/stagecoach. The bin/stagecoach.js shim resolves via STAGECOACH_CACHE_DIR or os.homedir(). The pipeline should resolve the binary similarly. Supported: linux/darwin/windows × amd64/arm64. The package also provides a bin entry (`stagecoach` → `./bin/stagecoach.js`) that could be resolved via require.resolve('stagecoach-ai/bin/stagecoach.js') or by resolving the cache path directly.\n2. INPUT: No code inputs — new module + package.json change.\n3. LOGIC: (a) Add `stagecoach-ai` to package.json dependencies (e.g. `\"stagecoach-ai\": \"^0.1.16\"`). (b) Create resolveStagecoachBinary() in a new module (e.g. src/utils/stagecoach-resolver.ts) that: resolves the binary path — either via the npm dependency's resolved path (require.resolve('stagecoach-ai/bin/stagecoach.js') then follow to the native binary), or directly via ~/.stagecoach/versions/<version>/<goos>-<goarch>/stagecoach using the package's version from its package.json. Returns the absolute path string. (c) On missing binary (not installed / postinstall blocked), throw a clear AgentError: 'stagecoach native binary not found at <path>. Run `npm install` to install it (no separate install / PATH needed). See §9.10.1.' — NOT a silent fallback.\n4. OUTPUT: Exported function resolveStagecoachBinary() → string (path) from src/utils/stagecoach-resolver.ts. Updated package.json with stagecoach-ai dependency. Consumed by P1.M2.T2.S1.\n5. DOCS: JSDoc on resolveStagecoachBinary citing §9.10.1 'Shipped with this tool — npm dependency, per-platform native binary via postinstall, no separate install, no PATH lookup.' package.json/install note: npm install brings stagecoach transitively.",
@@ -206,14 +206,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Rewrite generateCommitMessage to invoke stagecoach --dry-run --single",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Replace the in-process LLM agent call in generateCommitMessage with spawning the stagecoach binary (argv vector, never sh -c). Forward provider/model/style. Capture stdout → descriptive message.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "generateCommitMessage → stagecoach --dry-run --single binary exec",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"
