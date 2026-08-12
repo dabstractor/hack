@@ -641,6 +641,72 @@ async function gitWriteTree(repoPath?: string): Promise<GitWriteTreeResult> {
 }
 
 /**
+ * Result of {@link gitCommitTree}: either a successful commit SHA or a structured error.
+ *
+ * @remarks
+ * `success: false` carries the git error message — `git commit-tree` has several failure modes
+ * (bad tree SHA, bad parent SHA, git internal), so the message is extracted (not a fixed string)
+ * for an actionable signal per PRD §5.1.
+ */
+type GitCommitTreeResult =
+  | { success: true; commitSha: string }
+  | { success: false; error: string };
+
+/**
+ * `git commit-tree` — create a DANGLING commit object from a tree + optional parent + message
+ * (PRD §5.1 "Commit Workflow Mechanics" step 2: snapshot-based atomic single-commit).
+ *
+ * @remarks
+ * Creates a commit object from `treeSha` (the frozen tree from {@link gitWriteTree}), an optional
+ * `parentSha`, and `message`. This touches NO ref — the commit is DANGLING until step 3
+ * ({@linkcode gitUpdateRefCAS}, S3) advances HEAD. This is what makes the §5.1 commit atomic: a
+ * failed/slow generation step after `write-tree` cannot corrupt history, and `commit-tree` itself
+ * never moves HEAD.
+ *
+ * Uses `simpleGit.raw([...])` — an argv VECTOR (not a shell-interpolated string), so it runs via
+ * `execFile` internally and satisfies §5.1's no-shell rule. The message is the `-m` argv element:
+ * `execFile` does NOT interpret embedded newlines, so a multi-line message is preserved verbatim
+ * (git `-m` treats them as the commit body). No stdin piping or shell-concatenation is involved.
+ *
+ * `parentSha` is OPTIONAL: when omitted, no `-p` is passed and git creates a root commit (the
+ * rootless-repo / first-commit edge case in PRD §5.1). `commit-tree` prints the 40-char commit
+ * SHA + a trailing newline; the output is `.trim()`-ed.
+ *
+ * Failures (bad tree SHA, bad parent SHA, git internal) are surfaced as `{ success: false, error }`
+ * with the extracted git message — the error is NOT re-thrown.
+ *
+ * @param input - `{ treeSha, message, parentSha?, repoPath? }`.
+ * @returns `{ success: true, commitSha }` (trimmed 40-char SHA) on success, or
+ *          `{ success: false, error }` with the git error message on failure.
+ */
+async function gitCommitTree(input: {
+  treeSha: string;
+  message: string;
+  parentSha?: string;
+  repoPath?: string;
+}): Promise<GitCommitTreeResult> {
+  const safePath = await validateRepositoryPath(input.repoPath);
+  const git = simpleGit(safePath);
+  const args = [
+    'commit-tree',
+    input.treeSha,
+    ...(input.parentSha ? ['-p', input.parentSha] : []), // omitted for root commits (rootless repo)
+    '-m',
+    input.message, // argv element — execFile preserves newlines
+  ];
+  try {
+    const output = await git.raw(args); // stdout = 40-char commit SHA + trailing newline
+    const commitSha = output.trim();
+    return { success: true, commitSha };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/**
  * Read the content of a file at a specific commit (blob fetch).
  *
  * @remarks
@@ -916,6 +982,7 @@ export type {
   GitListDeletionsResult,
   GitRestoreFromHeadResult,
   GitWriteTreeResult,
+  GitCommitTreeResult,
 };
 export {
   gitStatusTool,
@@ -934,4 +1001,5 @@ export {
   gitRestoreFileFromHead,
   gitUnstagePath,
   gitWriteTree,
+  gitCommitTree,
 };

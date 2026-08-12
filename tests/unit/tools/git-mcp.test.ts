@@ -51,6 +51,7 @@ import {
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
+  gitCommitTree,
   gitStatusTool,
   gitDiffTool,
   gitAddTool,
@@ -60,6 +61,7 @@ import {
   type GitAddInput,
   type GitCommitInput,
   type GitFileHistoryEntry,
+  type GitCommitTreeResult,
 } from '../../../src/tools/git-mcp.js';
 
 const mockExistsSync = vi.mocked(existsSync);
@@ -1336,6 +1338,112 @@ describe('tools/git-mcp', () => {
       // VERIFY
       expect(result.success).toBe(false);
       expect(result.error).toBe('oops');
+    });
+  });
+
+  describe('gitCommitTree', () => {
+    // S2 (P1.M1.T1.S2): create a DANGLING commit from a tree + optional parent + message via
+    // `git commit-tree`. Mirrors gitWriteTree's pattern (validateRepositoryPath + simpleGit.raw([argv])
+    // + trim + structured catch). The commit touches NO ref (HEAD advance is S3's gitUpdateRefCAS).
+    // afterEach(() => vi.clearAllMocks()) at the describe('tools/git-mcp') level resets the raw mock.
+
+    it('creates a commit with a parent (-p in argv)', async () => {
+      mockGitInstance.raw.mockResolvedValue('abc123\n');
+
+      const result = await gitCommitTree({
+        treeSha: 'tree1',
+        message: 'msg',
+        parentSha: 'parent1',
+      });
+
+      expect(result).toEqual({ success: true, commitSha: 'abc123' });
+      expect(mockGitInstance.raw).toHaveBeenCalledWith([
+        'commit-tree',
+        'tree1',
+        '-p',
+        'parent1',
+        '-m',
+        'msg',
+      ]);
+    });
+
+    it('creates a root commit (no parent → no -p in argv)', async () => {
+      mockGitInstance.raw.mockResolvedValue('def456\n');
+
+      const result = await gitCommitTree({
+        treeSha: 'tree1',
+        message: 'msg',
+      });
+
+      expect(result).toEqual({ success: true, commitSha: 'def456' });
+      // NO -p: root commit (rootless-repo / first-commit edge case, PRD §5.1).
+      expect(mockGitInstance.raw).toHaveBeenCalledWith([
+        'commit-tree',
+        'tree1',
+        '-m',
+        'msg',
+      ]);
+    });
+
+    it('passes a multi-line message verbatim via -m (execFile preserves newlines)', async () => {
+      mockGitInstance.raw.mockResolvedValue('multi\n');
+
+      const result = await gitCommitTree({
+        treeSha: 'tree1',
+        message: 'line1\nline2',
+        parentSha: 'parent1',
+      });
+
+      expect(result.success).toBe(true);
+      // The embedded newline is in the argv element verbatim — no shell split (§5.1 no-shell rule).
+      expect(mockGitInstance.raw).toHaveBeenCalledWith([
+        'commit-tree',
+        'tree1',
+        '-p',
+        'parent1',
+        '-m',
+        'line1\nline2',
+      ]);
+    });
+
+    it('trims the commit SHA (raw stdout has a trailing newline)', async () => {
+      mockGitInstance.raw.mockResolvedValue('  sha123  \n');
+
+      const result = await gitCommitTree({
+        treeSha: 'tree1',
+        message: 'msg',
+      });
+
+      expect(result).toEqual({ success: true, commitSha: 'sha123' });
+    });
+
+    it('returns the error message on failure (Error rejection)', async () => {
+      mockGitInstance.raw.mockRejectedValue(
+        new Error('fatal: not a valid object name')
+      );
+
+      const result = await gitCommitTree({
+        treeSha: 'badtree',
+        message: 'msg',
+        parentSha: 'parent1',
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: 'fatal: not a valid object name',
+      });
+    });
+
+    it('returns String(e) on failure (non-Error rejection)', async () => {
+      // Covers the `e instanceof Error ? ... : String(e)` false branch for 100% coverage.
+      mockGitInstance.raw.mockRejectedValue('string error');
+
+      const result = await gitCommitTree({
+        treeSha: 'tree1',
+        message: 'msg',
+      });
+
+      expect(result).toEqual({ success: false, error: 'string error' });
     });
   });
 });
