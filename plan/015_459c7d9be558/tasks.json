@@ -488,7 +488,7 @@
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Update README.md — stagecoach, identity-transparency, tool scoping",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S2",

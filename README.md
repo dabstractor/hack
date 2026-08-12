@@ -91,6 +91,15 @@ cd hacky-hack
 npm install
 ```
 
+> **Note — `stagecoach` ships with this package.** Commit-message generation is
+> delegated to the [`stagecoach`](https://github.com/earendil-works/stagecoach)
+> tool, declared as the `stagecoach-ai` npm dependency. Its `postinstall` script
+> downloads the correct per-platform native binary (linux/darwin/windows ×
+> amd64/arm64) into `~/.stagecoach/versions/`. `npm install` therefore brings
+> `stagecoach` along **transitively — no separate install, no `PATH` lookup, no
+> Go toolchain** for end users (PRD §9.10.1). See
+> [Commit Workflow & Identity Transparency](#commit-workflow--identity-transparency).
+
 ### Run Your First Pipeline
 
 ```bash
@@ -192,6 +201,40 @@ For details, see [Resilience Tuning](docs/CONFIGURATION.md#resilience-tuning) (e
 [Issue-Driven Re-planning](docs/WORKFLOWS.md#issue-driven-re-planning) (re-planning flow), and
 [tasks.json Protection & Smart Recovery](docs/ARCHITECTURE.md#tasksjson-protection--smart-recovery)
 (recovery internals).
+
+### Commit Workflow & Identity Transparency
+
+Every work-item commit goes through a **snapshot-based atomic plumbing commit**
+(PRD §5.1): `git write-tree` freezes the index, `git commit-tree` creates the
+commit, and a compare-and-swap `git update-ref` advances `HEAD`.
+`restore_critical_files` blocks deletion of protected files (`PRD.md`, `PRP.md`,
+`tasks.json`, …) right after staging.
+
+**Descriptive messages come from `stagecoach`, message-only.** The pipeline
+invokes `stagecoach --dry-run --single` — `--dry-run` emits the message to stdout
+without committing; `--single` produces exactly one message with no multi-commit
+decomposition. `stagecoach` produces **only** the bare descriptive message; the
+pipeline then layers the **task-prefix position** (`<phase>.<milestone>.<task>.<subtask>:`,
+per `PRP_COMMIT_FORMAT`; PRD §5.1) and performs the commit itself. `stagecoach`
+runs on the same resolved provider/model the pipeline uses for agent runs, and
+`PRP_COMMIT_STYLE` (`auto` | `plain` | `conventional` | `gitmoji`) forwards as
+`stagecoach`'s `--format`. See
+[Configuration](docs/CONFIGURATION.md) for the `PRP_COMMIT_*` env knobs.
+
+> **Identity-transparent by design.** Pipeline commits carry **no**
+> `Co-Authored-By:` trailer, **no** `Generated-by` / `Generated with` footer,
+> and **no** machine/branded author — in **any** mode (task-prefix, plain,
+> non-backlog, or commit-gen fallback). This is enforced structurally: a
+> self-source-scan test walks all production source under `src/` and **fails the
+> build** if a forbidden identity/attribution literal (`Co-Authored-By`,
+> `noreply@anthropic.com`, `Generated with [Claude Code]`, `🤖 Generated`, the
+> `GIT_AUTHOR_*` / `GIT_COMMITTER_*` env literals, or a `git config user.name`/
+> `user.email` write) appears in a non-comment line (PRD §9.10.2). Verify any
+> commit with:
+>
+> ```bash
+> git log --format='%B' <sha>     # contains none of those tokens
+> ```
 
 ## Usage Examples
 
@@ -712,6 +755,34 @@ The PRP Pipeline uses specialized AI agents for each stage of development:
 | **Researcher** | Generate PRPs            | Subtask context | PRP.md          | Subtask starts     |
 | **Coder**      | Implement PRPs           | PRP.md          | Code changes    | PRP generated      |
 | **QA**         | Find bugs                | Completed code  | TEST_RESULTS.md | All tasks complete |
+
+### Agent Tool Access & Safety
+
+Agent tool access is **scoped by role**, not granted universally (PRD §9.10.3).
+No agent receives an unguarded `bash` shell; where shell is needed it is fenced,
+and the only git surface any agent gets is the structured tools.
+
+| Role                       | `bash` tool         | structured `git` tools                      |
+| -------------------------- | ------------------- | ------------------------------------------- |
+| Research / Planner / Coder | **none**            | read-only (`git_status`, `git_diff`) only   |
+| Commit agent               | **none**            | `git_commit` only (structured; no raw bash) |
+| Validation agent           | **yes, denylisted** | — (runs `tsc` / `vitest` / smoke)           |
+
+The Validation agent's `bash` is **denylisted**: it refuses — non-zero exit,
+clear error — any repo-remote-mutating or default-branch-mutating command
+(`git push`, `git remote`, `git update-ref`, `git config`, `git reset --hard`
+against a shared ref, `git rebase`, `git commit`, `gh repo …`, `gh api -X
+PATCH|POST|DELETE`, `curl`/`wget` to `api.github.com`, any `default_branch`
+reference) **before** exec. Ambiguous matches fail closed.
+
+> **Universal prohibition (all agents, all roles).** Repo-remote-mutating
+> operations — `git push`, `git remote`, `git update-ref`, `gh repo`, GitHub-API
+> writes, and default-branch mutation — are **never exposed as any agent tool**.
+> These are **human-only** operations (PRD §5.2 / §9.10.3). The structured `git`
+> tools (`git_status` / `git_diff` / `git_add` / `git_commit`) are the **only**
+> git surface any agent receives, and none of them can reach a remote or the
+> default branch. This closes the vector that once let an agent flip a GitHub
+> default branch via an unguarded shell plus the host's authed `gh`.
 
 ### PRP Concept
 
