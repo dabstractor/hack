@@ -47,6 +47,7 @@ import {
   getReasoningValidation,
   getReasoningImpl,
   validateAllReasoningLevels,
+  FORMAT_NUDGE_MAX,
 } from '../../../src/config/constants.js';
 import {
   type ModelTier,
@@ -604,5 +605,12 @@ describe('config/constants: per-role reasoning getters', () => {
       expect(rce.key).toBe('PRP_REASONING_IMPL_AGENT');
       expect(rce.value).toBe('turbo');
     });
+  });
+});
+
+describe('config/constants: FORMAT_NUDGE_MAX', () => {
+  it('SHOULD lock FORMAT_NUDGE_MAX at the §4.5.1 default of 2', () => {
+    // VERIFY — fixed internal constant (NOT env/.hack-configurable per §4.5.1).
+    expect(FORMAT_NUDGE_MAX).toBe(2);
   });
 });

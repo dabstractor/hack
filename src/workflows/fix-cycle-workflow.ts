@@ -40,7 +40,11 @@ import {
 } from '../utils/validation/session-validation.js';
 import { writeTasksJSON } from '../core/session-utils.js';
 import { updateItemStatus } from '../utils/task-utils.js';
-import { PARALLEL_RESEARCH, RESEARCH_DEPTH } from '../config/constants.js';
+import {
+  FORMAT_NUDGE_MAX,
+  PARALLEL_RESEARCH,
+  RESEARCH_DEPTH,
+} from '../config/constants.js';
 import { retryAgentPrompt } from '../utils/retry.js';
 
 /**
@@ -370,7 +374,7 @@ export class FixCycleWorkflow extends Workflow {
     let vr = BacklogSchema.safeParse(backlog);
     if (vr.success) return backlog;
 
-    const maxNudge = 2;
+    const maxNudge = FORMAT_NUDGE_MAX;
     for (let attempt = 1; attempt <= maxNudge && !vr.success; attempt++) {
       const errs = vr.error.issues
         .slice(0, 25)

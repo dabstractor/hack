@@ -428,6 +428,37 @@ export function getIssueRetryMax(): number {
 }
 
 /**
+ * Max in-place format-nudge attempts before a missing output envelope surfaces as a
+ * hard error (PRD §4.5.1 "Format-Nudge Recovery").
+ *
+ * @remarks
+ * Bounds the three format-nudge recovery loops, each of which re-prompts the SAME agent
+ * with a format reminder when its output is a transport/contract miss (no parseable
+ * envelope / unwritten file / non-conforming backlog) rather than a code or planning
+ * problem:
+ * - Coder result-envelope miss — {@link PRPExecutor} (`src/agents/prp-executor.ts`)
+ * - Researcher PRP-file-write miss — {@link PRPGenerator.#nudgeResearcherToWrite}
+ *   (`src/agents/prp-generator.ts`)
+ * - Architect backlog-schema miss — {@link FixCycleWorkflow} (`src/workflows/fix-cycle-workflow.ts`)
+ *
+ * **Budget isolation (§4.5.1 #4):** format nudges are a SEPARATE budget from the
+ * validation `maxFixAttempts` (fix-and-retry), from `ISSUE_RETRY_MAX` (§4.5 re-planning),
+ * and from `COMMIT_RETRY_MAX` (§5.1). A format nudge neither consumes nor resets any of them.
+ *
+ * **Not configurable.** This is an INTERNAL constant with a fixed default of 2. It is
+ * intentionally NOT exposed as an environment variable or a `.hack` TOML key (§4.5.1 gives
+ * it a fixed default; no env var is documented for it). Do not add an env reader here.
+ *
+ * @example
+ * ```ts
+ * import { FORMAT_NUDGE_MAX } from './config/constants.js';
+ *
+ * console.log(FORMAT_NUDGE_MAX); // 2
+ * ```
+ */
+export const FORMAT_NUDGE_MAX = 2;
+
+/**
  * Environment variable name: max stagecoach commit-message-generation attempts
  * before falling back (PRD §5.1 "Smart Commit Resilience").
  *

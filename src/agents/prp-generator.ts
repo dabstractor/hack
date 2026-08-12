@@ -25,6 +25,7 @@ import type {
   Backlog,
   PRPCompressionLevel,
 } from '../core/models.js';
+import { FORMAT_NUDGE_MAX } from '../config/constants.js';
 import { PRPDocumentSchema } from '../core/models.js';
 import type { SessionManager } from '../core/session-manager.js';
 import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
@@ -819,7 +820,7 @@ export class PRPGenerator {
   async #nudgeResearcherToWrite(
     task: { id: string },
     prpOutputPath: string,
-    maxNudges = 2
+    maxNudges = FORMAT_NUDGE_MAX
   ): Promise<unknown> {
     for (let attempt = 1; attempt <= maxNudges; attempt++) {
       this.#logger.warn(

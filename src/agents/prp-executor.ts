@@ -29,6 +29,7 @@ import type { Agent, AgentResponse } from 'groundswell';
 import type { PRPDocument, ValidationGate } from '../core/models.js';
 import { BashMCP } from '../tools/bash-mcp.js';
 import { retryAgentPrompt, withAgentDeadline } from '../utils/retry.js';
+import { FORMAT_NUDGE_MAX } from '../config/constants.js';
 import { CheckpointManager } from '../core/checkpoint-manager.js';
 import type { CheckpointExecutionState } from '../core/checkpoint-manager.js';
 
@@ -353,7 +354,7 @@ export class PRPExecutor {
       // failure surfaces as a normal 'error'. This budget is separate from the
       // validation maxFixAttempts and from ISSUE_RETRY_MAX.
       let formatNudges = 0;
-      const maxFormatNudges = 2;
+      const maxFormatNudges = FORMAT_NUDGE_MAX;
       while (
         coderResult.formatFailure === true &&
         formatNudges < maxFormatNudges
