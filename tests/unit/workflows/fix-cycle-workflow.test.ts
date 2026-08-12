@@ -162,7 +162,11 @@ const createFixSubtaskFixture = (
   status: 'Planned',
   story_points: 3,
   dependencies: [],
-  context_scope: 'fix',
+  context_scope: `CONTRACT DEFINITION:
+1. RESEARCH NOTE: bugfix fixture for fix-cycle-workflow tests.
+2. INPUT: TEST_RESULTS.md bug report.
+3. LOGIC: apply the fix described in the bug report.
+4. OUTPUT: patched source file.`,
   prd_selectors: [],
 });
 
@@ -179,19 +183,21 @@ const createFixBacklog = (subtasks: Subtask[]): Backlog => ({
       type: 'Phase',
       title: 'Bug Fix Phase',
       status: 'Planned',
+      description: 'Bug-fix phase for fix-cycle-workflow tests.',
       milestones: [
         {
           id: 'P1.M1',
           type: 'Milestone',
           title: 'Fixes',
           status: 'Planned',
+          description: 'Milestone grouping reported bug fixes.',
           tasks: [
             {
               id: 'P1.M1.T1',
               type: 'Task',
               title: 'Fix reported bugs',
               status: 'Planned',
-              description: '',
+              description: 'Apply the fixes described in TEST_RESULTS.md.',
               subtasks,
             },
           ],
