@@ -24,6 +24,25 @@ vi.mock('../../src/tools/git-mcp.js', () => ({
   gitStatus: vi.fn(),
   gitAdd: vi.fn(),
   gitCommit: vi.fn(),
+  // §5.1 plumbing + restore-critical-files helpers (BUG-002 §b). Success
+  // defaults survive clearAllMocks (NOT resetAllMocks) in beforeEach so
+  // smartCommit completes through the plumbing path without per-test setup.
+  gitUnstagePath: vi.fn().mockResolvedValue({ success: true }),
+  gitRevParseHead: vi
+    .fn()
+    .mockResolvedValue({ success: true, sha: 'parent-sha' }),
+  gitWriteTree: vi
+    .fn()
+    .mockResolvedValue({ success: true, treeSha: 'tree-sha' }),
+  gitCommitTree: vi
+    .fn()
+    .mockResolvedValue({ success: true, commitSha: 'abc123' }),
+  gitUpdateRefCAS: vi.fn().mockResolvedValue({ success: true }),
+  gitDiff: vi.fn().mockResolvedValue({ success: true, diff: '' }),
+  gitListStagedDeletions: vi
+    .fn()
+    .mockResolvedValue({ success: true, files: [] }),
+  gitRestoreFileFromHead: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 // Mock node:fs/promises for filesystem operations
@@ -52,7 +71,16 @@ vi.mock('../../src/utils/logger.js', () => ({
   getLogger: vi.fn(() => mockLogger),
 }));
 
-import { gitStatus, gitAdd, gitCommit } from '../../src/tools/git-mcp.js';
+import {
+  gitStatus,
+  gitAdd,
+  gitCommit,
+  gitUnstagePath,
+  gitRevParseHead,
+  gitWriteTree,
+  gitCommitTree,
+  gitUpdateRefCAS,
+} from '../../src/tools/git-mcp.js';
 import {
   filterProtectedFiles,
   smartCommit,
@@ -61,6 +89,11 @@ import {
 const mockGitStatus = vi.mocked(gitStatus);
 const mockGitAdd = vi.mocked(gitAdd);
 const mockGitCommit = vi.mocked(gitCommit);
+const mockGitUnstagePath = vi.mocked(gitUnstagePath);
+const mockGitRevParseHead = vi.mocked(gitRevParseHead);
+const mockGitWriteTree = vi.mocked(gitWriteTree);
+const mockGitCommitTree = vi.mocked(gitCommitTree);
+const mockGitUpdateRefCAS = vi.mocked(gitUpdateRefCAS);
 const _mockUnlink = vi.mocked(mockFsPromises.unlink);
 const _mockRename = vi.mocked(mockFsPromises.rename);
 
@@ -735,10 +768,19 @@ describe('unit/protected-files > protected file enforcement', () => {
 
       // VERIFY - only non-protected files should be staged
       // tasks.json is intentionally NOT protected (rides with commit for status delta)
-      expect(mockGitAdd).toHaveBeenCalledWith({
-        path: '/project',
-        files: ['src/index.ts', 'tasks.json', 'src/utils.ts'],
+      // §5.1 ARG_MAX-safe pathspec staging: gitAdd({path}) with NO files key (→ git add .).
+      // Protected files are unstaged AFTER staging (gitUnstagePath), not excluded from the add.
+      expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' });
+      // §5.1 snapshot plumbing commit: write-tree → commit-tree → CAS update-ref (porcelain gitCommit is GONE).
+      expect(mockGitCommitTree).toHaveBeenCalledWith(
+        expect.objectContaining({ treeSha: 'tree-sha', repoPath: '/project' })
+      );
+      expect(mockGitUpdateRefCAS).toHaveBeenCalledWith({
+        repoPath: '/project',
+        newSha: 'abc123',
+        expectedOldSha: 'parent-sha',
       });
+      expect(mockGitCommit).not.toHaveBeenCalled();
       expect(result).toBe('abc123');
     });
 
