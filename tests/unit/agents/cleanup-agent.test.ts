@@ -23,7 +23,6 @@
  * `cfg.system === CLEANUP_PROMPT` ties the factory to the actual prompt.
  *
  * @see {@link ../../src/agents/agent-factory.ts}
- * @see {@link ./commit-message-agent.test.ts} — the sibling factory test.
  */
 
 import { describe, expect, it, vi } from 'vitest';

@@ -1,97 +1,125 @@
 /**
- * End-to-end integration test for `generateCommitMessage` under the DEFAULT `auto` config.
+ * Integration test for `generateCommitMessage` under the DEFAULT `auto` config.
  *
  * @remarks
- * Regression-prevention net for BUG-001 (TEST_RESULTS.md Recommendation #3): the default-config-
- * breaking bug where `getRecentCommitMessages` passed `simple-git` `{ maxEntries }` instead of
- * `{ maxCount }`. CI missed it because the unit tests mocked `getRecentCommitMessages` to a `vi.fn()`
- * that never ran real git. This test drives the FULL `auto` commit-style path — config resolution →
- * REAL `getRecentCommitMessages` → REAL `git.log` → REAL prompt builder → agent-factory wiring →
- * message return — mocking ONLY the LLM boundary (`createCommitMessageAgent`). If the source ever
- * reverts to an invalid `log()` option, the bare `await` inside `generateCommitMessage` rejects (git
- * fatal) and this test FAILS.
+ * Mock rewiring rationale: the in-process commit-message agent
+ * (`src/agents/commit-message-agent.ts`) was removed per PRD §9.10.1, and
+ * `generateCommitMessage` (P1.M2.T2.S1) now delegates to the external
+ * `stagecoach` binary via `spawn`. The previous revision of this test mocked
+ * `createCommitMessageAgent` at the (now-deleted) agent module boundary — that
+ * mock target no longer exists. This revision mocks the STAGECOACH BINARY
+ * BOUNDARY instead:
+ *   - `resolveStagecoachBinary` → a fake path (`/fake/stagecoach`), so no real
+ *     binary resolution/platform logic runs.
+ *   - `node:child_process.spawn` → a fake child that emits the configured
+ *     stdout then a `close(0)`, so the function's argv-construction + spawn +
+ *     stdout-collection path is exercised end-to-end without invoking a real
+ *     process.
+ *
+ * This proves the §5.1 default-config path: with `PRP_COMMIT_STYLE` unset
+ * (→ `auto`), the argv contains `--dry-run` + `--single` and NO `--format`
+ * flag, and the trimmed stagecoach stdout is returned verbatim. The previous
+ * BUG-001 `maxEntries` regression net is obsolete — `generateCommitMessage` no
+ * longer reads commit history itself; the binary reads the staged index.
  *
  * @see {@link https://vitest.dev/guide/ | Vitest Documentation}
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { simpleGit } from 'simple-git';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
+import { resolveStagecoachBinary } from '../../src/utils/stagecoach-resolver.js';
 
-// Mock ONLY the LLM boundary. importActual-spread keeps the REAL buildCommitMessageSystemPrompt
-// (a pure builder, no I/O) so the full auto path — including the real system-prompt construction —
-// runs. If this is mocked away, generateCommitMessage throws "buildCommitMessageSystemPrompt is not
-// a function". getRecentCommitMessages / simple-git / validateRepositoryPath are NEVER mocked.
-vi.mock('../../src/agents/commit-message-agent.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../src/agents/commit-message-agent.js')
-  >('../../src/agents/commit-message-agent.js');
-  return {
-    ...actual,
-    createCommitMessageAgent: vi.fn(() => ({
-      prompt: vi.fn().mockResolvedValue({
-        status: 'success' as const,
-        data: 'feat: generated commit message',
-        error: null,
-      }),
-    })),
-  };
-});
+// Mock the stagecoach binary boundary (§9.10.1). Bare factories are hoist-safe;
+// `spawn`/`resolveStagecoachBinary` become `vi.fn()`s we drive below.
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}));
+vi.mock('../../src/utils/stagecoach-resolver.js', () => ({
+  resolveStagecoachBinary: vi.fn(() => '/fake/stagecoach'),
+}));
 
 import { generateCommitMessage } from '../../src/utils/git-commit.js';
-import { createCommitMessageAgent } from '../../src/agents/commit-message-agent.js';
 
-const mockCreateCommitMessageAgent =
-  createCommitMessageAgent as unknown as ReturnType<typeof vi.fn>;
+const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>;
+const mockResolveStagecoachBinary =
+  resolveStagecoachBinary as unknown as ReturnType<typeof vi.fn>;
 
-describe('generateCommitMessage — default auto config, real git (LLM mocked only)', () => {
+/**
+ * Build a fake `child_process.ChildProcess`-shaped object whose `stdout` emits
+ * `stdout` then closes with code 0 on the next tick. Mirrors the real spawn
+ * event contract `generateCommitMessage` listens to (`stdout` `data`, `close`).
+ */
+function fakeChild(stdout: string): NodeJS.EventEmitter {
+  const child = new EventEmitter();
+  const stdoutStream = new EventEmitter();
+  const stderrStream = new EventEmitter();
+  // The implementation reads `child.stdout`/`child.stderr` as possibly-undefined
+  // streams; attach them directly.
+  (child as { stdout: NodeJS.EventEmitter }).stdout = stdoutStream;
+  (child as { stderr: NodeJS.EventEmitter }).stderr = stderrStream;
+  process.nextTick(() => {
+    stdoutStream.emit('data', Buffer.from(stdout));
+    child.emit('close', 0);
+  });
+  return child;
+}
+
+describe('generateCommitMessage — default auto config (stagecoach binary boundary mocked)', () => {
   let dir: string;
-  let cwdSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
-    // DEFAULT config (env unset → auto / 5): the exact path BUG-001 broke.
+    // DEFAULT config (env unset → auto): the path that previously broke under
+    // `--format` being incorrectly added.
     delete process.env.PRP_COMMIT_STYLE;
     delete process.env.PRP_COMMIT_STYLE_EXAMPLES;
 
-    // Seed a temp repo with >1 commit so the auto path does NOT degrade to plain (needs ≥2 examples).
+    mockResolveStagecoachBinary.mockReturnValue('/fake/stagecoach');
+    mockSpawn.mockImplementation(() =>
+      fakeChild('feat: generated commit message\n')
+    );
+
+    // Seed a real temp repo so the binary boundary has a valid cwd (the function
+    // spawns with `cwd: repoRoot`). A bare repo with one commit suffices.
     dir = mkdtempSync(join(tmpdir(), 'commit-style-e2e-'));
     const git = simpleGit(dir);
     await git.init();
     await git.addConfig('user.email', 'test@test.com');
     await git.addConfig('user.name', 'Test');
-    for (let i = 0; i < 3; i++) {
-      writeFileSync(join(dir, `file${i}.txt`), `content ${i}\n`);
-      await git.add('.');
-      await git.commit(`feat: example commit ${i + 1}`);
-    }
-
-    // generateCommitMessage → getRecentCommitMessages(n) with NO repoPath → validateRepositoryPath
-    // resolves process.cwd(). Point cwd at the temp repo so the REAL git.log runs against it.
-    cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
-    mockCreateCommitMessageAgent.mockClear();
+    writeFileSync(join(dir, 'file.txt'), 'content\n');
+    await git.add('.');
+    await git.commit('feat: example commit');
   });
 
   afterEach(() => {
-    cwdSpy?.mockRestore();
+    mockSpawn.mockReset();
+    mockResolveStagecoachBinary.mockReset();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('does not throw and returns the LLM-generated message under default auto config (PRD §5.1)', async () => {
-    // EXECUTE — the bare await rejects if getRecentCommitMessages throws (a maxEntries regression).
-    const result = await generateCommitMessage(
-      'diff --git a/x b/x\n+added line'
-    );
+  it('returns the stagecoach stdout and spawns with the default-auto argv (PRD §5.1)', async () => {
+    // EXECUTE — first arg is repoRoot (dir), NOT a diff. The binary reads the
+    // staged index itself; the diff argument is unused.
+    const result = await generateCommitMessage(dir);
 
-    // VERIFY (a)+(b): the LLM-generated descriptive message, NOT the fallback placeholder.
+    // VERIFY: the trimmed stagecoach stdout, NOT a fallback placeholder.
     expect(result).toBe('feat: generated commit message');
     expect(result).not.toBe(
       'chore: commit-gen failed (exit 0); fallback commit'
     );
 
-    // VERIFY (c): the real auto path ran (≥2 examples fetched → style stayed 'auto') and wired the
-    // agent exactly once.
-    expect(mockCreateCommitMessageAgent).toHaveBeenCalledTimes(1);
+    // VERIFY: the binary was spawned exactly once.
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    // VERIFY (a): the default-auto argv contains --dry-run + --single.
+    const argv = mockSpawn.mock.calls[0][1] as string[];
+    expect(argv).toEqual(expect.arrayContaining(['--dry-run', '--single']));
+
+    // VERIFY (b): under the default `auto` style, NO --format flag is emitted.
+    expect(argv).not.toContain('--format');
   });
 });
