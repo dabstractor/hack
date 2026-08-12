@@ -1,0 +1,126 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Bug Fix — Validation Abort Integrity & Green Test-Suite Restoration",
+      "status": "Researching",
+      "description": "Restore PRD compliance for two confirmed defects. BUG-001 (Major): PRPPipeline.#runValidation() swallows validation failure under --continue-on-error, allowing bug-hunt + commits on a half-validated build — a direct violation of PRD §4.4 unconditional abort-on-failure. BUG-002 (Minor): 8 unit/integration tests across 3 files are stale relative to legitimate §4.5.1 (backlog-heal / format-nudge) and §5.1 (ARG_MAX-safe pathspec staging) behavior changes, leaving `npx vitest run` red (9 failed) and breaking the project's own `npm run validate` CI gate. Both are out-of-spec corrective fixes to EXISTING, PRD-specified behavior — no new features, no new flags, no new behavior beyond existing intent. Research findings live in plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Restore Validation Abort Integrity (BUG-001 — Major)",
+          "status": "Planned",
+          "description": "Remove the undocumented --continue-on-error carve-out in PRPPipeline.#runValidation() so every non-success validation outcome throws ValidationFailedError unconditionally, aborting the run before bug-hunt/commit per PRD §4.4. This is a 1-location source fix verified by an existing (currently-failing) dedicated test.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Remove the --continue-on-error validation-swallow carve-out",
+              "status": "Planned",
+              "description": "In src/workflows/prp-pipeline.ts #runValidation(), delete the `if (this.#continueOnError && !watchdog)` fall-through branch so every !outcome.success path throws ValidationFailedError. Remove the now-dead `const watchdog` local and the contradicting inline comment block. Do NOT introduce any new flag or escape hatch (the PRD has no §4.4 exception for --continue-on-error).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Make #runValidation() throw ValidationFailedError unconditionally on non-success outcome",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h1.0", "h2.0", "h2.2", "h3.0", "h2.5", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/bug001_validation_abort.md and system_context.md. The defect is at src/workflows/prp-pipeline.ts #runValidation() (line ~1835). The buggy branch (line ~1868) is `if (this.#continueOnError && !watchdog) { this.logger.warn(...) } else { throw new ValidationFailedError(outcome); }`. When --continue-on-error is set and the failure is non-watchdog (exitCode != 124 && !timedOut), the throw is SKIPPED and control falls through to runQACycle()/bug-hunt/Smart Commit — exactly the 'half-validated build' PRD §4.4 forbids. The method's own JSDoc (lines ~1825-1830) and the run() call-site comment (lines ~2929-2930) BOTH already state the throw must propagate unconditionally even under --continue-on-error — the carve-out contradicts the documented contract. #runValidation() is invoked from run() at line 2935 BEFORE runQACycle() at 2937, deliberately outside runQACycle()'s try/catch (which swallows non-fatal errors when continueOnError===true). The throw lands in run()'s catch (~line 2976) which returns {success:false, error:<message>}. ValidationFailedError (src/workflows/validation-workflow.ts:104) already classifies watchdog vs non-watchdog internally in its constructor, so the local `const watchdog` (line ~1860) becomes dead code after the fix. #continueOnError remains in legitimate use at ~10 other task-level sites (lines 671,783,843,1250,1451,1714,1793,2172,2250,2588) — do NOT touch those.\n2. INPUT: No upstream subtask dependency. Operates directly on src/workflows/prp-pipeline.ts. The existing failing test tests/unit/workflows/prp-pipeline-validation.test.ts:337 'should NOT swallow a validation abort under --continue-on-error' encodes the target contract (validation outcome {success:false, exitCode:1, timedOut:false}; pipeline constructed with continueOnError=true as 5th arg; expects result.success===false, result.error matches /Validation failed/, MockBugHunt never called).\n3. LOGIC: (a) Replace the if/else branch so EVERY !outcome.success throws: `if (!outcome.success) { throw new ValidationFailedError(outcome); }`. (b) Delete the now-unused `const watchdog = outcome.timedOut || outcome.exitCode === 124;` local. (c) Delete the contradicting inline comment block that rationalizes the --continue-on-error fall-through ('must NOT abort the whole run when the operator explicitly asked to proceed past failures'). Keep the preceding PRD §4.4 abort-on-failure comment. (d) Do NOT add any new flag, option, or escape hatch — the PRD has no --continue-on-error exception for §4.4. No external services to mock (the change is a control-flow correction; the existing test already mocks ValidationWorkflow/BugHunt).\n4. OUTPUT: A corrected #runValidation() where non-success validation always throws ValidationFailedError, consumed by run()'s catch block (returns failure result, bypasses bug-hunt/commit). The existing test at prp-pipeline-validation.test.ts:337 transitions from FAIL → PASS; sibling tests (:363 validate-mode, :377 abort-before-bug-hunt with continueOnError=false) must remain green.\n5. DOCS: [Mode A] Update the inline JSDoc/code comments on #runValidation() to remove the now-false 'fall through to bug-hunt' language and ensure the comment reflects unconditional abort per §4.4. No user-facing docs / README / env-var surface change (the fix restores already-specified PRD behavior; --continue-on-error's documented semantics are unchanged). no user-facing/config/API surface change beyond the code comment."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Restore Green Test Suite (BUG-002 — Minor)",
+          "status": "Planned",
+          "description": "Update 8 stale tests across 3 files so `npx vitest run` is green. These are NOT product defects — the implementation behaves per PRD §4.5.1 (backlog-heal / format-nudge) and §5.1 (ARG_MAX-safe pathspec staging), but the tests encode pre-change behavior. Restoring a green suite is a prerequisite for the project's own `npm run validate` CI gate. The prp-pipeline-validation.test.ts BUG-001 test (the 9th failure) is fixed by P1.M1.T1.S1, not here.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Fix 6 stale tests in fix-cycle-workflow.test.ts (§4.5.1 backlog-heal drift)",
+              "status": "Planned",
+              "description": "The shared fixture createFixSubtask sets context_scope:'fix', which fails the strict ContextScopeSchema (requires full CONTRACT DEFINITION + 4 ordered sections). This triggers the §4.5.1 heal path in FixCycleWorkflow.#validateAndHealBacklog, adding extra retryAgentPrompt/writeTasksJSON calls and mutating the backlog, which drifts 6 tests' exact-count/equality assertions. Fix: give the fixture a schema-valid context_scope.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Strengthen createFixSubtask context_scope fixture to pass ContextScopeSchema",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h1.0", "h2.0", "h2.3", "h3.1", "h2.5", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/bug002_stale_tests.md §(a). tests/unit/workflows/fix-cycle-workflow.test.ts createFixSubtask (line ~158) sets `context_scope: 'fix'`. ContextScopeSchema (src/core/models.ts:106) requires prefix 'CONTRACT DEFINITION:\\n' + 4 ordered sections: '1. RESEARCH NOTE:', '2. INPUT:', '3. LOGIC:', '4. OUTPUT:'. The value 'fix' fails → BacklogSchema.safeParse fails → FixCycleWorkflow.runStandardBreakdown (src/workflows/fix-cycle-workflow.ts:273) → #validateAndHealBacklog (:380) runs the §4.5.1 heal: extra retryAgentPrompt schema-nudge calls + #healContextScopes + writeTasksJSON, and MUTATES each subtask's context_scope. The 6 failing tests: (1) runStandardBreakdown>'creates the architect agent ONCE...' asserts mockRetryAgentPrompt called 1× but heal adds nudge calls; (2) runStandardBreakdown>'reads tasks.json back...' asserts backlogArg toEqual(createFixBacklog([s1,s2])) but heal mutated context_scope; (3)-(6) executeFixes>'persists completed...' / >'marks a failed fix subtask Failed...' / >'uses the bugfix-scoped orchestrator...' / >'falls back to the shared orchestrator...' — all drift on writeTasksJSON count/backlog equality. All 6 build subtasks via createFixSubtask, so ONE fixture fix resolves all.\n2. INPUT: No upstream dependency. Operates on tests/unit/workflows/fix-cycle-workflow.test.ts only (test file — not source). The fixture createFixSubtask(id, title) is the single shared constructor for all test subtasks.\n3. LOGIC: Change createFixSubtask's context_scope from 'fix' to a full CONTRACT DEFINITION string that passes ContextScopeSchema, e.g. 'CONTRACT DEFINITION:\\n1. RESEARCH NOTE: bugfix fixture for fix-cycle.\\n2. INPUT: TEST_RESULTS.md bug report.\\n3. LOGIC: apply the fix described in the bug report.\\n4. OUTPUT: patched source file.' Verify it passes BacklogSchema.safeParse (the schema checks prefix + 4 ordered section headers; content after each header is free-form). After this change, runStandardBreakdown's BacklogSchema.safeParse passes on first read, #validateAndHealBacklog does NOT trigger (no nudge/heal), so retryAgentPrompt is called exactly 1× and the backlog is not mutated — all 6 assertions realign. Do NOT change source code. Do NOT weaken assertions; instead make the fixture conform so the assertions hold as written. No external services to mock (existing mocks unchanged).\n4. OUTPUT: tests/unit/workflows/fix-cycle-workflow.test.ts with all 32 tests passing (6 FAIL→PASS), consumed by the full-suite verification in P1.M2.T4.S1.\n5. DOCS: [Mode A] none — test-only change, no user-facing/config/API surface change."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "Fix stale protected-files.test.ts smart-commit staging test (§5.1 pathspec + plumbing)",
+              "status": "Planned",
+              "description": "The test 'should filter all protected files in smart commit workflow' asserts the OLD per-file gitAdd({path, files:[...]}) staging, but Smart Commit now stages via pathspec gitAdd({path}) (no files key) per §5.1. Additionally, smartCommit now uses git PLUMBING (commit-tree + CAS) instead of porcelain gitCommit, so unmocked plumbing functions (gitUnstagePath, gitRevParseHead, gitWriteTree, gitCommitTree, gitUpdateRefCAS) throw inside smartCommit's try and return null. Update the assertion AND add plumbing mocks so smartCommit completes and returns the expected sha.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "Update gitAdd assertion to pathspec + mock git plumbing functions so smartCommit completes",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h1.0", "h2.0", "h2.3", "h3.1", "h2.5", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/bug002_stale_tests.md §(b). tests/unit/protected-files.test.ts:709 'should filter all protected files in smart commit workflow'. The mock factory (lines 22-27) only exports {gitStatus, gitAdd, gitCommit} from '../../src/tools/git-mcp.js'. smartCommit (src/utils/git-commit.ts) now uses §5.1 pathspec staging: line 827 `gitAdd({ path: repoRoot })` (NO files key → git add .), then unstages protected files via gitUnstagePath (line 839), then gitRevParseHead (855), gitWriteTree (857), gitCommitTree (962), gitUpdateRefCAS (976) — git PLUMBING, NOT porcelain gitCommit. All these plumbing symbols are undefined under the current factory mock → TypeError thrown inside smartCommit's outer try/catch (line 774) → returns null. The test currently fails on the gitAdd assertion (line 738, expects {path:'/project', files:[...]} but receives {path:'/project'}) and would ALSO fail on expect(result).toBe('abc123') (result is null because smartCommit crashed). gitCommit is NO LONGER called by smartCommit — the existing mockGitCommit setup/assertion is stale. restore_critical_files (line 852) swallows its own errors, but calls gitListStagedDeletions/gitRestoreFileFromHead/gitUnstagePath internally.\n2. INPUT: No upstream dependency. Operates on tests/unit/protected-files.test.ts only (test file). The mock factory `vi.mock('../../src/tools/git-mcp.js', () => ({ gitStatus: vi.fn(), gitAdd: vi.fn(), gitCommit: vi.fn() }))` and the test at line 709.\n3. LOGIC: (a) Add plumbing mocks to the factory: gitUnstagePath→vi.fn().mockResolvedValue({success:true}), gitRevParseHead→vi.fn().mockResolvedValue({success:true, sha:'parent-sha'}), gitWriteTree→vi.fn().mockResolvedValue({success:true, treeSha:'tree-sha'}), gitCommitTree→vi.fn().mockResolvedValue({success:true, commitSha:'abc123'}), gitUpdateRefCAS→vi.fn().mockResolvedValue({success:true}). Also export gitDiff/gitListStagedDeletions/gitRestoreFileFromHead returning {success:true} (used by restore_critical_files which swallows errors — exporting avoids undefined noise). Import the new plumbing spies via vi.mocked(...) at the top alongside the existing mockGitStatus/mockGitAdd/mockGitCommit. (b) Change the gitAdd assertion (line 738) to `expect(mockGitAdd).toHaveBeenCalledWith({ path: '/project' })` (no files key). (c) Keep `expect(result).toBe('abc123')` — now 'abc123' comes from gitCommitTree's commitSha (smartCommit returns newSha from commit-tree). (d) gitCommit is no longer called by smartCommit — if the test asserts mockGitCommit, remove/update that assertion; the mockGitCommit.mockResolvedValue may stay harmlessly or be removed. Do NOT change src/ source code. No external services beyond the git-mcp mocks.\n4. OUTPUT: tests/unit/protected-files.test.ts:709 passing (1 FAIL→PASS), smartCommit completing through the full plumbing path and returning 'abc123'. Consumed by the full-suite verification in P1.M2.T4.S1.\n5. DOCS: [Mode A] none — test-only change, no user-facing/config/API surface change."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "Fix stale prp-executor-integration.test.ts format-nudge error text (§4.5.1)",
+              "status": "Planned",
+              "description": "The test 'should handle invalid JSON from Coder Agent' asserts the legacy error text 'Failed to parse Coder Agent response', but §4.5.1 format-nudge recovery now emits the improved terminal message naming the nudge budget. Update the assertion to the new text.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "Update the Coder-Agent error assertion to the §4.5.1 format-nudge terminal message",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h1.0", "h2.0", "h2.3", "h3.1", "h2.5", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/bug002_stale_tests.md §(c). tests/integration/prp-executor-integration.test.ts:482 'should handle invalid JSON from Coder Agent' mocks the coder to return 'Not valid JSON at all' (no JSON envelope). §4.5.1 format-nudge recovery (src/agents/prp-executor.ts): #parseCoderResult cannot extract a {result,message} envelope → format-nudge loop (line 366, bounded FORMAT_NUDGE_MAX=2 from src/config/constants.ts:459) re-prompts the same coder → after exhaustion the terminal error (line 385) is: `Coder Agent did not return a parseable JSON result envelope after ${formatNudges} format nudge(s) (PRD §4.5.1). Last response: ...`. The legacy message 'Failed to parse Coder Agent response' (line 866) still exists but is a DIFFERENT code path, NOT reached for a no-envelope response. The test asserts (line 497) result.error.toContain('Failed to parse Coder Agent response') — stale.\n2. INPUT: No upstream dependency. Operates on tests/integration/prp-executor-integration.test.ts only (test file). The mock coder returns invalid JSON; FORMAT_NUDGE_MAX is 2.\n3. LOGIC: Change line 497 assertion from `expect(result.error).toContain('Failed to parse Coder Agent response')` to `expect(result.error).toContain('did not return a parseable JSON result envelope after 2 format nudge(s)')`. Keep the existing `expect(result.success).toBe(false)` at line 496. The value '2' matches FORMAT_NUDGE_MAX (default 2); if the integration test setup configures a different value, match whatever the actual emitted count is (run the test once to confirm the exact number). Do NOT change src/ source code. No external services to mock (existing mock setup unchanged — the coder mock already returns invalid JSON every call, so nudges exhaust and the terminal message fires).\n4. OUTPUT: tests/integration/prp-executor-integration.test.ts:482 passing (1 FAIL→PASS). Consumed by the full-suite verification in P1.M2.T4.S1.\n5. DOCS: [Mode A] none — test-only change, no user-facing/config/API surface change."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T4",
+              "title": "Sync changeset-level documentation & full-suite verification",
+              "status": "Planned",
+              "description": "Final sweep: confirm the entire test suite is green (the 9 failures = 1 BUG-001 + 8 BUG-002 must all be resolved) so `npm run validate` / CI passes, and verify no README/overview documentation drifted from the (purely corrective, PRD-restoring) changeset.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T4.S1",
+                  "title": "Verify full suite green (0 failed) and sweep README/overview docs for drift",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M2.T3.S1"],
+                  "prd_selectors": ["h1.0", "h2.0", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/ (all three docs). The changeset is two out-of-spec corrective bugfixes restoring EXISTING PRD-specified behavior (§4.4, §4.5.1, §5.1). BUG-001 corrected source control-flow; BUG-002 corrected only test files. No new features, flags, env vars, public API, or exported types were introduced. The project's validate gate (`npm run validate` = lint + format:check + typecheck + test:run + docs:check) was red solely due to these 9 test failures.\n2. INPUT: All four implementing subtasks completed: P1.M1.T1.S1 (carve-out removed), P1.M2.T1.S1 (fix-cycle fixtures), P1.M2.T2.S1 (protected-files mocks/assertion), P1.M2.T3.S1 (prp-executor error text).\n3. LOGIC: (a) Run `npx vitest run` and confirm 0 failed (expected ~7328 passed | 71 skipped — the exact pass count may shift slightly; the hard requirement is 0 failures). (b) Run `npm run typecheck` and `npm run lint` to confirm the BUG-001 source change introduces no type/lint errors (removing the `const watchdog` local and if/else should be clean). (c) Sweep README.md and docs/ for any claim that --continue-on-error permits proceeding past a FAILED VALIDATION specifically — if found, correct it to reflect §4.4 unconditional abort; if none exists (expected, since this was undocumented), make no change. (d) Do NOT add new documentation for a non-existent feature. This is a verification + optional light-touch sweep only.\n4. OUTPUT: A green `npx vitest run` (0 failed) and confirmation that README.md/docs require no changeset-level updates (or, if a stale --continue-on-error-vs-validation claim exists, a one-line correction). This unblocks the project's own `npm run validate` CI gate.\n5. DOCS: [Mode B] This IS the changeset-level documentation sync task. Per §5 Mode B, it sweeps README.md and any overview doc that spans the whole changeset. Expected outcome: no doc change needed (pure corrective bugfix restoring existing spec behavior) — but the implementing agent confirms this explicitly rather than assuming."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
