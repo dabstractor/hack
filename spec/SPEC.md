@@ -26,6 +26,7 @@
 14. [The `.hack` Configuration File](14-hack-config.md)
 15. [Repository Root Resolution](15-repo-root.md)
 16. [Validation Gate Semantics](16-validation-gates.md)
+17. [Commit Generation & Agent Tool Safety](17-commit-tool-safety.md)
 
 ---
 
@@ -45,3 +46,4 @@
 @14-hack-config.md
 @15-repo-root.md
 @16-validation-gates.md
+@17-commit-tool-safety.md
