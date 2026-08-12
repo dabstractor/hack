@@ -494,7 +494,9 @@ describe('integration: agents/prp-executor', () => {
 
       // VERIFY: Invalid JSON handled gracefully
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Failed to parse Coder Agent response');
+      expect(result.error).toContain(
+        'did not return a parseable JSON result envelope after 2 format nudge(s)'
+      );
     });
   });
 

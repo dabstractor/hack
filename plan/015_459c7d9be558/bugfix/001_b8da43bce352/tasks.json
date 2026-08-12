@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bug Fix — Validation Abort Integrity & Green Test-Suite Restoration",
-      "status": "Planned",
+      "status": "Researching",
       "description": "Restore PRD compliance for two confirmed defects. BUG-001 (Major): PRPPipeline.#runValidation() swallows validation failure under --continue-on-error, allowing bug-hunt + commits on a half-validated build — a direct violation of PRD §4.4 unconditional abort-on-failure. BUG-002 (Minor): 8 unit/integration tests across 3 files are stale relative to legitimate §4.5.1 (backlog-heal / format-nudge) and §5.1 (ARG_MAX-safe pathspec staging) behavior changes, leaving `npx vitest run` red (9 failed) and breaking the project's own `npm run validate` CI gate. Both are out-of-spec corrective fixes to EXISTING, PRD-specified behavior — no new features, no new flags, no new behavior beyond existing intent. Research findings live in plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/.",
       "milestones": [
         {
@@ -46,7 +46,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Restore Green Test Suite (BUG-002 — Minor)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Update 8 stale tests across 3 files so `npx vitest run` is green. These are NOT product defects — the implementation behaves per PRD §4.5.1 (backlog-heal / format-nudge) and §5.1 (ARG_MAX-safe pathspec staging), but the tests encode pre-change behavior. Restoring a green suite is a prerequisite for the project's own `npm run validate` CI gate. The prp-pipeline-validation.test.ts BUG-001 test (the 9th failure) is fixed by P1.M1.T1.S1, not here.",
           "tasks": [
             {
@@ -105,14 +105,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Fix stale prp-executor-integration.test.ts format-nudge error text (§4.5.1)",
-              "status": "Researching",
+              "status": "Complete",
               "description": "The test 'should handle invalid JSON from Coder Agent' asserts the legacy error text 'Failed to parse Coder Agent response', but §4.5.1 format-nudge recovery now emits the improved terminal message naming the nudge budget. Update the assertion to the new text.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Update the Coder-Agent error assertion to the §4.5.1 format-nudge terminal message",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: See plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/bug002_stale_tests.md §(c). tests/integration/prp-executor-integration.test.ts:482 'should handle invalid JSON from Coder Agent' mocks the coder to return 'Not valid JSON at all' (no JSON envelope). §4.5.1 format-nudge recovery (src/agents/prp-executor.ts): #parseCoderResult cannot extract a {result,message} envelope → format-nudge loop (line 366, bounded FORMAT_NUDGE_MAX=2 from src/config/constants.ts:459) re-prompts the same coder → after exhaustion the terminal error (line 385) is: `Coder Agent did not return a parseable JSON result envelope after ${formatNudges} format nudge(s) (PRD §4.5.1). Last response: ...`. The legacy message 'Failed to parse Coder Agent response' (line 866) still exists but is a DIFFERENT code path, NOT reached for a no-envelope response. The test asserts (line 497) result.error.toContain('Failed to parse Coder Agent response') — stale.\n2. INPUT: No upstream dependency. Operates on tests/integration/prp-executor-integration.test.ts only (test file). The mock coder returns invalid JSON; FORMAT_NUDGE_MAX is 2.\n3. LOGIC: Change line 497 assertion from `expect(result.error).toContain('Failed to parse Coder Agent response')` to `expect(result.error).toContain('did not return a parseable JSON result envelope after 2 format nudge(s)')`. Keep the existing `expect(result.success).toBe(false)` at line 496. The value '2' matches FORMAT_NUDGE_MAX (default 2); if the integration test setup configures a different value, match whatever the actual emitted count is (run the test once to confirm the exact number). Do NOT change src/ source code. No external services to mock (existing mock setup unchanged — the coder mock already returns invalid JSON every call, so nudges exhaust and the terminal message fires).\n4. OUTPUT: tests/integration/prp-executor-integration.test.ts:482 passing (1 FAIL→PASS). Consumed by the full-suite verification in P1.M2.T4.S1.\n5. DOCS: [Mode A] none — test-only change, no user-facing/config/API surface change.",
@@ -131,14 +131,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "Sync changeset-level documentation & full-suite verification",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Final sweep: confirm the entire test suite is green (the 9 failures = 1 BUG-001 + 8 BUG-002 must all be resolved) so `npm run validate` / CI passes, and verify no README/overview documentation drifted from the (purely corrective, PRD-restoring) changeset.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "Verify full suite green (0 failed) and sweep README/overview docs for drift",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
