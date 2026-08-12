@@ -352,9 +352,7 @@ describe('utils/git-commit', () => {
       const result = formatCommitMessage('cleanup: doc reorganization');
 
       // VERIFY — bare subject, trailer present, NEVER [PRP Auto]
-      expect(result).toBe(
-        'cleanup: doc reorganization>'
-      );
+      expect(result).toBe('cleanup: doc reorganization>');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -363,9 +361,7 @@ describe('utils/git-commit', () => {
       const result = formatCommitMessage('msg', null);
 
       // VERIFY
-      expect(result).toBe(
-        'msg>'
-      );
+      expect(result).toBe('msg>');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -379,9 +375,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY
-      expect(result).toBe(
-        '1.2.1.1: add utility>'
-      );
+      expect(result).toBe('1.2.1.1: add utility>');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -394,9 +388,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — trailing level elided (1.2.1, never 1.2.1.0)
-      expect(result).toBe(
-        '1.2.1: build CLI entry point>'
-      );
+      expect(result).toBe('1.2.1: build CLI entry point>');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -413,9 +405,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY — plain opt-out: position supplied but ignored
-      expect(result).toBe(
-        'add utility>'
-      );
+      expect(result).toBe('add utility>');
       expect(result).not.toContain('[PRP Auto]');
     });
 
@@ -432,9 +422,7 @@ describe('utils/git-commit', () => {
       });
 
       // VERIFY
-      expect(result).toBe(
-        '1.2.1.1: add utility>'
-      );
+      expect(result).toBe('1.2.1.1: add utility>');
     });
 
     it("DEFENSE-IN-DEPTH: strips a leading '[PRP Auto] ' banner from the message", () => {
@@ -449,9 +437,7 @@ describe('utils/git-commit', () => {
 
       // VERIFY — banner is gone; task-prefix applied to the stripped subject
       expect(result).not.toContain('[PRP Auto]');
-      expect(result).toBe(
-        '1.2.1.1: msg>'
-      );
+      expect(result).toBe('1.2.1.1: msg>');
     });
 
     it('NEVER adds a Co-Authored-By trailer in ANY output (identity-transparent, §5.1)', () => {
@@ -510,8 +496,7 @@ describe('utils/git-commit', () => {
         });
         expect(mockGitCommit).toHaveBeenCalledWith({
           path: '/project',
-          message:
-            'Test commit>',
+          message: 'Test commit>',
         });
       });
 
@@ -1293,8 +1278,7 @@ describe('utils/git-commit', () => {
       });
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
-        message:
-          'feat(api): add endpoint>',
+        message: 'feat(api): add endpoint>',
       });
     });
 
@@ -1401,8 +1385,7 @@ describe('utils/git-commit', () => {
       expect(mockCreateCommitMessageAgent).not.toHaveBeenCalled();
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
-        message:
-          'Pre-formatted message>',
+        message: 'Pre-formatted message>',
       });
     });
 
@@ -1535,8 +1518,7 @@ describe('utils/git-commit', () => {
       // The committed message is the 3rd-attempt output, wrapped.
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
-        message:
-          'feat: retry works>',
+        message: 'feat: retry works>',
       });
     });
 
@@ -1694,8 +1676,7 @@ describe('utils/git-commit', () => {
       expect(result).toBe('abc123');
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
-        message:
-          '1.2.1.1: add utility>',
+        message: '1.2.1.1: add utility>',
       });
     });
 
@@ -1734,8 +1715,7 @@ describe('utils/git-commit', () => {
       expect(result).toBe('abc123');
       expect(mockGitCommit).toHaveBeenCalledWith({
         path: '/project',
-        message:
-          '1.2.1.1: feat(api): add endpoint>',
+        message: '1.2.1.1: feat(api): add endpoint>',
       });
     });
 
@@ -1802,9 +1782,7 @@ describe('utils/git-commit', () => {
       const call = mockGitCommit.mock.calls[0]?.[0] as
         | { message?: string }
         | undefined;
-      expect(call?.message).toBe(
-        'add utility>'
-      );
+      expect(call?.message).toBe('add utility>');
       expect(call?.message).not.toContain('[PRP Auto]');
     });
 
@@ -1831,9 +1809,7 @@ describe('utils/git-commit', () => {
       const call = mockGitCommit.mock.calls[0]?.[0] as
         | { message?: string }
         | undefined;
-      expect(call?.message).toBe(
-        'add utility>'
-      );
+      expect(call?.message).toBe('add utility>');
     });
   });
 

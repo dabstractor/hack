@@ -592,6 +592,55 @@ async function getRecentCommitMessages(
 }
 
 /**
+ * Result of {@link gitWriteTree}: either a successful tree SHA or a structured error.
+ *
+ * @remarks
+ * `success: false` is returned when the index has unresolved merge conflicts (the only failure
+ * mode of `git write-tree`). The `error` string is actionable per PRD §5.1.
+ */
+type GitWriteTreeResult =
+  | { success: true; treeSha: string }
+  | { success: false; error: string };
+
+/**
+ * `git write-tree` — freeze the current index into an immutable tree object (PRD §5.1 "Commit
+ * Workflow Mechanics" step 1: snapshot-based atomic single-commit).
+ *
+ * @remarks
+ * Records exactly what was staged at time T by writing the current index to a new immutable tree
+ * object and returning its 40-char SHA. **Pure with respect to refs and the index**: it creates a
+ * tree object but modifies neither HEAD nor the staging area — so a failed or slow generation step
+ * after it cannot corrupt history or lose staged work. This is the snapshot step of the
+ * `write-tree → commit-tree → CAS update-ref` atomic workflow.
+ *
+ * Uses `simpleGit.raw(['write-tree'])` — an argv VECTOR (not a shell-interpolated string), so it
+ * runs via `execFile` internally and satisfies §5.1's no-shell rule. `write-tree` prints the tree
+ * SHA + a trailing newline; the output is `.trim()`-ed.
+ *
+ * The only failure mode is an index with unresolved merge conflicts (`git write-tree` exits
+ * non-zero); this is surfaced as `{ success: false, error }` with an actionable message — the error
+ * is NOT re-thrown.
+ *
+ * @param repoPath - Optional repository path (defaults to cwd via {@link validateRepositoryPath}).
+ * @returns `{ success: true, treeSha }` on success, or `{ success: false, error }` on a conflicted index.
+ */
+async function gitWriteTree(repoPath?: string): Promise<GitWriteTreeResult> {
+  const safePath = await validateRepositoryPath(repoPath);
+  const git = simpleGit(safePath);
+  try {
+    const output = await git.raw(['write-tree']); // stdout = 40-char tree SHA + trailing newline
+    const treeSha = output.trim();
+    return { success: true, treeSha };
+  } catch {
+    return {
+      success: false,
+      error:
+        'Cannot write-tree: unresolved merge conflicts in the index — resolve them first',
+    };
+  }
+}
+
+/**
  * Read the content of a file at a specific commit (blob fetch).
  *
  * @remarks
@@ -866,6 +915,7 @@ export type {
   GitFileHistoryEntry,
   GitListDeletionsResult,
   GitRestoreFromHeadResult,
+  GitWriteTreeResult,
 };
 export {
   gitStatusTool,
@@ -883,4 +933,5 @@ export {
   gitListStagedDeletions,
   gitRestoreFileFromHead,
   gitUnstagePath,
+  gitWriteTree,
 };

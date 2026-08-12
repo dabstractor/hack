@@ -158,11 +158,11 @@ bypass the interactive shell history), so the mitigation removes the
 **Requirement — per-role tool matrix.** Agent tool access is **scoped by role**,
 not granted universally:
 
-| Role | `bash` tool | structured `git` tools | Rationale |
-| --- | --- | --- | --- |
-| Research / Planner / Coder | **none** | read-only (`git_status`, `git_diff`) only | these roles research/implement; they must not mutate git state or run arbitrary shell |
-| Commit agent | **none** | `git_commit` only (structured; no raw bash) | committing is a structured operation, never raw shell |
-| Validation agent | **yes, denylisted** | — | MUST run the test gates (`tsc` / `vitest` / smoke); shell is required but fenced (below) |
+| Role                       | `bash` tool         | structured `git` tools                      | Rationale                                                                                |
+| -------------------------- | ------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Research / Planner / Coder | **none**            | read-only (`git_status`, `git_diff`) only   | these roles research/implement; they must not mutate git state or run arbitrary shell    |
+| Commit agent               | **none**            | `git_commit` only (structured; no raw bash) | committing is a structured operation, never raw shell                                    |
+| Validation agent           | **yes, denylisted** | —                                           | MUST run the test gates (`tsc` / `vitest` / smoke); shell is required but fenced (below) |
 
 **Requirement — bash denylist (validation agent).** The bash tool MUST refuse —
 non-zero exit, clear error — any command that matches a repo-remote-mutating or
@@ -196,7 +196,7 @@ reach git through the bash tool.
 - The commit agent's tool set contains no `bash`; it commits only via the
   structured `git_commit` tool.
 - The validation agent's `bash` tool refuses `git push`, `gh repo edit
-  --default-branch <x>`, and `gh api -X PATCH repos/…/… -f default_branch=…`
+--default-branch <x>`, and `gh api -X PATCH repos/…/… -f default_branch=…`
   with a fail-closed error, while still running `npx vitest run` / `npm test` /
   `npx tsc --noEmit`.
 - No agent tool, in any role, can change a remote ref or the repository default
