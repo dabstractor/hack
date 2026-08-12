@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Snapshot-Based Atomic Smart Commit + ARG_MAX-safe staging + baseline .gitignore scaffolding",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Rewrite smartCommit to use git plumbing (write-tree → commit-tree → CAS update-ref) for atomicity and identity transparency. Refactor staging to be ARG_MAX-safe (pathspec default, chunked filtered sets). Add .gitignore scaffolding mandate to the breakdown prompt. Per §5.1 new blocks.",
           "tasks": [
             {
@@ -151,14 +151,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Baseline .gitignore scaffolding in breakdown prompt",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Update the TASK_BREAKDOWN_PROMPT (and PROMPTS.md mirror) so the Architect's decomposition MUST emit a first .gitignore scaffolding subtask that creates or extends a baseline .gitignore before any feature subtask.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "Add .gitignore scaffolding mandate to TASK_BREAKDOWN_PROMPT + PROMPTS.md",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: system_context.md §3.1 and commit-tests-survey.md. The TASK_BREAKDOWN_PROMPT is a large template string exported from src/agents/prompts.ts (starts at line ~47). It is mirrored in PROMPTS.md. The PRD §4.1 step 4 already contains the cross-reference: 'Baseline .gitignore scaffolding: the decomposition MUST include a first, dependency-root subtask...'. The existing repo .gitignore already covers node_modules/, dist/, build/, .DS_Store, Thumbs.db — this prompt rule ensures EVERY project the pipeline decomposes gets one.\n2. INPUT: No code inputs — this is a prompt-text change.\n3. LOGIC: In src/agents/prompts.ts, add a section to TASK_BREAKDOWN_PROMPT (near the DECOMPOSE step or the toolchain/scaffold section) mandating: 'The decomposition MUST include a FIRST, dependency-root scaffolding subtask that creates — or, if one exists, EXTENDS (never overwrites) — a baseline .gitignore at the repo root before any feature implementation subtask. It MUST cover at minimum: language/framework dependency directories (e.g. node_modules/), build/output directories (e.g. dist/, build/), and common OS/IDE cruft (e.g. .DS_Store, Thumbs.db). plan/, PRD.md, and task files MUST NOT be gitignored.' Mirror the same text in PROMPTS.md. Also update any surviving 'stagecoach'-as-in-process-tool wording in §5.1/§4.2 code comments to 'Smart Commit' (Change D terminology cleanup) where those comments exist in prompts.ts.\n4. OUTPUT: Modified TASK_BREAKDOWN_PROMPT export in src/agents/prompts.ts + corresponding PROMPTS.md section. No new exports.\n5. DOCS: The prompt edit itself IS the documentation change (Mode A — ride with the work). Cite §5.1 'Baseline .gitignore (breakdown scaffolding)' + §4.1 step 4.",
@@ -183,14 +183,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Add stagecoach-ai dependency + binary resolver module",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Declare stagecoach-ai as an npm dependency and create a resolver that locates the native binary via the dependency's resolved path. On missing binary, surface a clear actionable error.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "stagecoach-ai dependency + resolveStagecoachBinary() resolver",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: stagecoach-and-agent-factory.md §1.1–§1.4 — stagecoach-ai v0.1.16 exists on npm, downloads a per-platform Go binary at postinstall into ~/.stagecoach/versions/<version>/<goos>-<goarch>/stagecoach. The bin/stagecoach.js shim resolves via STAGECOACH_CACHE_DIR or os.homedir(). The pipeline should resolve the binary similarly. Supported: linux/darwin/windows × amd64/arm64. The package also provides a bin entry (`stagecoach` → `./bin/stagecoach.js`) that could be resolved via require.resolve('stagecoach-ai/bin/stagecoach.js') or by resolving the cache path directly.\n2. INPUT: No code inputs — new module + package.json change.\n3. LOGIC: (a) Add `stagecoach-ai` to package.json dependencies (e.g. `\"stagecoach-ai\": \"^0.1.16\"`). (b) Create resolveStagecoachBinary() in a new module (e.g. src/utils/stagecoach-resolver.ts) that: resolves the binary path — either via the npm dependency's resolved path (require.resolve('stagecoach-ai/bin/stagecoach.js') then follow to the native binary), or directly via ~/.stagecoach/versions/<version>/<goos>-<goarch>/stagecoach using the package's version from its package.json. Returns the absolute path string. (c) On missing binary (not installed / postinstall blocked), throw a clear AgentError: 'stagecoach native binary not found at <path>. Run `npm install` to install it (no separate install / PATH needed). See §9.10.1.' — NOT a silent fallback.\n4. OUTPUT: Exported function resolveStagecoachBinary() → string (path) from src/utils/stagecoach-resolver.ts. Updated package.json with stagecoach-ai dependency. Consumed by P1.M2.T2.S1.\n5. DOCS: JSDoc on resolveStagecoachBinary citing §9.10.1 'Shipped with this tool — npm dependency, per-platform native binary via postinstall, no separate install, no PATH lookup.' package.json/install note: npm install brings stagecoach transitively.",

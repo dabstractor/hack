@@ -102,6 +102,21 @@ For every Subtask, the \`context_scope\` must be a **strict set of instructions*
 - **MODE B (changeset-level):** Cross-cutting docs that only make sense once the whole change lands — README, feature overviews, architecture summaries — become a **FINAL "Sync changeset-level documentation" task** that depends on all implementing subtasks. Whole-feature/overview docs → Mode B.
 - **DECISION RULE:** per-file → Mode A; whole-feature/overview → Mode B; **when in doubt, both.**
 
+### 6. BASELINE \`.gitignore\` SCAFFOLDING (FIRST SUBTASK)
+
+- **MANDATE:** The decomposition MUST include a FIRST, dependency-root scaffolding subtask
+  that creates — or, if one exists, **extends (never overwrites)** — a baseline \`.gitignore\`
+  at the repo root, before any feature implementation subtask. (PRD §4.1 step 4 + §5.1
+  "Baseline \`.gitignore\` (breakdown scaffolding)".)
+- **MINIMUM COVERAGE:** language/framework dependency directories (e.g. \`node_modules/\`),
+  build/output directories (e.g. \`dist/\`, \`build/\`), and common OS/IDE cruft (e.g.
+  \`.DS_Store\`, \`Thumbs.db\`).
+- **PROTECTED — NEVER GITIGNORED:** \`plan/\`, \`PRD.md\`, and any task files (\`*tasks*.json\`).
+  The baseline \`.gitignore\` MUST respect this.
+- **WHY:** the pipeline commits the working tree via Smart Commit; an unignored dependency
+  tree overflows \`ARG_MAX\` during staging and strands task substance. This scaffold subtask
+  prevents that failure at the source.
+
 ---
 
 ## PROCESS
@@ -1164,7 +1179,7 @@ yourself — the pipeline runs it and inspects the exit code.
  * once per subtask between the survival commit and the post-cleanup commit. It
  * mutates the working tree (remove temp, move docs to `docs/`, save
  * `tasks.json`); it MUST NOT `git commit` / `git add` — the orchestrator's
- * stagecoach (P3.M1.T3.S1) performs the post-cleanup commit. A self-committing
+ * Smart Commit performs the post-cleanup commit. A self-committing
  * cleanup agent would race with `smartCommit` and double-commit.
  *
  * Source: authored for P3.M1.T3.S3 (no PROMPTS.md source).
@@ -1207,7 +1222,7 @@ deletion or move command) against ANY of:
 You **MUST NOT** treat \`PRD.md\`, \`PRP.md\`, or \`tasks.json\` as "temporary."
 
 You **MUST NOT** run \`git commit\` or \`git add\` — the orchestrator commits your
-reorganization via the stagecoach post-cleanup commit. Committing yourself
+reorganization via the Smart Commit post-cleanup commit. Committing yourself
 causes a double-commit race. Read-only \`git\` inspection (e.g. \`git status\`) is
 fine.
 

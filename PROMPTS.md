@@ -104,6 +104,21 @@ For every Subtask, the `context_scope` must be a **strict set of instructions** 
 - **OUTPUT:** What exact interface does this subtask expose?
 - **MOCKING:** What external services must be mocked to keep this subtask isolated?
 
+### 5. BASELINE `.gitignore` SCAFFOLDING (FIRST SUBTASK)
+
+- **MANDATE:** The decomposition MUST include a FIRST, dependency-root scaffolding subtask
+  that creates — or, if one exists, **extends (never overwrites)** — a baseline `.gitignore`
+  at the repo root, before any feature implementation subtask. (PRD §4.1 step 4 + §5.1
+  "Baseline `.gitignore` (breakdown scaffolding)".)
+- **MINIMUM COVERAGE:** language/framework dependency directories (e.g. `node_modules/`),
+  build/output directories (e.g. `dist/`, `build/`), and common OS/IDE cruft (e.g.
+  `.DS_Store`, `Thumbs.db`).
+- **PROTECTED — NEVER GITIGNORED:** `plan/`, `PRD.md`, and any task files (`*tasks*.json`).
+  The baseline `.gitignore` MUST respect this.
+- **WHY:** the pipeline commits the working tree via Smart Commit; an unignored dependency
+  tree overflows `ARG_MAX` during staging and strands task substance. This scaffold subtask
+  prevents that failure at the source.
+
 ---
 
 ## PROCESS
