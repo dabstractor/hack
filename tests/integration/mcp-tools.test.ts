@@ -213,8 +213,8 @@ describe('integration/mcp-tools > agent MCP integration', () => {
   // =============================================================================
 
   describe('agent factory MCP registration', () => {
-    it('should register all three MCP servers with Architect agent', () => {
-      // SETUP
+    it('should register the RESTRICTED tool set with Architect agent (PRD §9.10.3)', () => {
+      // SETUP — architect is a non-qa persona: filesystem + read-only git, NO bash.
       architectAgent = createArchitectAgent();
       const handler = architectAgent.getMcpHandler();
       const tools = handler.getTools();
@@ -226,39 +226,45 @@ describe('integration/mcp-tools > agent MCP integration', () => {
       );
       const gitTools = tools.filter(t => t.name.startsWith('git__'));
 
-      // VERIFY
-      expect(bashTools).toHaveLength(1);
+      // VERIFY — restricted subset: filesystem (4) + read-only git (2), no bash.
+      expect(bashTools).toHaveLength(0);
       expect(filesystemTools).toHaveLength(4);
-      expect(gitTools).toHaveLength(4);
-      expect(bashTools[0].name).toBe('bash__execute_bash');
+      expect(gitTools).toHaveLength(2); // git_status + git_diff only
+      expect(gitTools.map(t => t.name).sort()).toEqual([
+        'git__git_diff',
+        'git__git_status',
+      ]);
     });
 
-    it('should register all three MCP servers with Researcher agent', () => {
-      // SETUP
+    it('should register the RESTRICTED tool set with Researcher agent (PRD §9.10.3)', () => {
+      // SETUP — researcher is a non-qa persona: filesystem + read-only git, NO bash.
       researcherAgent = createResearcherAgent();
       const handler = researcherAgent.getMcpHandler();
       const tools = handler.getTools();
 
-      // VERIFY
-      expect(tools.length).toBeGreaterThanOrEqual(9); // 1 + 4 + 4 tools
-      expect(handler.hasTool('bash__execute_bash')).toBe(true);
+      // VERIFY — restricted subset: 6 tools (4 filesystem + 2 read-only git).
+      expect(tools.length).toBe(6);
+      expect(handler.hasTool('bash__execute_bash')).toBe(false);
       expect(handler.hasTool('filesystem__file_read')).toBe(true);
       expect(handler.hasTool('git__git_status')).toBe(true);
+      expect(handler.hasTool('git__git_add')).toBe(false); // read-only git
+      expect(handler.hasTool('git__git_commit')).toBe(false);
     });
 
-    it('should register all three MCP servers with Coder agent', () => {
-      // SETUP
+    it('should register the RESTRICTED tool set with Coder agent (PRD §9.10.3)', () => {
+      // SETUP — coder is a non-qa persona: filesystem + read-only git, NO bash.
       coderAgent = createCoderAgent();
       const handler = coderAgent.getMcpHandler();
 
       // VERIFY
-      expect(handler.hasTool('bash__execute_bash')).toBe(true);
+      expect(handler.hasTool('bash__execute_bash')).toBe(false);
       expect(handler.hasTool('filesystem__file_write')).toBe(true);
-      expect(handler.hasTool('git__git_commit')).toBe(true);
+      expect(handler.hasTool('git__git_commit')).toBe(false); // read-only git
+      expect(handler.hasTool('git__git_status')).toBe(true);
     });
 
-    it('should register all three MCP servers with QA agent', () => {
-      // SETUP
+    it('should register the FULL tool set with QA agent (PRD §9.10.3)', () => {
+      // SETUP — qa is the ONLY persona with the full set (denylisted bash + full git).
       qaAgent = createQAAgent();
       const handler = qaAgent.getMcpHandler();
       const tools = handler.getTools();
@@ -280,15 +286,14 @@ describe('integration/mcp-tools > agent MCP integration', () => {
       architectAgent = createArchitectAgent();
     });
 
-    it('should expose BashMCP tools via getMcpHandler().getTools()', () => {
-      // SETUP
+    it('should NOT expose BashMCP tools for non-qa architect (PRD §9.10.3)', () => {
+      // SETUP — architect is restricted; bash is qa-only.
       const handler = architectAgent.getMcpHandler();
       const tools = handler.getTools();
 
-      // VERIFY
+      // VERIFY — architect has no bash tool at all.
       const bashTool = tools.find(t => t.name === 'bash__execute_bash');
-      expect(bashTool).toBeDefined();
-      expect(bashTool?.description).toContain('shell command');
+      expect(bashTool).toBeUndefined();
     });
 
     it('should expose FilesystemMCP tools via getMcpHandler().getTools()', () => {
@@ -302,20 +307,20 @@ describe('integration/mcp-tools > agent MCP integration', () => {
       expect(handler.hasTool('filesystem__grep_search')).toBe(true);
     });
 
-    it('should expose GitMCP tools via getMcpHandler().getTools()', () => {
-      // SETUP
+    it('should expose read-only GitMCP tools for non-qa architect (PRD §9.10.3)', () => {
+      // SETUP — architect has the read-only git subset (status + diff only).
       const handler = architectAgent.getMcpHandler();
       const tools = handler.getTools();
 
-      // VERIFY
+      // VERIFY — read-only git: exactly git_status + git_diff (no add/commit).
       const gitTools = tools.filter(t => t.name.startsWith('git__'));
-      expect(gitTools).toHaveLength(4);
+      expect(gitTools).toHaveLength(2);
 
       const toolNames = gitTools.map(t => t.name);
       expect(toolNames).toContain('git__git_status');
       expect(toolNames).toContain('git__git_diff');
-      expect(toolNames).toContain('git__git_add');
-      expect(toolNames).toContain('git__git_commit');
+      expect(toolNames).not.toContain('git__git_add');
+      expect(toolNames).not.toContain('git__git_commit');
     });
   });
 

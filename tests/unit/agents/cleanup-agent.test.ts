@@ -56,7 +56,11 @@ vi.mock('groundswell', async importOriginal => {
 });
 
 import { createAgent } from 'groundswell';
-import { createCleanupAgent } from '../../../src/agents/agent-factory.js';
+import {
+  createCleanupAgent,
+  buildToolSet,
+  MCP_TOOLS,
+} from '../../../src/agents/agent-factory.js';
 // REAL prompt constant — do NOT mock prompts.ts so cfg.system ties to the truth.
 import { CLEANUP_PROMPT } from '../../../src/agents/prompts.js';
 
@@ -103,17 +107,19 @@ describe('agents/cleanup-agent', () => {
       expect(cfg.system).toBe(CLEANUP_PROMPT);
     });
 
-    it('should carry MCP_TOOLS (cleanup mutates the filesystem)', () => {
+    it('should carry the restricted tool set (cleanup mutates the filesystem)', () => {
       // EXECUTE
       createCleanupAgent();
 
       // VERIFY — KEY divergence from commit-message-agent (which omits mcps).
-      // Cleanup moves docs + removes temp artifacts, so it needs file/bash/git
-      // tools. Asserting a populated array catches a forgotten-mcps regression.
+      // Cleanup is a NON-qa persona (PRD §9.10.3): it gets the RESTRICTED set
+      // (filesystem + read-only git) — NOT the full MCP_TOOLS. Asserting the
+      // persona's buildToolSet catches a forgotten-mcps regression.
       const cfg = mockCreateAgent.mock.calls[0][0] as { mcps?: unknown };
-      expect(cfg.mcps).toBeDefined();
+      expect(cfg.mcps).toBe(buildToolSet('cleanup'));
+      expect(cfg.mcps).not.toBe(MCP_TOOLS); // cleanup is restricted, not qa
       expect(Array.isArray(cfg.mcps)).toBe(true);
-      expect((cfg.mcps as unknown[]).length).toBe(3);
+      expect((cfg.mcps as unknown[]).length).toBe(2); // filesystem + read-only git
     });
 
     it('should disable reflection (stateless single-shot)', () => {

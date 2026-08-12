@@ -201,7 +201,9 @@ describe('integration/coder-agent > createCoderAgent configuration', () => {
     );
 
     const callArgs = (gs.createAgent as any).mock.calls[0][0];
-    expect(callArgs.mcps).toHaveLength(3);
+    // Coder is a NON-qa persona (PRD §9.10.3): RESTRICTED set = filesystem +
+    // read-only git (2 servers, NOT the full 3-server MCP_TOOLS).
+    expect(callArgs.mcps).toHaveLength(2);
   });
 
   it('should use PRP_BUILDER_PROMPT as system prompt', async () => {

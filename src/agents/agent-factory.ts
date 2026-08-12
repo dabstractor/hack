@@ -50,7 +50,7 @@ import {
 } from './prompts.js';
 import { BashMCP } from '../tools/bash-mcp.js';
 import { FilesystemMCP } from '../tools/filesystem-mcp.js';
-import { GitMCP } from '../tools/git-mcp.js';
+import { GitMCP, ReadOnlyGitMCP } from '../tools/git-mcp.js';
 
 // PATTERN: Lazy-accessor singleton (PRD §9.6.2 REQ-L2) — mirrors the _logger pattern below.
 // configureHarness() is deferred out of module-eval scope so importing this module (and thus
@@ -85,14 +85,37 @@ const FILESYSTEM_MCP = new FilesystemMCP();
 const GIT_MCP = new GitMCP();
 
 /**
+ * Read-only git singleton for non-qa personas (PRD §9.10.3).
+ *
+ * @remarks
+ * A separate instance registering only `git_status` + `git_diff`. See
+ * {@link ReadOnlyGitMCP}. Held as a singleton so all non-qa personas share one
+ * instance (object-identity assertions in tests rely on the shared
+ * {@link RESTRICTED_TOOLS} constant).
+ */
+const READ_ONLY_GIT_MCP = new ReadOnlyGitMCP();
+
+/**
  * Combined array of all MCP tools for agent integration
  *
  * @remarks
- * This array is passed to createAgent() via the mcps parameter.
- * All agents (architect, researcher, coder, qa) receive the same tool set.
- * Typed as MCPServer[] to match createAgent() expectations.
+ * The FULL tool set (filesystem + denylisted bash + full git) — given to the
+ * `qa` persona only (qa/bug-hunt inspects repo state and runs validation
+ * gates). Returned by {@link buildToolSet} for `'qa'`. Typed as `MCPServer[]`
+ * to match `createAgent()` expectations.
  */
 const MCP_TOOLS: MCPServer[] = [BASH_MCP, FILESYSTEM_MCP, GIT_MCP];
+
+/**
+ * Restricted tool set for non-qa personas (PRD §9.10.3).
+ *
+ * @remarks
+ * Filesystem (full) + read-only git only — NO bash, NO `git_add` / `git_commit`.
+ * Returned by {@link buildToolSet} for `architect` / `researcher` / `coder` /
+ * `cleanup`. Module-level constant (not a fresh array per call) so object
+ * identity holds per persona-group.
+ */
+const RESTRICTED_TOOLS: MCPServer[] = [FILESYSTEM_MCP, READ_ONLY_GIT_MCP];
 
 /**
  * Agent persona identifier for selecting specialized configurations
@@ -112,6 +135,27 @@ export type AgentPersona =
   | 'coder'
   | 'qa'
   | 'cleanup';
+
+/**
+ * Resolve the per-persona MCP tool subset (PRD §9.10.3).
+ *
+ * @remarks
+ * Replaces the former uniform `mcps: MCP_TOOLS` given to every persona. The
+ * `qa` persona gets the FULL set ({@link MCP_TOOLS} — denylisted bash + full
+ * git, for validation/bug-hunt); every other persona gets the restricted set
+ * ({@link RESTRICTED_TOOLS} — filesystem + read-only git, NO bash, NO
+ * `git_add` / `git_commit`).
+ *
+ * Returns the MODULE-LEVEL constant by identity (not a fresh array) so tests
+ * can assert `config.mcps === buildToolSet(persona)` per persona-group, and so
+ * `buildToolSet('qa') === MCP_TOOLS`.
+ *
+ * @param persona - The agent persona to resolve tools for.
+ * @returns `MCP_TOOLS` for `'qa'`; `RESTRICTED_TOOLS` otherwise.
+ */
+export function buildToolSet(persona: AgentPersona): MCPServer[] {
+  return persona === 'qa' ? MCP_TOOLS : RESTRICTED_TOOLS;
+}
 
 /**
  * Extended-thinking (reasoning) budget for an agent (PRD §9.2.9).
@@ -375,7 +419,7 @@ export function createArchitectAgent(): Agent {
   const config = {
     ...baseConfig,
     system: TASK_BREAKDOWN_PROMPT,
-    mcps: MCP_TOOLS,
+    mcps: buildToolSet('architect'),
   };
   logger().debug(
     { persona: 'architect', model: config.model },
@@ -413,7 +457,7 @@ export function createResearcherAgent(): Agent {
   const config = {
     ...baseConfig,
     system: PRP_BLUEPRINT_PROMPT,
-    mcps: MCP_TOOLS,
+    mcps: buildToolSet('researcher'),
   };
   logger().debug(
     { persona: 'researcher', model: config.model },
@@ -452,7 +496,7 @@ export function createCoderAgent(): Agent {
   const config = {
     ...baseConfig,
     system: PRP_BUILDER_PROMPT,
-    mcps: MCP_TOOLS,
+    mcps: buildToolSet('coder'),
   };
   logger().debug({ persona: 'coder', model: config.model }, 'Creating agent');
   return createAgent(config);
@@ -495,7 +539,7 @@ export function createQAAgent(reasoningLevel: ReasoningLevel): Agent {
   const config = {
     ...baseConfig,
     system: BUG_HUNT_PROMPT,
-    mcps: MCP_TOOLS,
+    mcps: buildToolSet('qa'),
   };
   logger().debug(
     { persona: 'qa', model: config.model, bugFinderAgent: getBugFinderAgent() },
@@ -556,7 +600,7 @@ export function createCleanupAgent(): Agent {
   const config = {
     ...baseConfig,
     system: CLEANUP_PROMPT,
-    mcps: MCP_TOOLS,
+    mcps: buildToolSet('cleanup'),
     enableReflection: false,
     enableCache: false,
   };

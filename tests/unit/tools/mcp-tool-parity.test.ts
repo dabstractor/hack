@@ -21,9 +21,12 @@ describe('MCP tool discovery & execution parity across harnesses (PRD §9.3.3 / 
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  // Mirror the persona-factory spread: { ...baseConfig, system, mcps: MCP_TOOLS }
+  // Mirror the persona-factory spread. Uses the 'qa' persona because qa is
+  // the ONLY persona whose buildToolSet === MCP_TOOLS (the full 9-tool set).
+  // researcher/coder/etc. now get the RESTRICTED set (PRD §9.10.3), so a
+  // researcher fixture would no longer equal MCP_TOOLS.
   function configFor(harness: 'pi' | 'claude-code') {
-    return { ...createBaseConfig('researcher'), mcps: MCP_TOOLS, harness };
+    return { ...createBaseConfig('qa'), mcps: MCP_TOOLS, harness };
   }
   // Mirror MCPHandler.registerServer namespacing.
   function discoverToolNames(mcps: MCPServer[]): string[] {

@@ -988,15 +988,18 @@ describe('integration/forbidden-operations > agent constraint enforcement', () =
   // =============================================================================
 
   describe('integration with real agent', () => {
-    it('should have MCP tools registered on agent', () => {
-      // SETUP
+    it('should have the coder RESTRICTED MCP tools registered on agent (PRD §9.10.3)', () => {
+      // SETUP — this suite's agent is a CODER agent (createCoderAgent, line 334),
+      // which is a non-qa persona: filesystem + read-only git, NO bash.
       const handler = agent.getMcpHandler();
       const tools = handler.getTools();
 
-      // VERIFY
+      // VERIFY — coder has filesystem + read-only git, but NOT bash.
       expect(tools.length).toBeGreaterThan(0);
-      expect(handler.hasTool('bash__execute_bash')).toBe(true);
+      expect(handler.hasTool('bash__execute_bash')).toBe(false);
       expect(handler.hasTool('filesystem__file_write')).toBe(true);
+      expect(handler.hasTool('git__git_status')).toBe(true);
+      expect(handler.hasTool('git__git_commit')).toBe(false); // read-only git
     });
 
     it('should verify tool naming follows server__tool pattern', () => {

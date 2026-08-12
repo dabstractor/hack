@@ -67,6 +67,13 @@ vi.mock('../../src/tools/git-mcp.js', () => ({
     transport: 'inprocess' as const,
     tools: [],
   })),
+  // P1.M4.T2.S1: agent-factory now also imports ReadOnlyGitMCP for non-qa
+  // personas. The mock must expose it so the import doesn't throw.
+  ReadOnlyGitMCP: vi.fn().mockImplementation(() => ({
+    name: 'git',
+    transport: 'inprocess' as const,
+    tools: [],
+  })),
 }));
 
 // Mock the PRPRuntime class

@@ -1093,6 +1093,51 @@ export class GitMCP extends MCPHandler {
   }
 }
 
+/**
+ * Read-only Git MCP Server (PRD §9.10.3 per-persona tool subsets).
+ *
+ * @remarks
+ * A SEPARATE {@link MCPHandler} instance that registers ONLY `git_status` +
+ * `git_diff` — the read-only git subset given to non-qa personas
+ * (architect/researcher/coder/cleanup). Subsetting works because MCPHandler
+ * registration is PER-INSTANCE: this instance never registers `git_add` /
+ * `git_commit`, so those tools are simply undiscoverable to agents holding it.
+ *
+ * The server `name` stays `'git'` (the tool namespace prefix) — no single
+ * persona ever holds two `'git'` servers, so there is no collision, and the
+ * namespaced tool ids (`git__git_status` / `git__git_diff`) are identical to
+ * the full {@link GitMCP}. The full {@link GitMCP} (4 tools) is unchanged and
+ * remains the qa set.
+ */
+export class ReadOnlyGitMCP extends MCPHandler {
+  /** Server name for MCPServer interface (same namespace as GitMCP) */
+  public readonly name = 'git';
+
+  /** Transport type for MCPServer interface */
+  public readonly transport = 'inprocess' as const;
+
+  /** Read-only subset: status + diff only */
+  public readonly tools = [gitStatusTool, gitDiffTool];
+
+  constructor() {
+    super();
+
+    this.registerServer({
+      name: this.name,
+      transport: this.transport,
+      tools: this.tools,
+    });
+
+    // Register ONLY the read-only executors (no git_add / git_commit).
+    this.registerToolExecutor('git', 'git_status', async (input: unknown) =>
+      gitStatus(input as GitStatusInput)
+    );
+    this.registerToolExecutor('git', 'git_diff', async (input: unknown) =>
+      gitDiff(input as GitDiffInput)
+    );
+  }
+}
+
 // Export types and tools for external use and testing
 export type {
   GitStatusInput,

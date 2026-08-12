@@ -360,15 +360,13 @@ describe('integration/researcher-agent', () => {
       );
     });
 
-    it('should create researcher agent with MCP tools', async () => {
+    it('should create researcher agent with the RESTRICTED MCP tool set (PRD §9.10.3)', async () => {
       // SETUP: Import real agent-factory and MCP tool classes
-      const { createResearcherAgent } =
+      const { createResearcherAgent, buildToolSet } =
         await import('/home/dustin/projects/hacky-hack/src/agents/agent-factory.js');
-      const { BashMCP } =
-        await import('/home/dustin/projects/hacky-hack/src/tools/bash-mcp.js');
       const { FilesystemMCP } =
         await import('/home/dustin/projects/hacky-hack/src/tools/filesystem-mcp.js');
-      const { GitMCP } =
+      const { ReadOnlyGitMCP } =
         await import('/home/dustin/projects/hacky-hack/src/tools/git-mcp.js');
 
       // SETUP: Configure mock agent return value
@@ -382,16 +380,17 @@ describe('integration/researcher-agent', () => {
       // EXECUTE: Create researcher agent
       createResearcherAgent();
 
-      // VERIFY: createAgent called with MCP tools
-      // The actual tools are instances of BashMCP, FilesystemMCP, GitMCP
+      // VERIFY: createAgent called with the researcher's RESTRICTED tool set.
+      // Researcher is a non-qa persona (PRD §9.10.3): filesystem + read-only git,
+      // NO bash, NO git_add/git_commit.
       const mcpCall = (gs.createAgent as ReturnType<typeof vi.fn>).mock
         .calls[0];
       const mcps = mcpCall[0].mcps;
 
-      expect(mcps).toHaveLength(3);
-      expect(mcps[0]).toBeInstanceOf(BashMCP);
-      expect(mcps[1]).toBeInstanceOf(FilesystemMCP);
-      expect(mcps[2]).toBeInstanceOf(GitMCP);
+      expect(mcps).toBe(buildToolSet('researcher'));
+      expect(mcps).toHaveLength(2);
+      expect(mcps[0]).toBeInstanceOf(FilesystemMCP);
+      expect(mcps[1]).toBeInstanceOf(ReadOnlyGitMCP);
     });
   });
 

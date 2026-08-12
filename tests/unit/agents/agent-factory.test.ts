@@ -46,6 +46,7 @@ import {
   MCP_TOOLS,
   ROLE_CONFIG,
   STATELESS_PERSONAS,
+  buildToolSet,
   type AgentPersona,
   type ModelRole,
   type ThinkingLevel,
@@ -370,6 +371,115 @@ describe('agents/agent-factory', () => {
       expect(names).toContain('bash');
       expect(names).toContain('filesystem');
       expect(names).toContain('git');
+    });
+  });
+
+  describe('buildToolSet — per-persona MCP subsets (PRD §9.10.3)', () => {
+    // Helper: enumerate the discoverable tool NAMES for a persona (sorted).
+    // Reads the MCPServer `tools` array — the same surface agents discover.
+    function toolNames(persona: AgentPersona): string[] {
+      return buildToolSet(persona)
+        .flatMap(m => (m.tools ?? []).map(t => t.name))
+        .sort();
+    }
+
+    const nonQaPersonas: AgentPersona[] = [
+      'architect',
+      'researcher',
+      'coder',
+      'cleanup',
+    ];
+
+    it.each(nonQaPersonas)(
+      '%s gets the RESTRICTED set (no bash, read-only git)',
+      persona => {
+        // VERIFY §9.10.3: no execute_bash, no git_add, no git_commit.
+        const names = toolNames(persona);
+        expect(names).toEqual([
+          'file_read',
+          'file_write',
+          'git_diff',
+          'git_status',
+          'glob_files',
+          'grep_search',
+        ]);
+        // Negative guards: the dangerous tools are absent.
+        expect(names).not.toContain('execute_bash');
+        expect(names).not.toContain('git_add');
+        expect(names).not.toContain('git_commit');
+      }
+    );
+
+    it('qa gets the FULL set (denylisted bash + full git)', () => {
+      expect(toolNames('qa')).toEqual([
+        'execute_bash',
+        'file_read',
+        'file_write',
+        'git_add',
+        'git_commit',
+        'git_diff',
+        'git_status',
+        'glob_files',
+        'grep_search',
+      ]);
+    });
+
+    it("buildToolSet('qa') === MCP_TOOLS (object identity)", () => {
+      expect(buildToolSet('qa')).toBe(MCP_TOOLS);
+    });
+
+    it.each(nonQaPersonas)(
+      'buildToolSet(%j) is the shared RESTRICTED constant (stable identity)',
+      persona => {
+        // VERIFY: each non-qa persona gets the SAME array (module-level const,
+        // not a fresh array per call) so identity assertions hold.
+        expect(buildToolSet(persona)).toBe(buildToolSet('architect'));
+      }
+    );
+
+    it('each non-qa persona holds exactly one git server named "git"', () => {
+      // VERIFY: no persona holds two 'git' servers (namespace collision guard).
+      for (const persona of nonQaPersonas) {
+        const gitServers = buildToolSet(persona).filter(m => m.name === 'git');
+        expect(gitServers).toHaveLength(1);
+      }
+    });
+
+    it('each factory passes its persona buildToolSet to createAgent', () => {
+      // SETUP: stub the env so createBaseConfig resolves a model.
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-token');
+      vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.test.com');
+      mockCreateAgent.mockClear();
+
+      // EXECUTE each factory.
+      createArchitectAgent();
+      const architectCfg = mockCreateAgent.mock.calls.at(-1)![0] as {
+        mcps?: unknown;
+      };
+      createResearcherAgent();
+      const researcherCfg = mockCreateAgent.mock.calls.at(-1)![0] as {
+        mcps?: unknown;
+      };
+      createCoderAgent();
+      const coderCfg = mockCreateAgent.mock.calls.at(-1)![0] as {
+        mcps?: unknown;
+      };
+      createQAAgent('xhigh');
+      const qaCfg = mockCreateAgent.mock.calls.at(-1)![0] as {
+        mcps?: unknown;
+      };
+      createCleanupAgent();
+      const cleanupCfg = mockCreateAgent.mock.calls.at(-1)![0] as {
+        mcps?: unknown;
+      };
+
+      // VERIFY: each factory wired its persona's tool set (object identity).
+      expect(architectCfg.mcps).toBe(buildToolSet('architect'));
+      expect(researcherCfg.mcps).toBe(buildToolSet('researcher'));
+      expect(coderCfg.mcps).toBe(buildToolSet('coder'));
+      expect(qaCfg.mcps).toBe(buildToolSet('qa'));
+      expect(qaCfg.mcps).toBe(MCP_TOOLS); // qa === full set
+      expect(cleanupCfg.mcps).toBe(buildToolSet('cleanup'));
     });
   });
 

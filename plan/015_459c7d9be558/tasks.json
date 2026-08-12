@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Commit Generation & Agent Tool Safety",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Implement §9.10 (new) consolidating commit-message generation (stagecoach binary delegation), commit-identity structural guard (self-source-scan), snapshot-based atomic plumbing commit (§5.1 new blocks), ARG_MAX-safe staging, baseline .gitignore scaffolding, per-role agent tool matrix, and bash remote-mutation denylist. Also covers §9.1 tech-stack bullet, §4.1 .gitignore cross-reference, and terminology cleanup (stagecoach-the-in-process-tool → Smart Commit).",
       "milestones": [
         {
@@ -332,7 +332,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Agent Tool-Access Scoping & Remote-Mutation Prohibition",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Implement the per-role tool matrix (Research/Planner/Coder → no bash, read-only git; Commit → no bash, git_commit only; Validation → denylisted bash), the bash denylist (refuse remote/default-branch-mutating commands before exec), and the universal remote-mutation prohibition in all deletion-capable agent prompts. Per §9.10.3.",
           "tasks": [
             {
@@ -362,14 +362,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Per-role tool matrix in agent-factory.ts",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Replace the uniform MCP_TOOLS array with per-persona filtered tool sets matching the §9.10.3 matrix: Research/Planner/Coder → no bash, read-only git; Validation → denylisted bash + all git.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Per-persona MCP tool subsets + tests",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M4.T1.S1"
@@ -387,14 +387,14 @@
               "type": "Task",
               "id": "P1.M4.T3",
               "title": "Universal remote-mutation prohibition in agent prompts",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Add remote-mutating operations to the Universal Forbidden Operations (§5.2) and to every deletion-capable agent prompt in src/agents/prompts.ts + PROMPTS.md.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T3.S1",
                   "title": "Add remote-mutation prohibition to FORBIDDEN OPERATIONS sections",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: system_context.md §3.1 + PROMPTS.md grep results. The FORBIDDEN ACTIONS sections exist at multiple locations in src/agents/prompts.ts (lines ~194, ~684, ~1076, ~1194) and PROMPTS.md. The 'Universal Forbidden Operations (all agents)' in §5.2 lists: never modify PRD.md, never add plan/PRD.md/task files to .gitignore, never run prd/run-prd.sh/tsk, never create session-pattern dirs. Remote-mutation prohibition is NOT currently listed.\n2. INPUT: No code inputs — prompt-text changes.\n3. LOGIC: In src/agents/prompts.ts and PROMPTS.md: (a) Add to every FORBIDDEN OPERATIONS / Universal Forbidden Operations section the remote-mutation prohibition: 'NEVER run any remote-mutating git/GitHub command: git push, git remote, git update-ref, gh repo (any subcommand), gh api -X PATCH|POST|DELETE, curl/wget to api.github.com, or any reference to default_branch. These are human-only operations. No agent reaches git through the bash tool — use structured git tools only.' (b) Ensure every deletion-capable agent prompt (cleanup, bug-hunter, bug-fix breakdown, post-validation fix) includes this prohibition. (c) Mirror in PROMPTS.md.\n4. OUTPUT: Modified FORBIDDEN OPERATIONS sections in src/agents/prompts.ts + PROMPTS.md.\n5. DOCS: The prompt edits themselves are the documentation (Mode A). Cite §9.10.3 'Repo-remote-mutating operations are never exposed as any agent tool, in any role. These are human-only operations, and this rule is added to the §5.2 Universal Forbidden Operations.'",
