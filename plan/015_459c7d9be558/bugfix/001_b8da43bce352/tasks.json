@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bug Fix — Validation Abort Integrity & Green Test-Suite Restoration",
-      "status": "Researching",
+      "status": "Complete",
       "description": "Restore PRD compliance for two confirmed defects. BUG-001 (Major): PRPPipeline.#runValidation() swallows validation failure under --continue-on-error, allowing bug-hunt + commits on a half-validated build — a direct violation of PRD §4.4 unconditional abort-on-failure. BUG-002 (Minor): 8 unit/integration tests across 3 files are stale relative to legitimate §4.5.1 (backlog-heal / format-nudge) and §5.1 (ARG_MAX-safe pathspec staging) behavior changes, leaving `npx vitest run` red (9 failed) and breaking the project's own `npm run validate` CI gate. Both are out-of-spec corrective fixes to EXISTING, PRD-specified behavior — no new features, no new flags, no new behavior beyond existing intent. Research findings live in plan/015_459c7d9be558/bugfix/001_b8da43bce352/architecture/.",
       "milestones": [
         {
@@ -46,7 +46,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Restore Green Test Suite (BUG-002 — Minor)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Update 8 stale tests across 3 files so `npx vitest run` is green. These are NOT product defects — the implementation behaves per PRD §4.5.1 (backlog-heal / format-nudge) and §5.1 (ARG_MAX-safe pathspec staging), but the tests encode pre-change behavior. Restoring a green suite is a prerequisite for the project's own `npm run validate` CI gate. The prp-pipeline-validation.test.ts BUG-001 test (the 9th failure) is fixed by P1.M1.T1.S1, not here.",
           "tasks": [
             {
@@ -131,14 +131,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "Sync changeset-level documentation & full-suite verification",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Final sweep: confirm the entire test suite is green (the 9 failures = 1 BUG-001 + 8 BUG-002 must all be resolved) so `npm run validate` / CI passes, and verify no README/overview documentation drifted from the (purely corrective, PRD-restoring) changeset.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "Verify full suite green (0 failed) and sweep README/overview docs for drift",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
