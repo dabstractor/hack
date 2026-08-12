@@ -176,7 +176,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "stagecoach binary delegation, message-only",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Replace the in-process commit-message LLM agent with delegation to the stagecoach binary (--dry-run --single). Add the stagecoach-ai npm dependency, resolve the binary, forward provider/model/style, and remove the in-process agent + rewire tests. Per §9.10.1.",
           "tasks": [
             {
@@ -231,14 +231,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Remove in-process commit-message-agent.ts + rewire tests",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Delete the in-process commit-message agent module, remove its imports/factory wiring, and rewire all test mocks from the agent factory to the stagecoach binary exec boundary.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Delete commit-message-agent.ts + remove imports/factory wiring",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"
@@ -253,7 +253,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T3.S2",
                   "title": "Rewire test mocks + delete commit-message-agent.test.ts",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T3.S1"

@@ -297,6 +297,13 @@ export interface SmartCommitOptions {
  * labeled placeholder commit (PRD §5.1). The argv is passed as a vector
  * (NEVER `sh -c`) via `spawn` with no shell.
  *
+ * Supersedes the in-process agent — the previous `commit-message-agent.ts`
+ * and its style-learning machinery are removed in favor of stagecoach
+ * delegation (§9.10.1). The in-process re-implementation (which
+ * drift-acquired a hardcoded `Co-Authored-By: Claude` trailer — incident 1)
+ * is gone; stagecoach's own output discipline (emit only the message; no
+ * prefix, no banner, no trailer) replaces it.
+ *
  * @param repoRoot - Repository root path (the binary reads the repo index; needs cwd).
  * @param _diff - UNUSED (kept for call-site compatibility). The binary reads
  *                the staged diff from the index itself.
