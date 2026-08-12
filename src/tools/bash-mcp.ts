@@ -93,6 +93,170 @@ interface BashToolResult {
 const DEFAULT_TIMEOUT = 30000;
 
 /**
+ * Result of a §9.10.3 denylist evaluation.
+ *
+ * @remarks
+ * `denied` is true iff the command must be refused before exec. When denied,
+ * `reason` carries a human-readable explanation (citing the PRD §9.10.3 rule).
+ */
+export interface DenylistResult {
+  /** True iff the command must be refused before exec (fail-closed). */
+  denied: boolean;
+  /** Human-readable reason when denied. */
+  reason?: string;
+}
+
+/**
+ * Match `binary` invoked with `sub` as its FIRST POSITIONAL subcommand.
+ *
+ * @remarks
+ * Tolerates an optional path prefix (`/usr/bin/git`), optional `.exe`, and
+ * common global flags (`-C <dir>`, `-c <kv>`, `--xxx` booleans) before `sub`.
+ * The subcommand is the first positional, so `git log config` does NOT match
+ * `config`, and `git log --grep="push"` does NOT match `push`. The left
+ * boundary `(?:^|[^\w./@+-])` prevents false matches on tokens like
+ * `widget/git-push.sh`, `agit`, or `digital`. `c` MUST be pre-lowercased.
+ *
+ * @param c - The lowercased command string.
+ * @param binary - The binary name (e.g. `'git'`, `'gh'`).
+ * @param sub - The subcommand name (e.g. `'push'`, `'repo'`).
+ * @returns True iff `binary` is invoked with `sub` as its first positional.
+ */
+function invokesSubcommand(c: string, binary: string, sub: string): boolean {
+  const globalFlags = String.raw`(?:\s+(?:-C\s+\S+|-c\s+\S+|--[a-z][\w-]*))*`;
+  const re = new RegExp(
+    String.raw`(?:^|[^\w./@+-])(?:[\w.@+-]*/)*` +
+      binary +
+      String.raw`(?:\.exe)?` +
+      globalFlags +
+      String.raw`\s+` +
+      sub +
+      String.raw`\b`
+  );
+  return re.test(c);
+}
+
+/**
+ * §9.10.3 pre-exec bash denylist.
+ *
+ * @remarks
+ * Inspects the raw command string (case-insensitive) and refuses any
+ * repo-remote-mutating or default-branch-mutating operation BEFORE `spawn`.
+ * This is a pre-exec STRING gate — it is NOT a sandbox; `shell: true` is
+ * retained so shell constructs (pipes, loops, `&&`) still work for legitimate
+ * test/build/lint gates.
+ *
+ * PRD §9.10.3 (verbatim): "The bash tool MUST refuse — non-zero exit, clear
+ * error — any command that matches a repo-remote-mutating or
+ * default-branch-mutating operation before exec."
+ *
+ * Ambiguous matches FAIL CLOSED (refuse): anything undecidable from a raw
+ * string (e.g. whether a `git reset --hard` target is a "shared ref") is
+ * refused. The only commands that MUST pass are test/build/lint gates and
+ * read-only git.
+ *
+ * Rule list:
+ * - A. Any reference to `default_branch` (catch-all; also catches `gh api …
+ *   -f default_branch=…`).
+ * - B. `curl`/`wget` to `api.github.com` (raw GitHub API surface).
+ * - C. `gh repo` (any subcommand) — mutates repo settings.
+ * - D. `gh api` writes: explicit `-X PATCH|POST|DELETE|PUT`, OR any field flag
+ *   (`-f`/`-F`/`--field`/`--raw-field`) implying a POST body. Bare `gh api`
+ *   and `gh api -X GET` are reads (allowed).
+ * - E. `git push|remote|update-ref|config|rebase|commit` — git state/remote
+ *   mutation.
+ * - F. `git reset --hard` — shared-ref qualifier is undecidable ⇒ deny.
+ *
+ * @param command - The raw command string to inspect.
+ * @returns `{ denied: true, reason }` if the command must be refused, else
+ *   `{ denied: false }`.
+ */
+export function isDeniedCommand(command: string): DenylistResult {
+  const c = command.toLowerCase();
+
+  // Rule A — ANY reference to default_branch (catch-all; evaluated first so it
+  // also catches `gh api … -f default_branch=…` before Rule D).
+  if (/default[_-]branch/.test(c)) {
+    return {
+      denied: true,
+      reason:
+        'references default_branch — repo default-branch mutation is human-only (PRD §9.10.3)',
+    };
+  }
+
+  // Rule B — curl/wget to api.github.com.
+  if (/\b(curl|wget)\b/.test(c) && c.includes('api.github.com')) {
+    return {
+      denied: true,
+      reason:
+        'curl/wget to api.github.com — raw GitHub API surface (PRD §9.10.3)',
+    };
+  }
+
+  // Rule C — gh repo (any subcommand).
+  if (invokesSubcommand(c, 'gh', 'repo')) {
+    return {
+      denied: true,
+      reason: 'gh repo (any subcommand) mutates repo settings (PRD §9.10.3)',
+    };
+  }
+
+  // Rule D — gh api writes / ambiguous. Explicit write method, OR field flags
+  // (which imply a POST body) => write intent => fail closed. Bare
+  // `gh api <endpoint>` and `gh api -X GET` are reads => allowed.
+  if (invokesSubcommand(c, 'gh', 'api')) {
+    if (/-x\s*(patch|post|delete|put)\b/.test(c)) {
+      return {
+        denied: true,
+        reason:
+          'gh api -X PATCH|POST|DELETE|PUT is a GitHub-API write (PRD §9.10.3)',
+      };
+    }
+    if (
+      /(?:^|\s)-[fF]\b/.test(c) ||
+      /--raw-field\b/.test(c) ||
+      /--field\b/.test(c)
+    ) {
+      return {
+        denied: true,
+        reason:
+          'gh api with -f/-F/--field/--raw-field implies a write body (PRD §9.10.3, fail-closed)',
+      };
+    }
+    // bare read: fall through (allowed)
+  }
+
+  // Rule E — git remote-mutating / state-mutating subcommands.
+  for (const sub of [
+    'push',
+    'remote',
+    'update-ref',
+    'config',
+    'rebase',
+    'commit',
+  ]) {
+    if (invokesSubcommand(c, 'git', sub)) {
+      return {
+        denied: true,
+        reason: `git ${sub} mutates git state/remotes (PRD §9.10.3: remote/state mutation is human-only)`,
+      };
+    }
+  }
+
+  // Rule F — git reset --hard. "against a shared ref" is UNDECIDABLE from a raw
+  // string => blanket deny (fail-closed).
+  if (invokesSubcommand(c, 'git', 'reset') && c.includes('--hard')) {
+    return {
+      denied: true,
+      reason:
+        'git reset --hard denied — shared-ref qualifier undecidable, fail closed (PRD §9.10.3)',
+    };
+  }
+
+  return { denied: false };
+}
+
+/**
  * Tool schema definition for Groundswell
  *
  * @remarks
@@ -136,6 +300,14 @@ const bashTool: Tool = {
  * Implements SIGTERM then SIGKILL timeout handling.
  * Captures stdout, stderr, and exit code for result.
  *
+ * **§9.10.3 pre-exec denylist (fail-closed):** before any process is spawned,
+ * the raw command string is inspected by {@link isDeniedCommand}. Any
+ * repo-remote-mutating or default-branch-mutating operation is refused with a
+ * non-zero exit (126), a clear error, and NO spawn. Ambiguous matches fail
+ * closed (refuse). Legitimate test/build/lint gates and read-only git pass
+ * unchanged. This gate is a pre-exec STRING filter — `shell: true` is retained
+ * so shell constructs still work for allowed commands.
+ *
  * @param input - Tool input with command, optional cwd, optional timeout
  * @returns Promise resolving to execution result
  *
@@ -153,6 +325,21 @@ async function executeBashCommand(
   input: BashToolInput
 ): Promise<BashToolResult> {
   const { command, cwd, timeout = DEFAULT_TIMEOUT } = input;
+
+  // §9.10.3 pre-exec denylist (fail-closed). Inspect the raw command string
+  // BEFORE spawn so no remote/default-branch mutation can ever execute.
+  const denial = isDeniedCommand(command);
+  if (denial.denied) {
+    return {
+      success: false,
+      stdout: '',
+      stderr: '',
+      exitCode: 126,
+      error: `[bash denylist] Command refused: ${denial.reason}`,
+      timedOut: false,
+      killed: false,
+    };
+  }
 
   // PATTERN: Validate working directory exists
   const workingDir =
@@ -325,6 +512,7 @@ export class BashMCP extends MCPHandler {
   }
 }
 
-// Export tool schema and result types for external use
+// Export tool schema and result types for external use.
+// isDeniedCommand and DenylistResult are exported inline at their declaration.
 export type { BashToolInput, BashToolResult };
 export { bashTool, executeBashCommand };

@@ -27,7 +27,9 @@ import {
   BashMCP,
   executeBashCommand,
   bashTool,
+  isDeniedCommand,
   type BashToolInput,
+  type DenylistResult,
 } from '../../../src/tools/bash-mcp.js';
 
 const mockSpawn = vi.mocked(spawn);
@@ -720,6 +722,268 @@ describe('tools/bash-mcp', () => {
       expect(result.error).toBe('string error');
       expect(result.timedOut).toBe(false);
       expect(result.killed).toBe(false);
+    });
+  });
+});
+
+/**
+ * Helper to create a minimal mock ChildProcess for the denylist integration
+ * tests. Mirrors createMockChild() but is scoped here so the §9.10.3 block is
+ * self-contained.
+ */
+function createDenylistMockChild() {
+  return {
+    stdout: { on: vi.fn() },
+    stderr: { on: vi.fn() },
+    on: vi.fn((event: string, callback: (code: number) => void) => {
+      if (event === 'close') {
+        setTimeout(() => callback(0), 5);
+      }
+    }),
+    killed: false,
+    kill: vi.fn(),
+  } as unknown as ChildProcess;
+}
+
+describe('§9.10.3 bash denylist', () => {
+  describe('isDeniedCommand — denied patterns', () => {
+    // git remote-mutation / state-mutation
+    const gitDenied: Array<[string, RegExp]> = [
+      ['git push', /git push/],
+      ['git push origin main', /git push/],
+      ['git push -f origin HEAD', /git push/],
+      ['git push --force', /git push/],
+      ['/usr/bin/git push', /git push/],
+      ['git.exe push', /git push/],
+      ['GIT PUSH', /git push/],
+      ['git  push', /git push/],
+      ['git remote', /git remote/],
+      ['git remote -v', /git remote/],
+      ['git remote add origin https://github.com/x/y', /git remote/],
+      ['git update-ref refs/heads/main abc123', /git update-ref/],
+      ['git config user.name "x"', /git config/],
+      ['git config --list', /git config/],
+      ['git rebase main', /git rebase/],
+      ['git commit -m "msg"', /git commit/],
+    ];
+    for (const [cmd, reasonRe] of gitDenied) {
+      it(`denies: ${cmd}`, () => {
+        const result: DenylistResult = isDeniedCommand(cmd);
+        expect(result.denied).toBe(true);
+        expect(result.reason).toBeTruthy();
+        expect(result.reason).toMatch(reasonRe);
+      });
+    }
+
+    // gh
+    const ghDenied: Array<[string, RegExp]> = [
+      [
+        'gh repo edit owner/repo --default-branch hack',
+        /default_branch|gh repo/,
+      ],
+      ['gh repo create', /gh repo/],
+      ['gh repo view', /gh repo/],
+      [
+        'gh api -X PATCH repos/o/r -f default_branch=hack',
+        /default_branch|gh api/,
+      ],
+      ['gh api -X POST repos/o/r -f x=y', /gh api/],
+      ['gh api -X DELETE repos/o/r', /gh api/],
+      ['gh api repos/o/r -f x=y', /gh api/],
+    ];
+    for (const [cmd, reasonRe] of ghDenied) {
+      it(`denies: ${cmd}`, () => {
+        const result: DenylistResult = isDeniedCommand(cmd);
+        expect(result.denied).toBe(true);
+        expect(result.reason).toBeTruthy();
+        expect(result.reason).toMatch(reasonRe);
+      });
+    }
+
+    // http
+    it('denies: curl https://api.github.com/repos/o/r', () => {
+      const result = isDeniedCommand('curl https://api.github.com/repos/o/r');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/api\.github\.com/i);
+    });
+    it('denies: wget -qO- https://api.github.com/', () => {
+      const result = isDeniedCommand('wget -qO- https://api.github.com/');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/api\.github\.com/i);
+    });
+
+    // default_branch catch-all
+    it('denies: echo $default_branch (catch-all)', () => {
+      const result = isDeniedCommand('echo $default_branch');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/default_branch/i);
+    });
+    it('denies: gh api repos/o/r -f default_branch=main', () => {
+      const result = isDeniedCommand('gh api repos/o/r -f default_branch=main');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/default_branch/i);
+    });
+
+    // compound / obfuscation
+    it('denies: echo a && git push (compound, second segment matches)', () => {
+      const result = isDeniedCommand('echo a && git push');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/git push/);
+    });
+    it('denies: true; git push origin main (semicolon compound)', () => {
+      const result = isDeniedCommand('true; git push origin main');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/git push/);
+    });
+    it('denies: git status; git commit -m x (second segment matches)', () => {
+      const result = isDeniedCommand('git status; git commit -m x');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/git commit/);
+    });
+  });
+
+  describe('isDeniedCommand — fail-closed / ambiguous (denied)', () => {
+    it('denies: git reset --hard (shared-ref qualifier undecidable)', () => {
+      const result = isDeniedCommand('git reset --hard');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/reset/i);
+    });
+    it('denies: git reset --hard origin/main', () => {
+      const result = isDeniedCommand('git reset --hard origin/main');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/reset/i);
+    });
+    it('denies: git reset --hard HEAD~1', () => {
+      const result = isDeniedCommand('git reset --hard HEAD~1');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/reset/i);
+    });
+    it('fail-closed on gh api -X PUT (write not in PATCH|POST|DELETE)', () => {
+      const result = isDeniedCommand('gh api -X PUT repos/o/r');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/gh api/i);
+    });
+    it('fail-closed on gh api repos/o/r -F type@file (-F typed field)', () => {
+      const result = isDeniedCommand('gh api repos/o/r -F type@file');
+      expect(result.denied).toBe(true);
+      expect(result.reason).toMatch(/gh api/i);
+    });
+  });
+
+  describe('isDeniedCommand — allowed patterns (the gates)', () => {
+    const allowed: string[] = [
+      // must-pass test/build/lint gates
+      'npx vitest run',
+      'npx vitest run tests/unit/tools/bash-mcp.test.ts',
+      'npm test',
+      'npx tsc --noEmit',
+      'npm run lint',
+      'npm run build',
+      'npm run typecheck',
+      'npm run format:check',
+      'npx prettier --check .',
+      'node dist/index.js',
+      // read-only git (first positional is a read subcommand)
+      'git status',
+      'git status -sb',
+      'git diff',
+      'git diff HEAD~1',
+      'git log --oneline',
+      'git show HEAD',
+      'git log --grep="push"',
+      'git log config',
+      // deny-keyword present but NOT the target binary's subcommand
+      'npm config get registry',
+      'npm run commit',
+      'echo remote',
+      'cat config.json',
+      // gh reads
+      'gh api repos/o/r',
+      'gh api -X GET repos/o/r',
+      'gh pr view 123',
+      // benign
+      'echo test',
+      'ls -la',
+      'pwd',
+      '',
+    ];
+    for (const cmd of allowed) {
+      it(`allows: ${JSON.stringify(cmd)}`, () => {
+        const result: DenylistResult = isDeniedCommand(cmd);
+        expect(result.denied).toBe(false);
+        expect(result.reason).toBeUndefined();
+      });
+    }
+  });
+
+  describe('executeBashCommand integration with denylist', () => {
+    beforeEach(() => {
+      mockSpawn.mockClear();
+      mockSpawn.mockReturnValue(createDenylistMockChild());
+      mockExistsSync.mockReturnValue(true);
+      mockRealpathSync.mockImplementation(path => path as string);
+    });
+
+    it('refuses git push without spawning (exitCode 126)', async () => {
+      const result = await executeBashCommand({
+        command: 'git push origin main',
+      });
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.exitCode).toBe(126);
+      expect(result.error).toMatch(/denylist/i);
+      expect(result.timedOut).toBe(false);
+      expect(result.killed).toBe(false);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe('');
+    });
+
+    it('refuses gh repo edit --default-branch without spawning', async () => {
+      const result = await executeBashCommand({
+        command: 'gh repo edit owner/repo --default-branch hack',
+      });
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.exitCode).toBe(126);
+      expect(result.error).toMatch(/denylist/i);
+      expect(result.timedOut).toBe(false);
+      expect(result.killed).toBe(false);
+    });
+
+    it('refuses gh api -X PATCH with default_branch (acceptance triple #3)', async () => {
+      const result = await executeBashCommand({
+        command: 'gh api -X PATCH repos/o/r -f default_branch=hack',
+      });
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.exitCode).toBe(126);
+      expect(result.error).toMatch(/denylist/i);
+      expect(result.timedOut).toBe(false);
+      expect(result.killed).toBe(false);
+    });
+
+    it('still runs npm test (spawn called, shell:true preserved)', async () => {
+      await executeBashCommand({ command: 'npm test' });
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'npm test',
+        expect.objectContaining({ shell: true })
+      );
+    });
+
+    it('still runs git status -sb (regression guard for existing test cmd)', async () => {
+      await executeBashCommand({ command: 'git status -sb' });
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'git status -sb',
+        expect.objectContaining({ shell: true })
+      );
+    });
+
+    it('still runs npx tsc --noEmit (acceptance: type-check gate passes)', async () => {
+      await executeBashCommand({ command: 'npx tsc --noEmit' });
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'npx tsc --noEmit',
+        expect.objectContaining({ shell: true })
+      );
     });
   });
 });

@@ -339,14 +339,14 @@
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Bash denylist — pre-exec remote/default-branch-mutation gate",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Add a denylist to executeBashCommand in bash-mcp.ts that refuses remote-mutating and default-branch-mutating commands before exec, failing closed on ambiguous matches.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Implement denylist in executeBashCommand + comprehensive test coverage",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: stagecoach-and-agent-factory.md §2.7 + commit-tests-survey.md §5. bash-mcp.ts (executeBashCommand, line ~118) currently runs ANY command via spawn(command, { shell: true }) with only a timeout guard. ZERO command filtering. The shell: true usage stays (needed for pipes/loops) — the denylist is a pre-exec STRING inspection before spawn. forbidden-operations.test.ts (1107 lines) uses a test-local validateBashCommand helper, NOT production code — new tests must test the actual executeBashCommand.\n2. INPUT: The raw command string from BashToolInput.command.\n3. LOGIC: In executeBashCommand (src/tools/bash-mcp.ts), BEFORE the spawn call, add a denylist check: inspect the raw command string (case-insensitive). Refuse (return immediately with success:false, non-zero exitCode, clear error message) any command matching: `git push`, `git remote` (any subcommand), `git update-ref`, `git config`, `git reset --hard` (against a shared ref), `git rebase`, `git commit`; `gh repo` (any), `gh api -X PATCH|POST|DELETE`, any `gh api` referencing `default_branch`; `curl`/`wget` to `api.github.com`; any reference to `default_branch`. Ambiguous matches FAIL CLOSED (refuse). Implement as a function isDeniedCommand(command: string): { denied: boolean; reason?: string } that returns before spawn. Legitimate commands (`npx vitest run`, `npm test`, `npx tsc --noEmit`, `npm run lint`, etc.) MUST still pass. Export isDeniedCommand for testing. Add comprehensive tests covering every denylisted pattern + fail-closed semantics + allowlisted test gates.\n4. OUTPUT: New exported function isDeniedCommand() + modified executeBashCommand with pre-exec denylist gate. New/updated tests in tests/unit/tools/bash-mcp.test.ts. Consumed implicitly by all agents using the bash tool (P1.M4.T2).\n5. DOCS: JSDoc on executeBashCommand + isDeniedCommand documenting the denylist + fail-closed semantics, citing §9.10.3 'The bash tool MUST refuse — non-zero exit, clear error — any command that matches a repo-remote-mutating or default-branch-mutating operation before exec.'",
@@ -362,14 +362,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Per-role tool matrix in agent-factory.ts",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Replace the uniform MCP_TOOLS array with per-persona filtered tool sets matching the §9.10.3 matrix: Research/Planner/Coder → no bash, read-only git; Validation → denylisted bash + all git.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Per-persona MCP tool subsets + tests",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M4.T1.S1"
